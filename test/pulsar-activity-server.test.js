@@ -67,6 +67,10 @@ async function main() {
     const bounded = await request('bounded');
     assert.equal(bounded.sources.commits.truncated, true, 'first-page cap must remain visible');
     assert.equal(bounded.partial, true);
+    /* No branch selected yet (an empty repository): an empty ref means the default branch, not a bad name. */
+    const unselected = await request('demo', '&ref=');
+    assert.equal(unselected.ref, null, 'an empty ref is the default branch');
+    assert.equal(unselected.sources.commits.available, true);
     const before = reads().length;
     const invalid = await fetch(`${origin}/api/repo/acme/demo/activity?ref=../other`, { headers: { cookie } });
     assert.equal(invalid.status, 400);

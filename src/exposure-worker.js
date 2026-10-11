@@ -275,10 +275,14 @@ function createExposureRunner(options = {}) {
      * revoked session is noticed within that bound, and no read is ever started
      * after one has been noticed. Every write still checks unconditionally.
      */
+    let checking = null;
     async function checkAccessIfDue() {
+      /* Reads waiting on a check share it, and none starts until it has passed. */
+      if (checking) return checking;
       if (dispatchedSinceCheck >= budgets.renewEveryFiles
         || now() - lastCheckAt >= Math.min(budgets.accessCheckIntervalMs, leaseMs / 2)) {
-        await checkAccess();
+        checking = checkAccess().finally(() => { checking = null; });
+        return checking;
       }
     }
 

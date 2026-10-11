@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Review fixes on the six-system hardening
+
+- **Monorepos keep their locked versions.** A manifest below the root used the
+  root lock only when npm listed it as a workspace, so yarn, pnpm, poetry and
+  other monorepos fell back to the floor of each declared range and could raise
+  advisories the installed version does not have. A lock that does not record
+  its workspaces answers again for the manifests beneath it, unless a manifest
+  pins an exact version that lock did not install.
+- **One unnameable advisory id no longer hides the others.** The package stays
+  counted as not fully checked, so the merge gate still holds it, but the
+  well-formed advisories beside the odd id are reported, and the watch still
+  announces a new one.
+- **An unknown resolved count is said to be unknown.** When an audit lacked the
+  evidence to prove a fix, the screen read "N new findings, 0 resolved"; it now
+  says that nothing is counted as resolved and why.
+- **A finished Quasar report pages to the end** while newer scans move a
+  shared finding's last-seen time. A decision made between pages still asks
+  for a refresh.
+- **The Pulsar Map reads its topology without a selected branch**, and Refresh
+  reloads the map after event history has stopped retrying instead of retrying
+  it forever.
+- **Readable page slugs stay readable in site findings.** Long lowercase word
+  slugs are shown, so two pages are never merged into one finding; tokens,
+  identifiers, encoded segments and JWTs are still hidden.
+- **Smaller corrections:** a malformed DMARC record is reported as malformed
+  rather than as "p=invalid"; each crawled page is read for debug signatures
+  once; concurrent history reads share one access check, and none starts before
+  it passes.
+
 ### GitHub-only product and golden qualification
 
 - Remove GitLab and Gitea repository connections, account selections, provider

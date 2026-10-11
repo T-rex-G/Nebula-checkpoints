@@ -80,6 +80,21 @@ test('a failed later catch-up page cannot advance past discarded events', async 
   assert(h.ui.state.data.intelligence.events.some(e=>e.id==='important'));
 });
 
+test('a refresh after event history failed reloads the map instead of retrying the failed catch-up forever', async () => {
+  const h=harness({api:url=>{
+    if(!url.includes('/intelligence/events'))return undefined;
+    if(url.includes('after='))throw new Error('history unavailable');
+    return {available:true,events:[],cursor:'cursor0',hasMore:true};
+  }});
+  h.ui.state.active=true;await h.ui.refresh();h.streams[0].handlers.ready();await settleCatchup(h);
+  for(let retry=0;retry<6&&h.timers.size;retry++){const callbacks=[...h.timers.values()];h.timers.clear();callbacks.forEach(cb=>cb());await settleCatchup(h);}
+  assert.ok(h.ui.state.catchUpError,'the catch-up has given up');
+  const snapshots=()=>h.requests.filter(url=>url.includes('/refs-snapshot')).length;
+  const before=snapshots();
+  await h.ui.refresh();await settleCatchup(h);
+  assert.equal(snapshots(),before+1,'Refresh reads the topology again');
+});
+
 test('catch-up pagination budget remains explicit and schedules bounded continuation', async () => {
   let sequence=0;
   const h=harness({api:url=>{

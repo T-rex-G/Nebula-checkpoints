@@ -5,7 +5,9 @@
 function privatePathSegment(value) {
   let segment = String(value);
   for (let pass = 0; pass < 4; pass++) {
-    if (/^[A-Za-z0-9_-]{24,}$/.test(segment) || /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(segment)) return true;
+    if (/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(segment)) return true;
+    /* A long run of token characters is hidden, unless it is a slug: three or more short lowercase words. */
+    if (/^[A-Za-z0-9_-]{24,}$/.test(segment) && !/^[a-z]{1,15}(?:-[a-z]{1,15}){2,}$/.test(segment)) return true;
     let decoded;
     try { decoded = decodeURIComponent(segment); } catch { return false; }
     if (decoded === segment) break;

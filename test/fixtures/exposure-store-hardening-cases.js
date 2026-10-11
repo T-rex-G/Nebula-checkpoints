@@ -147,6 +147,10 @@ module.exports = async function checkExposureStoreHardening(pool) {
   assert.strictEqual(first.complete, false);
   assert(first.nextCursor);
   const received = first.observations.map(entry => entry.observation.fingerprint);
+  /* A newer scan of the repository moves last-seen on shared findings; this scan's report is unchanged. */
+  await pool.query(`UPDATE nv_exposure_findings SET last_observed_at = last_observed_at + interval '1 minute'
+                     WHERE repo_name=$1 AND fingerprint = ANY($2::text[])`,
+    [scope.repo, all.slice(150, 160).map(item => item.fingerprint)]);
   let page = first;
   let pages = 1;
   while (!page.complete && pages < 6) {

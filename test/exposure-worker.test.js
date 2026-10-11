@@ -1296,6 +1296,29 @@ function runnerFor(store, reader, options = {}) {
     assert.strictEqual(store.finalized.commitsScanned, 3);
     assert.strictEqual(store.finalized.commitsSkipped, 0);
 
+    /* Commit reads overlap; when the access check falls due, they share one check rather than each running its own. */
+    {
+      const shared = fakeStore();
+      shared.scan = { ...shared.scan, scanMode: 'history', historyBaseCommit: null };
+      const paging = historyReader({ 'app/config.js': 'const a = 1;\nconst b = 2;\n' }, changeSet);
+      const read = paging.readCommitChanges;
+      paging.readCommitChanges = async input => { await input.beforePage(); return read(input); };
+      const renew = shared.renewClaim.bind(shared);
+      let active = 0;
+      let peak = 0;
+      shared.renewClaim = async input => {
+        active += 1; peak = Math.max(peak, active);
+        try { await new Promise(setImmediate); return await renew(input); } finally { active -= 1; }
+      };
+      let clock = T0;
+      const outcome = await runnerFor(shared, paging, {
+        budgets: { renewEveryFiles: 1000, accessCheckIntervalMs: 1000, maxWallClockMs: 10 * 60 * 1000 },
+        now: () => (clock += 400)
+      }).runOnce();
+      assert.strictEqual(outcome.state, 'complete');
+      assert.strictEqual(peak, 1, `one access check at a time, however many reads are waiting on it: ${peak}`);
+    }
+
     /* In the tree as well: two sightings of one credential, one against the ceiling. */
     const both = fakeStore();
     both.scan = { ...both.scan, scanMode: 'history' };

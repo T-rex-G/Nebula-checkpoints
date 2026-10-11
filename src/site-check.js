@@ -880,11 +880,8 @@ async function checkSite({ url, transport, signal, advisoryTransport = null, txt
       if (Array.isArray(headers['set-cookie'])) cookies.push(...headers['set-cookie']);
       const body = looksLikeHtml(response) ? String(response.body || '') : '';
       pages.push({ path: displayPath(new URL(path, origin).pathname), address: `${origin}${path}`, status: response.statusCode, html: body });
-      if (body) {
-        const debug = DEBUG_SIGNATURES.find(([pattern, , anywhere]) => anywhere && pattern.test(body));
-        if (debug) raw.push({ rule: 'WEB-021', where: `${debug[1]} on ${displayPath(path)}` });
-        if (DIRECTORY_LISTING.test(body)) raw.push({ rule: 'WEB-022', where: displayPath(path) });
-      }
+      /* Debug signatures are read once per page below, together with the landing page. */
+      if (body && DIRECTORY_LISTING.test(body)) raw.push({ rule: 'WEB-022', where: displayPath(path) });
     } catch { observed('pages', null); }
     finally { visited += 1; progress({ stage: 'pages', done: visited, total: toVisit.length }); }
   });
@@ -1058,7 +1055,7 @@ async function checkSite({ url, transport, signal, advisoryTransport = null, txt
     email = { state: spf === null || dmarc === null ? 'partial' : 'checked', reason: null, domain: mail.domain, spf, dmarc };
     if (spf === null || dmarc === null) incomplete('email', 'Not all email DNS lookups completed');
     note('email', ['missing', 'none', 'invalid'].includes(dmarc) || ['missing', 'open', 'invalid'].includes(spf) ? 'warn' : spf === null || dmarc === null ? 'unknown' : 'pass',
-      `${mail.domain}: SPF ${spf || 'unknown'}, DMARC ${dmarc === null ? 'unknown' : dmarc === 'missing' ? 'missing' : `p=${dmarc}`}`);
+      `${mail.domain}: SPF ${spf || 'unknown'}, DMARC ${dmarc === null ? 'unknown' : dmarc === 'missing' ? 'missing' : dmarc === 'invalid' ? 'record malformed' : `p=${dmarc}`}`);
   }
 
   /* ---- The report ------------------------------------------------------------------ */

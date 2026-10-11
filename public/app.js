@@ -6206,7 +6206,7 @@ async function runAudit() {
      */
     const kept = result.history && result.history.saved === true ? result.history : null;
     const diff = kept
-      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number(kept.resolved) || 0 } : null)
+      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number.isSafeInteger(kept.resolved) ? kept.resolved : null } : null)
       : window.NebulaCodeAudit.diff(result, previous);
     auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
     if (kept) loadAuditHistory();

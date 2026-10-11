@@ -7210,7 +7210,8 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
     const includePulls = requestSupportsCapability(req, 'pulls.read');
     const includeIssues = requestSupportsCapability(req, 'issues.read');
     const includeReleases = requestSupportsCapability(req, 'releases.read');
-    const ref = req.query.ref == null ? '' : requireBranchName(req.query.ref);
+    /* An empty ref is the default branch: a repository with no branch selected yet asks this way. */
+    const ref = req.query.ref == null || req.query.ref === '' ? '' : requireBranchName(req.query.ref);
     base.ref = ref || null;
     const sourceRequests = [
       { name: 'commits', limit: 100, requested: true, path: `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100${ref ? `&sha=${encodeURIComponent(ref)}` : ''}` },

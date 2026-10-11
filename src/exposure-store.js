@@ -1802,10 +1802,16 @@ class ExposureStore {
       ? `WITH report AS MATERIALIZED (${query})
          SELECT (SELECT jsonb_agg(to_jsonb(p) ORDER BY finding_fingerprint)
                    FROM (SELECT * FROM report WHERE finding_fingerprint > $8 ORDER BY finding_fingerprint LIMIT $7) p) AS items,
-                (SELECT md5(COALESCE(string_agg(to_jsonb(r)::text, '' ORDER BY finding_fingerprint), '')) FROM report r) AS revision`
+                (SELECT md5(COALESCE(string_agg((to_jsonb(r) - 'last_observed_at')::text, '' ORDER BY finding_fingerprint), ''))
+                   FROM report r) AS revision`
       : `${query} ORDER BY finding.file_path, finding.rule, observation.fingerprint LIMIT $7`,
       parameters, 'read a scan report'
     );
+    /*
+     * The revision covers what this report says, decisions included. Last seen
+     * is left out: every newer scan of the repository moves it on shared
+     * findings, and a finished scan's report must still page to the end.
+     */
     const revision = paged ? found.rows[0].revision : null;
     if (cursor && cursor.revision !== revision) {
       fail('This scan report changed while paging. Refresh the report.', 'EXPOSURE_CURSOR_STALE', 409);

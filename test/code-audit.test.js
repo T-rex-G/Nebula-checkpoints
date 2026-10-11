@@ -354,6 +354,22 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.strictEqual(workspace.lock, 'package-lock.json');
 }
 {
+  /* yarn.lock, pnpm-lock.yaml, poetry.lock and the rest do not record their workspaces: the nearest lock above still answers. */
+  const yarn = '# yarn lockfile v1\n\nlodash@^4.17.0:\n  version "4.17.21"\n\njquery@3.5.0:\n  version "3.5.0"\n';
+  const files = [
+    { path: 'package.json', text: '{"private":true,"workspaces":["packages/*"]}' },
+    { path: 'yarn.lock', text: yarn },
+    { path: 'packages/web/package.json', text: '{"dependencies":{"lodash":"^4.17.0","jquery":"3.4.1"}}' }
+  ];
+  const nested = audit.dependencyInventory(files).filter(entry => entry.path === 'packages/web/package.json');
+  const lodash = nested.find(entry => entry.name === 'lodash');
+  assert.deepStrictEqual([lodash.version, lodash.source, lodash.lock], ['4.17.21', 'lock', 'yarn.lock'],
+    'a workspace range resolves to the version the root lock installed, not to the floor of its range');
+  const jquery = nested.find(entry => entry.name === 'jquery');
+  assert.deepStrictEqual([jquery.version, jquery.source], ['3.4.1', 'pin'],
+    'an exact pin the root lock did not install is not replaced by the root version');
+}
+{
   const manifest = { path: 'package.json', text: JSON.stringify({
     dependencies: { lodash: '^4.17.0', axios: '^1.6.0', crossenv: '^1.0.0', 'left-pad': '1.3.0', 'event-stream': '3.3.6' },
     devDependencies: { minimist: '^1.2.0' }
@@ -555,6 +571,12 @@ const paths = files => [...BASE, ...files].map(file => file.path);
     const incomplete = await audit.lookupAdvisories(entries.slice(0, 1), async () => ({ statusCode: 200, body: JSON.stringify({ results: [result] }) }));
     assert.strictEqual(incomplete.answers.get('npm:lodash@4.17.15'), 'unknown', 'malformed or unfinished advisory evidence is not clean');
   }
+  /* One id the engine cannot name leaves the answer incomplete, but never hides the advisories it can name. */
+  const mixed = await audit.lookupAdvisories(entries.slice(0, 1), async request => ({ statusCode: 200,
+    body: request.url.endsWith('/querybatch') ? JSON.stringify({ results: [{ vulns: [{ id: 'GHSA-35jh-r3h4-6jhm' }, { id: 'invalid id' }] }] }) : '{}' }));
+  const partial = mixed.answers.get('npm:lodash@4.17.15');
+  assert.notStrictEqual(partial, 'unknown', 'a well-formed advisory is reported even beside a malformed id');
+  assert.deepStrictEqual([partial.partial, partial.advisories.map(advisory => advisory.id)], [true, ['GHSA-35jh-r3h4-6jhm']]);
 })().catch(error => {
   console.error(error && error.stack || error);
   process.exitCode = 1;

@@ -291,7 +291,8 @@
 
   async function load(force = false) {
     if (!state || !state.work || NVN.loading) return;
-    if (NVN.catchUpBusy || (NVN.active && NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore)) {
+    /* Catching up defers a reload; a catch-up that has failed does not, so Refresh still reads the map again. */
+    if (NVN.catchUpBusy || (NVN.active && !NVN.catchUpError && NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore)) {
       NVN.reloadPending = true;
       if (!NVN.catchUpBusy) catchUpIntelligence();
       return;
@@ -322,12 +323,13 @@
     try {
       const base = `/api/repo/${workPath()}`;
       const branch = encodeURIComponent(state.work.branch || '');
+      /* Without a selected branch, every read asks for the default branch rather than an empty name. */
       const requests = await Promise.allSettled([
         read('/api/safety'),
         read(`${base}/refs-snapshot`),
-        read(`${base}/activity?days=30&ref=${branch}`),
-        read(`${base}/audit-deps?ref=${branch}`),
-        read(`${base}/actions?branch=${branch}`),
+        read(`${base}/activity?days=30${branch ? `&ref=${branch}` : ''}`),
+        read(`${base}/audit-deps${branch ? `?ref=${branch}` : ''}`),
+        read(`${base}/actions${branch ? `?branch=${branch}` : ''}`),
         read('/api/security/sessions'),
         read(`${base}/live-events/status`),
         read(`${base}/intelligence/events?limit=500`),
@@ -3349,6 +3351,7 @@
         NVN.catchUpBusy = false; NVN.catchUpController = null;
         if (NVN.catchUpError) {
           if (NVN.catchUpRetries <= 3) scheduleCatchUp(Math.min(30000, 1000 * 2 ** NVN.catchUpRetries));
+          else if (NVN.reloadPending) { NVN.reloadPending = false; load(true); }
         } else if (hasMore || NVN.catchUpPending) scheduleCatchUp();
         else if (NVN.reloadPending) { NVN.reloadPending = false; load(true); }
       }

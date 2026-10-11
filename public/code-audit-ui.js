@@ -1210,11 +1210,7 @@
       const liveCap = result.capped ? capNote(result.capReason, severityCounts(result.findings
         .filter(finding => verdictOf(finding) === 'confirmed' && !unweighed.has(finding.category))), false) : null;
       if (liveCap) notes.appendChild(element('p', 'audit-cap', liveCap));
-      if (view.diff) {
-        const since = view.diff.previousAt ? ` since the audit of ${new Date(view.diff.previousAt).toLocaleString()}` : '';
-        notes.appendChild(element('p', 'audit-diff',
-          `${plural(view.diff.newIds.size, 'new finding', 'new findings')}, ${view.diff.resolved} resolved${since}.`));
-      }
+      if (view.diff) notes.appendChild(element('p', 'audit-diff', diffSentence(view.diff)));
       const suppressed = result.suppressed || [];
       const triaged = suppressed.filter(finding => finding.suppression && finding.suppression.triage).length;
       const waived = suppressed.length - triaged;
@@ -4178,11 +4174,24 @@
     }] }, null, 2);
   }
 
+  /*
+   * What changed since the last audit of the branch. A resolved count the
+   * server could not establish (the audit lacked the evidence to prove a fix)
+   * is said to be unknown, never shown as zero.
+   */
+  function diffSentence(diff) {
+    const since = diff.previousAt ? ` since the audit of ${new Date(diff.previousAt).toLocaleString()}` : '';
+    const added = plural(diff.newIds.size, 'new finding', 'new findings');
+    return Number.isSafeInteger(diff.resolved)
+      ? `${added}, ${diff.resolved} resolved${since}.`
+      : `${added}${since}. Nothing is counted as resolved: this audit did not have the evidence to prove a fix.`;
+  }
+
   function allPrompts(result) {
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, diffSentence, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

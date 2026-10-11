@@ -143,6 +143,8 @@ async function main() {
     }
     const result = await run({ transport: transport(), txt: async name => name.startsWith('_dmarc.') ? ['v=DMARC1; p=reject', 'v=DMARC1; p=none'] : ['v=spf1 -all'] });
     assert.equal(result.email.dmarc, 'invalid');
+    const detail = result.ledger.find(entry => entry.id === 'email').detail;
+    assert(/DMARC record malformed/.test(detail) && !/p=invalid/.test(detail), `a malformed record is not reported as a policy: ${detail}`);
   }
   assert.deepEqual(emailDomain('www.example.com.bd'), { domain: 'example.com.bd' });
   console.log('site check accuracy regressions passed');

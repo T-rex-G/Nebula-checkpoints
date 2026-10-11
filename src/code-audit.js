@@ -1583,7 +1583,7 @@ function readDependencies(files) {
     } else if (LOCK_PARSERS[base]) {
       const [ecosystem, parse] = LOCK_PARSERS[base];
       const parsed = parse(file.text);
-      locks.push({ dir, ecosystem, path: file.path, entries: parsed.entries, roots: parsed.roots, workspaces: parsed.workspaces || [], flat: Boolean(parsed.flat), declared: [] });
+      locks.push({ dir, ecosystem, path: file.path, entries: parsed.entries, roots: parsed.roots, workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : null, flat: Boolean(parsed.flat), declared: [] });
     }
   }
   const entries = [];
@@ -1600,14 +1600,23 @@ function readDependencies(files) {
   }
   for (const manifest of manifests) {
     const workspaceDir = candidate => candidate.dir ? manifest.dir.slice(candidate.dir.length + 1) : manifest.dir;
+    const above = candidate => candidate.ecosystem === manifest.ecosystem && (!candidate.dir || manifest.dir.startsWith(`${candidate.dir}/`));
+    /*
+     * A lock that lists its workspaces (npm's packages map) answers only for those. One that does not
+     * (yarn, pnpm, poetry and the rest) is the nearest lock above, as a monorepo installs from its root.
+     */
     const lock = locks.find(candidate => candidate.ecosystem === manifest.ecosystem && candidate.dir === manifest.dir) ||
-      locks.find(candidate => candidate.ecosystem === manifest.ecosystem && (!candidate.dir || manifest.dir.startsWith(`${candidate.dir}/`))
-        && candidate.workspaces.includes(workspaceDir(candidate)));
+      locks.find(candidate => above(candidate) && candidate.workspaces && candidate.workspaces.includes(workspaceDir(candidate))) ||
+      locks.filter(candidate => above(candidate) && candidate.workspaces === null).sort((a, b) => b.dir.length - a.dir.length)[0];
     for (const declared of manifest.packages) {
       const key = nameKey(manifest.ecosystem, declared.name);
       if (lock) lock.declared.push({ name: declared.name, dev: Boolean(declared.dev) });
       let installed = lock ? lock.index.get(key) : null;
-      if (lock && lock.dir !== manifest.dir) {
+      if (lock && lock.dir !== manifest.dir && !lock.workspaces) {
+        /* That lock cannot prove it installed this manifest, so an exact pin it did not install stands. */
+        const pin = installed && exactVersion(String(declared.spec || '').trim(), manifest.ecosystem);
+        if (pin && pin !== installed.version) installed = null;
+      } else if (lock && lock.dir !== manifest.dir) {
         /* A linked npm workspace resolves its own nested install before walking up to the root. */
         let dir = workspaceDir(lock);
         installed = null;
@@ -1939,13 +1948,16 @@ async function queryAdvisoryIds(entries, transport, limits = LIMITS) {
         const result = body.results[index];
         const key = advisoryKey(entry);
         if (!result || typeof result !== 'object' || Array.isArray(result)
-          || (result.vulns !== undefined && (!Array.isArray(result.vulns) || result.vulns.some(vuln => !vuln || !ADVISORY_ID.test(vuln.id))))
-          || result.next_page_token) {
+          || (result.vulns !== undefined && !Array.isArray(result.vulns)) || result.next_page_token) {
           /* This bounded lookup cannot claim a complete answer from an unfinished page. */
           unknown.add(key);
           return;
         }
-        ids.set(key, (result.vulns || []).map(vuln => String(vuln.id)));
+        const vulns = result.vulns || [];
+        const named = vulns.filter(vuln => vuln && ADVISORY_ID.test(vuln.id)).map(vuln => String(vuln.id));
+        /* An id this engine cannot name leaves the answer incomplete, but never hides the ones it can. */
+        if (named.length < vulns.length) unknown.add(key);
+        if (named.length || !vulns.length) ids.set(key, named);
       });
     } catch {
       batch.forEach(entry => unknown.add(advisoryKey(entry)));
@@ -1992,7 +2004,7 @@ function describeAdvisory(id, record, entry) {
 async function lookupAdvisories(entries, transport, limits = LIMITS) {
   const answers = new Map();
   const { asked, ids: idsByKey, unknown, total } = await queryAdvisoryIds(entries, transport, limits);
-  for (const key of unknown) answers.set(key, 'unknown');
+  for (const key of unknown) if (!idsByKey.has(key)) answers.set(key, 'unknown');
 
   /*
    * Records are fetched a round at a time across packages -- every
@@ -2024,7 +2036,7 @@ async function lookupAdvisories(entries, transport, limits = LIMITS) {
       covered.add(id);
       advisories.push(advisory);
     }
-    answers.set(key, Object.freeze({ advisories: Object.freeze(advisories) }));
+    answers.set(key, Object.freeze({ advisories: Object.freeze(advisories), ...(unknown.has(key) ? { partial: true } : {}) }));
   }
   return { answers, asked: asked.length, total, ids: idsByKey };
 }
@@ -2052,7 +2064,10 @@ function advisoryFindings(inventory, advisories) {
     const first = !counted.has(key);
     counted.add(key);
     if (first) status.checked += 1;
-    if (answer === 'unknown') { if (first) status.unknown += 1; continue; }
+    if (answer === 'unknown' || answer.partial) {
+      if (first) status.unknown += 1;
+      if (answer === 'unknown') continue;
+    }
     if (!answer.advisories.length) continue;
     const malicious = answer.advisories.filter(advisory => advisory.malicious);
     const listed = (malicious.length ? malicious : answer.advisories).slice(0, 6);

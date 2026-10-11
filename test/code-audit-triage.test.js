@@ -158,6 +158,15 @@ const HEAD = 'a'.repeat(40);
       { branch: 'main', audit: gateAttributes(incomplete) });
     assert.deepStrictEqual(actions.map(item => item.effect), ['require-approval'], 'the existing template holds incomplete evidence');
   }
+  /* Incomplete evidence can only add findings: a confirmed critical or credential it already shows still denies the merge. */
+  for (const extra of [{ analysisComplete: false }, { files: { complete: false } }, { watch: { state: 'partial' } }]) {
+    const known = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('k1', { severity: 'critical' }), row('k2', { severity: 'serious', category: 'secrets' })], extra), base: null, now: T0 });
+    assert.deepStrictEqual([known.state, [...known.blocking], known.open.critical, known.complete], ['current', ['critical', 'serious', 'secret'], 1, false]);
+    const template = getPolicyTemplate('audit-merge-gate');
+    const actions = previewMergePolicies([{ policyKey: 'audit-gate', document: { ...template.document, enforcement: { mode: 'block' } } }],
+      { branch: 'main', audit: gateAttributes(known) });
+    assert.deepStrictEqual(actions.map(item => item.effect), ['deny'], 'known blockers deny whatever else the audit could not see');
+  }
 
   /* Every reason, each for what it says. */
   const now = T0 + 40 * DAY;

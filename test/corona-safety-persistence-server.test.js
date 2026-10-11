@@ -26,6 +26,8 @@ const providerLog = path.join(temporary, 'provider.jsonl');
 const secret = crypto.randomBytes(40).toString('hex');
 const account = { provider: 'github', login: 'alice', providerAccountId: 7, authMethod: 'token', token: 'fixture-admin' };
 const identityKey = hashJson({ provider: 'github', login: 'alice', baseUrl: '' });
+/* An account of a provider this product no longer supports, as an old session may still hold it. */
+const retired = { provider: 'gitlab', login: 'alice-old', providerAccountId: 9, authMethod: 'token', baseUrl: 'https://gitlab.com', token: 'fixture-retired' };
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
 const stepUpSecret = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
@@ -39,7 +41,7 @@ function seal(value) {
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
 
-async function seedSession(client, { stepUp = false } = {}) {
+async function seedSession(client, { stepUp = false, accounts = [account], active = 0 } = {}) {
   const sid = crypto.randomBytes(24).toString('hex');
   const sessionNonce = crypto.randomBytes(24).toString('hex');
   const security = { sessionNonce, stepUp: null };
@@ -55,8 +57,9 @@ async function seedSession(client, { stepUp = false } = {}) {
       sessionBinding: sessionNonce, identityKey, ...operation, assurance: 'credential'
     }, { jti });
   }
-  const data = { accounts: [account], active: 0, security, safety: { readOnly: false, freezeSync: false, protected: {} } };
-  await client.query('INSERT INTO nv_sessions(sid,data,identity_keys,updated) VALUES($1,$2,$3,now())', [sid, seal(data), [identityKey]]);
+  const data = { accounts, active, security, safety: { readOnly: false, freezeSync: false, protected: {} } };
+  const keys = accounts.map(item => hashJson({ provider: item.provider, login: item.login, baseUrl: item.baseUrl || '' }));
+  await client.query('INSERT INTO nv_sessions(sid,data,identity_keys,updated) VALUES($1,$2,$3,now())', [sid, seal(data), keys]);
   return { sid, headers };
 }
 
@@ -117,6 +120,17 @@ async function main() {
       assert.deepStrictEqual(await readState(), { readOnly: false, freezeSync: true, protected: { 'alice/demo': ['credentials', 'deploy', 'private'] } }, 'an explicit unlock must change only its requested control');
       await assert.rejects(context.save(staleRequest(), { protect: { repo: 'alice/demo', path: '../escape' } }), error => error.status === 400 && error.code === 'SAFETY_INPUT_INVALID');
       assert.deepStrictEqual((await readState()).protected['alice/demo'], ['credentials', 'deploy', 'private'], 'invalid patches roll back without changing controls');
+      /* A database that refuses the connection, or fails inside the transaction, makes the controls unavailable, never an unexplained server error. */
+      const brokenPools = [
+        { connect: async () => { throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }); } },
+        { connect: async () => ({ query: async sql => { if (sql === 'ROLLBACK') return null; throw Object.assign(new Error('terminating connection'), { code: '57P01' }); }, release() {} }) }
+      ];
+      for (const broken of brokenPools) {
+        context.pool = () => broken;
+        await assert.rejects(context.save(staleRequest(), { readOnly: true }), error => error.status === 503 && error.code === 'SAFETY_STATE_UNAVAILABLE');
+      }
+      context.pool = () => safetyPool;
+      await assert.rejects(context.save(staleRequest(), { protect: { repo: 'not a repository', path: 'x' } }), error => error.status === 400 && error.code === 'SAFETY_INPUT_INVALID', 'a refused change still says why');
       const cookieOnly = staleRequest();
       context.DB_URL = '';
       await context.save(cookieOnly, { readOnly: true });
@@ -197,6 +211,73 @@ async function main() {
     assert.strictEqual((await request('/api/security/csrf', { headers: { cookie: login.cookie } })).status, 200);
     assert.strictEqual((await request('/api/security/csrf', { headers: revoked.headers })).status, 401, 'fresh login must leave the stolen old cookie revoked');
     console.log('Corona durable safety and revocation HTTP regressions passed');
+
+    /* ---- A session that ends while its safety change commits ---------------------- */
+    const sessionRow = async sid => (await client.query('SELECT 1 FROM nv_sessions WHERE sid=$1', [sid])).rowCount;
+    const evidenceCount = async (kind, repoKey) => Number((await client.query(
+      'SELECT count(*)::int AS n FROM nv_evidence_chain WHERE kind=$1 AND ($2::text IS NULL OR repo_key=$2)', [kind, repoKey || null])).rows[0].n);
+    await client.query('CREATE TABLE nv_test_session_end(sid text PRIMARY KEY)');
+    await client.query(`CREATE FUNCTION nv_test_end_session() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN DELETE FROM nv_sessions WHERE sid IN (SELECT sid FROM nv_test_session_end); RETURN NEW; END $$`);
+    await client.query('CREATE TRIGGER nv_test_end_session AFTER INSERT OR UPDATE ON nv_security_state FOR EACH ROW EXECUTE FUNCTION nv_test_end_session()');
+    {
+      const ending = await seedSession(client);
+      await client.query('INSERT INTO nv_test_session_end(sid) VALUES($1)', [ending.sid]);
+      const before = await evidenceCount('safety-change', `safety:${identityKey}`);
+      const change = await request('/api/safety', { method: 'POST', headers: ending.headers, body: JSON.stringify({ readOnly: true }) });
+      assert.strictEqual(change.status, 200, `a committed change is not reported as failed: ${JSON.stringify(change)}`);
+      assert.strictEqual(change.body.readOnly, true);
+      assert.strictEqual((await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey])).rows[0].state.readOnly, true);
+      assert.strictEqual(await evidenceCount('safety-change', `safety:${identityKey}`), before + 1, 'the committed change has its evidence');
+      assert.strictEqual(await sessionRow(ending.sid), 0);
+      await client.query('DELETE FROM nv_test_session_end');
+      await client.query('UPDATE nv_security_state SET state=$2 WHERE identity_key=$1', [identityKey, { readOnly: false, freezeSync: false, protected: {} }]);
+    }
+    {
+      const bystander = await seedSession(client);
+      const ending = await seedSession(client, { stepUp: true });
+      await client.query('INSERT INTO nv_test_session_end(sid) VALUES($1)', [ending.sid]);
+      const before = await evidenceCount('emergency-manifest');
+      const freeze = await request('/api/repo/alice/demo/emergency-manifest', { method: 'POST', headers: ending.headers, body: JSON.stringify({ confirm: 'FREEZE' }) });
+      assert.strictEqual(freeze.status, 201, `containment finishes once its controls are committed: ${JSON.stringify(freeze)}`);
+      assert.strictEqual(freeze.body.persisted, true);
+      assert.strictEqual(freeze.body.manifest.controls.sessionsRevoked >= 1, true);
+      assert.strictEqual(await evidenceCount('emergency-manifest'), before + 1);
+      assert.strictEqual(await sessionRow(bystander.sid), 0, 'the other sessions are still revoked');
+      const state = (await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey])).rows[0].state;
+      assert.deepStrictEqual([state.readOnly, state.freezeSync], [true, true]);
+      await client.query('DELETE FROM nv_test_session_end');
+      await client.query('UPDATE nv_security_state SET state=$2 WHERE identity_key=$1', [identityKey, { readOnly: false, freezeSync: false, protected: {} }]);
+    }
+    console.log('Corona committed changes keep their evidence when the session ends meanwhile');
+
+    /* ---- Retired provider credentials do not outlive the GitHub session ------------ */
+    {
+      /* Only a retired account: signing in again replaces the session and removes the old row with its credential. */
+      const stale = await seedSession(client, { accounts: [retired] });
+      const login = await request('/api/login', { method: 'POST', headers: stale.headers, body: JSON.stringify({ provider: 'github', token: 'fixture-admin' }) });
+      assert.strictEqual(login.status, 200, JSON.stringify(login));
+      assert.strictEqual(await sessionRow(stale.sid), 0, 'the row holding the retired credential is gone');
+    }
+    {
+      /* Removing the retired account keeps the GitHub one and says what to revoke at the old provider. */
+      const mixed = await seedSession(client, { accounts: [retired, account], active: 1 });
+      const removed = await request('/api/accounts/remove', { method: 'POST', headers: mixed.headers, body: JSON.stringify({ idx: 0 }) });
+      assert.strictEqual(removed.status, 200, JSON.stringify(removed));
+      assert(Array.isArray(removed.body.revocationGuidance) && removed.body.revocationGuidance.length === 1);
+      const listed = await request('/api/accounts', { headers: mixed.headers });
+      assert.deepStrictEqual(listed.body.accounts.map(item => item.login), ['alice']);
+    }
+    {
+      /* Removing the last GitHub account ends the session, retired accounts included. */
+      const mixed = await seedSession(client, { accounts: [retired, account], active: 1 });
+      const removed = await request('/api/accounts/remove', { method: 'POST', headers: mixed.headers, body: JSON.stringify({ idx: 1 }) });
+      assert.strictEqual(removed.status, 200, JSON.stringify(removed));
+      assert.strictEqual(removed.body.empty, true);
+      assert(Array.isArray(removed.body.revocationGuidance) && removed.body.revocationGuidance.length === 1);
+      assert.strictEqual(await sessionRow(mixed.sid), 0, 'no row keeps the retired credential');
+    }
+    console.log('Corona retired provider sessions leave no stored credential');
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');

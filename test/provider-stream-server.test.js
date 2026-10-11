@@ -72,12 +72,18 @@ async function main() {
       await replay.body.cancel();
       const github = { provider: 'github', login: 'fixture-github', token: 'stream-fixture-only' };
       for (const active of [0, 1]) {
+        /* Beside a GitHub account a retired one is listed, marked, so it can be removed; the selection is never moved for the person. */
         const accounts = await fetch(origin + '/api/accounts', { headers: { cookie: sessionCookie([retired, github], active) } });
         assert.equal(accounts.status, 200);
         const body = await accounts.json();
-        assert.equal(body.active, 0);
-        assert.deepEqual(body.accounts.map(account => account.provider), ['github']);
-        assert.equal(body.accounts[0].login, 'fixture-github');
+        assert.equal(body.active, active);
+        assert.deepEqual(body.accounts.map(account => [account.provider, account.retired]), [[provider, true], ['github', false]]);
+        assert.equal(body.accounts[1].login, 'fixture-github');
+        if (active === 0) {
+          const me = await fetch(origin + '/api/me', { headers: { cookie: sessionCookie([retired, github], active) } });
+          assert.equal(me.status, 409, 'a retired selection asks for a choice and acts as no one');
+          assert.equal((await me.json()).code, 'ACCOUNT_SELECTION_REQUIRED');
+        }
       }
     }
     for (const baseUrl of ['https://gitlab.com', 'https://gitea.example', 'http://127.0.0.1', 'https://github.com']) {

@@ -549,6 +549,7 @@ class GovernanceStore {
     this.idFactory = typeof options.idFactory === 'function' ? options.idFactory : () => crypto.randomUUID();
     this.now = typeof options.now === 'function' ? options.now : () => new Date();
     this.saltFactory = typeof options.saltFactory === 'function' ? options.saltFactory : () => crypto.randomBytes(32).toString('hex');
+    this.simulate = typeof options.simulate === 'function' ? options.simulate : simulatePolicyImpact;
   }
 
   async transaction(work) {
@@ -1141,6 +1142,45 @@ class GovernanceStore {
     const simulationHash = String(input.expectedSimulationHash || '').trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(simulationHash)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
     const activationId = normalizeUuid(this.idFactory(), 'activation id');
+    /*
+     * The simulation is pure but not cheap, so it runs from an unlocked read
+     * before the transaction. Under the locks the transaction then requires
+     * that the documents it compared are still the proposed and active ones.
+     * Its outcome, error included, is only acted on inside, so a retried
+     * request still reaches its receipt first.
+     */
+    let precomputed = null;
+    if (simulationRequest) {
+      const snapshot = await this.pool.query(
+        `SELECT v.version_number,v.document,v.document_hash,h.active_version_id,
+                av.document_hash AS active_document_hash,av.document AS active_document,av.version_number AS active_version_number
+         FROM nv_governance_policy_versions v
+         JOIN nv_governance_policies p ON p.policy_id=v.policy_id
+         JOIN nv_governance_policy_heads h ON h.policy_id=p.policy_id
+         LEFT JOIN nv_governance_policy_versions av ON av.version_id=h.active_version_id
+         WHERE v.version_id=$1 AND v.policy_id=$2 AND p.scope_key=$3`,
+        [versionId, policyId, scope.scopeKey]
+      ).catch(error => { throw translateDatabaseError(error); });
+      const seen = snapshot.rows[0];
+      if (seen) {
+        const inputs = {
+          documentHash: seen.document_hash,
+          activeVersionId: seen.active_version_id ? String(seen.active_version_id) : null,
+          activeDocumentHash: seen.active_version_id ? seen.active_document_hash : null
+        };
+        try {
+          precomputed = { inputs, result: this.simulate({
+            scope,
+            proposedVersion: { versionId, versionNumber: Number(seen.version_number), document: seen.document, documentHash: seen.document_hash },
+            baselineVersion: seen.active_version_id ? {
+              versionId: String(seen.active_version_id), versionNumber: Number(seen.active_version_number),
+              document: seen.active_document, documentHash: seen.active_document_hash
+            } : null,
+            request: simulationRequest
+          }) };
+        } catch (error) { precomputed = { inputs, error }; }
+      }
+    }
     return this.idempotentTransaction({
       idempotencyKey: input.idempotencyKey,
       scopeKey: scope.scopeKey,
@@ -1186,16 +1226,21 @@ class GovernanceStore {
       if (String(state.active_version_id || '') === versionId) throw new GovernanceError('Policy version is already active', 'GOVERNANCE_VERSION_ALREADY_ACTIVE', 409);
       if (state.withdrawn) throw new GovernanceError('This version was withdrawn and cannot be activated', 'GOVERNANCE_VERSION_WITHDRAWN', 409);
       // A successful retry reaches its receipt before consulting the changed
-      // head. New transitions recompute against the locked database snapshot.
-      const simulation = suppliedSimulation || activationSimulationEvidenceOf(simulatePolicyImpact({
-        scope,
-        proposedVersion: { versionId, versionNumber: Number(state.version_number), document: state.document, documentHash: state.document_hash },
-        baselineVersion: state.active_version_id ? {
-          versionId: state.active_version_id, versionNumber: Number(state.active_version_number),
-          document: state.active_document, documentHash: state.active_document_hash
-        } : null,
-        request: simulationRequest
-      }), simulationHash);
+      // head. New transitions use the simulation only if what it compared is
+      // still what the locked snapshot holds.
+      let simulation = suppliedSimulation;
+      if (!simulation) {
+        const locked = {
+          documentHash: state.document_hash,
+          activeVersionId: state.active_version_id ? String(state.active_version_id) : null,
+          activeDocumentHash: state.active_version_id ? state.active_document_hash : null
+        };
+        if (!precomputed || stableJson(precomputed.inputs) !== stableJson(locked)) {
+          throw new GovernanceError('Simulation evidence is stale for the current active policy', 'GOVERNANCE_SIMULATION_STALE', 409);
+        }
+        if (precomputed.error) throw precomputed.error;
+        simulation = activationSimulationEvidenceOf(precomputed.result, simulationHash);
+      }
       if (simulation.scope.scopeKey !== scope.scopeKey || simulation.proposed.versionId !== versionId || simulation.proposed.documentHash !== state.document_hash) {
         throw new GovernanceError('Simulation evidence does not match the proposed policy version', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
       }

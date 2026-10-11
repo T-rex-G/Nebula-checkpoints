@@ -191,6 +191,19 @@ const rejects = (promise, code) => assert.rejects(promise, error => {
     await call('activateVersion', await activationRequest(existingReplacement));
     await call('rollbackVersion', await activationRequest(fillers[1]));
     assert.strictEqual((await activeSet()).activePolicies.length, 100, 'replacing an active version does not consume another slot');
+    {
+      /* The impact simulation is computed before the activation takes its locks, never while holding them. */
+      const { simulatePolicyImpact } = require('../src/governance-simulation');
+      const checkedOut = [];
+      const observed = new GovernanceStore(pool, { secret: 'activation-postgres-secret-0123456789abcdef',
+        simulate: input => { checkedOut.push(pool.totalCount - pool.idleCount); return simulatePolicyImpact(input); } });
+      const observedService = createGovernanceApiService({ store: observed });
+      const replacement = await versionFor(fillers[2].policyId);
+      const request = await activationRequest(replacement);
+      await observedService.activateVersion({ scope, authorization: authorizationFor('author'), ...request });
+      assert.deepStrictEqual(checkedOut, [0], 'no database connection or lock is held while the simulation runs');
+      assert.strictEqual((await activeSet()).activePolicies.length, 100);
+    }
     const descriptor = normalizeMutationDescriptor({ ...scope, actorIdentityKey: actor.identityKey, actorLogin: actor.login, action: 'file.write', method: 'PUT', route: '/api/repo/:owner/:repo/file', authorization: authorizationFor('author'), metadata: { branch: 'main', path: 'README.md' } });
     const decision = await createGovernanceRuntime({ store }).evaluate(descriptor);
     assert.strictEqual(decision.source, 'active-policy-set');

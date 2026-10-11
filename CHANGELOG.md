@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Second review round on the six-system hardening
+
+- **The merge gate denies on what it already knows.** A critical, secret,
+  exploited or overdue finding still denies the merge when the audit's evidence
+  is incomplete; only a gate with nothing blocking becomes "unavailable".
+- **A fix is counted only where its detector looked.** Resolved findings and
+  time-to-fix are proved per detector family (files, code, dependencies,
+  licences), and a finding that was never storable no longer counts as missing.
+- **A retired account never acts in place of a GitHub one.** A selected GitLab
+  or Gitea account is refused with "choose an account" instead of being
+  silently swapped; it stays listed as retired so it can be removed. Removing
+  it records the operator's cleanup task and takes its stored credential out of
+  the session; removing the last GitHub account ends the session, retired
+  accounts included; signing in again deletes a session that held only retired
+  accounts. Sign-out tells the person to revoke the old provider tokens.
+- **A committed safety change keeps its evidence.** Safeguard changes and
+  Emergency Shield write their evidence as soon as the controls commit, and
+  containment finishes even if the session ends meanwhile. A database that
+  cannot be reached makes the controls "unavailable", never an unexplained
+  server error.
+- **A rendered audit's real failure is shown.** A failure the server reported
+  for the run is no longer retried into "no longer available"; only an
+  uncoded edge or network hiccup is retried. The page's own signed assets and
+  sign-in redirects are loaded as any visitor's browser would, and only the
+  address a person enters is refused for carrying credentials.
+- **Policy activation simulates before it locks.** The impact simulation runs
+  from an unlocked read, and under the locks the activation requires that the
+  documents it compared are still the proposed and active ones.
+
 ### Review fixes on the six-system hardening
 
 - **Monorepos keep their locked versions.** A manifest below the root used the

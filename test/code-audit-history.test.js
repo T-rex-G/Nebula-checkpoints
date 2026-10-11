@@ -105,27 +105,33 @@ async function withClient(connectionString, run) {
         'migration preserves an existing audit without inventing analysis proof');
     });
     const history = new CodeAuditHistory({ pool });
-    /* Missing observations cannot become fixes when detection did not finish. */
-    for (const [name, change] of [
-      ['AdvisoryOutage', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 1, checked: 1, unknown: 1, notChecked: 0 } } }],
-      ['InventoryGap', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 0, inventoryComplete: false } } }],
-      ['FileGap', { coverage: { read: 1, eligible: 2, complete: false } }],
-      ['RegistryOutage', { coverage: { read: 2, eligible: 2, complete: true, packages: { declared: 1, checked: 1, unknown: 1, notChecked: 0 } } }],
-      ['LicenceOutage', { coverage: { read: 2, eligible: 2, complete: true, licences: { versions: 1, fromLock: 0, asked: 1, answered: 0 } } }],
-      ['TraceCut', { engine: { name: 'Uranus', version: '2.0.0', traced: { cut: 1, limit: 'time' } } }],
-      ['TraceFailed', { engine: { name: 'Uranus', version: '2.0.0', traced: { failed: 1 } } }],
-      ['TraceDeep', { engine: { name: 'Uranus', version: '2.0.0', traced: { deep: 1 } } }],
-      ['RulesOnly', { engine: { name: 'Uranus', version: '2.0.0', traced: { rulesOnly: 1 } } }]
+    /*
+     * Missing observations cannot become fixes when the detectors that made
+     * them did not finish. Each outage holds back its own family: the code
+     * finding (SEC-011, traced) needs the files and the tracer, the dependency
+     * finding (DEP-003) needs the files and the lookups. The gate still needs
+     * every family, so analysisComplete stays false in every case.
+     */
+    for (const [name, change, fixed] of [
+      ['AdvisoryOutage', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 1, checked: 1, unknown: 1, notChecked: 0 } } }, ['SEC-011']],
+      ['InventoryGap', { coverage: { read: 2, eligible: 2, complete: true, advisories: { versions: 0, inventoryComplete: false } } }, ['SEC-011']],
+      ['FileGap', { coverage: { read: 1, eligible: 2, complete: false } }, null],
+      ['RegistryOutage', { coverage: { read: 2, eligible: 2, complete: true, packages: { declared: 1, checked: 1, unknown: 1, notChecked: 0 } } }, ['SEC-011']],
+      ['LicenceOutage', { coverage: { read: 2, eligible: 2, complete: true, licences: { versions: 1, fromLock: 0, asked: 1, answered: 0 } } }, ['DEP-003', 'SEC-011']],
+      ['TraceCut', { engine: { name: 'Uranus', version: '2.0.0', traced: { cut: 1, limit: 'time' } } }, ['DEP-003']],
+      ['TraceFailed', { engine: { name: 'Uranus', version: '2.0.0', traced: { failed: 1 } } }, ['DEP-003']],
+      ['TraceDeep', { engine: { name: 'Uranus', version: '2.0.0', traced: { deep: 1 } } }, ['DEP-003']],
+      ['RulesOnly', { engine: { name: 'Uranus', version: '2.0.0', traced: { rulesOnly: 1 } } }, ['DEP-003']]
     ]) {
       const incompleteScope = { ...scope, repo: `NoFalseFix${name}` };
       const complete = { read: 2, eligible: 2, complete: true };
       await history.record({ scope: incompleteScope, identityKey: IDENTITY, result: auditResult({ coverage: complete, suppressed: [] }), now: T0 });
       const result = { ...auditResult({ coverage: complete, findings: [], suppressed: [], auditedAt: T0 + HOUR }), ...change };
       const next = await history.record({ scope: incompleteScope, identityKey: IDENTITY, result, now: T0 + HOUR });
-      assert.strictEqual(next.resolved, null, `${name}: missing findings are unknown, not resolved`);
-      assert.strictEqual(next.resolutions, 0, `${name}: no time-to-fix evidence may be written`);
-      const stored = await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1', [incompleteScope.repo]);
-      assert.strictEqual(stored.rows[0].n, 0);
+      assert.strictEqual(next.resolved, fixed ? fixed.length : null, `${name}: only findings whose detectors finished are resolved`);
+      assert.strictEqual(next.resolutions, fixed ? fixed.length : 0, `${name}: time-to-fix only where the fix is proven`);
+      const stored = await pool.query('SELECT rule FROM nv_code_audit_resolutions WHERE repo_name=$1 ORDER BY rule', [incompleteScope.repo]);
+      assert.deepStrictEqual(stored.rows.map(row => row.rule), fixed || [], `${name}: the stored fixes are exactly the provable ones`);
       const latest = await history.latest({ scope: incompleteScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(latest.audit.analysisComplete, false, `${name}: detection completeness survives storage`);
       await history.saveWatch({ scope: incompleteScope, identityKey: IDENTITY, auditId: next.auditId, now: T0 + 2 * HOUR,
@@ -135,6 +141,18 @@ async function withClient(connectionString, run) {
       assert.strictEqual(refreshed.audit.analysisComplete, false, 'watch refresh cannot repair incomplete source evidence');
       const { evaluateMergeGate } = require('../src/code-audit-triage');
       assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed }).state, 'unavailable');
+    }
+    {
+      /* A row that can never be stored (here a severity the store does not keep) does not make the analysis incomplete. */
+      const shapeScope = { ...scope, repo: 'UnstorableRow' };
+      const complete = { read: 2, eligible: 2, complete: true };
+      await history.record({ scope: shapeScope, identityKey: IDENTITY, result: auditResult({ coverage: complete, suppressed: [] }), now: T0 });
+      const odd = { id: id('odd'), rule: 'LIC-001', category: 'licences', severity: 'info', path: 'package.json', line: 1, title: 't', suppression: { reason: 'x', line: 1 } };
+      const next = await history.record({ scope: shapeScope, identityKey: IDENTITY,
+        result: auditResult({ coverage: complete, findings: [], suppressed: [odd], auditedAt: T0 + HOUR }), now: T0 + HOUR });
+      assert.strictEqual(next.resolved, 2, 'both earlier findings are proven fixed');
+      const latest = await history.latest({ scope: shapeScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(latest.audit.analysisComplete, true, 'an unstorable row is not a gap in detection');
     }
     {
       const limitedScope = { ...scope, repo: 'NoFalseFixStoredLimit' };

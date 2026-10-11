@@ -2135,6 +2135,18 @@ html.vt-reveal::view-transition-new(root){z-index:2}
 .acct-meta{flex:1;min-width:0}
 .acct-login{font-weight:600;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acct-host{font-size:.68rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin-top:2px}
+/* The login keeps its room: on a narrow sheet the actions move under it instead of squeezing it. */
+.acct-row{flex-wrap:wrap;row-gap:8px}
+.acct-meta{flex:1 1 150px}
+.acct-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.acct-actions [data-remove]{margin-left:0}
+.acct-avatar-empty{display:block;flex:0 0 auto;background:var(--glass-border)}
+/* A retired account: listed only to be removed, quieter than a live one, never loading its old avatar. */
+.acct-row.retired{border-style:dashed;background:transparent}
+.acct-row.retired .acct-login{color:var(--muted);font-weight:500}
+.acct-retired-mark{display:block;flex:0 0 auto;border-radius:50%;border:1px dashed var(--glass-border)}
+.acct-lead{margin:0 0 12px}
+.revocation-steps{margin:8px 0 12px;padding-left:18px}
 
 
 /* v4.1.1 — the account switcher can never be invisible again */

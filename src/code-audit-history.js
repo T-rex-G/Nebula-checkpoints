@@ -204,12 +204,13 @@ function compactAudit(result) {
   const ranked = rows => rows
     .filter(Boolean)
     .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (b.risk_score || 0) - (a.risk_score || 0));
-  const compact = ranked(findings.map(finding => compactFinding(finding))).slice(0, LIMITS.maxFindings);
+  const storableFindings = ranked(findings.map(finding => compactFinding(finding)));
+  const compact = storableFindings.slice(0, LIMITS.maxFindings);
   /* An id appears once: a finding is open or waived, never both. */
   const openIds = new Set(compact.map(row => row.finding_id));
-  const waivedRows = ranked((Array.isArray(result.suppressed) ? result.suppressed : []).map(finding => compactFinding(finding, waivedBy(finding))))
-    .filter(row => !openIds.has(row.finding_id))
-    .slice(0, LIMITS.maxWaived);
+  const storableWaived = ranked((Array.isArray(result.suppressed) ? result.suppressed : []).map(finding => compactFinding(finding, waivedBy(finding))))
+    .filter(row => !openIds.has(row.finding_id));
+  const waivedRows = storableWaived.slice(0, LIMITS.maxWaived);
   const categories = (Array.isArray(result.categories) ? result.categories : [])
     .filter(category => category && fits(SHAPE.category, category.id) && bounded(category.score, 0, 100) !== null)
     .slice(0, 16);
@@ -293,27 +294,45 @@ function compactAudit(result) {
     waived: waivedRows,
     components
   };
-  compacted.audit.analysis_complete = resolutionEvidenceComplete(result, compacted);
+  /* Rows the storage caps cut off, not rows that could never be stored or an id kept once. */
+  const truncated = storableFindings.length > compact.length || storableWaived.length > waivedRows.length;
+  const evidence = resolutionEvidence(result, compacted, truncated);
+  compacted.audit.analysis_complete = Object.values(evidence).every(Boolean);
+  /* Kept in memory for resolutions; only the all-detector verdict is stored. */
+  Object.defineProperty(compacted, 'evidence', { value: Object.freeze(evidence), enumerable: false });
   return compacted;
 }
 
-/* A missing observation proves a fix only when every detector could still observe it. */
-function resolutionEvidenceComplete(result, compact) {
+/*
+ * A missing observation proves a fix only when the detector that made it could
+ * still observe it. Each family of findings has its own detectors: the file
+ * rules, the tracer on top of them for code, the registry and advisory lookups
+ * for dependencies, the licence answers for licences. The merge gate and the
+ * stored `analysis_complete` still ask for every family at once.
+ */
+function resolutionEvidence(result, compact, truncated) {
   const coverage = result.coverage || {};
   const audit = compact.audit;
-  if (!audit.coverage_complete || audit.files_read < audit.files_eligible) return false;
-  if (compact.findings.length !== (result.findings || []).length || compact.waived.length !== (result.suppressed || []).length) return false;
+  const files = Boolean(audit.coverage_complete) && audit.files_read >= audit.files_eligible && !truncated;
   const traced = result.engine && result.engine.traced || {};
-  if (traced.limit || ['cut', 'failed', 'deep', 'rulesOnly'].some(key => count(traced[key]) > 0) || count(coverage.rulesOnly)) return false;
-  for (const [name, total] of [['packages', 'declared'], ['advisories', 'versions']]) {
+  const code = files && !traced.limit && !['cut', 'failed', 'deep', 'rulesOnly'].some(key => count(traced[key]) > 0) && !count(coverage.rulesOnly);
+  const lookedUp = ['packages', 'advisories'].every(name => {
     const checked = coverage[name];
-    if (checked && (checked.inventoryComplete === false || count(checked.unknown) || count(checked.notChecked) || count(checked.checked) < count(checked[total]))) return false;
-  }
+    const total = name === 'packages' ? 'declared' : 'versions';
+    return !checked || !(checked.inventoryComplete === false || count(checked.unknown) || count(checked.notChecked) || count(checked.checked) < count(checked[total]));
+  });
+  const dependencies = files && lookedUp;
   const licences = coverage.licences;
-  if (licences && count(licences.fromLock) + count(licences.answered) < count(licences.versions)) return false;
   const licenceStatus = result.licences && result.licences.status;
-  if (licenceStatus && (count(licenceStatus.unknown) || count(licenceStatus.notAsked))) return false;
-  return true;
+  const licencesAnswered = !(licences && count(licences.fromLock) + count(licences.answered) < count(licences.versions))
+    && !(licenceStatus && (count(licenceStatus.unknown) || count(licenceStatus.notAsked)));
+  return { files, code, dependencies, licences: dependencies && licencesAnswered };
+}
+
+/* Which detectors a stored finding depends on, read from its rule. */
+function evidenceFamily(rule) {
+  const prefix = String(rule || '').split('-')[0];
+  return prefix === 'DEP' ? 'dependencies' : prefix === 'LIC' ? 'licences' : prefix === 'SEC' ? 'code' : 'files';
 }
 
 function alertKey(alert) {
@@ -584,7 +603,10 @@ class CodeAuditHistory {
     const where = requireScope(scope);
     const identity = requireIdentity(identityKey);
     const compact = compactAudit(result);
-    const canResolve = compact.audit.analysis_complete === true;
+    const evidence = compact.evidence;
+    /* A finding that went away counts as fixed only where its own detectors were complete. */
+    const provable = row => evidence[evidenceFamily(row.rule)] === true;
+    const canResolve = Object.values(evidence).some(Boolean);
     const auditId = crypto.randomUUID();
     const base = [where.provider, where.authority, where.owner, where.repo, identity];
     const { limits } = this;
@@ -629,7 +651,7 @@ class CodeAuditHistory {
         const open = new Set(compact.findings.map(row => row.finding_id));
         diff = {
           newIds: [...open].filter(id => !before.has(id)),
-          resolved: canResolve ? [...before.values()].filter(row => !row.waived && !current.has(row.finding_id)).length : null
+          resolved: canResolve ? [...before.values()].filter(row => !row.waived && !current.has(row.finding_id) && provable(row)).length : null
         };
       }
       /* The latest audit of every other branch, for what this branch has not shown before. */
@@ -697,7 +719,7 @@ class CodeAuditHistory {
       let resolutions = 0;
       if (previous && previous.engine_version === audit.engine_version && canResolve) {
         const current = new Set(ids);
-        const gone = [...before.values()].filter(row => !current.has(row.finding_id) && SEVERITIES.includes(row.severity))
+        const gone = [...before.values()].filter(row => !current.has(row.finding_id) && SEVERITIES.includes(row.severity) && provable(row))
           .slice(0, limits.maxResolutions)
           .map(row => ({
             finding_id: row.finding_id,

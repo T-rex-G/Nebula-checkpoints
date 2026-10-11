@@ -157,6 +157,27 @@ test('rendered evidence names the final page and keeps public query values out o
   expect(evidence).not.toContain('synthetic-canonical-token');
 });
 
+test('the page\'s own signed assets and sign-in redirect are not mistaken for the visitor\'s input', async () => {
+  const requested = [];
+  const report = await auditRenderedSite({ url: 'https://rendered.example/start',
+    launch: options => chromium.launch({ ...options, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      chromiumSandbox: false, args: [...options.args, '--no-sandbox', '--disable-dev-shm-usage'] }),
+    transport: async input => {
+      requested.push(input.url);
+      const url = new URL(input.url);
+      if (url.pathname === '/start') return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<!doctype html><html><title>Start</title><body><script>setTimeout(() => location.replace("/final?code=fixture-auth-code"), 10)</script></body></html>') };
+      if (url.pathname === '/asset.js') return { statusCode: 200, headers: { 'content-type': 'text/javascript' }, body: Buffer.from('document.documentElement.dataset.asset = "loaded";') };
+      return { statusCode: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<!doctype html><html lang="en"><head><title>Final fixture</title><meta name="viewport" content="width=device-width,initial-scale=1"><script src="/asset.js?v=3&sig=fixture-asset-signature"></script></head><body><main><h1>Final fixture</h1></main></body></html>') };
+    }
+  });
+  expect(requested).toContain('https://rendered.example/asset.js?v=3&sig=fixture-asset-signature');
+  expect(report.coverage.reasons.join(' ')).not.toMatch(/Cross-origin/);
+  for (const view of report.viewports) expect(view.finalUrl).toBe('https://rendered.example/final');
+  const evidence = JSON.stringify(report);
+  expect(evidence).not.toContain('fixture-auth-code');
+  expect(evidence).not.toContain('fixture-asset-signature');
+});
+
 test('a client navigation to an HTTP error page cannot become a successful rendered report', async () => {
   await expect(auditRenderedSite({ url: 'https://rendered.example/start',
     launch: options => chromium.launch({ ...options, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
@@ -216,4 +237,37 @@ test('a failed cancellation stays explicit and can be retried', async ({ page })
   await expect(root.getByRole('status')).toContainText('Audit cancelled.');
   await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeEnabled();
   expect(deletes).toBe(2);
+});
+
+test('a failure the server reported for the run is shown, while an edge hiccup is retried', async ({ page }) => {
+  await page.setContent('<div id="isolated-rendered-root"></div>');
+  await page.addScriptTag({ path: require('path').join(__dirname, '../../public/rendered-audit-ui.js') });
+  await page.evaluate(() => {
+    const coded = (status, code, message) => Object.assign(new Error(message), { status, code });
+    window.renderedPolls = 0;
+    window.renderedScript = [];
+    window.NebulaRenderedAudit.mount(document.querySelector('#isolated-rendered-root'), { download() {}, api: async (url, options = {}) => {
+      if (url.endsWith('/status')) return { available: true };
+      if (options.method === 'DELETE') return { state: 'cancelled' };
+      if (options.method === 'POST') return { state: 'running', run: 'reported-run', stage: 'desktop' };
+      window.renderedPolls++;
+      const step = window.renderedScript.shift();
+      if (step === 'edge') throw coded(502, '', 'Bad gateway');
+      if (step === 'timeout') throw coded(504, 'RENDERED_AUDIT_TIMEOUT', 'The rendered audit exceeded its time limit.');
+      if (step === 'done') return { url: 'https://rendered.example/', coverage: { complete: true, reasons: [] }, limitations: [], viewports: [], findings: [] };
+      /* Told once: asking again after a reported failure finds nothing. */
+      throw coded(404, 'RENDERED_RUN_GONE', 'This audit is no longer available.');
+    } });
+  });
+  const status = page.locator('#isolated-rendered-root [role="status"]');
+  await page.evaluate(() => { window.renderedScript = ['timeout']; });
+  await page.getByLabel('Page address').fill('https://rendered.example/');
+  await page.getByRole('button', { name: 'Run rendered audit' }).click();
+  await expect(status).toHaveText('The rendered audit exceeded its time limit.');
+  expect(await page.evaluate(() => window.renderedPolls)).toBe(1);
+
+  await page.evaluate(() => { window.renderedPolls = 0; window.renderedScript = ['edge', 'done']; });
+  await page.getByRole('button', { name: 'Run rendered audit' }).click();
+  await expect(status).toContainText('Automated checks finished');
+  expect(await page.evaluate(() => window.renderedPolls)).toBe(2);
 });

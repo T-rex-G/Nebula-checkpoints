@@ -41,11 +41,13 @@ for (const routePath of removalRoutes) {
   assert(!block.includes('removeGithubAppInstallation('), `${routePath} must not reorder installation deletion outside finalization`);
   assert(!block.includes('markProviderIdentityDisconnected('), `${routePath} must not split the atomic finalization transition`);
 }
-assert.strictEqual(
-  (server.match(/await disconnectAlphaProviderAccount\(/g) || []).length,
-  5,
-  'only the five approved routes may invoke the central account disconnect helper'
-);
+{
+  /* The remove route may call it twice (the account, then retired leftovers); no other route may call it at all. */
+  let outside = server;
+  for (const routePath of removalRoutes) outside = outside.replace(routeBlock(routePath), '');
+  assert.strictEqual((outside.match(/await disconnectAlphaProviderAccount\(/g) || []).length, 0,
+    'only the five approved routes may invoke the central account disconnect helper');
+}
 
 const helperStart = server.indexOf('async function disconnectAlphaProviderAccount(');
 const helperEnd = server.indexOf('async function addAccount(', helperStart);
@@ -59,6 +61,14 @@ assert(helper.includes('alphaPrivacyStore.completeProviderWebhookCleanup'));
 assert(!helper.includes('removeLocalWebhookRecord'),
   'provider proof and local webhook/evidence completion must not be split across transactions');
 assert(helper.includes('alphaPrivacyStore.finalizeProviderDisconnect'));
+assert(helper.includes('recordPendingEvidence') && helper.includes('alphaPrivacyStore.createCleanupTask'),
+  'a retired account leaves recorded manual-cleanup evidence, not silence');
+assert(helper.includes("result.reasonCode === RETIRED_CLEANUP"),
+  'a retired account does not stop the GitHub accounts after it from being disconnected');
+const logoutBlock = routeBlock('/api/logout');
+assert(logoutBlock.includes('cleanup.supportedComplete') && logoutBlock.includes('cleanup.manualCleanup'),
+  'sign-out completes once supported accounts are disconnected, and names what must be revoked by hand');
+assert(!logoutBlock.includes('githubSession('), 'sign-out sees every account in the session, retired ones included');
 assert(helper.includes('providerHookId: row.provider_hook_id'),
   'database inventory must be normalized before immutable resource hashing');
 assert(helper.includes('return { verifiedAbsent: false };'),

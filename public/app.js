@@ -1445,12 +1445,21 @@ async function openSettings() {
 }
 
 function alphaRevocationGuidanceBody(guidance) {
-  const items = (Array.isArray(guidance) ? guidance : [])
+  const list = Array.isArray(guidance) ? guidance : [];
+  const items = list
     .filter(item => item && /^https:\/\//i.test(String(item.url || '')))
     .map(item => `<a class="btn btn-ghost small" href="${escAttr(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.label || 'Open provider settings')}</a>`)
     .join('');
+  /* A retired provider has no link: its step is said, never built from saved configuration. */
+  const steps = list.filter(item => item && item.label && !item.url).map(item => `<li>${esc(item.label)}</li>`).join('');
   return `<p class="hint">Nebulaverse-X removed its token-bearing provider state. Provider revocation is a separate action and is never claimed automatically.</p>
-    <div class="about-actions">${items || '<span class="hint">No provider revocation link was returned.</span>'}</div>`;
+    ${steps ? `<ul class="hint revocation-steps">${steps}</ul>` : ''}
+    <div class="about-actions">${items || (steps ? '' : '<span class="hint">No provider revocation link was returned.</span>')}</div>`;
+}
+/* What to revoke by hand, after an account left the session. */
+function showRevocationGuidance(guidance) {
+  if (!Array.isArray(guidance) || !guidance.length) return null;
+  return modal({ title: 'Revoke at provider', okText: 'Done', bodyHTML: alphaRevocationGuidanceBody(guidance) });
 }
 
 async function disconnectAlphaProviders(openGuidance) {
@@ -1775,6 +1784,13 @@ async function boot() {
       loadRepos(true);
       if (!(await restoreRoute())) showOverview();
       toast('Offline mode — showing cached data ✦', 'ok');
+    } else if (e.code === 'ACCOUNT_SELECTION_REQUIRED') {
+      /* A retired account is still the selected one: the person chooses a GitHub
+         account or removes it; nothing acts as another account meanwhile. */
+      await purgeLocalData(false);
+      state.me = null;
+      showPage('login');
+      openAccounts();
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
       if (cached && !githubIdentity(cached)) await purgeLocalData(true);
       state.me = null;
@@ -1933,8 +1949,9 @@ window.addEventListener('storage', event => {
 });
 async function doLogout() {
   let remoteError = null;
+  let result = null;
   try {
-    await api('/api/logout', { method: 'POST' });
+    result = await api('/api/logout', { method: 'POST' });
   } catch (error) {
     remoteError = error;
   } finally {
@@ -1944,6 +1961,7 @@ async function doLogout() {
     showPage('login');
   }
   if (remoteError) presentError(remoteError);
+  else if (result) showRevocationGuidance(result.revocationGuidance);
 }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
@@ -2483,17 +2501,33 @@ async function openAccounts() {
   try {
     const a = await api('/api/accounts');
     if (!ownsModal()) return;
-    const accounts = a.accounts.map((account, index) => ({ account, index })).filter(({ account }) => githubIdentity(account));
-    $('#modalBody').innerHTML = accounts.map(({ account: ac, index: i }) => `
+    const accounts = a.accounts.map((account, index) => ({ account, index }));
+    const retiredCount = accounts.filter(({ account }) => !githubIdentity(account)).length;
+    const retiredActive = !githubIdentity(a.accounts[a.active]);
+    /* A retired account is listed only so it can be removed: it is never switched to and loads nothing from its old host. */
+    const lead = retiredCount ? `<p class="hint acct-lead">${retiredActive ? 'Choose a GitHub account to continue. ' : ''}GitLab and Gitea accounts are no longer supported. Remove ${retiredCount === 1 ? 'it' : 'them'}, then revoke ${retiredCount === 1 ? 'its token' : 'their tokens'} in that provider's settings.</p>` : '';
+    $('#modalBody').innerHTML = lead + accounts.map(({ account: ac, index: i }) => githubIdentity(ac) ? `
       <div class="acct-row ${i === a.active ? 'active' : ''}">
-        <img class="avatar" src="${escAttr(ac.avatar || '')}" alt="">
+        ${/^https:\/\//i.test(String(ac.avatar || '')) ? `<img class="avatar" src="${escAttr(ac.avatar)}" alt="">` : '<span class="avatar acct-avatar-empty" aria-hidden="true"></span>'}
         <div class="acct-meta">
           <div class="acct-login">${esc(ac.login)}</div>
           <div class="acct-host">${PROV_ICON.github}<span>github.com</span></div>
         </div>
-        ${i === a.active ? '<span class="br-tag">active</span>'
-          : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
-        <button class="btn btn-ghost small danger" data-remove="${i}" title="Sign out this account only">Remove</button>
+        <div class="acct-actions">
+          ${i === a.active ? '<span class="br-tag">active</span>'
+            : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
+          <button class="btn btn-ghost small danger" data-remove="${i}" title="Sign out this account only">Remove</button>
+        </div>
+      </div>` : `
+      <div class="acct-row retired">
+        <span class="avatar acct-retired-mark" aria-hidden="true"></span>
+        <div class="acct-meta">
+          <div class="acct-login">${esc(ac.login)}</div>
+          <div class="acct-host"><span>${ac.provider === 'gitea' ? 'Gitea' : 'GitLab'} · no longer supported</span></div>
+        </div>
+        <div class="acct-actions">
+          <button class="btn btn-ghost small danger" data-remove="${i}" title="Remove this account and its stored token">Remove</button>
+        </div>
       </div>`).join('') + `
       <div class="detail-actions" style="margin-top:14px">
         <button class="btn btn-ghost small" id="accAdd">Add account</button>
@@ -2519,10 +2553,11 @@ async function openAccounts() {
         await purgeLocalData(!!out.empty);
         broadcastIdentityBoundary();
         closeModal(true);
-        toast(`${out.removed} signed out ✦`, 'ok');
-        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); return; }
+        toast(`${out.removed || 'The account'} signed out ✦`, 'ok');
+        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); showRevocationGuidance(out.revocationGuidance); return; }
         location.hash = '';
-        boot(); loadRepos(true);
+        await boot(); loadRepos(true);
+        showRevocationGuidance(out.revocationGuidance);
       } catch (e) { toast(e.message, 'err'); }
     }));
     $('#accAdd').addEventListener('click', () => {

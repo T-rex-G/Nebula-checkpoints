@@ -11,12 +11,19 @@ const VIEWPORTS = Object.freeze([{ name: 'Desktop', width: 1440, height: 900 }, 
 function auditError(message, code = 'RENDERED_AUDIT_UNAVAILABLE', status = 503) {
   return Object.assign(new Error(message), { code, status });
 }
-function renderedUrl(value) {
+/* The shape every address the browser may load must have: HTTPS on 443, no userinfo, no fragment. */
+function httpsAddress(value) {
   let url;
   try { url = new URL(String(value)); } catch { throw auditError('Enter a public HTTPS page address.', 'RENDERED_URL_INVALID', 400); }
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || url.hash || url.href.length > 2048) {
     throw auditError('Use HTTPS on port 443 without a username, password or fragment.', 'RENDERED_URL_INVALID', 400);
   }
+  return url;
+}
+/* The address a person enters. Only here is a credential-shaped query refused: the
+   page's own assets and redirects may carry them, and reports never keep a query. */
+function renderedUrl(value) {
+  const url = httpsAddress(value);
   const sensitive = /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|token|auth(?:orization)?|auth[-_]?token|password|passwd|secret|client[-_]?secret|api[-_]?key|key|signature|sig|credential|code|session[-_]?id|session[-_]?token|jwt|oauth[-_]?token)$/i;
   if ([...url.searchParams.keys()].some(key => sensitive.test(key) || /^(?:x-amz-|x-goog-)/i.test(key))) {
     throw auditError('Use a public page address without credentials, access tokens or signed query parameters.', 'RENDERED_URL_SENSITIVE', 400);
@@ -86,7 +93,7 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         await context.route('**/*', async route => {
           const request = route.request();
           let target;
-          try { target = new URL(renderedUrl(request.url())); } catch { /* refused below */ }
+          try { target = httpsAddress(request.url()); } catch { /* refused below */ }
           const reject = async reason => { network.blocked++; reasons.add(reason); await route.abort('blockedbyclient').catch(() => {}); };
           if (!target || target.origin !== origin) return reject('Cross-origin or non-HTTPS resources were blocked');
           if (!['GET', 'HEAD'].includes(request.method())) return reject('Requests that could submit data were blocked');
@@ -158,9 +165,9 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
           if (answer.request().isNavigationRequest() && answer.frame() === page.mainFrame()) documentResponse = answer;
         });
         const documentIdentity = () => {
-          const final = new URL(page.url()); final.hash = '';
-          renderedUrl(final.href);
-          if (final.origin !== origin || !documentResponse || documentResponse.status() < 200 || documentResponse.status() >= 300) {
+          let final = null;
+          try { final = new URL(page.url()); final.hash = ''; final = httpsAddress(final.href); } catch { final = null; }
+          if (!final || final.origin !== origin || !documentResponse || documentResponse.status() < 200 || documentResponse.status() >= 300) {
             throw auditError('The final page did not load successfully within the requested public origin.', 'RENDERED_PAGE_UNAVAILABLE', 502);
           }
           return { url: final.href, response: documentResponse };

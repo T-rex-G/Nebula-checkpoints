@@ -34,12 +34,12 @@ test('sign-in offers GitHub token and configured OAuth without a provider or cus
   expect(logins).toEqual([{ token: 'fixture-github-credential', provider: 'github' }]);
 });
 
-test('account switching hides retired identities and preserves the GitHub account index', async ({ page }) => {
+test('retired identities are listed only to be removed, and switching keeps the GitHub account index', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active' });
   await page.route('**/api/accounts', route => route.fulfill({ json: { active: 1, accounts: [
-    { login: 'retired-lab', provider: 'gitlab' },
+    { login: 'retired-lab', provider: 'gitlab', avatar: 'https://gitlab.example/avatar.png', retired: true },
     { login: 'alpha-tester', provider: 'github' },
-    { login: 'retired-tea', provider: 'gitea' },
+    { login: 'retired-tea', provider: 'gitea', retired: true },
     { login: 'second-github', provider: 'github' }
   ] } }));
   const switches = [];
@@ -47,14 +47,62 @@ test('account switching hides retired identities and preserves the GitHub accoun
     switches.push(route.request().postDataJSON());
     return route.fulfill({ json: { ok: true, login: 'second-github' } });
   });
+  const avatars = [];
+  page.on('request', request => { if (request.url().startsWith('https://gitlab.example/')) avatars.push(request.url()); });
   await page.goto('/');
   await ui.button(page, 'Accounts').click();
   const accounts = ui.dialog(page, 'Accounts');
-  await expect(accounts.locator('.acct-row')).toHaveCount(2);
-  await expect(accounts).not.toContainText(/retired-lab|retired-tea/);
+  await expect(accounts.locator('.acct-row')).toHaveCount(4);
+  await expect(accounts).toContainText('GitLab and Gitea accounts are no longer supported. Remove them');
+  const retired = accounts.locator('.acct-row.retired');
+  await expect(retired).toHaveCount(2);
+  await expect(retired.nth(0)).toContainText('GitLab · no longer supported');
+  await expect(retired.nth(1)).toContainText('Gitea · no longer supported');
+  await expect(retired.getByRole('button', { name: 'Switch', exact: true })).toHaveCount(0);
+  await expect(retired.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(2);
+  expect(avatars, 'nothing is loaded from a retired host').toEqual([]);
   await expect(accounts.locator('.acct-row.active')).toContainText('alpha-tester');
   await accounts.getByRole('button', { name: 'Switch', exact: true }).click();
   await expect.poll(() => switches).toEqual([{ idx: 3 }]);
+});
+
+test('removing a retired account says what to revoke at its provider', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 1, accounts: [
+    { login: 'retired-lab', provider: 'gitlab', retired: true },
+    { login: 'alpha-tester', provider: 'github' }
+  ] } }));
+  const removals = [];
+  await page.route('**/api/accounts/remove', route => {
+    removals.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true, removed: 'retired-lab', active: 0, revocationGuidance: [
+      { label: 'Revoke this retired provider credential manually in its account settings', url: null, automatic: false }
+    ] } });
+  });
+  await page.goto('/');
+  await ui.button(page, 'Accounts').click();
+  const accounts = ui.dialog(page, 'Accounts');
+  await accounts.locator('.acct-row.retired').getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect.poll(() => removals).toEqual([{ idx: 0 }]);
+  const guidance = ui.dialog(page, 'Revoke at provider');
+  await expect(guidance).toContainText('Revoke this retired provider credential manually in its account settings');
+  await expect(guidance.getByRole('link')).toHaveCount(0);
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+});
+
+test('a retired account still selected asks for a GitHub account instead of acting as one', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/me', route => route.fulfill({ status: 409, json: { code: 'ACCOUNT_SELECTION_REQUIRED', error: 'Choose an account.' } }));
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'retired-lab', provider: 'gitlab', retired: true },
+    { login: 'alpha-tester', provider: 'github' }
+  ] } }));
+  await page.goto('/');
+  await expect(ui.screen(page, 'login')).toBeVisible();
+  const accounts = ui.dialog(page, 'Accounts');
+  await expect(accounts).toContainText('Choose a GitHub account to continue.');
+  await expect(accounts.getByRole('button', { name: 'Switch', exact: true })).toHaveCount(1);
+  await expect(ui.screen(page, 'overview')).not.toBeVisible();
 });
 
 for (const provider of ['gitlab', 'gitea']) {

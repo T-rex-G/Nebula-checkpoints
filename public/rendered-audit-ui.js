@@ -95,7 +95,8 @@
           if (!current() || model.cancelled) return;
           try { answer = await api(endpoint()); pollFailures = 0; }
           catch (error) {
-            if (++pollFailures <= 3 && (!error.status || [429, 502, 503, 504].includes(error.status))) continue;
+            /* A coded answer is the run's own outcome, told once by the server; only an uncoded edge or network failure is retried. */
+            if (++pollFailures <= 3 && !error.code && (!error.status || [429, 502, 503, 504].includes(error.status))) continue;
             throw error;
           }
           if (!current() || model.cancelled) return;

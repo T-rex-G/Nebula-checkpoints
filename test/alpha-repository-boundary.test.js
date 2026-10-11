@@ -125,7 +125,19 @@ const providerSessions = {
   'provider-gitea': providerSession(accounts.gitea),
   'provider-gitea-path': providerSession(accounts.giteaPath),
   'provider-app': providerSession(accounts.githubApp),
-  'provider-app-delete': providerSession(accounts.githubApp, appDeleteStepUp)
+  /* A retired account still selected beside a GitHub one: nothing may act as the GitHub one in its place. */
+  'provider-mixed-retired-active': seal({
+    accounts: [accounts.gitlab, accounts.github], active: 0,
+    security: { sessionNonce, stepUp: null },
+    safety: { readOnly: false, freezeSync: false, protected: {} }
+  }),
+  'provider-app-delete': providerSession(accounts.githubApp, appDeleteStepUp),
+  /* The same pair, for removing the retired account. */
+  'provider-mixed-retired-remove': seal({
+    accounts: [accounts.gitlab, accounts.github], active: 0,
+    security: { sessionNonce, stepUp: null },
+    safety: { readOnly: false, freezeSync: false, protected: {} }
+  })
 };
 
 const fixtureSource = String.raw`
@@ -1266,6 +1278,39 @@ ${logs}`
       }
       assert.deepStrictEqual(transportEvents(), transportBefore,
         `${provider} historical sessions fail before credential or provider transport`);
+    }
+
+    {
+      const transportBefore = transportEvents();
+      const cookie = combinedCookie('A', 'provider-mixed-retired-active');
+      for (const route of ['/api/repos', '/api/repo/acme/demo', '/api/me']) {
+        const response = await request(route, { headers: { cookie } });
+        assert.strictEqual(response.status, 409, `a retired selected account is refused on ${route}, not swapped for GitHub`);
+        assert.strictEqual((await json(response)).code, 'ACCOUNT_SELECTION_REQUIRED');
+      }
+      assert.deepStrictEqual(transportEvents(), transportBefore, 'no provider request is made as another account');
+      const listed = await request('/api/accounts', { headers: { cookie } });
+      assert.strictEqual(listed.status, 200);
+      const body = await json(listed);
+      assert.deepStrictEqual(body.accounts.map(item => [item.provider, item.retired]), [['gitlab', true], ['github', false]],
+        'the account list shows the retired account so it can be replaced');
+      assert.strictEqual(body.active, 0);
+    }
+
+    {
+      /* Removing the retired account records the operator's cleanup and takes its credential out of the session. */
+      const cookie = combinedCookie('A', 'provider-mixed-retired-remove');
+      const cleanupsBefore = events('privacy.cleanup.create').length;
+      const removed = await request('/api/accounts/remove', postJson({ idx: 0 }, { cookie, 'x-nv-csrf': csrfFor(accounts.gitlab) }));
+      const removedBody = await json(removed);
+      assert.strictEqual(removed.status, 200, JSON.stringify(removedBody));
+      assert.strictEqual(removedBody.revocationGuidance.length, 1, 'the person is told to revoke the old token at its provider');
+      const cleanups = events('privacy.cleanup.create').slice(cleanupsBefore);
+      assert.deepStrictEqual(cleanups.map(event => [event.input.provider, event.input.resourceType, event.input.reasonCode]),
+        [['gitlab', 'provider-session', 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED']]);
+      const listed = await json(await request('/api/accounts', { headers: { cookie } }));
+      assert.deepStrictEqual(listed.accounts.map(item => [item.provider, item.retired]), [['github', false]]);
+      assert.strictEqual((await request('/api/me', { headers: { cookie } })).status, 200, 'the GitHub account now acts');
     }
 
     const fetchesBeforeAllowedSearch = events('provider.fetch').length;

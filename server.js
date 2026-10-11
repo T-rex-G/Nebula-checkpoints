@@ -91,7 +91,7 @@ const {
 } = require('./src/hosted-readiness');
 const { AlphaAccessStore } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
-const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
+const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance } = require('./src/alpha-privacy');
 const {
   disconnectProviderAccount,
   providerResourceKeyHash
@@ -1712,13 +1712,20 @@ function githubSession(session) {
   });
   if (!accounts.length) return null;
   if (accounts.length === session.accounts.length) return session;
-  const active = Math.max(0, accounts.indexOf(selected));
+  const index = accounts.indexOf(selected);
   // Keep historical bindings for retention/privacy cleanup. Session writes
   // persist only the supported accounts; an old cookie cannot dispatch them.
-  return { ...session, accounts, active, security: { ...session.security, stepUp: null } };
+  // A retired account that is still the selected one is not quietly replaced
+  // by a GitHub account: the person chooses which identity acts.
+  return { ...session, accounts, active: Math.max(0, index), retiredSelection: index < 0, security: { ...session.security, stepUp: null } };
+}
+function isGithubAccount(account) {
+  try { assertGithubAccount(account); return true; } catch { return false; }
 }
 async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
-  const supported = session => githubSession(session) || (retainRetiredAccounts ? session : null);
+  const supported = session => (retainRetiredAccounts && session && Array.isArray(session.accounts) && session.accounts.length
+    ? session
+    : githubSession(session));
   const s = unseal(getCookie(req, 'nv_session') || '');
   if (!s) return null;
   if (DB_URL && !s.sid) return null;
@@ -2042,7 +2049,8 @@ async function savePersistentSafety(req, patch) {
   let clean;
   if (DB_URL && !(await dbReady())) throw safetyUnavailable();
   if (DB_URL) {
-    const client = await pool().connect();
+    let client;
+    try { client = await pool().connect(); } catch { throw safetyUnavailable(); }
     try {
       await client.query('BEGIN');
       const key = identityKey(req.gh);
@@ -2059,11 +2067,28 @@ async function savePersistentSafety(req, patch) {
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      throw error;
+      /* A refused change says why; whatever the database did instead is "unavailable", never an unexplained failure. */
+      if (error && Number(error.status) >= 400 && Number(error.status) < 500) throw error;
+      throw safetyUnavailable();
     } finally { client.release(); }
   } else clean = applySafetyPatch(req.session.safety, patch);
   req.session.safety = clean;
   return clean;
+}
+/*
+ * With a database the identity's controls live in nv_security_state and the
+ * session holds a copy. A copy that cannot be written because the session
+ * ended meanwhile does not undo a change that has already committed.
+ */
+async function saveSessionSafetyCopy(req, res) {
+  if (!DB_URL) { await setSession(req, res, req.session); return true; }
+  try { await setSession(req, res, req.session); return true; }
+  catch (error) {
+    const ended = error && (Number(error.status) === 401 || Number(error.status) === 503
+      || ['SESSION_REVOKED', 'ALPHA_PROVIDER_SESSION_UNAVAILABLE', 'ALPHA_SESSION_REVISION_CONFLICT'].includes(error.code));
+    if (!ended) throw error;
+    return false;
+  }
 }
 async function appendEvidence(repoK, kind, recordId, payload) {
   if (!(await dbReady())) return null;
@@ -2318,15 +2343,24 @@ function guardSafety(req) {
   }
   return null;
 }
-async function attachProviderSession(req) {
-  const retiredCleanup = req.path === '/api/logout' || req.path === '/api/security/csrf';
-  const s = req.session || await sessionOf(req, { retainRetiredAccounts: retiredCleanup });
+/*
+ * Provider routes see only GitHub accounts. Account management (the list,
+ * switching, removal, sign-out, the CSRF token) sees retired accounts too, so
+ * they can be replaced, and their cleanup evidence recorded, rather than lost.
+ */
+async function attachProviderSession(req, { retainRetired = false } = {}) {
+  const s = req.session || await sessionOf(req, { retainRetiredAccounts: retainRetired });
   if (!s) {
     throw Object.assign(new Error('Not signed in'), { status: 401, code: 'AUTH_REQUIRED' });
   }
+  if (!retainRetired && s.retiredSelection) {
+    throw Object.assign(new Error('The selected account is no longer supported. Choose a GitHub account.'), {
+      status: 409, code: 'ACCOUNT_SELECTION_REQUIRED'
+    });
+  }
   req.session = s;
   req.sessionAccount = s.accounts[Math.min(s.active || 0, s.accounts.length - 1)];
-  if (!retiredCleanup) assertGithubAccount(req.sessionAccount);
+  if (!retainRetired) assertGithubAccount(req.sessionAccount);
   req.gh = { ...req.sessionAccount };
 }
 
@@ -2368,9 +2402,19 @@ async function auth(req, res, next) {
     });
   }
 }
+/*
+ * A session with no GitHub account left is signed out for every product read:
+ * there is nothing to choose. Sign-out and account removal still accept it, so
+ * its stored credentials can be cleaned up.
+ */
+function signedOutWithoutGithub(req, res) {
+  if (req.session && Array.isArray(req.session.accounts) && req.session.accounts.some(isGithubAccount)) return false;
+  res.status(401).json({ error: 'Not signed in', code: 'AUTH_REQUIRED' });
+  return true;
+}
 async function accountAuth(req, res, next) {
   try {
-    await attachProviderSession(req);
+    await attachProviderSession(req, { retainRetired: true });
     await ensureSessionSecurity(req, res);
     verifyRequestCsrf(req);
     req.effectiveSafety = await loadPersistentSafety(req);
@@ -3292,6 +3336,13 @@ async function providerIdentity(acct) {
   }
   return gh(acct, '/user');
 }
+const RETIRED_CLEANUP = 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED';
+/* One instruction per distinct step, in the same {label, url} shape with or without alpha. */
+function uniqueGuidance(items) {
+  const seen = new Map();
+  for (const item of items) if (item && item.label) seen.set(`${item.label}\0${item.url || ''}`, { label: item.label, url: item.url || null, automatic: false });
+  return [...seen.values()];
+}
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
     .filter(account => account && typeof account === 'object');
@@ -3318,7 +3369,8 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
       ? Math.min(Math.max(Number(req.session.active) || 0, 0), req.session.accounts.length - 1)
       : 0;
     clearStepUpAuthorization(req.session);
-    return Object.freeze({ complete: true, legacy: true, results: Object.freeze([]) });
+    const manualCleanup = accounts.filter(account => !isGithubAccount(account)).map(account => providerRevocationGuidance(account));
+    return Object.freeze({ complete: true, supportedComplete: true, legacy: true, results: Object.freeze([]), manualCleanup: Object.freeze(manualCleanup) });
   }
 
   const sid = sessionSidFromRequest(req);
@@ -3395,9 +3447,20 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
           githubAppBroker.invalidate(account.installationId);
         }
       },
-      finalizeDisconnect: input => alphaPrivacyStore.finalizeProviderDisconnect(input)
+      finalizeDisconnect: input => alphaPrivacyStore.finalizeProviderDisconnect(input),
+      /* What cannot be cleaned up through a provider any more is recorded for the operator's privacy cleanup. */
+      recordPendingEvidence: input => alphaPrivacyStore.createCleanupTask({
+        testerId: input.testerId,
+        identityKey: bindingIdentityKey,
+        provider: String(account.provider || 'github'),
+        resourceType: 'provider-session',
+        resourceKeyHash: input.resourceKeyHash,
+        reasonCode: input.reasonCode
+      })
     });
     results.push(result);
+    /* A retired account's local state waits for the operator; the accounts after it are still disconnected. */
+    if (result.reasonCode === RETIRED_CLEANUP) continue;
     if (!result.providerStateRemoved) break;
     if (account.authMethod === 'github-app') {
       await recordGithubAppAudit(
@@ -3408,11 +3471,34 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
       );
     }
   }
+  const retiredKeys = new Set(accounts
+    .filter((account, index) => results[index] && results[index].reasonCode === RETIRED_CLEANUP)
+    .map(hostedAccountKey));
+  if (retiredKeys.size) {
+    /* The operator's cleanup task is recorded; the retired credential itself leaves the session now. */
+    const dropped = await alphaPrivacyStore.mutateHostedProviderSession({
+      testerId: req.alpha.testerId,
+      sessionId: sid,
+      mutate(current) {
+        const before = Array.isArray(current.accounts) ? current.accounts : [];
+        const selected = before[Number(current.active) || 0];
+        const kept = before.filter(account => !retiredKeys.has(hostedAccountKey(account)));
+        const index = kept.indexOf(selected);
+        return { ...current, accounts: kept, active: index >= 0 ? index : Math.max(0, kept.findIndex(isGithubAccount)) };
+      }
+    });
+    req.session = dropped.session;
+    req[HOSTED_SESSION_BASE] = structuredClone(dropped.session);
+    req[HOSTED_SESSION_REVISION] = dropped.revision;
+  }
   return Object.freeze({
     complete: results.length === accounts.length
       && results.every(result => result.providerStateRemoved),
+    supportedComplete: results.length === accounts.length
+      && results.every(result => result.providerStateRemoved || result.reasonCode === RETIRED_CLEANUP),
     legacy: false,
-    results: Object.freeze(results)
+    results: Object.freeze(results),
+    manualCleanup: Object.freeze(results.filter(result => result.reasonCode === RETIRED_CLEANUP).map(result => result.revocationGuidance))
   });
 }
 
@@ -3589,6 +3675,15 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   while (s.accounts.length > ACCOUNT_CAP()) s.accounts.shift();
   s.active = s.accounts.length - 1;
   clearStepUpAuthorization(s);
+  if (!existingSession && DB_URL) {
+    /* The cookie may still name a row this sign-in replaces, such as one that
+       holds only retired provider accounts; its credentials go with it. */
+    const replaced = sessionSidFromRequest(req);
+    if (replaced) {
+      await pool().query('DELETE FROM nv_sessions WHERE sid=$1', [replaced]);
+      closeLiveSessions([replaced], 'session-ended');
+    }
+  }
   await setSession(req, res, s, { createNew: !existingSession });
 }
 app.post('/api/login', async (req, res) => {
@@ -3612,6 +3707,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 app.get('/api/accounts', accountAuth, (req, res) => {
+  if (signedOutWithoutGithub(req, res)) return;
   const activeIdx = Math.min(req.session.active || 0, req.session.accounts.length - 1);
   res.json({
     active: activeIdx,
@@ -3628,6 +3724,7 @@ app.get('/api/accounts', accountAuth, (req, res) => {
       return {
         login: a.login, avatar: a.avatar,
         provider: a.provider || 'github',
+        retired: !isGithubAccount(a),
         authMethod: a.authMethod || 'token',
         host: a.baseUrl ? String(a.baseUrl).replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
         ...(a.authMethod === 'github-app' ? {
@@ -3644,6 +3741,7 @@ app.post('/api/accounts/switch-idx', accountAuth, async (req, res) => {
   try {
     const i = req.body && req.body.idx;
     if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
+    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
     req.session.active = i;
     clearStepUpAuthorization(req.session);
     await setSession(req, res, req.session);
@@ -3656,29 +3754,40 @@ app.post('/api/accounts/remove', accountAuth, async (req, res) => {
     const i = req.body && req.body.idx;
     if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
     const removed = req.session.accounts[i];
-    const previousCount = req.session.accounts.length;
+    const removedActive = i === (Number(req.session.active) || 0);
     const cleanup = await disconnectAlphaProviderAccount(req, removed);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
-    if (ALPHA_CONFIG.enabled) {
-      if (previousCount === 1) {
-        clearProviderSessionCookie(req, res);
-        return res.json({ ok: true, empty: true });
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
+    const guidance = [...cleanup.manualCleanup];
+    const remaining = ALPHA_CONFIG.enabled
+      ? ((await sessionOf(req, { retainRetiredAccounts: true })) || { accounts: [] }).accounts
+      : req.session.accounts;
+    if (!remaining.some(isGithubAccount)) {
+      /* No GitHub account is left to act: retired accounts go too, and the session ends. */
+      if (remaining.length) {
+        const rest = await disconnectAlphaProviderAccount(req, remaining);
+        if (!rest.supportedComplete) return providerDisconnectPending(res, rest);
+        guidance.push(...rest.manualCleanup);
       }
-      req.session = await sessionOf(req);
-      return res.json({ ok: true, active: Number(req.session.active) || 0 });
+      if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
+      else await destroySession(req, res);
+      return res.json({ ok: true, removed: removed.login, empty: true, ...(guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {}) });
     }
-    if (!req.session.accounts.length) {
-      await destroySession(req, res);
-      return res.json({ ok: true, removed: removed.login, empty: true });
+    const revocation = guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {};
+    if (ALPHA_CONFIG.enabled) {
+      req.session = await sessionOf(req, { retainRetiredAccounts: true });
+      return res.json({ ok: true, removed: removed.login, active: Number(req.session.active) || 0, ...revocation });
     }
+    /* The selected identity left: a GitHub account is chosen, never a retired one. */
+    if (removedActive) req.session.active = req.session.accounts.findIndex(isGithubAccount);
     await setSession(req, res, req.session);
-    res.json({ ok: true, removed: removed.login, active: req.session.accounts[req.session.active].login });
+    res.json({ ok: true, removed: removed.login, active: req.session.accounts[req.session.active].login, ...revocation });
   } catch (e) { fail(res, e); }
 });
 app.post('/api/accounts/switch', accountAuth, async (req, res) => {
   try {
     const i = req.session.accounts.findIndex(a => a.login === (req.body && req.body.login));
     if (i < 0) return res.status(404).json({ error: 'Account not in session' });
+    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
     req.session.active = i;
     clearStepUpAuthorization(req.session);
     await setSession(req, res, req.session);
@@ -4241,16 +4350,12 @@ app.post('/api/alpha/feedback', async (req, res) => {
 });
 app.post('/api/logout', accountAuth, async (req, res) => {
   try {
-    if (!githubSession(req.session)) {
-      await destroySession(req, res);
-      return res.json({ ok: true, revocationGuidance: 'Revoke retired Git provider tokens in their original account settings. Stored history follows the existing retention and privacy cleanup policy.' });
-    }
-    req.session = githubSession(req.session);
+    /* Every account in the session, retired ones included, so their cleanup evidence is recorded. */
     const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
     if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
     else await destroySession(req, res);
-    res.json({ ok: true });
+    res.json({ ok: true, ...(cleanup.manualCleanup.length ? { revocationGuidance: uniqueGuidance(cleanup.manualCleanup) } : {}) });
   } catch (e) { fail(res, e); }
 });
 app.post('/api/alpha/providers/disconnect-all', accountAuth, async (req, res) => {
@@ -4258,7 +4363,7 @@ app.post('/api/alpha/providers/disconnect-all', accountAuth, async (req, res) =>
   try {
     if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
     const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
     const revocationGuidance = cleanup.results.map(result => result.revocationGuidance);
     clearProviderSessionCookie(req, res);
     return res.json({ ok: true, revocationGuidance });
@@ -4294,6 +4399,10 @@ app.post('/api/alpha/delete', alphaDeletionConfirmation, alphaDeletionAuthentica
 });
 app.get('/api/me', accountAuth, async (req, res) => {
   try {
+    if (signedOutWithoutGithub(req, res)) return;
+    if (!isGithubAccount(req.sessionAccount)) {
+      return res.status(409).json({ error: 'The selected account is no longer supported. Choose a GitHub account.', code: 'ACCOUNT_SELECTION_REQUIRED' });
+    }
     const provider = req.gh.provider || 'github';
     let out;
     if (req.gh.authMethod === 'github-app') {
@@ -6743,12 +6852,13 @@ app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accoun
     const b = req.body || {};
     const cur = await savePersistentSafety(req, b);
     req.effectiveSafety = cur;
-    await setSession(req, res, req.session);
+    /* The change has committed: its evidence is written before anything else can fail. */
     const relatedRepo = b.protect && b.protect.repo ? b.protect.repo : 'identity';
     await appendEvidence(`safety:${identityKey(req.gh)}`, 'safety-change', crypto.randomUUID(), {
       actor: retainedActor(req), repository: relatedRepo, readOnly: cur.readOnly, freezeSync: cur.freezeSync,
       protectedCount: Object.values(cur.protected).reduce((n, x) => n + x.length, 0), changedAt: new Date().toISOString()
     }).catch(() => {});
+    await saveSessionSafetyCopy(req, res);
     /* The same view the read gives: no other repository's protected paths come back from a change to this one. */
     res.json(alphaSafetyView(req, req.effectiveSafety));
   } catch (e) { fail(res, e); }
@@ -7062,7 +7172,8 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
     }
     const captured = await captureRefsSnapshot(req, true);
     req.effectiveSafety = await savePersistentSafety(req, { readOnly: true, freezeSync: true });
-    await setSession(req, res, req.session);
+    /* Once the controls have committed, containment finishes even if this session ended meanwhile. */
+    await saveSessionSafetyCopy(req, res);
 
     const inventory = await sessionsForIdentity(req);
     const requestedRevocations = inventory.available

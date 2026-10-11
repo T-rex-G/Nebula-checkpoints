@@ -44,6 +44,14 @@
   tests and live probe, and the owner's prototype architecture is mapped against
   what exists. The plan is not evidence: no gate changes until its task passes
   for the exact candidate.
+- **Three workspace views join the 0.0.1 scope (Phase P).** A security posture
+  on the Overview, one findings inbox across repositories (Uranus and Quasar,
+  with In progress, Accepted until, Fixed, Not a problem and Regressed states,
+  a suggested owner from `CODEOWNERS`, and a per-finding timeline), and a
+  read-only board of pull requests and their merge gates. They read only the
+  records the product already keeps and the GitHub readers already verified,
+  start Unavailable, and are shown only once Supported. Scheduled audits, email,
+  integrations, API tokens and posting checks to GitHub stay after the beta.
 
 ### Uranus 2.4: the grade never says less than the findings do
 

@@ -31,6 +31,7 @@ A future open beta may remove the invitation gate only after its access, abuse, 
 | Access | Open beta is a future goal; no access-mode change or launch is authorized by this PR |
 | Hosting | Render Free and Neon Free |
 | Limits | 16 MB git data, 16 MB native push, 25 MB upload, unless the owner sets others |
+| Workspace views (11 October 2026) | A security posture on the Overview, one findings inbox across repositories, and a read-only pull-request board join 0.0.1 (Phase P). They are adapted from a review of other products, not copied, and each qualifies like any other capability |
 
 ## Historical baseline observations recorded on 6 October 2026
 
@@ -140,6 +141,7 @@ The original review inventoried current documents against the baseline. Recheck 
 | --- | --- | --- | --- |
 | GitHub | `repository.create`, `repository.delete`, `notifications` (Experimental, Deterministic) | Proven live with a qualification bot account or organization | A4 |
 | GitHub | `live-events` (Experimental, Inferred) | Proven live inside the hosted run: webhook, push, verified event, cleanup | A4, F5 |
+| GitHub | `workspace.posture`, `findings.inbox`, `pulls.board` (new, not yet registered) | Registered Unavailable first; Supported with Deterministic evidence over the persisted audit, exposure and triage records and the Provider-verified GitHub readers they already use | P1–P3 |
 | Retired providers | GitLab and Gitea product integrations and live jobs | Remove their connection, transport, UI, registry and qualification surfaces; reject legacy selections before egress. Retain historical evidence only as history. | A5 |
 
 ## Residue
@@ -455,6 +457,64 @@ R15 remains open until measured cold-start and steady-state behavior meet a revi
 
 **Verify:** Record repeated first-request latency after genuine inactivity, steady-state latency, failures and the measurement window. An uptime probe must not keep the instance active during a cold-start measurement.
 
+## Phase P — Workspace views
+
+Three views that read what the product already keeps: the audit history, the exposure scans, the triage decisions and the GitHub readers that are already Provider-verified. None writes to a provider, adds an outbound request of a new kind, or stores repository content. Each starts as an Unavailable registry entry, hidden and refused by the server (A6), and is shown only once it is Supported. A repository the workspace has never audited or scanned is always named as unscanned and never counted as clean.
+
+### Task P1: Say the workspace's security posture on the Overview
+
+**Files:** A new `src/posture-summary.js` (pure aggregation), its route in `server.js`, the Overview in `public/index.html` and `public/app.js`, the registry entry `workspace.posture`, and the Overview browser spec.
+
+**Red:**
+
+- From a fixture history of three repositories, one never audited, the summary returns open findings by severity, opened and fixed per week, fix rate, median time to fix, the top repositories by open serious findings, findings by category, and scan activity per day. A fixed finding is one a later audit of the same branch no longer reports, never one a person dismissed.
+- The one-line summary ("2 new findings, 1 fixed, 3 pull requests gated this week") is built only from those counts, and the never-audited repository appears as unscanned, not as zero.
+- Triage decisions move a finding out of "open" into "accepted" or "not a problem", which the summary reports separately rather than as fixed.
+- Every number on the card links to the records it counts, and an empty workspace says that nothing has been audited yet.
+- The route reads only the caller's own scopes and stays within the existing per-identity limits.
+
+**Green:** One aggregation module, with no provider call of its own. The Overview gains the posture block above the activity feed, drawn with the validated chart palette in both presets, with a table view for each chart.
+
+**Verify:** Unit tests over fixture histories, a real-PostgreSQL store test, the Overview browser spec on desktop and mobile in both presets, and axe on the Overview.
+
+### Task P2: One findings inbox across repositories
+
+**Files:** A new `src/findings-inbox.js`, an additive migration for the lifecycle state of a finding, its store, routes in `server.js`, a new workspace view in `public/index.html` and `public/app.js`, the registry entry `findings.inbox`, and its browser spec.
+
+**Red:**
+
+- Uranus and Quasar findings appear in one list with their system, repository, branch, rule, severity, file and line, and nothing else from the repository. Quasar paths keep their existing credential-shaped masking.
+- Parallax site checks keep no findings today, so they are not in the inbox. They join only if a later task persists them without response bodies.
+- The lifecycle tabs are Open, In progress, Accepted until a date, Fixed and Not a problem. Accepted and Not a problem reuse the existing triage decisions, with their reasons and expiry. In progress records who took it and when. Fixed is set only by a later audit or scan, never by hand.
+- **Regressed:** a finding that a later audit reports again after it was fixed reopens as Regressed, keeps its first-seen date, and its SLA clock does not restart.
+- Each finding shows first seen, last seen and how many audits saw it.
+- **Suggested owner:** the repository's `CODEOWNERS`, read through the existing GitHub file reader and matched by path, names an owner. The file is parsed in memory and never stored; when there is no file, no owner is suggested.
+- Findings of the same rule in one repository group into one row with a count. Bulk triage applies one decision to many and records each one separately in the trail.
+- Filters for severity, system, repository and state live in the address, so a filtered view can be bookmarked. Each finding has a copy-link and a Markdown summary that carries no secret and no source excerpt.
+- Each finding has an activity timeline: seen, taken, accepted, reopened, fixed, regressed.
+- The list and board views page at a fixed size, and a workspace with thousands of findings stays within the existing response budget.
+
+**Green:** One inbox module and one additive migration, allocated from the next free number on `main`. The existing per-repository triage keeps working and reads the same decisions.
+
+**Verify:** Unit and real-PostgreSQL store tests, a server contract for scope isolation between identities, the inbox browser spec on desktop and mobile in both presets, and axe on the inbox.
+
+### Task P3: A read-only board of pull requests and their gates
+
+**Files:** A new `src/pull-board.js`, its route, a workspace view, the registry entry `pulls.board`, and its browser spec.
+
+**Red:**
+
+- Across the workspace's repositories, open pull requests sort into Passes, Needs attention, Head not audited, and Merged with open findings, using the existing merge-gate evaluation and nothing new.
+- Each row names the repository, number, title, head commit, gate state and blocking reasons, and opens the existing pull-request view.
+- Per repository settings name the target branches and the severities that block. They are stored as a governance policy through the existing policy store, so the merge gate and the board read the same rule.
+- When the head moves after an audit, the row says the head is not audited and offers an audit, rather than showing the old result.
+- Reading pull requests reuses the Provider-verified GitHub reader and its rate limits. A repository that could not be read is named, not dropped.
+- Posting reviews or checks to GitHub is not part of this task.
+
+**Green:** One read-only module and view. No GitHub write.
+
+**Verify:** Unit tests over gate fixtures, a server contract, the board browser spec on desktop and mobile in both presets, and axe on the board.
+
 ## Phase F — Qualify the candidate
 
 ### Task F1: Rename the lineage and set the version
@@ -531,9 +591,10 @@ One VoiceOver iOS pass and one desktop screen-reader pass (NVDA or VoiceOver for
 | --- | --- | --- |
 | 1 | A5 (GitHub-only removal), then scoped A1, A2, A3, A6, A7, A8, A9, A10, A11 | Separate authorization for remote settings; this PR covers A5 and documentation corrections only |
 | 2 | O1–O4 | Owner approval of the texts (O3) |
-| 3 | A4 | The GitHub qualification account; verified disposable target, credentials and live-run authorization |
-| 4 | F1, F2 | Everything above merged |
-| 5 | F3–F7 | One frozen candidate. Each new candidate restarts at G1 |
+| 3 | P1–P3 | A6, so that each view starts Unavailable and is shown only once Supported |
+| 4 | A4 | The GitHub qualification account; verified disposable target, credentials and live-run authorization |
+| 5 | F1, F2 | Everything above merged |
+| 6 | F3–F7 | One frozen candidate. Each new candidate restarts at G1 |
 
 Future tasks may land as separate reviewed pull requests. This PR stays open for another AI review and must not be merged. Passing checks does not authorize a merge, tag, deployment or launch. Qualification artifacts and decisions must reference the frozen candidate externally; a source change after freezing creates a new candidate and invalidates reuse of its predecessor's gates.
 
@@ -548,8 +609,9 @@ These are separate plans, written after the beta qualifies. They are not part of
   - then a Tool Registry and a Policy Decision Point before any write;
   - the model never holds a broad token, and only verified outcomes close findings.
 
-  The prototype diagram is the north star.
+  The prototype diagram is inspiration, not a standard: each part is adopted only where it fits and is proven.
 - **Billing**, and plans and entitlements.
+- **Later workspace features:** scheduled audits with an email when they finish; domain ownership verification before deeper site probes; issue-tracker and chat integrations; API tokens; posting reviews and checks to GitHub through the App; audit context and free-text guidance, which belong to the AI layer.
 - **The infrastructure path** from the 5 October plan: Render and Neon while free; then one OVH VPS-3 behind Cloudflare, with off-provider encrypted backups, after load, restore and rollback tests; workers split first.
 - **Platform work:**
   - durable audit jobs;
@@ -561,5 +623,5 @@ These are separate plans, written after the beta qualifies. They are not part of
 
 - Anything in [After beta 0.0.1](#after-beta-001).
 - Additional repository providers; the product and golden qualification are GitHub-only.
-- New capabilities, other than the qualification probes this plan names.
+- New capabilities, other than the qualification probes and the three workspace views of Phase P.
 - Paid hosting, a custom domain or a second instance.

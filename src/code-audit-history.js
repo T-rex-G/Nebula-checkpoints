@@ -546,6 +546,20 @@ const ALERT_RECORD = `alert_key text, kind text, ecosystem text, package_name te
   ransomware boolean, kev_added date, kev_due date, epss numeric`;
 const SEVERITY_ORDER_SQL = `CASE f.severity WHEN 'critical' THEN 0 WHEN 'serious' THEN 1 ELSE 2 END`;
 const SCOPE_SQL = 'provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4 AND identity_key=$5';
+/*
+ * Each repository's latest audit by one identity, across a workspace: $1 the
+ * provider, $2 the authority, $3 the identity, $4 how many repositories. Every
+ * workspace statement starts from it, so none reaches a row another identity
+ * recorded.
+ */
+const WORKSPACE_SQL = `WITH latest AS (
+    SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
+           audit_id, owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete
+      FROM nv_code_audits
+     WHERE provider=$1 AND authority=$2 AND identity_key=$3
+     ORDER BY lower(owner_login), lower(repo_name), audited_at DESC, recorded_at DESC, audit_id DESC),
+  picked AS (SELECT audit_id, owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete
+               FROM latest ORDER BY audited_at DESC, audit_id LIMIT $4)`;
 
 class CodeAuditHistory {
   constructor(options) {
@@ -1042,6 +1056,130 @@ class CodeAuditHistory {
       mttr
     };
   }
+
+  /*
+   * Every repository this identity has audited, read together for the
+   * Overview. Each repository is represented by its latest audit, on whichever
+   * branch that was, and everything else is measured on that same branch so a
+   * repository is never counted twice.
+   *
+   * What the latest audit counted is what is open, with two corrections. A
+   * finding the audit recorded as covered by a team decision is open again
+   * when that decision has since been reopened or has expired. And a decision
+   * this identity made itself applies at once. A teammate's decision made
+   * after the audit is not applied -- this reads the decisions the auditor saw
+   * or made, never ones they could not see -- so the next audit is what moves
+   * it. Waivers in the code or in the licence policy are not findings.
+   *
+   * The weekly series are rolling seven-day windows ending now, `weeks` of
+   * them, newest first: a finding opened when an audit first saw it, and was
+   * fixed when an audit that read every file stopped seeing it.
+   */
+  async workspace({ provider, authority, identityKey, now = Date.now(), weeks = 12, repositoryLimit = 200 }) {
+    const where = requireScope({ provider, authority, owner: 'workspace', repo: 'workspace' });
+    const identity = requireIdentity(identityKey);
+    const span = Number.isSafeInteger(weeks) && weeks >= 1 && weeks <= 52 ? weeks : 12;
+    const limit = Number.isSafeInteger(repositoryLimit) && repositoryLimit >= 1 && repositoryLimit <= 500 ? repositoryLimit : 200;
+    const at = new Date(now).toISOString();
+    const mttrSince = new Date(now - this.limits.mttrWindowDays * 24 * 60 * 60 * 1000).toISOString();
+    const base = [where.provider, where.authority, identity, limit];
+    const audits = await this.pool.query(
+      `${WORKSPACE_SQL} SELECT owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete FROM picked
+        ORDER BY audited_at DESC, owner_login, repo_name`,
+      base
+    );
+    const findings = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT p.owner_login, p.repo_name, f.severity, f.category,
+              CASE
+                WHEN f.waived IN ('code', 'policy') THEN 'waived'
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule AND t.disposition = 'false-positive' THEN 'false-positive'
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule AND t.disposition = 'accepted-risk'
+                     AND t.expires_at > $5::timestamptz THEN 'accepted-risk'
+                ELSE 'open'
+              END AS state,
+              count(*)::integer AS n
+         FROM picked p
+         JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         LEFT JOIN nv_code_audit_triage t
+           ON t.provider=$1 AND t.authority=$2 AND t.owner_login=p.owner_login AND t.repo_name=p.repo_name AND t.finding_id=f.finding_id
+        GROUP BY 1, 2, 3, 4, 5`,
+      [...base, at]
+    );
+    const opened = await this.pool.query(
+      `${WORKSPACE_SQL},
+      seen AS (
+        SELECT f.first_seen_at AS at
+          FROM picked p JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         WHERE f.first_seen_at IS NOT NULL AND (f.waived IS NULL OR f.waived = 'triage')
+        UNION ALL
+        SELECT r.first_seen_at
+          FROM picked p JOIN nv_code_audit_resolutions r
+            ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+           AND r.identity_key=$3 AND r.ref_name=p.ref_name)
+       SELECT floor(extract(epoch FROM $5::timestamptz - at) / 604800)::integer AS weeks_ago, count(*)::integer AS n
+         FROM seen
+        WHERE at <= $5::timestamptz AND at > $5::timestamptz - make_interval(days => $6 * 7)
+        GROUP BY 1`,
+      [...base, at, span]
+    );
+    const fixed = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT floor(extract(epoch FROM $5::timestamptz - r.resolved_at) / 604800)::integer AS weeks_ago, count(*)::integer AS n
+         FROM picked p JOIN nv_code_audit_resolutions r
+           ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+          AND r.identity_key=$3 AND r.ref_name=p.ref_name
+        WHERE r.resolved_at <= $5::timestamptz AND r.resolved_at > $5::timestamptz - make_interval(days => $6 * 7)
+        GROUP BY 1`,
+      [...base, at, span]
+    );
+    const timing = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT r.severity, count(*)::integer AS n,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM r.resolved_at - r.first_seen_at)) AS median_s
+         FROM picked p JOIN nv_code_audit_resolutions r
+           ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+          AND r.identity_key=$3 AND r.ref_name=p.ref_name
+        WHERE r.resolved_at <= $5::timestamptz AND r.resolved_at >= $6::timestamptz
+        GROUP BY ROLLUP (r.severity)`,
+      [...base, at, mttrSince]
+    );
+    const days = seconds => (seconds === null || seconds === undefined ? null : Math.round((Number(seconds) / 86400) * 10) / 10);
+    const timeToFix = { windowDays: this.limits.mttrWindowDays, all: { count: 0, medianDays: null } };
+    for (const severity of SEVERITIES) timeToFix[severity] = { count: 0, medianDays: null };
+    for (const row of timing.rows) {
+      const entry = { count: Number(row.n), medianDays: days(row.median_s) };
+      if (row.severity === null) timeToFix.all = entry;
+      else if (SEVERITIES.includes(row.severity)) timeToFix[row.severity] = entry;
+    }
+    const weekly = rows => rows.rows
+      .map(row => ({ weeksAgo: Number(row.weeks_ago), count: Number(row.n) }))
+      .filter(row => Number.isSafeInteger(row.weeksAgo) && row.weeksAgo >= 0 && row.weeksAgo < span);
+    return {
+      weeks: span,
+      audits: audits.rows.map(row => ({
+        owner: row.owner_login,
+        repo: row.repo_name,
+        ref: row.ref_name,
+        auditedAt: new Date(row.audited_at).toISOString(),
+        score: Number(row.score),
+        grade: row.grade,
+        coverageComplete: row.coverage_complete === true
+      })),
+      findings: findings.rows.map(row => ({
+        owner: row.owner_login,
+        repo: row.repo_name,
+        severity: row.severity,
+        category: row.category,
+        state: row.state,
+        count: Number(row.n)
+      })),
+      opened: weekly(opened),
+      fixed: weekly(fixed),
+      timeToFix
+    };
+  }
+
 }
 
 /*

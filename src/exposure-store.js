@@ -1532,6 +1532,65 @@ class ExposureStore {
     })));
   }
 
+  /*
+   * How the findings of each repository's latest scan arrived and settled,
+   * as rolling seven-day windows ending at `now`, newest first. A finding
+   * opened when a scan first observed it. It is fixed only once the
+   * credential was proven rejected: removed from the tree is not fixed,
+   * because the history still holds it. Accepted risks are counted as they
+   * stand. The same latest scans, and the same version match, as the summary
+   * above, so the two can never disagree about which findings exist.
+   */
+  async workspaceTrend(input = {}) {
+    const provider = requireText(input.provider, 'Scan provider', 40);
+    const authority = requireText(input.authority, 'Scan authority', 255);
+    const identityKey = requireDigest(input.identityKey, 'Summary identity');
+    const weeks = Number.isSafeInteger(input.weeks) && input.weeks >= 1 && input.weeks <= 52 ? input.weeks : 12;
+    const now = new Date(Number.isFinite(input.now) ? input.now : Date.now()).toISOString();
+    const found = await this.#query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
+                owner_login, repo_name, rules_version, engine_version, fingerprint_key_version
+           FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND identity_key=$3
+            AND state IN ('complete', 'partial')
+          ORDER BY lower(owner_login), lower(repo_name), finished_at DESC, scan_id DESC
+          LIMIT $4)
+       SELECT finding.disposition,
+              LEAST(floor(extract(epoch FROM $5::timestamptz - finding.first_observed_at) / 604800), $6)::integer AS opened_ago,
+              CASE WHEN finding.disposition_at IS NULL THEN NULL
+                   ELSE LEAST(floor(extract(epoch FROM $5::timestamptz - finding.disposition_at) / 604800), $6)::integer END AS settled_ago,
+              count(*)::integer AS n
+         FROM latest
+         JOIN nv_exposure_findings AS finding
+           ON finding.provider=$1 AND finding.authority=$2 AND finding.identity_key=$3
+          AND finding.owner_login=latest.owner_login AND finding.repo_name=latest.repo_name
+          AND (finding.rules_version, finding.engine_version, finding.fingerprint_key_version)
+            = (latest.rules_version, latest.engine_version, latest.fingerprint_key_version)
+        WHERE finding.first_observed_at <= $5::timestamptz
+        GROUP BY 1, 2, 3`,
+      [provider, authority, identityKey, MAX_LIST_LIMIT * 5, now, weeks],
+      'summarise the workspace trend'
+    );
+    const opened = new Map();
+    const fixed = new Map();
+    let accepted = 0;
+    for (const row of found.rows) {
+      const count = Number(row.n) || 0;
+      const openedAgo = Number(row.opened_ago);
+      if (openedAgo >= 0 && openedAgo < weeks) opened.set(openedAgo, (opened.get(openedAgo) || 0) + count);
+      if (row.disposition === 'accepted-risk') accepted += count;
+      const settledAgo = row.settled_ago === null ? null : Number(row.settled_ago);
+      if (row.disposition === 'credential-rejected' && settledAgo !== null && settledAgo >= 0 && settledAgo < weeks) {
+        fixed.set(settledAgo, (fixed.get(settledAgo) || 0) + count);
+      }
+    }
+    const series = map => Object.freeze([...map.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([weeksAgo, count]) => Object.freeze({ weeksAgo, count })));
+    return Object.freeze({ weeks, opened: series(opened), fixed: series(fixed), accepted });
+  }
+
   async listFindings(input = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');

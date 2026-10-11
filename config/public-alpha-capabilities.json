@@ -206,6 +206,11 @@
           "Supported",
           "Provider-verified",
           "Exercised by the alpha.17 live-provider harness: a dispatched run of the fixture workflow is re-run once finished, and the provider reports its next attempt."
+        ],
+        "workspace.posture": [
+          "Supported",
+          "Deterministic",
+          "Read from the audit history, the exposure scans and the governance decisions this identity already holds; nothing is fetched from the provider, and a store that cannot answer is reported unmeasured, never clean."
         ]
       }
     }

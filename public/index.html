@@ -1203,6 +1203,27 @@
     </section>
 
     <!--
+      Security posture: how the code stands, beside how the session stands.
+      --------------------------------------------------------------------
+      The cards above read the session -- its credential, its recovery points,
+      what the deployment offers. This reads what the audits, the exposure
+      scans and governance already hold across every repository this account
+      has looked at (public/security-posture.js; the figures are decided on the
+      server in src/posture-summary.js). Full width, like the feed below it: a
+      weekly chart and a ranked list side by side do not fit a cell sized for
+      one figure.
+
+      Hidden until the deployment is known to offer it. A deployment that does
+      not offer the posture draws none of it, and never asks for it.
+    -->
+    <section class="wp-posture-section" id="wpPostureSection" hidden>
+      <article class="card wp-card wp-card-posture" id="wpPosture" aria-labelledby="ovPostureTitle">
+        <h2 class="sr-only" id="ovPostureTitle">Security posture</h2>
+        <div class="wp-body"></div>
+      </article>
+    </section>
+
+    <!--
       Recent activity: what happened, where the card above says how much.
       -------------------------------------------------------------------
       The activity card beside the trust score plots a trailing seven-day count
@@ -2049,6 +2070,7 @@
 <script src="/capability-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/security-posture.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/code-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/rendered-audit-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/nebula-visuals.js?v=__NV_ASSET_VERSION__"></script>

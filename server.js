@@ -183,7 +183,8 @@ const {
 } = require('./src/anonymous-readability-probe');
 const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
-const { createPostureReader } = require('./src/workspace-posture');
+const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
+const { summarizePosture } = require('./src/posture-summary');
 const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
@@ -4471,6 +4472,40 @@ function postureReader() {
 app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try { res.json(await postureReader().read(req.gh)); } catch (e) { fail(res, e); }
+});
+
+/*
+ * The security posture on the Overview: what the audit history, the exposure
+ * scans and the governance decisions already hold for this identity, read
+ * together (src/posture-summary.js). Nothing is fetched from the provider.
+ * Without a database there is nothing to read, and the page is told so
+ * rather than shown a clean workspace; a store that fails leaves its own part
+ * unmeasured and the rest standing.
+ */
+const POSTURE_WEEKS = 12;
+app.get('/api/workspace/security-posture', providerSessionAccess, capabilityAccess('workspace.posture'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const account = req.gh;
+    if (!account || (account.provider || 'github') !== 'github') {
+      throw Object.assign(new Error('Workspace posture requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
+    }
+    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
+    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
+    const provider = 'github';
+    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
+    const key = identityKey(account);
+    const now = Date.now();
+    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
+    const [audit, exposureRows, exposureTrend, merges] = await Promise.all([
+      settle(() => auditHistory().workspace({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
+      settle(() => exposureService().workspaceSummary({ provider, authority, identityKey: key })),
+      settle(() => exposureService().workspaceTrend({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
+      settle(() => ensureGovernanceStore().countMergeOutcomes({ actorIdentityKey: key, since: now - 7 * 24 * 60 * 60 * 1000 }))
+    ]);
+    const exposure = exposureRows ? { available: true, repositories: exposureSummary(exposureRows, exposureSeverityOf) } : null;
+    res.json({ available: true, ...summarizePosture({ audit, exposure, exposureTrend, merges, now, weeks: POSTURE_WEEKS }) });
+  } catch (e) { fail(res, e); }
 });
 
 async function governanceRepositoryFacts(req) {

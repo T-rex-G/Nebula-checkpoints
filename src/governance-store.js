@@ -2227,6 +2227,40 @@ class GovernanceStore {
     }
   }
 
+  /*
+   * How the merges one identity asked for were decided since a moment, as a
+   * count per enforcement outcome across every repository. Counts only: no
+   * repository, rule or decision leaves this, so it can sit on the Overview
+   * without reading anything the identity could not already see one
+   * repository at a time.
+   */
+  async countMergeOutcomes(input = {}) {
+    const identityKey = String(input.actorIdentityKey || '');
+    if (!/^[0-9a-f]{64}$/.test(identityKey)) {
+      throw new GovernanceError('Governance actor identity is invalid', 'GOVERNANCE_ACTOR_INVALID', 400);
+    }
+    const since = new Date(input.since);
+    if (!Number.isFinite(since.getTime())) {
+      throw new GovernanceError('Governance count start is invalid', 'GOVERNANCE_SINCE_INVALID', 400);
+    }
+    try {
+      const result = await this.pool.query(
+        `SELECT enforcement_outcome, count(*)::int AS n
+           FROM nv_governance_policy_decisions
+          WHERE actor_identity_key=$1 AND action='pull.merge' AND created_at >= $2
+          GROUP BY enforcement_outcome`,
+        [identityKey, since.toISOString()]
+      );
+      const counts = { allow: 0, warn: 0, block: 0 };
+      for (const row of result.rows) {
+        if (Object.prototype.hasOwnProperty.call(counts, row.enforcement_outcome)) counts[row.enforcement_outcome] = Number(row.n) || 0;
+      }
+      return Object.freeze(counts);
+    } catch (error) {
+      throw translateDatabaseError(error);
+    }
+  }
+
   async verifyPolicyDecisionChainInScope(input = {}) {
     const scope = normalizePolicyScope(input.scope);
     const maxRecords = boundedDecisionLimit(input.limit, 50000, 100000);

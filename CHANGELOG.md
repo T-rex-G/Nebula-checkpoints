@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### The workspace's security posture on the Overview
+
+- **How the code stands, beside how the session stands.** A new card between
+  the trust cards and the recent-activity feed reads what the audit history,
+  the exposure scans and governance already hold for the signed-in identity:
+  open findings by severity, what teams decided (accepted risks and false
+  positives), median time to fix over 90 days, how many repositories in the
+  inventory have been read, a twelve-week chart of findings opened and fixed,
+  where the open findings are by repository and by kind, and one sentence for
+  the week -- new findings, fixes and the merges governance gated.
+- **Nothing is fetched to draw it.** `GET /api/workspace/security-posture` is
+  gated by its own capability, `workspace.posture` (Supported,
+  Deterministic), never reads the session's credential and calls no provider.
+  Each repository is its latest audit, on whichever branch that was; a team
+  decision counts where the audit itself recorded it or where you made it
+  yourself, a teammate's later decision waits for the next audit, and an
+  expired or reopened one leaves the finding open. A leaked credential is fixed only once
+  its provider rejected it -- removed from the tree is not fixed.
+- **Unmeasured is never clean.** A store that does not answer leaves its part
+  unmeasured and says so; no database says so; a deployment that does not
+  offer the posture draws none of it and never asks.
+- **Every repository it names leads to its audit**, and the repositories the
+  inventory holds that neither system has read are named as such.
+- The chart can be read by hover, by its legend and by a table; opened and
+  fixed are two validated lightness steps per preset and theme. The store
+  reads are tested against PostgreSQL, the figures in isolation, and the card
+  in the browser at 320px in both presets and both themes, with an axe pass.
+
 ### Only what is Supported is offered
 
 - **No opt-in for anything less.** The 78 route opt-ins and every interface

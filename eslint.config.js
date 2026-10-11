@@ -79,6 +79,7 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/overlay-motion.js',
   'public/repo-sigil.js',
   'public/upload-planning.js',
+  'public/security-posture.js',
   'public/workspace-pulse.js'
 ]);
 

@@ -224,7 +224,14 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * resolutions and the metrics) and `src/code-audit-policy.js` (the clock) --
  * each tested on its own, against a real database where it keeps rows.
  */
-const SERVER_ROUTE_CEILING = 184;
+/*
+ * 184 to 185 adds the Overview's security posture: one read across the audit
+ * history, the exposure scans and the governance decisions the identity
+ * already holds. The handler calls the three stores and hands what they
+ * returned to `src/posture-summary.js`, which decides every figure and is
+ * tested on its own; the store queries are tested against a real database.
+ */
+const SERVER_ROUTE_CEILING = 185;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

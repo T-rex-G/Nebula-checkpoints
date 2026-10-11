@@ -1451,6 +1451,56 @@ async function claim(store, now = T0) {
         'another provider authority is another workspace'
       );
       await assert.rejects(store.workspaceSummary({ provider: 'github', authority: 'github.com', identityKey: 'nope' }), /sha-256/);
+
+      /*
+       * The same scans, as a weekly series for the Overview. Every finding of
+       * the newest scan arrived when it was first observed, whatever became of
+       * it; only a credential the provider rejected is fixed -- removed from
+       * the tree is not, its history still holds it -- and an accepted risk
+       * is counted as one. A failed scan and another identity's scan add
+       * nothing.
+       */
+      const DAY = 24 * 60 * 60 * 1000;
+      const TREND = 'e'.repeat(64);
+      const delta = Object.freeze({ ...scope, repo: 'PostureDelta' });
+      const epsilon = Object.freeze({ ...scope, repo: 'PostureEpsilon' });
+      await finish(delta, TREND, 'posture-00000005', clock, [
+        findingFixture('posture-d1', { rule: 'aws-access-key' }),
+        findingFixture('posture-d2', { rule: 'aws-access-key' }),
+        findingFixture('posture-d3', { rule: 'slack-webhook' }),
+        findingFixture('posture-d4', { rule: 'github-token' })
+      ]);
+      await store.acceptRisk({ scope: delta, fingerprint: fingerprint('posture-d4'), identityKey: TREND, actor: 'alice', now: clock + 100 });
+      await pool.query(
+        `UPDATE nv_exposure_findings SET disposition='removed-from-tree', disposition_at=$2
+          WHERE repo_name='PostureDelta' AND fingerprint=$1`,
+        [fingerprint('posture-d3'), new Date(clock + 200)]
+      );
+      await finish(epsilon, TREND, 'posture-00000006', clock + 2000, [findingFixture('posture-e1')], 'failed');
+      await finish(epsilon, OTHER_IDENTITY, 'posture-00000007', clock + 3000, [findingFixture('posture-e2')]);
+      const trend = input => store.workspaceTrend({ provider: 'github', authority: 'github.com', identityKey: TREND, weeks: 12, ...input });
+      const before = await trend({ now: clock + DAY });
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(before)), {
+        weeks: 12, opened: [{ weeksAgo: 0, count: 4 }], fixed: [], accepted: 1
+      }, 'four arrived this week, none is fixed, one is an accepted risk, and the failed scan adds nothing');
+      await pool.query(
+        `UPDATE nv_exposure_findings SET disposition='credential-rejected', disposition_at=$2
+          WHERE repo_name='PostureDelta' AND fingerprint=$1`,
+        [fingerprint('posture-d2'), new Date(clock + 300)]
+      );
+      const rejected = await trend({ now: clock + 8 * DAY });
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(rejected.opened)), [{ weeksAgo: 1, count: 4 }],
+        'a week on, the same arrivals sit one window back');
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(rejected.fixed)), [{ weeksAgo: 1, count: 1 }],
+        'a credential the provider rejected is the one fixed; removed from the tree is not');
+      assert.deepStrictEqual(JSON.parse(JSON.stringify((await trend({ now: clock + 100 * DAY })).opened)), [],
+        'arrivals older than the window are not in it');
+      assert.deepStrictEqual(JSON.parse(JSON.stringify((await trend({ now: clock - DAY })).opened)), [],
+        'nothing observed after the moment asked about is counted');
+      for (const [target, identity] of [[delta, TREND], [epsilon, TREND], [epsilon, OTHER_IDENTITY]]) {
+        await store.clearHistory({ scope: target, identityKey: identity });
+      }
+      await assert.rejects(store.workspaceTrend({ provider: 'github', authority: 'github.com', identityKey: 'nope' }), /sha-256/);
       for (const [target, identity] of [[alpha, IDENTITY], [beta, IDENTITY], [gamma, IDENTITY], [gamma, OTHER_IDENTITY]]) {
         await store.clearHistory({ scope: target, identityKey: identity });
       }
@@ -1556,11 +1606,18 @@ async function claim(store, now = T0) {
       await review.checkStoreBoundaries(reviewPool);
       await withClient(reviewUrl, review.checkLegacyUpgrade);
     } finally {
+      reviewPool.on('error', () => {});
       await reviewPool.end();
       await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${reviewDatabase} WITH (FORCE)`));
     }
     console.log('exposure store tests passed');
   } finally {
+    /*
+     * pool.end() resolves once its clients are handed back, not once their
+     * sockets have closed, so the forced drop below can still reach one that is
+     * on its way out. That termination is the teardown working, not a failure.
+     */
+    pool.on('error', () => {});
     await pool.end();
     await withClient(ADMIN_URL, client => client.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`));
   }

@@ -4208,6 +4208,113 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * grid cell sized for a number. Commit subjects run long; in a 330px column
  * every row wraps to three lines and the card becomes a wall.
  */
+/* ---- security posture ---------------------------------------------------
+ * What the audits, exposure scans and governance hold across the workspace,
+ * between the trust cards and the feed. It takes the container's full width,
+ * like the feed, because a weekly chart and a ranked list side by side need
+ * more than a grid cell sized for one figure.
+ *
+ * Opened and fixed are two series of one hue at two lightness steps, run
+ * through the palette validator per preset and theme against the card
+ * surface. Obsidian stays achromatic, as every chart in that preset does, and
+ * separates them by lightness alone. Neither is ever the only cue: the legend
+ * names them, each week's tooltip states both, and the table beneath has them
+ * as numbers.
+ */
+:root, [data-theme="dark"]{ --pp-opened:#9A77F7; --pp-fixed:#6D28D9; }
+[data-theme="light"]{ --pp-opened:#5B21B6; --pp-fixed:#8B5CF6; }
+[data-design="obsidian"]{ --pp-opened:#EDEDEF; --pp-fixed:#72767E; }
+[data-design="obsidian"][data-theme="light"]{ --pp-opened:#1C1917; --pp-fixed:#A8A29E; }
+
+.wp-posture-section{margin-top:16px}
+.wp-card-posture{padding:18px 18px 12px}
+.pp-head{flex-wrap:wrap}
+.pp-scope{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.05em;color:var(--fg3)}
+.pp-week{margin:12px 0 0;font-family:var(--font-display);font-weight:700;font-size:1.05rem;
+  line-height:1.35;color:var(--fg);letter-spacing:-.01em;overflow-wrap:anywhere}
+
+.pp-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.pp-tile{min-width:0;padding:12px 12px 11px;border:1px solid var(--cb);border-radius:12px}
+.pp-tile-label{margin:0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg3)}
+.pp-tile-figure{margin:6px 0 0;font-family:var(--font-display);font-weight:700;font-size:1.55rem;
+  line-height:1.05;color:var(--fg);letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pp-tile-detail{margin:6px 0 0;font-size:12px;line-height:1.45;color:var(--fg2);overflow-wrap:anywhere}
+.pp-sevwords{display:block;margin-top:6px}
+
+/* A bar split by severity: 2px of surface between segments, 4px ends. */
+.pp-sevbar{display:flex;gap:2px;width:100%;height:6px;border-radius:4px;overflow:hidden;background:var(--wp-track)}
+.pp-sevbar-part{display:block;min-width:4px;height:100%;border-radius:2px}
+.pp-sev-critical{background:var(--sev-critical)}
+.pp-sev-serious{background:var(--sev-serious)}
+.pp-sev-warning{background:var(--sev-warning)}
+
+.pp-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:22px;margin-top:18px;
+  padding-top:16px;border-top:1px solid var(--hair)}
+@media (max-width:900px){ .pp-grid{grid-template-columns:minmax(0,1fr)} }
+.pp-panel{min-width:0}
+.pp-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pp-panel-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:.92rem;color:var(--fg);letter-spacing:-.01em}
+.pp-sub-title{margin:16px 0 0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg3);font-weight:500}
+
+.pp-legend{display:flex;gap:14px;font-size:12px;color:var(--fg2)}
+.pp-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.pp-swatch{width:10px;height:10px;border-radius:3px}
+.pp-swatch-opened{background:var(--pp-opened)}
+.pp-swatch-fixed{background:var(--pp-fixed)}
+
+.pp-plot{position:relative;min-width:0;margin-top:10px}
+.pp-chart{position:relative}
+.pp-chart-svg{display:block;width:100%;height:auto;color:var(--wp-muted);overflow:visible}
+.pp-chart-svg .pp-gridline{stroke:currentColor;stroke-width:1;opacity:.16}
+.pp-chart-svg .pp-axis{stroke:currentColor;stroke-width:1;opacity:.4}
+.pp-chart-svg .pp-tick{fill:var(--fg3);font-family:var(--font-mono);font-size:10px}
+.pp-bar-opened{fill:var(--pp-opened)}
+.pp-bar-fixed{fill:var(--pp-fixed)}
+.pp-hit{fill:transparent;cursor:default}
+.pp-hit.is-hover{fill:currentColor;fill-opacity:.07}
+.pp-tip{position:absolute;top:0;transform:translateX(-50%);padding:5px 9px;border-radius:8px;
+  border:1px solid var(--hair);background:var(--shellSolid);color:var(--fg);font-size:12px;
+  white-space:nowrap;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+
+.pp-repos{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:9px}
+.pp-repo{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 10px}
+.pp-repo .pp-sevbar{grid-column:1 / -1}
+.pp-repo-name,.pp-chip{appearance:none;border:0;background:none;padding:0;color:var(--fg);font:inherit;
+  font-size:13px;text-align:left;cursor:pointer;min-width:0;overflow-wrap:anywhere}
+.pp-repo-name{min-height:28px}
+.pp-repo-name:hover,.pp-chip:hover{text-decoration:underline;text-underline-offset:3px}
+.pp-repo-name:focus-visible,.pp-chip:focus-visible{outline:2px solid var(--focus,var(--fg));outline-offset:2px;border-radius:4px}
+.pp-repo-count{font-family:var(--font-mono);font-size:12px;color:var(--fg2);font-variant-numeric:tabular-nums}
+
+.pp-cats{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px}
+.pp-cat{display:grid;grid-template-columns:minmax(0,9.5em) minmax(0,1fr) auto;align-items:center;gap:10px;font-size:12.5px}
+.pp-cat-name{color:var(--fg2);min-width:0;overflow-wrap:anywhere}
+.pp-cat-track{display:block;height:6px;border-radius:4px;background:var(--wp-track);overflow:hidden}
+.pp-cat-fill{display:block;height:100%;border-radius:4px;background:var(--pp-opened)}
+.pp-cat-count{font-family:var(--font-mono);font-size:12px;color:var(--fg2);font-variant-numeric:tabular-nums}
+
+.pp-unread{margin-top:16px;padding-top:12px;border-top:1px solid var(--hair)}
+.pp-unread-label{margin:0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--fg3)}
+.pp-unread-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pp-chip{max-width:100%;min-height:32px;padding:6px 12px;line-height:1.3;border:1px solid var(--cb);border-radius:16px;font-size:12.5px;color:var(--fg2)}
+.pp-chip:hover{color:var(--fg)}
+.pp-chip-more{display:inline-flex;align-items:center;min-height:32px;font-size:12.5px;color:var(--fg3)}
+
+.pp-empty{margin-top:12px}
+.pp-empty-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:.98rem;color:var(--fg)}
+.pp-empty-text{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--fg2);max-width:62ch}
+
+@media (max-width:560px){
+  .wp-card-posture{padding:16px 14px 10px}
+  .pp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pp-tile-figure{font-size:1.3rem}
+  /* On a phone the name keeps its own line rather than giving up letters to the bar. */
+  .pp-cat{grid-template-columns:minmax(0,1fr) auto;row-gap:5px}
+  .pp-cat-track{grid-column:1 / -1;grid-row:2}
+}
+
 .wp-feed-section{margin-top:16px}
 .wp-card-feed{padding:18px 18px 8px}
 .wp-feed-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px}

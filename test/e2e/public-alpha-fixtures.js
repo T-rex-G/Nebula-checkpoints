@@ -199,6 +199,8 @@ function normalizedScenario(input = {}) {
     provider: input.provider || 'github',
     capabilities: input.capabilities || 'available',
     promote: Array.isArray(input.promote) ? input.promote : [],
+    demote: Array.isArray(input.demote) ? input.demote : [],
+    securityPosture: input.securityPosture || 'ready',
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -237,7 +239,47 @@ function sanitized(payload) {
  * qualification are still exercised, while every other test sees exactly what
  * the registry offers -- which, for those four, is nothing drawn at all.
  */
-function capabilityProjection(provider, authMethod = 'token', availability = 'available', promote = []) {
+/* A twelve-week reading of the one sandbox repository, the shape the route answers with. */
+function securityPostureFixture(kind) {
+  const now = Date.now();
+  const measured = { audit: 'measured', exposure: 'measured', governance: kind === 'partial' ? 'unavailable' : 'measured' };
+  if (kind === 'empty') {
+    return {
+      available: true, generatedAt: new Date(now).toISOString(), weeks: 12, sources: measured,
+      open: { critical: 0, serious: 0, warning: 0, total: 0 }, triaged: { acceptedRisk: 0, falsePositive: 0 },
+      week: { opened: 0, fixed: 0, gated: 0, warned: 0 }, window: { opened: 0, fixed: 0 },
+      trend: Array.from({ length: 12 }, (_, index) => ({ weeksAgo: 11 - index, opened: 0, fixed: 0 })),
+      timeToFix: null, categories: [], top: [], repositories: []
+    };
+  }
+  const weekly = { 0: [3, 1], 2: [4, 2], 5: [2, 2] };
+  const open = { critical: 1, serious: 3, warning: 2, total: 6 };
+  return {
+    available: true,
+    generatedAt: new Date(now).toISOString(),
+    weeks: 12,
+    sources: measured,
+    open,
+    triaged: { acceptedRisk: 2, falsePositive: 1 },
+    week: { opened: 3, fixed: 1, gated: kind === 'partial' ? null : 2, warned: kind === 'partial' ? null : 0 },
+    window: { opened: 9, fixed: 5 },
+    trend: Array.from({ length: 12 }, (_, index) => {
+      const weeksAgo = 11 - index;
+      const [opened, fixed] = weekly[weeksAgo] || [0, 0];
+      return { weeksAgo, opened, fixed };
+    }),
+    timeToFix: { windowDays: 90, all: { count: 5, medianDays: 4.5 }, critical: { count: 1, medianDays: 2 }, serious: { count: 3, medianDays: 5 }, warning: { count: 1, medianDays: 9 } },
+    categories: [
+      { category: 'dependencies', critical: 0, serious: 3, warning: 0, total: 3 },
+      { category: 'leaked-credentials', critical: 1, serious: 0, warning: 1, total: 2 },
+      { category: 'code', critical: 0, serious: 0, warning: 1, total: 1 }
+    ],
+    top: [{ owner: 'sandbox', repo: 'demo', open, audit: { at: new Date(now - 86400000).toISOString(), ref: 'main', grade: 'C', score: 71, complete: true }, exposure: { at: new Date(now - 3600000).toISOString(), partial: false } }],
+    repositories: [{ owner: 'sandbox', repo: 'demo', open, audit: { at: new Date(now - 86400000).toISOString(), ref: 'main', grade: 'C', score: 71, complete: true }, exposure: { at: new Date(now - 3600000).toISOString(), partial: false } }]
+  };
+}
+
+function capabilityProjection(provider, authMethod = 'token', availability = 'available', promote = [], demote = []) {
   const projected = sanitized(projectCapabilities(capabilityDocument, {
     provider,
     authority: 'github.com',
@@ -255,6 +297,11 @@ function capabilityProjection(provider, authMethod = 'token', availability = 'av
     if (!projection.features[feature]) throw new Error(`cannot promote unknown capability ${feature}`);
     if (projection.features[feature].status === 'Unavailable') continue;
     projection.features[feature] = { ...projection.features[feature], status: 'Supported', evidenceState: 'Deterministic' };
+  }
+  /* And the reverse: a capability a scenario treats as not yet offered, to see that nothing of it is drawn. */
+  for (const feature of demote) {
+    if (!projection.features[feature]) throw new Error(`cannot demote unknown capability ${feature}`);
+    projection.features[feature] = { ...projection.features[feature], status: 'Experimental', evidenceState: 'Inferred' };
   }
   return projection;
 }
@@ -436,7 +483,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
       });
     }
-    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities, scenario.promote));
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities, scenario.promote, scenario.demote));
     /*
      * The safety state as the hosted alpha answers it: repository-scoped
      * locks that change, global switches that belong to the deployment.
@@ -490,6 +537,18 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         },
         boundary: { state: 'online', database: 'ready', maintenance: false }
       });
+    }
+    /*
+     * The Overview's security posture: what the audits, scans and governance
+     * hold for this identity. `securityPosture` selects a workspace with
+     * findings (`ready`), one nothing has read yet (`empty`), a database that
+     * did not answer (`unavailable`), governance that could not be read
+     * (`partial`) and a failed request (`error`).
+     */
+    if (pathname === '/api/workspace/security-posture') {
+      if (scenario.securityPosture === 'error') return fulfill({ error: 'Service unavailable', code: 'SERVICE_UNAVAILABLE' }, 503);
+      if (scenario.securityPosture === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
+      return fulfill(securityPostureFixture(scenario.securityPosture));
     }
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {

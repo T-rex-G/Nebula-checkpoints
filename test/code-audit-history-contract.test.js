@@ -93,7 +93,7 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   assert(statements.length >= 16, `the statement scan must find statements: ${statements.length}`);
   const unscoped = [];
   for (const statement of statements) {
-    if (/identity_key|\$\{SCOPE_SQL\}/.test(statement)) continue;
+    if (/identity_key|\$\{SCOPE_SQL\}|\$\{WORKSPACE_SQL\}/.test(statement)) continue;
     /*
      * The findings and components of an audit inserted in the same transaction,
      * a statement ago, under the identity it was inserted with: the only
@@ -104,6 +104,8 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   }
   assert.deepStrictEqual(unscoped, [], 'a statement reaches audit rows without an identity or a stated exception');
   assert(/const SCOPE_SQL = 'provider=\$1 AND authority=\$2 AND owner_login=\$3 AND repo_name=\$4 AND identity_key=\$5'/.test(storeSource));
+  assert(/const WORKSPACE_SQL = `WITH latest AS \([^`]*FROM nv_code_audits\s+WHERE provider=\$1 AND authority=\$2 AND identity_key=\$3\s/.test(storeSource),
+    'the workspace reads start from one identity\'s audits');
   /* The alert insert is reached only after the audit row was updated under the identity, and returned early if it was not. */
   assert(/if \(!updated\.rowCount\) return null;[\s\S]*INSERT INTO nv_code_audit_alerts/.test(storeSource));
 }

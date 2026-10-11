@@ -1767,6 +1767,7 @@ async function boot() {
        asked; not awaited, so the marker never delays the first screen. */
     refreshUnread();
     loadPosture();
+    loadSecurityPosture();
     loadRepos(true);
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
@@ -2100,6 +2101,7 @@ function showOverview() {
   renderWorkspacePulse();
   loadScannerPosture();
   loadPosture();
+  loadSecurityPosture();
   loadActivityFeed();
   showPage('overview');
 }
@@ -2254,12 +2256,13 @@ const POSTURE_TTL_MS = 60 * 1000;
 let postureRequest = 0;
 let postureAt = 0;
 /* Anything that changes what the posture reports marks it for re-reading. */
-function invalidatePosture() { postureAt = 0; }
+function invalidatePosture() { postureAt = 0; securityPostureAt = 0; }
 function clearPosture() {
   postureRequest++;
   postureAt = 0;
   state.posture = null;
   paintBoundary(null);
+  clearSecurityPosture();
 }
 async function loadPosture(force) {
   if (!state.me) return;
@@ -2279,6 +2282,59 @@ async function loadPosture(force) {
     paintBoundary({ state: isOfflineError(error) ? 'offline' : 'unreachable' });
   }
   renderWorkspacePulse();
+}
+
+/*
+ * The security posture card (public/security-posture.js), on the posture's
+ * own terms: one request, re-read at most once a minute, bound to the identity
+ * that asked, and not asked at all by a deployment that does not offer it.
+ * The repositories nobody has read come from the inventory the session holds,
+ * so the card is drawn again whenever that changes.
+ */
+let securityPostureRequest = 0;
+let securityPostureAt = 0;
+function clearSecurityPosture() {
+  securityPostureRequest++;
+  securityPostureAt = 0;
+  state.securityPosture = null;
+}
+function securityPostureOffered() {
+  return Boolean(window.NebulaCapabilityUI) && window.NebulaCapabilityUI.decision('workspace.posture').status === 'Supported';
+}
+async function openRepositoryTool(owner, repo, tab) {
+  const opened = await openRepo(owner, repo);
+  if (opened) switchTab(tab);
+}
+function renderSecurityPosture() {
+  const section = $('#wpPostureSection');
+  const host = $('#wpPosture .wp-body');
+  if (!section || !host || !window.NebulaSecurityPosture) return;
+  section.hidden = !securityPostureOffered();
+  if (section.hidden) return;
+  window.NebulaSecurityPosture.render(host, window.NebulaSecurityPosture.model(state.securityPosture, state.repos), {
+    audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); }
+  });
+}
+async function loadSecurityPosture(force) {
+  if (!state.me) return;
+  if (!securityPostureOffered()) { renderSecurityPosture(); return; }
+  if (!force && securityPostureAt && Date.now() - securityPostureAt < POSTURE_TTL_MS) { renderSecurityPosture(); return; }
+  const request = ++securityPostureRequest;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const stale = () => request !== securityPostureRequest || epoch !== state.uiEpoch || identity !== state.me;
+  securityPostureAt = Date.now();
+  if (!state.securityPosture) renderSecurityPosture();
+  try {
+    const summary = await api('/api/workspace/security-posture');
+    if (stale()) return;
+    state.securityPosture = summary && typeof summary === 'object' ? summary : { available: false, reason: 'unreadable' };
+  } catch (error) {
+    if (stale()) return;
+    securityPostureAt = 0;
+    state.securityPosture = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
+  }
+  renderSecurityPosture();
 }
 
 /*
@@ -2408,6 +2464,7 @@ function renderWorkspacePulse(repos) {
   paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
   if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
+  renderSecurityPosture();
 }
 
 /*

@@ -12,7 +12,7 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 
 const RUN_ID = 'run-4096';
@@ -26,7 +26,9 @@ function environment() {
     NV_ALPHA17_WORKFLOW_RUN_ID: RUN_ID,
     NV_ALPHA17_REPOSITORY: repository,
     NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
-    NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
+    NV_ALPHA17_MUTATION_CREDENTIAL: FIXTURE_CREDENTIALS.mutation,
+    NV_ALPHA17_REPOSITORY_ADMIN_CREDENTIAL: FIXTURE_CREDENTIALS.repositoryAdmin,
+    NV_ALPHA17_NOTIFICATIONS_CREDENTIAL: FIXTURE_CREDENTIALS.notifications,
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
     NV_ALPHA17_GITHUB_API_URL: 'https://api.github.com',
     NV_ALPHA17_GITHUB_LFS_URL: 'https://github.com',
@@ -135,7 +137,8 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
       refResolved: true, treeBound: true, blobTextMatched: true, historyReached: true
     });
     assert.strictEqual(byKey.get('folder-move').filesMoved, 2, 'the move must carry a nested path and a second file');
-    for (const key of ['file-rename', 'folder-move', 'issue-write', 'pull-write', 'release-write', 'star-toggle', 'code-search', 'workflow-rerun']) {
+    for (const key of ['file-rename', 'folder-move', 'issue-write', 'pull-write', 'release-write', 'star-toggle', 'code-search', 'workflow-rerun',
+      'repository-create', 'repository-delete', 'notifications-read']) {
       const check = byKey.get(key);
       assert(check && check.status === 'pass', `${key} must pass against a correct provider`);
       for (const [field, value] of Object.entries(check)) {
@@ -144,6 +147,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     }
     /* And the provider is left as it was found: nothing the probes made survives but a closed issue and a merged pull request. */
     assert.deepStrictEqual([...fixture.state.branches.keys()], ['main']);
+    assert.strictEqual(fixture.state.ownedRepositories.size, 0, 'the disposable repository is gone');
     assert.strictEqual(fixture.state.starred, false);
     assert.deepStrictEqual([...fixture.state.tags.keys()], ['fixture']);
     assert.deepStrictEqual([...fixture.state.releases.keys()], [21]);
@@ -349,6 +353,61 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
   ));
   expectUnmet('a re-run that is acknowledged and never starts', 'workflow-rerun', 'attemptAdvanced', async request => (
     request.method === 'POST' && request.pathname.endsWith('/rerun') ? reply(201, {}) : null
+  ));
+
+  /* ---- repository-create / repository-delete ---------------------------- */
+  const ADMIN = 'alpha17-fixture-qualification';
+  const REPOSITORY_NAME = `${PREFIX}-repository`;
+  const ownRepository = request => request.pathname === `/repos/${ADMIN}/${REPOSITORY_NAME}`;
+  const asAdmin = request => request.authorization.endsWith(FIXTURE_CREDENTIALS.repositoryAdmin);
+  const asMutation = request => request.authorization.endsWith(FIXTURE_CREDENTIALS.mutation);
+  expectUnmet('a create the provider refuses', 'repository-create', 'createdReadBack', async request => (
+    request.method === 'POST' && request.pathname === '/user/repos' ? reply(403, { message: 'refused' }) : null
+  ));
+  expectUnmet('a repository that does not answer by the identity its create gave it', 'repository-create', 'readBackById', async request => (
+    request.method === 'GET' && /^\/repositories\/\d+$/.test(request.pathname) ? reply(404, { message: 'Not Found' }) : null
+  ));
+  falsify('a create whose readback names another repository is left for the operator, never deleted',
+    () => run(async (request, pass) => {
+      if (request.method !== 'GET' || !ownRepository(request) || !asAdmin(request)) return null;
+      const found = await (await pass()).json();
+      return reply(200, { ...found, id: found.id + 1 });
+    }),
+    error => error && error.code === 'ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE' && error.message.includes(`${ADMIN}/${REPOSITORY_NAME}`));
+  expectUnmet('a repository-confined credential the product would let delete', 'repository-delete', 'unprivilegedRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'GET' || !ownRepository(request) || !asMutation(request)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${FIXTURE_CREDENTIALS.repositoryAdmin}` } });
+  });
+  expectUnmet('an administration credential that is not an administrator', 'repository-delete', 'administratorVerified', async (request, pass) => {
+    if (request.method !== 'GET' || !ownRepository(request) || !asAdmin(request)) return null;
+    const answer = await pass();
+    if (answer.status !== 200) return answer;
+    return reply(200, { ...(await answer.json()), permissions: { admin: false } });
+  });
+  expectUnmet('a deleted repository that still answers by name', 'repository-delete', 'absentByName', async (request, pass, context) => {
+    if (request.method === 'DELETE' && ownRepository(request)) context.memo.deleted = await (await pass()).status;
+    if (request.method === 'GET' && ownRepository(request) && context.memo.deleted) {
+      return reply(200, { id: 1, full_name: `${ADMIN}/${REPOSITORY_NAME}`, default_branch: 'main', permissions: { admin: true } });
+    }
+    return request.method === 'DELETE' && ownRepository(request) ? reply(204) : null;
+  });
+  expectUnmet('a deleted repository that still answers by identity', 'repository-delete', 'absentById', async (request, pass, context) => {
+    if (request.method === 'DELETE' && ownRepository(request)) { context.memo.deleted = true; return pass(); }
+    if (request.method === 'GET' && /^\/repositories\/\d+$/.test(request.pathname) && context.memo.deleted) {
+      return reply(200, { id: Number(request.pathname.split('/').pop()), full_name: `${ADMIN}/${REPOSITORY_NAME}` });
+    }
+    return null;
+  });
+
+  /* ---- notifications-read ------------------------------------------------ */
+  expectUnmet('an inbox that does not answer', 'notifications-read', 'inboxRead', async request => (
+    request.method === 'GET' && request.pathname === '/notifications' && !asMutation(request) ? reply(500, { message: 'unavailable' }) : null
+  ));
+  expectUnmet('a repository-scoped inbox that is refused', 'notifications-read', 'scopedRead', async request => (
+    request.method === 'GET' && request.pathname.endsWith('/notifications') && request.pathname.startsWith('/repos/') ? reply(403, { message: 'refused' }) : null
+  ));
+  expectUnmet('a provider that serves notifications to a fine-grained token', 'notifications-read', 'providerRefusesFineGrained', async request => (
+    request.method === 'GET' && request.pathname === '/notifications' && asMutation(request) ? reply(200, []) : null
   ));
 
   /*

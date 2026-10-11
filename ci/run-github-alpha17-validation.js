@@ -11,6 +11,13 @@ const {
   runProviderQualification
 } = require('./provider-alpha17-common');
 const exposureReader = require('../src/exposure-reader');
+const {
+  createVerifiedRepository,
+  verifyRepositoryDeletion,
+  listAccessibleNotifications,
+  githubTokenKind,
+  connectionRestriction
+} = require('../src/github-account-operations');
 const { requireGithubOrigin } = require('./verify-alpha17-authorization');
 
 /*
@@ -55,11 +62,26 @@ function createGithubClient({ env, fetchImpl }) {
   const baseUrl = new URL(requireGithubOrigin(env.NV_ALPHA17_GITHUB_API_URL || 'https://api.github.com', 'api'));
   const mutationCredential = required(env, 'NV_ALPHA17_MUTATION_CREDENTIAL');
   const readOnlyCredential = required(env, 'NV_ALPHA17_READ_ONLY_CREDENTIAL');
+  /*
+   * One more credential per proof that the two above must never be widened
+   * for: repository administration, confined to a dedicated qualification
+   * account, which creates one disposable repository and deletes only that
+   * one; and a classic notification credential, the kind of connection the
+   * product serves notifications to.
+   */
+  const repositoryAdminCredential = required(env, 'NV_ALPHA17_REPOSITORY_ADMIN_CREDENTIAL');
+  const notificationsCredential = required(env, 'NV_ALPHA17_NOTIFICATIONS_CREDENTIAL');
+  const CREDENTIAL_LABELS = Object.freeze({
+    mutation: 'mutation', readOnly: 'read-only', repositoryAdmin: 'repository administration', notifications: 'notification'
+  });
   const repositoryPath = repository.split('/').map(encodeURIComponent).join('/');
   const api = pathname => new URL(pathname, `${baseUrl.toString().replace(/\/$/, '')}/`).toString();
 
   function headers(kind) {
-    const credential = kind === 'readOnly' ? readOnlyCredential : mutationCredential;
+    const credential = kind === 'readOnly' ? readOnlyCredential
+      : kind === 'repositoryAdmin' ? repositoryAdminCredential
+        : kind === 'notifications' ? notificationsCredential
+          : mutationCredential;
     return {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${credential}`,
@@ -1327,8 +1349,157 @@ function createGithubClient({ env, fetchImpl }) {
       notRun('release-write', { createdReadBack: false, tagAtTarget: false, cleanupAbsent: false }),
       notRun('star-toggle', { starVisible: false, unstarVisible: false, initialStateRestored: false }),
       notRun('code-search', { fixtureFound: false, resultsScoped: false, absentDiscriminated: false }),
-      notRun('workflow-rerun', { dispatchedRunCompleted: false, rerunAccepted: false, attemptAdvanced: false })
+      notRun('workflow-rerun', { dispatchedRunCompleted: false, rerunAccepted: false, attemptAdvanced: false }),
+      notRun('repository-create', { identityChecked: false, createdReadBack: false, readBackById: false, defaultRefReported: false }),
+      notRun('repository-delete', { unprivilegedRefused: false, administratorVerified: false, absentByName: false, absentById: false }),
+      notRun('notifications-read', { classicConnection: false, inboxRead: false, scopedRead: false, productRefusesFineGrained: false, providerRefusesFineGrained: false })
     ];
+  }
+
+  /* The product's own request shape -- a route and options in, the parsed body out -- under one credential. */
+  function productRequest(kind) {
+    return async (route, options = {}) => {
+      const response = await requestJson(fetchImpl, api(String(route).replace(/^\/+/, '')), {
+        method: options.method || 'GET',
+        headers: headers(kind),
+        body: options.body,
+        allowedStatuses: [200, 201, 202, 204],
+        credentialLabel: CREDENTIAL_LABELS[kind]
+      });
+      return response.data;
+    };
+  }
+  async function readAs(kind, pathname) {
+    return requestJson(fetchImpl, api(pathname), { headers: headers(kind), allowedStatuses: [200, 404], credentialLabel: CREDENTIAL_LABELS[kind] });
+  }
+  const sameName = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+  const safeCode = error => (error && /^[A-Z0-9_]{3,80}$/.test(String(error.code || '')) ? String(error.code) : 'UNRECOGNIZED');
+  const REFUSALS = new Set(['ALPHA17_PROVIDER_REQUEST_FAILED', 'ALPHA17_PERMISSION_DENIED', 'REPOSITORY_DELETE_PERMISSION_REQUIRED', 'PROVIDER_REPOSITORY_MISMATCH']);
+
+  /*
+   * repository.create and repository.delete, through the product's own
+   * create and delete-verification code, on one disposable repository named
+   * for this run in the qualification account:
+   *
+   *   identityChecked        the product confirmed the credential is the
+   *                          account it creates for before creating;
+   *   createdReadBack        the repository it returned is the one it read back
+   *                          by name, with the identity the create gave it;
+   *   readBackById           and the same repository answers by that identity;
+   *   defaultRefReported  with a default branch, as the product reports it;
+   *   unprivilegedRefused    the repository-confined credential is refused
+   *                          before any delete -- the product's own check;
+   *   administratorVerified  the administration credential is verified as an
+   *                          administrator of exactly that repository;
+   *   absentByName/ById      after the delete, neither its name nor its
+   *                          identity answers.
+   *
+   * Nothing but the repository this run created is ever deleted: the delete is
+   * sent only when the name is this run's and the identity is the one created.
+   * If anything fails after the create, the repository is still removed, or
+   * the run says by name that it could not be.
+   */
+  async function repositoryLifecycleChecks({ prefix }) {
+    const name = `${prefix}-repository`;
+    const admin = productRequest('repositoryAdmin');
+    const viewer = await admin('/user');
+    const account = { login: String(viewer && viewer.login || ''), providerAccountId: Number(viewer && viewer.id || 0), authMethod: 'token' };
+    const fullName = `${account.login}/${name}`;
+    const createFailed = extra => ({ key: 'repository-create', status: 'fail', statusClass: '2xx', identityChecked: false, createdReadBack: false, readBackById: false, defaultRefReported: false, ...extra });
+    const deleteNotRun = () => ({ key: 'repository-delete', status: 'fail', statusClass: '2xx', unprivilegedRefused: false, administratorVerified: false, absentByName: false, absentById: false });
+    let created;
+    try {
+      created = await createVerifiedRepository(admin, account, {
+        name, description: 'Disposable Nebulaverse-X qualification repository, deleted by the run that created it.', isPrivate: true, autoInit: true
+      });
+    } catch {
+      /*
+       * The product never deletes after a create it could not verify, and
+       * neither does the proof: a repository under this run's name is left for
+       * the operator to inspect, and the run says so by name.
+       */
+      const leftover = await readAs('repositoryAdmin', `repos/${fullName}`).catch(() => ({ status: 0 }));
+      if (leftover.status !== 404) {
+        fail(`the create of ${fullName} could not be verified and the repository may exist; inspect it and delete it by hand`, 'ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE');
+      }
+      return [createFailed(), deleteNotRun()];
+    }
+    let removed = false;
+    const removeCreated = async () => {
+      const current = await readAs('repositoryAdmin', `repos/${fullName}`);
+      if (current.status === 404) return true;
+      if (!current.data || current.data.id !== created.id || !sameName(current.data.full_name, fullName)) return false;
+      await requestJson(fetchImpl, api(`repos/${fullName}`), { method: 'DELETE', headers: headers('repositoryAdmin'), allowedStatuses: [204], credentialLabel: CREDENTIAL_LABELS.repositoryAdmin });
+      return true;
+    };
+    try {
+      const byId = await readAs('repositoryAdmin', `repositories/${created.id}`);
+      const createCheck = {
+        key: 'repository-create',
+        statusClass: '2xx',
+        identityChecked: true,
+        createdReadBack: created.verified === true && sameName(created.full_name, fullName),
+        readBackById: byId.status === 200 && Boolean(byId.data) && byId.data.id === created.id && sameName(byId.data.full_name, fullName),
+        defaultRefReported: typeof created.default_branch === 'string' && created.default_branch.length > 0
+      };
+      createCheck.status = createCheck.createdReadBack && createCheck.readBackById && createCheck.defaultRefReported ? 'pass' : 'fail';
+
+      let unprivilegedRefused = false;
+      try { await verifyRepositoryDeletion(productRequest('mutation'), created.full_name, { authMethod: 'token' }); }
+      catch (error) { unprivilegedRefused = REFUSALS.has(safeCode(error)); }
+      let target = null;
+      try { target = await verifyRepositoryDeletion(admin, created.full_name, { authMethod: 'token' }); }
+      catch { target = null; }
+      const administratorVerified = Boolean(target) && target.id === created.id && sameName(target.full_name, fullName);
+      if (!administratorVerified) {
+        return [createCheck, { ...deleteNotRun(), unprivilegedRefused }];
+      }
+      removed = await removeCreated();
+      const absentByName = (await observe(() => readAs('repositoryAdmin', `repos/${fullName}`), answer => answer.status === 404)).status === 404;
+      const absentById = (await observe(() => readAs('repositoryAdmin', `repositories/${created.id}`), answer => answer.status === 404)).status === 404;
+      const deleteCheck = { key: 'repository-delete', statusClass: '2xx', unprivilegedRefused, administratorVerified, absentByName, absentById };
+      deleteCheck.status = unprivilegedRefused && administratorVerified && absentByName && absentById ? 'pass' : 'fail';
+      return [createCheck, deleteCheck];
+    } finally {
+      if (!removed) {
+        let cleaned = false;
+        try { cleaned = await removeCreated(); } catch { cleaned = false; }
+        if (!cleaned) fail(`the disposable repository ${fullName} could not be removed; delete it by hand`, 'ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE');
+      }
+    }
+  }
+
+  /*
+   * notifications, through the product's own reader, with the classic
+   * credential the product serves them to:
+   *
+   *   classicConnection          the product classifies the credential as a
+   *                              classic personal or OAuth connection;
+   *   inboxRead, scopedRead      the inbox answers, and the repository-scoped
+   *                              read answers with only the target's threads;
+   *   productRefusesFineGrained  the product refuses fine-grained connections
+   *                              for notifications ...
+   *   providerRefusesFineGrained ... and GitHub refuses the fine-grained
+   *                              mutation credential too, so the refusal hides
+   *                              nothing that would have worked.
+   */
+  async function notificationsCheck() {
+    const kind = githubTokenKind({ authMethod: 'token', token: notificationsCredential });
+    const classicConnection = kind === 'classic' || notificationsCredential.startsWith('gh' + 'o_');
+    const productRefusesFineGrained = Boolean(connectionRestriction({ authMethod: 'token', tokenKind: 'fine-grained' }, 'notifications'));
+    const mutationKind = githubTokenKind({ authMethod: 'token', token: mutationCredential });
+    const fineGrainedAnswer = await requestJson(fetchImpl, api('notifications?per_page=1'), { headers: headers('mutation'), allowedStatuses: [200, 401, 403] });
+    const providerRefusesFineGrained = mutationKind === 'fine-grained' && [401, 403].includes(fineGrainedAnswer.status);
+    const reader = productRequest('notifications');
+    let inbox = null;
+    let scoped = null;
+    try { inbox = await listAccessibleNotifications(reader, null); } catch { inbox = null; }
+    try { scoped = await listAccessibleNotifications(reader, [repository.toLowerCase()]); } catch { scoped = null; }
+    const inboxRead = Array.isArray(inbox);
+    const scopedRead = Array.isArray(scoped) && scoped.every(item => sameName(item.repo, repository));
+    const check = { key: 'notifications-read', statusClass: '2xx', classicConnection, inboxRead, scopedRead, productRefusesFineGrained, providerRefusesFineGrained };
+    check.status = Object.entries(check).every(([field, value]) => typeof value !== 'boolean' || value) ? 'pass' : 'fail';
+    return check;
   }
 
   async function capabilityChecks({ branch, prefix, proofPath, proofFileSha, proofText }) {
@@ -1342,7 +1513,9 @@ function createGithubClient({ env, fetchImpl }) {
       await releaseWriteCheck({ branch, prefix }),
       await starCheck(),
       await codeSearchCheck({ prefix }),
-      await workflowRerunCheck({ defaultBranch })
+      await workflowRerunCheck({ defaultBranch }),
+      ...(await repositoryLifecycleChecks({ prefix })),
+      await notificationsCheck()
     ];
   }
 

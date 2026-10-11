@@ -407,6 +407,8 @@ jobs:
           NV_ALPHA17_BRANCH: nvx-alpha17-${{ github.run_id }}-proof
           NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_MUTATION_CREDENTIAL }}
           NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_READ_ONLY_CREDENTIAL }}
+          NV_ALPHA17_REPOSITORY_ADMIN_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL }}
+          NV_ALPHA17_NOTIFICATIONS_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL }}
           NV_ALPHA17_GITHUB_API_URL: https://api.github.com
           NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.github_target_sha256 }}
         run: |

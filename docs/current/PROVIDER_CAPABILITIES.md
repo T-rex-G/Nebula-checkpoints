@@ -34,8 +34,8 @@ Historical provider artifacts do not qualify the current candidate.
 | Status | Meaning |
 | --- | --- |
 | `Supported` | Intended alpha-supported surface after exact-candidate release gates pass. |
-| `Experimental` | Safe to try outside the golden path with the recorded limitation. |
-| `Unavailable` | Hidden or disabled for this provider/deployment with a reason. |
+| `Experimental` | Implemented and tested, not yet qualified. Not offered: hidden in the interface and refused by the server until it is `Supported`. |
+| `Unavailable` | Not offered for this provider, deployment or connection: hidden in the interface and refused by the server. |
 
 | Evidence state | Meaning |
 | --- | --- |
@@ -47,8 +47,12 @@ Historical provider artifacts do not qualify the current candidate.
 
 `Supported` is not a synonym for `Provider-verified`.
 
-Every `Experimental` path requires an explicit UI and server-route opt-in.
-`Unavailable` entries still fail closed. Unsupported provider selections are
+Only `Supported` capabilities are offered. There is no opt-in for anything
+less: once the server has answered, the interface draws no control, badge or
+palette entry for an `Experimental` or `Unavailable` capability, and every
+route refuses it with a typed error. A capability projection that could not be
+loaded is an outage, not a verdict, so its controls stay in place, refused and
+explained, until it loads. Unsupported provider selections are
 rejected before credential resolution or transport.
 
 ## GitHub — evidence-bounded alpha subset
@@ -62,11 +66,13 @@ Counted from the capability registry: 33 Supported, 4 Experimental, 0 Unavailabl
 | Experimental | repository create/delete; notifications; live events |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
-Repository creation/deletion and notifications are usable experimental
-operations with deterministic coverage, not live-provider qualification claims,
-and each says why: the harness credential is confined to one disposable
-repository, so it can neither create nor delete one, and GitHub does not serve
-notifications to the fine-grained credential the harness uses. Live events need
+Repository creation/deletion and notifications are implemented with
+deterministic coverage and are not offered until the live run qualifies them.
+The GitHub live harness now carries their probes -- one disposable repository
+created and deleted in a dedicated qualification account, and the inbox read
+through a classic notification credential -- run with credentials the
+repository-confined harness credential never needs: see
+`docs/operations/ALPHA17_LIVE_DISPATCH.md`. Live events need
 a deployment the provider can deliver webhooks to, which the harness does not
 have. Creation verifies the personal account identity and reads
 the resulting repository back by name and ID. An existing restricted invitation

@@ -153,7 +153,7 @@ for (const [providerHeading, mappings] of Object.entries(providerMappings)) {
   assert(providerSection.includes('`Deterministic` evidence'));
 }
 assert(/A `Supported` claim remains release-blocked until the exact\s+candidate has applicable live-provider and hosted evidence\./.test(capabilities));
-assert(capabilities.includes('Every `Experimental` path requires an explicit UI and server-route opt-in.'));
+assert(capabilities.includes('Only `Supported` capabilities are offered. There is no opt-in for anything'));
 assert(/Unsupported provider selections are\s+rejected before credential resolution or transport\./.test(capabilities));
 assert.deepStrictEqual(Object.keys(registry.providers), ['github'], 'current documentation must describe the complete supported provider set');
 

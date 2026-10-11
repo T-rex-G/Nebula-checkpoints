@@ -35,14 +35,32 @@ fixtures and environment protection before supplying credentials.
 | API authority | `https://api.github.com`, fixed by the workflow |
 | Mutation credential | Repository Metadata read; Contents, Actions, Issues and Pull requests read/write; account Starring read/write |
 | Read-only credential | Metadata read and Contents read, with no write permission |
+| Repository administration credential | A fine-grained token of a **dedicated qualification account** that owns nothing else: Administration read/write and Metadata read on all of that account's repositories. It creates one private `nvx-alpha17-<run>-repository` and deletes only that one |
+| Notification credential | A **classic** token (prefix `ghp_`) of a bot account that is a collaborator on the disposable target only, with the `notifications` and `repo` scopes. GitHub serves notifications to no fine-grained token |
 | Repository variable | `ALPHA17_GITHUB_REPOSITORY`, the exact `owner/name` |
-| Live secrets | `ALPHA17_GITHUB_MUTATION_CREDENTIAL` and `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL` |
+| Live secrets | `ALPHA17_GITHUB_MUTATION_CREDENTIAL`, `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL`, `ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL` and `ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL` |
 
-Both credentials must be disposable and scoped to the dedicated sandbox, not a
-production repository or a broad organization. The read-only credential exists
+Every credential must be disposable and scoped to the dedicated sandbox or the
+dedicated qualification account, never a production repository, a personal
+account that owns real work, or a broad organization. The mutation credential
+must be fine-grained: the notification proof checks that GitHub refuses it. The read-only credential exists
 to prove `permission-denial`. If it can mutate the branch, the run must fail
 with `ALPHA17_PERMISSION_SCOPE_INVALID`; granting it write permission cannot
 be treated as a passing denial test.
+
+### When the run says a credential was denied
+
+`ALPHA17_PERMISSION_DENIED: provider denied the <name> credential` on the first
+request means GitHub answered 401 or 403 to that credential: it expired, was
+revoked, or lost a permission. Fine-grained tokens expire on the date chosen at
+creation. Issue a new token with the permissions above, replace the secret of
+the same name in the `alpha17-live-qualification` environment, and dispatch
+again. Nothing else needs to change.
+
+`ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE` names a repository in the
+qualification account that the run could not prove it removed. Inspect it, and
+delete it by hand only once it is confirmed to be that run's disposable
+repository.
 
 Retired-provider variables, credentials, jobs and harnesses are not inputs to
 current qualification. Revoke any credentials that were issued for former

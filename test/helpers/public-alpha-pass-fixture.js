@@ -60,7 +60,13 @@ const PROVIDER_PROBES = Object.freeze({
     { key: 'release-write', status: 'pass', statusClass: '2xx', createdReadBack: true, tagAtTarget: true, cleanupAbsent: true },
     { key: 'star-toggle', status: 'pass', statusClass: '2xx', starVisible: true, unstarVisible: true, initialStateRestored: true },
     { key: 'code-search', status: 'pass', statusClass: '2xx', fixtureFound: true, resultsScoped: true, absentDiscriminated: true },
-    { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
+    { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true },
+    { key: 'repository-create', status: 'pass', statusClass: '2xx', identityChecked: true, createdReadBack: true, readBackById: true, defaultRefReported: true },
+    { key: 'repository-delete', status: 'pass', statusClass: '2xx', unprivilegedRefused: true, administratorVerified: true, absentByName: true, absentById: true },
+    {
+      key: 'notifications-read', status: 'pass', statusClass: '2xx', classicConnection: true, inboxRead: true, scopedRead: true,
+      productRefusesFineGrained: true, providerRefusesFineGrained: true
+    }
   ]
 });
 

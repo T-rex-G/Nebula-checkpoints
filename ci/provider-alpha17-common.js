@@ -261,7 +261,7 @@ async function requestJson(fetchImpl, url, options = {}) {
   const allowed = new Set(options.allowedStatuses || [200]);
   const data = await readBoundedJson(response);
   if (!allowed.has(response.status)) {
-    if ([401, 403].includes(response.status)) fail('provider denied the mutation credential', 'ALPHA17_PERMISSION_DENIED');
+    if ([401, 403].includes(response.status)) fail(`provider denied the ${options.credentialLabel || 'mutation'} credential`, 'ALPHA17_PERMISSION_DENIED');
     if ([409, 412, 422].includes(response.status)) fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
     fail(`provider request failed with ${statusClass(response.status)}`, 'ALPHA17_PROVIDER_REQUEST_FAILED');
   }

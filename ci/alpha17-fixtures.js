@@ -33,12 +33,28 @@ function cloneBranch(branch) {
   };
 }
 
+/*
+ * Credentials shaped the way the product classifies them -- built from parts
+ * so no complete credential-shaped literal sits in the source: a fine-grained
+ * mutation credential, a classic notification credential, and the
+ * administration credential of the qualification account.
+ */
+const FIXTURE_CREDENTIALS = Object.freeze({
+  mutation: ['github', 'pat', 'fixture_mutation_credential'].join('_'),
+  repositoryAdmin: 'fixture-repository-admin-credential',
+  notifications: ['gh' + 'p', 'fixtureNotificationsCredential'].join('_')
+});
+
 function createProviderFetchFixture(options = {}) {
   const provider = String(options.provider || '');
   const repository = String(options.repository || '');
   const defaultBranch = String(options.defaultBranch || 'main');
   const mutationCredential = String(options.mutationCredential || '');
   const readOnlyCredential = String(options.readOnlyCredential || '');
+  /* The account-wide credentials of the repository and notification proofs, each answered only for what it may do. */
+  const repositoryAdminCredential = String(options.repositoryAdminCredential || FIXTURE_CREDENTIALS.repositoryAdmin);
+  const notificationsCredential = String(options.notificationsCredential || FIXTURE_CREDENTIALS.notifications);
+  const ADMIN_LOGIN = 'alpha17-fixture-qualification';
   const deleteCommitSha = options.deleteCommitSha == null
     ? null
     : String(options.deleteCommitSha).trim().toLowerCase();
@@ -82,6 +98,13 @@ function createProviderFetchFixture(options = {}) {
       run_attempt: 1, created_at: '2026-08-01T00:00:00.000Z', reads: 0
     }]]),
     starred: false,
+    /* Repositories the administration credential's account owns, by name: created and deleted only as GitHub would. */
+    ownedRepositories: new Map(),
+    nextRepositoryId: 900000,
+    notifications: [{
+      id: '5001', reason: 'review_requested', unread: true, updated_at: '2026-09-25T10:00:00Z',
+      subject: { title: 'Review requested', type: 'PullRequest' }, repository: { full_name: repository }
+    }],
     searchIndex: [{ path: 'NVX_SEARCH_FIXTURE.md', text: 'nvx-alpha17-search-fixture: permanent code search fixture.' }]
   };
 
@@ -323,7 +346,41 @@ function createProviderFetchFixture(options = {}) {
     }
     /* Also account-wide: the LFS probe signs Basic auth with the actor's login. */
     if (parsed.pathname === '/user' && method === 'GET') {
+      const who = credential(new Headers(init.headers || {}));
+      if (repositoryAdminCredential && who === repositoryAdminCredential) return json({ login: ADMIN_LOGIN, id: 7101 });
+      if (notificationsCredential && who === notificationsCredential) return json({ login: 'alpha17-fixture-reader', id: 7102 });
       return json({ login: 'alpha17-fixture-actor' });
+    }
+    /* Repository creation and deletion in the qualification account, for the administration credential only. */
+    {
+      const who = credential(new Headers(init.headers || {}));
+      const isAdmin = Boolean(repositoryAdminCredential) && who === repositoryAdminCredential;
+      if (parsed.pathname === '/user/repos' && method === 'POST') {
+        if (!isAdmin) return json({ message: 'Resource not accessible by personal access token' }, 403);
+        const body = bodyOf(init);
+        if (state.ownedRepositories.has(body.name)) return json({ message: 'name already exists on this account' }, 422);
+        const created = { id: state.nextRepositoryId++, name: body.name, full_name: `${ADMIN_LOGIN}/${body.name}`, private: body.private !== false, default_branch: 'main', permissions: { admin: true } };
+        state.ownedRepositories.set(body.name, created);
+        return json({ ...created }, 201);
+      }
+      const owned = /^\/repos\/([^/]+)\/([^/]+)$/.exec(parsed.pathname);
+      if (owned && owned[1] === ADMIN_LOGIN) {
+        const found = state.ownedRepositories.get(owned[2]);
+        if (!isAdmin || !found) return json({ message: 'Not Found' }, 404);
+        if (method === 'GET') return json({ ...found });
+        if (method === 'DELETE') { state.ownedRepositories.delete(owned[2]); return json(null, 204); }
+      }
+      const byId = /^\/repositories\/(\d+)$/.exec(parsed.pathname);
+      if (byId && method === 'GET') {
+        const found = [...state.ownedRepositories.values()].find(item => item.id === Number(byId[1]));
+        return isAdmin && found ? json({ ...found }) : json({ message: 'Not Found' }, 404);
+      }
+      /* Notifications answer a classic connection only; GitHub refuses fine-grained tokens. */
+      if ((parsed.pathname === '/notifications' || parsed.pathname === `/repos/${repository}/notifications`) && method === 'GET') {
+        if (!notificationsCredential || who !== notificationsCredential) return json({ message: 'Resource not accessible by personal access token' }, 403);
+        const scoped = parsed.pathname !== '/notifications';
+        return json(state.notifications.filter(item => !scoped || item.repository.full_name === repository).map(item => ({ ...item })));
+      }
     }
     /*
      * The LFS store. Modelled, not stubbed: the batch endpoint offers an upload
@@ -840,4 +897,4 @@ function createProviderFetchFixture(options = {}) {
   });
 }
 
-module.exports = Object.freeze({ createProviderFetchFixture });
+module.exports = Object.freeze({ createProviderFetchFixture, FIXTURE_CREDENTIALS });

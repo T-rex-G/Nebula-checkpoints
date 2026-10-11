@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Only what is Supported is offered
+
+- **No opt-in for anything less.** The 78 route opt-ins and every interface
+  opt-in for Experimental capabilities are gone. The server refuses whatever is
+  not Supported with its typed error, and once it has answered, the interface
+  draws no control, badge or palette entry for it. A capability projection that
+  could not be loaded is shown as an outage: its controls stay in place,
+  refused and explained, until it loads.
+- **Every route names what it uses.** Branch reads name `branches.read`, an
+  explicit Git LFS upload is checked before its body is read, and the evidence
+  and intelligence-event reads name `governance`. A contract fails if any
+  registry capability is named by no route, or if any route carries an opt-in.
+- **The beta profile cannot carry Experimental.** The registry rejects an
+  Experimental entry under `hosted-beta`.
+- **The workspace pulse describes only what is offered**, by the evidence
+  behind each capability, and the landing copy says that anything unbacked is
+  not offered. Governance has no view-only middle state any more.
+- **Until the live run qualifies them**, repository creation and deletion,
+  notifications and live events are not offered.
+
+### Live probes for the four capabilities awaiting qualification
+
+- **Repository create and delete** are proved through the product's own code
+  on one private disposable repository in a dedicated qualification account:
+  created after the identity check, read back by name and identity, refused to
+  the repository-confined credential, deleted only once proved to be that
+  repository, then absent by name and identity. A repository the run could not
+  prove it removed is named, never deleted on a guess.
+- **Notifications** are read through the product's reader with a classic
+  credential, inbox and target-scoped, and GitHub's refusal of the
+  fine-grained credential is checked against the product's own refusal.
+- Every new condition is falsified on purpose in the probe tests. The live job
+  takes two new secrets, `ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL` and
+  `ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL`, described in the dispatch runbook
+  with the remedy for a denied credential. The registry promotes these
+  capabilities only after a live run passes.
+
 ### Second review round on the six-system hardening
 
 - **The merge gate denies on what it already knows.** A critical, secret,

@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { PROVIDER_CAPABILITY_REQUIREMENTS, providerProbeKeys, providerCheckContract } = require('../src/qualification-evidence');
 const { requestJson, runProviderQualification } = require('../ci/provider-alpha17-common');
 const { createGithubClient, runGithubValidation } = require('../ci/run-github-alpha17-validation');
@@ -39,7 +39,9 @@ function environment(provider) {
     NV_ALPHA17_WORKFLOW_RUN_ID: RUN_ID,
     NV_ALPHA17_REPOSITORY: repository,
     NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
-    NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
+    NV_ALPHA17_MUTATION_CREDENTIAL: FIXTURE_CREDENTIALS.mutation,
+    NV_ALPHA17_REPOSITORY_ADMIN_CREDENTIAL: FIXTURE_CREDENTIALS.repositoryAdmin,
+    NV_ALPHA17_NOTIFICATIONS_CREDENTIAL: FIXTURE_CREDENTIALS.notifications,
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
     NV_ALPHA17_GITHUB_API_URL: 'https://api.github.com',
     NV_ALPHA17_GITHUB_LFS_URL: 'https://github.com',

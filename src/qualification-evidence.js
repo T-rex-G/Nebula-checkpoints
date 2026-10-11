@@ -336,6 +336,28 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
     {
       key: 'workflow-rerun',
       fields: { status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
+    },
+    /*
+     * One disposable repository in the qualification account, created through
+     * the product's own create, read back by name and by identity, refused to
+     * the repository-confined credential, and deleted only once it is proved
+     * to be exactly that repository -- then absent by name and by identity.
+     */
+    {
+      key: 'repository-create',
+      fields: { status: 'pass', statusClass: '2xx', identityChecked: true, createdReadBack: true, readBackById: true, defaultRefReported: true }
+    },
+    {
+      key: 'repository-delete',
+      fields: { status: 'pass', statusClass: '2xx', unprivilegedRefused: true, administratorVerified: true, absentByName: true, absentById: true }
+    },
+    /* The inbox and the target's threads through the product's reader with a classic connection; fine-grained refused by both. */
+    {
+      key: 'notifications-read',
+      fields: {
+        status: 'pass', statusClass: '2xx', classicConnection: true, inboxRead: true, scopedRead: true,
+        productRefusesFineGrained: true, providerRefusesFineGrained: true
+      }
     }
   ],
   gitlab: [

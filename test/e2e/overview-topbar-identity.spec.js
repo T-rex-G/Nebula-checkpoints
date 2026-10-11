@@ -30,8 +30,8 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
 test.use({ serviceWorkers: 'block' });
 
-async function overview(page) {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+async function overview(page, options = {}) {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', ...options });
   await page.goto('/#/overview');
   await expect(page.locator('#page-overview')).toHaveClass(/active/);
 }
@@ -130,9 +130,15 @@ test('the overview reserves its new header height when the viewport changes', as
   }
 });
 
+/*
+ * The crowded case: six controls, the notifications bell among them. The bell
+ * is drawn only once notifications are Supported, so the bar is measured as it
+ * will stand then -- the narrowest it will ever have to fit -- rather than as
+ * it stands while the bell is withheld.
+ */
 test('the repositories header fits after navigation and resizing', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
-  await overview(page);
+  await overview(page, { promote: ['notifications'] });
   await page.locator('#ovGoRepos').click();
   await expect(page.locator('#page-repos')).toHaveClass(/active/);
   for (const width of [320, 360, 380, 381, 390, 430, 320]) {

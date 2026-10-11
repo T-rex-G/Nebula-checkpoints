@@ -18,8 +18,8 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
 test.use({ serviceWorkers: 'block' });
 
-async function openGraph(page, routes) {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+async function openGraph(page, routes, options = {}) {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', ...options });
   /* Routes added after the fixture's own are matched first. */
   if (routes) await routes(page);
   await page.goto('/#/sandbox/demo@main/neural');
@@ -403,7 +403,12 @@ test('the node search is focused as one control, with no ring inside it', async 
  * line each, rather than four slabs with wrapped figures.
  */
 test('the Neural view drops the trust bar and keeps its header to one compact band', async ({ page }) => {
-  await openGraph(page);
+  /*
+   * Measured with all three controls drawn: the live-events button appears
+   * only once live events are Supported, and that is the narrowest the band
+   * will ever have to hold.
+   */
+  await openGraph(page, null, { promote: ['live-events'] });
   await expect(page.locator('#trustSummary')).toBeHidden();
 
   const actions = await page.locator('.neural-head-actions .btn').evaluateAll(buttons =>

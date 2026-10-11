@@ -83,8 +83,10 @@ test('a signed-in session lands on the overview and reports a trust score it can
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
   await expect(signals).toBeVisible();
-  await expect(signals).toContainText('Supported');
+  /* Only what is Supported is offered, so the card counts what is offered, by its evidence. */
+  await expect(signals).toContainText('capabilities offered, by the evidence behind each');
   await expect(signals).toContainText('Provider-verified in the registry');
+  await expect(signals).not.toContainText('Experimental');
   await expect(signals).toContainText('CAPABILITIES');
 
   /* Nothing on the overview claims more than the session established. */

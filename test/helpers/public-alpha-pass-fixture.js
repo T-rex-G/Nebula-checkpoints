@@ -149,7 +149,8 @@ function hostedOperationalRecord() {
       'database-interruption-recovery': { status: 'pass', failClosedDuringInterruption: true },
       'provider-429-outage': { status: 'pass', retryBounded: true },
       'application-rollback': { status: 'pass', candidateRestored: true },
-      'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true }
+      'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true },
+      'live-events-delivery': { status: 'pass', webhookRegistered: true, signedDeliveryVerified: true, eventStreamed: true, webhookRemovedAtProvider: true }
     },
     signature: {
       algorithm: 'ed25519',

@@ -162,7 +162,7 @@ try {
     closeout.includes(`Provider evidence: ${providerCapabilityTotal}/${providerCapabilityTotal} passed`),
     `closeout must report ${providerCapabilityTotal} provider capabilities, one per contract entry`
   );
-  assert(closeout.includes('Hosted evidence: 13/13 passed'));
+  assert(closeout.includes('Hosted evidence: 14/14 passed'));
   assert(closeout.includes('Manual evidence: 5/5 passed'));
   assert(closeout.includes('Cleanup: verified'));
   assert(closeout.includes('Render Free wake delay'));

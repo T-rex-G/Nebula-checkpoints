@@ -33,6 +33,10 @@
 - **Notifications** are read through the product's reader with a classic
   credential, inbox and target-scoped, and GitHub's refusal of the
   fine-grained credential is checked against the product's own refusal.
+- **Live events** join the hosted run as a signed operational check, because
+  only a deployment GitHub can reach can prove them: the webhook registered
+  through the product, a signed push delivery verified, the event streamed,
+  and the webhook removed at GitHub on disconnect.
 - Every new condition is falsified on purpose in the probe tests. The live job
   takes two new secrets, `ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL` and
   `ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL`, described in the dispatch runbook

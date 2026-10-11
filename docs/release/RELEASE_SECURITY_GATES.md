@@ -121,6 +121,12 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - Memory/restart observation, active-session revocation, provider disconnect,
   filesystem independence, database interruption/recovery, provider 429/outage,
   deploy rollback, tested database restore, and tester purge.
+- Live-event delivery, which only a deployment GitHub can reach can prove: the
+  operator connects live events on the sandbox target through the product,
+  pushes one commit, sees the signed delivery verified and the event arrive in
+  an open stream, then disconnects and confirms on GitHub that the webhook is
+  gone (`live-events-delivery`: webhook registered, signed delivery verified,
+  event streamed, webhook removed at the provider).
 - Encrypted pre-deploy backup and one isolated restore whose source/target URLs
   match official Neon branch connection URIs and whose destructive target is
   rechecked through a live database session; no dump in source, Actions

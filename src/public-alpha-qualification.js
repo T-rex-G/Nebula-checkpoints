@@ -56,7 +56,8 @@ const HOSTED_KEYS = Object.freeze([
   'provider-429-outage',
   'application-rollback',
   'isolated-database-restore',
-  'disposable-tester-purge'
+  'disposable-tester-purge',
+  'live-events-delivery'
 ]);
 
 const MANUAL_KEYS = Object.freeze([

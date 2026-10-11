@@ -51,7 +51,7 @@ assert.strictEqual(normalized.product, 'Nebulaverse-X');
 
 const catalog = qualificationCatalog(registry);
 assert.strictEqual(catalog.automated.length, 22);
-assert.strictEqual(catalog.hosted.length, 13);
+assert.strictEqual(catalog.hosted.length, 14);
 assert.strictEqual(catalog.manual.length, 5);
 for (const [provider, deployment] of Object.entries(registry.providers)) {
   assert(deployment['hosted-alpha']);

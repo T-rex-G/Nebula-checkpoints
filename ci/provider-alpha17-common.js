@@ -261,7 +261,21 @@ async function requestJson(fetchImpl, url, options = {}) {
   const allowed = new Set(options.allowedStatuses || [200]);
   const data = await readBoundedJson(response);
   if (!allowed.has(response.status)) {
-    if ([401, 403].includes(response.status)) fail(`provider denied the ${options.credentialLabel || 'mutation'} credential`, 'ALPHA17_PERMISSION_DENIED');
+    /*
+     * A refusal names the request it refused and, where GitHub says so, the
+     * fine-grained permission it would have accepted. Run 38235265012 got
+     * twenty-seven seconds into its probes and printed only "provider denied
+     * the mutation credential", which says a token is short of something and
+     * not what. The path is the provider's own API path for the disposable
+     * target -- no query, no body, nothing a credential travels in.
+     */
+    if ([401, 403].includes(response.status)) {
+      const accepted = response.headers && typeof response.headers.get === 'function'
+        ? String(response.headers.get('x-accepted-github-permissions') || '').replace(/[^a-z0-9_=;,\- ]/gi, '').slice(0, 200)
+        : '';
+      fail(`provider denied the ${options.credentialLabel || 'mutation'} credential on ${options.method || 'GET'} ${parsed.pathname}`
+        + `${accepted ? ` (the provider accepts: ${accepted})` : ''}`, 'ALPHA17_PERMISSION_DENIED');
+    }
     if ([409, 412, 422].includes(response.status)) fail('provider rejected a stale mutation', 'ALPHA17_STALE_HEAD');
     fail(`provider request failed with ${statusClass(response.status)}`, 'ALPHA17_PROVIDER_REQUEST_FAILED');
   }

@@ -93,6 +93,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function getRepository(credential = 'mutation') {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}`), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     return Object.freeze({
@@ -104,6 +105,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function getBranch(branch, credential = 'mutation') {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/ref/heads/${encodeURIComponent(branch)}`), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200, 404]
     });
     if (response.status === 404) return null;
@@ -114,6 +116,7 @@ function createGithubClient({ env, fetchImpl }) {
     return requestJson(fetchImpl, api(`repos/${repositoryPath}/git/refs`), {
       method: 'POST',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       body: { ref: `refs/heads/${branch}`, sha },
       allowedStatuses: [201]
     });
@@ -125,6 +128,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
       method: 'PUT',
       headers: headers(input.credential),
+      credentialLabel: CREDENTIAL_LABELS[input.credential],
       body: {
         branch: input.branch,
         message: 'test(alpha): qualification proof',
@@ -157,6 +161,7 @@ function createGithubClient({ env, fetchImpl }) {
     return requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
       method: 'PUT',
       headers: headers(input.credential),
+      credentialLabel: CREDENTIAL_LABELS[input.credential],
       body: {
         branch: input.branch,
         message: 'test(alpha): conditional write proof',
@@ -172,6 +177,7 @@ function createGithubClient({ env, fetchImpl }) {
     url.searchParams.set('ref', branch);
     const response = await requestJson(fetchImpl, url.toString(), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200, 404]
     });
     if (response.status === 404) return null;
@@ -188,6 +194,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/contents/${encodeURIComponent(input.path)}`), {
       method: 'DELETE',
       headers: headers(input.credential),
+      credentialLabel: CREDENTIAL_LABELS[input.credential],
       body: {
         branch: input.branch,
         message: 'test(alpha): remove qualification proof',
@@ -205,6 +212,7 @@ function createGithubClient({ env, fetchImpl }) {
     return requestJson(fetchImpl, api(`repos/${repositoryPath}/git/refs/heads/${encodeURIComponent(branch)}`), {
       method: 'DELETE',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [204]
     });
   }
@@ -221,6 +229,7 @@ function createGithubClient({ env, fetchImpl }) {
     url.searchParams.set('recursive', '1');
     const response = await requestJson(fetchImpl, url.toString(), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     const tree = Array.isArray(response.data.tree) ? response.data.tree : [];
@@ -244,6 +253,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/blobs`), {
       method: 'POST',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       body: { content: Buffer.from(bytes).toString('base64'), encoding: 'base64' },
       allowedStatuses: [201]
     });
@@ -256,6 +266,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function readBlob(sha, credential = 'mutation') {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/blobs/${encodeURIComponent(sha)}`), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     return Object.freeze({
@@ -267,6 +278,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function readCommit(sha, credential = 'mutation') {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/commits/${encodeURIComponent(sha)}`), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     return Object.freeze({
@@ -281,6 +293,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/trees`), {
       method: 'POST',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       body: { base_tree: baseTree, tree: entries },
       allowedStatuses: [201]
     });
@@ -294,6 +307,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/commits`), {
       method: 'POST',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       body: { message, tree, parents },
       allowedStatuses: [201]
     });
@@ -313,6 +327,7 @@ function createGithubClient({ env, fetchImpl }) {
     const response = await requestJson(fetchImpl, api(`repos/${repositoryPath}/git/refs/heads/${encodeURIComponent(branch)}`), {
       method: 'PATCH',
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       body: { sha, force },
       allowedStatuses: [200, 409, 422]
     });
@@ -322,6 +337,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function readRateLimit(credential = 'mutation') {
     const response = await requestJson(fetchImpl, api('rate_limit'), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     const core = response.data.resources && response.data.resources.core;
@@ -528,6 +544,7 @@ function createGithubClient({ env, fetchImpl }) {
   async function readViewerLogin(credential = 'mutation') {
     const response = await requestJson(fetchImpl, api('user'), {
       headers: headers(credential),
+      credentialLabel: CREDENTIAL_LABELS[credential],
       allowedStatuses: [200]
     });
     return String(response.data.login || '');
@@ -837,12 +854,12 @@ function createGithubClient({ env, fetchImpl }) {
    */
 
   async function getJson(pathname, allowedStatuses = [200], credential = 'mutation') {
-    return requestJson(fetchImpl, api(pathname), { headers: headers(credential), allowedStatuses });
+    return requestJson(fetchImpl, api(pathname), { headers: headers(credential), allowedStatuses, credentialLabel: CREDENTIAL_LABELS[credential] });
   }
 
   async function sendJson(method, pathname, body, allowedStatuses, credential = 'mutation') {
     return requestJson(fetchImpl, api(pathname), {
-      method, headers: headers(credential), body, allowedStatuses
+      method, headers: headers(credential), body, allowedStatuses, credentialLabel: CREDENTIAL_LABELS[credential]
     });
   }
 

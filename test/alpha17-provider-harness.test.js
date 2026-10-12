@@ -869,6 +869,34 @@ async function runOne(provider, runner, options = {}) {
     'malformed JSON must be refused rather than parsed into nothing'
   );
 
+  /*
+   * A refusal says which request it was and, where GitHub names one, the
+   * fine-grained permission that would have been accepted -- and nothing a
+   * credential or a query string travels in.
+   */
+  await assert.rejects(
+    () => requestJson(
+      async () => new Response('{"message":"Resource not accessible by personal access token"}', {
+        status: 403,
+        headers: { 'content-type': 'application/json', 'x-accepted-github-permissions': 'actions=write' }
+      }),
+      'https://api.example.invalid/repos/acme/target/actions/runs/31/rerun?token=never-printed',
+      { method: 'POST', headers: anyHeaders, credentialLabel: 'read-only' }
+    ),
+    error => Boolean(error && error.code === 'ALPHA17_PERMISSION_DENIED'
+      && error.message === 'provider denied the read-only credential on POST /repos/acme/target/actions/runs/31/rerun (the provider accepts: actions=write)'),
+    'a refusal must name its request and the permission the provider would accept, without the query'
+  );
+  await assert.rejects(
+    () => requestJson(
+      async () => new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } }),
+      'https://api.example.invalid/repos/acme/target',
+      { headers: anyHeaders }
+    ),
+    error => Boolean(error && error.message === 'provider denied the mutation credential on GET /repos/acme/target'),
+    'a refusal without a permission header still names its request'
+  );
+
   for (const status of [500, 502, 404]) {
     await assert.rejects(
       () => requestJson(

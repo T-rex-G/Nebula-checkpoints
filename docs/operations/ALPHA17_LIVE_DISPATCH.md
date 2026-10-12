@@ -50,12 +50,15 @@ be treated as a passing denial test.
 
 ### When the run says a credential was denied
 
-`ALPHA17_PERMISSION_DENIED: provider denied the <name> credential` on the first
-request means GitHub answered 401 or 403 to that credential: it expired, was
-revoked, or lost a permission. Fine-grained tokens expire on the date chosen at
-creation. Issue a new token with the permissions above, replace the secret of
-the same name in the `alpha17-live-qualification` environment, and dispatch
-again. Nothing else needs to change.
+`ALPHA17_PERMISSION_DENIED: provider denied the <name> credential on <METHOD>
+<path>` means GitHub answered 401 or 403 to that credential on that request.
+On the first request it has expired or been revoked; later in the run it is
+short of one permission. Where GitHub names the permission it would have
+accepted, the line ends `(the provider accepts: <permission>=<level>)`. Fine-grained
+tokens expire on the date chosen at creation. Issue a new token with the
+permissions above, replace the secret of the same name in the
+`alpha17-live-qualification` environment, and dispatch again. Nothing else
+needs to change.
 
 `ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE` names a repository in the
 qualification account that the run could not prove it removed. Inspect it, and

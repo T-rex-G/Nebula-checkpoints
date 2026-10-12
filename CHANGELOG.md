@@ -59,6 +59,16 @@
   (`data-scene-state`: running, still or resting).
 - This was the WebKit real-server journey that intermittently could not press
   "Get started" on CI: the passing runs took 45 s against Chromium's 13 s.
+- **It was not the whole answer, and the journey no longer depends on it.**
+  The pacer acts between frames, and on c9410a3 WebKit drew no frame at all
+  for the fifteen seconds the click waited, then hung its own teardown. A
+  runner without a GPU draws WebGL on the CPU; Chromium names its software
+  rasteriser and the scene goes lite, but WebKit reports a generic renderer
+  and the scene cannot tell. The real-server journey proves the server and
+  PostgreSQL, not the artwork, so in WebKit it is now handed no WebGL context
+  -- a browser the landing already serves completely, the vortex declining
+  and the stage keeping its ground -- and it records any late frame or held
+  main thread, printed with the failure if a stall ever returns.
 
 ### Open pull requests across the workspace, on the Overview
 

@@ -123,7 +123,7 @@ module.exports = [
       'ci/**/*.js',
       'test/**/*.js'
     ],
-    ignores: ['test/e2e/**', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
+    ignores: ['test/e2e/**', 'test/integration/app-fixture.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'commonjs',
@@ -134,7 +134,7 @@ module.exports = [
   {
     /* Node programs whose page callbacks are serialized into the browser. */
     name: 'nebulaverse/browser-test-programs',
-    files: ['test/e2e/**/*.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
+    files: ['test/e2e/**/*.js', 'test/integration/app-fixture.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'commonjs',

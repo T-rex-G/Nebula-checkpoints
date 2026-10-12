@@ -71,6 +71,9 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
 );
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
+/* A staging deployment's capabilities awaiting the proof only it can give; empty everywhere else. */
+const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
+  .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
   stableJson, hashJson, evidenceRecordHash,
   verifyEvidenceRecord, evidenceKeyrings, verifyGithubSignature, normalizeGithubWebhook,
@@ -703,10 +706,17 @@ const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTEN
  * which release is alive, and the operator checklist verifies that this route
  * answers, not what it says about the release.
  */
+/*
+ * Opaque and fresh each time the process starts: a restart is something an
+ * operator has to be able to see happen, without the process saying how long
+ * it has been up.
+ */
+const BOOT_ID = crypto.randomUUID();
 app.get('/healthz', (req, res) => res.json({
   ok: true,
   service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
-  maintenance: MAINTENANCE_MODE
+  maintenance: MAINTENANCE_MODE,
+  bootId: BOOT_ID
 }));
 app.get('/readyz', async (req, res) => {
   /*
@@ -3342,7 +3352,8 @@ function providerCapabilityContext(account, feature) {
 function assertProviderCapability(account, feature) {
   return assertCapabilityAvailable(
     CAPABILITY_DOCUMENT,
-    providerCapabilityContext(account, feature)
+    providerCapabilityContext(account, feature),
+    { qualification: QUALIFICATION_CAPABILITIES }
   );
 }
 function requestSupportsCapability(req, feature) {
@@ -3962,7 +3973,9 @@ app.get('/api/config', (req, res) => res.json({
   /* The boundary above which an upload leaves the blob API for a native push.
    * Published because the browser labels queued files against it; a copy
    * written into the browser would be a second source of truth. */
-  contentsMaxMb: CONTENTS_MAX / MB
+  contentsMaxMb: CONTENTS_MAX / MB,
+  /* Said, never hidden: a qualification deployment names what it serves ahead of its proof. */
+  ...(QUALIFICATION_CAPABILITIES.length ? { qualification: { capabilities: [...QUALIFICATION_CAPABILITIES] } } : {})
 }));
 app.get('/api/capabilities', (req, res) => {
   if (req.query.provider !== undefined && req.query.provider !== 'github') {

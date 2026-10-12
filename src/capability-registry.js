@@ -103,13 +103,18 @@ function projectCapabilities(document, context) {
   return deepFreeze({ provider, authority: String(context.authority || ''), deployment, features });
 }
 
-function assertCapabilityAvailable(document, context) {
+function assertCapabilityAvailable(document, context, { qualification = [] } = {}) {
   const resolved = resolveCapability(document, context);
   if (resolved.status === 'Unavailable') {
     throw new CapabilityError(resolved.reason, resolved.availabilityCode || 'PROVIDER_CAPABILITY_UNAVAILABLE');
   }
-  /* Only what is Supported is served. There is no opt-in for anything less. */
-  if (resolved.status === 'Experimental') {
+  /*
+   * Only what is Supported is served. The one exception is a qualification
+   * deployment serving a capability that awaits the hosted proof only it can
+   * give (src/qualification-capabilities.js); it is still reported as
+   * Experimental everywhere it is described.
+   */
+  if (resolved.status === 'Experimental' && !qualification.includes(resolved.feature)) {
     throw new CapabilityError(resolved.reason, 'PROVIDER_CAPABILITY_EXPERIMENTAL');
   }
   return resolved;

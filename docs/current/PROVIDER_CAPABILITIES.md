@@ -74,7 +74,11 @@ through a classic notification credential -- run with credentials the
 repository-confined harness credential never needs: see
 `docs/operations/ALPHA17_LIVE_DISPATCH.md`. Live events need
 a deployment the provider can deliver webhooks to, which the harness does not
-have. Creation verifies the personal account identity and reads
+have. The staging deployment is that deployment: it alone serves them ahead of
+their proof, through `NV_QUALIFICATION_CAPABILITIES=live-events`, the one
+exception to "only what is Supported is served". It names no other capability,
+reports itself in `/api/config`, and fails the cohort readiness check, so it
+never stands in for a cohort deployment. Creation verifies the personal account identity and reads
 the resulting repository back by name and ID. An existing restricted invitation
 must already authorize the exact new repository name; creation never expands
 its scope. With invitations off, the normal connected account can create in its

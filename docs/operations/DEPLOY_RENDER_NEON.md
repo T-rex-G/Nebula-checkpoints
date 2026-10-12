@@ -127,6 +127,15 @@ for the frozen candidate; a version string alone is not deployment identity.
 
 ## 5. Connect GitHub live events
 
+Live events are Experimental until a hosted run proves them, so a production
+deployment refuses them. Only a qualification deployment serves them, and only
+when it is told to with `NV_QUALIFICATION_CAPABILITIES=live-events`. The server
+accepts no other value, refuses to start once live events are Supported and the
+variable is still set, and says what it serves ahead of its proof in
+`/api/config` (`qualification.capabilities`). The cohort readiness check
+(`scripts/check-deployment-readiness.js`) fails any deployment that says so, so
+the variable cannot reach a cohort unnoticed.
+
 1. Sign in to Nebulaverse-X.
 2. Open a GitHub repository.
 3. Open **Neural**.

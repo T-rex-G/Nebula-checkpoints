@@ -12,7 +12,8 @@ const { loadMigrations } = require('../src/migrations');
     '/healthz': { ok: true, maintenance: false },
     '/readyz': { ok: true, database: 'connected', migration },
     '/api/version': { releaseTreeSha256: fingerprint },
-    '/api/alpha/status': { mode: 'invite' }
+    '/api/alpha/status': { mode: 'invite' },
+    '/api/config': { profile: 'hosted-alpha' }
   };
   let stalled = false;
   let redirect = false;
@@ -51,6 +52,20 @@ const { loadMigrations } = require('../src/migrations');
     stalled = false;
     redirect = true;
     assert.equal((await checkDeployment(options)).ok, false);
+    /*
+     * A qualification deployment serves capabilities ahead of their proof
+     * (src/qualification-capabilities.js). It may be inspected, never admit a
+     * cohort -- which is what keeps the switch out of production.
+     */
+    redirect = false;
+    assert.equal((await checkDeployment(options)).ok, true);
+    states['/api/config'] = { profile: 'hosted-alpha', qualification: { capabilities: ['live-events'] } };
+    const qualifying = await checkDeployment(options);
+    assert.equal(qualifying.ok, false, 'a qualification deployment cannot admit the cohort');
+    assert.deepStrictEqual(qualifying.checks.find(check => check.route === '/api/config'), { route: '/api/config', ok: false, reason: 'deployment does not match the required state' });
+    assert.equal((await checkDeployment({ ...options, purpose: 'operator-verification' })).ok, true, 'it can still be inspected');
+    states['/api/config'] = { profile: 'hosted-alpha' };
+    assert.equal((await checkDeployment(options)).ok, true);
     await assert.rejects(checkDeployment({ ...options, purpose: 'public' }), /purpose/);
     await assert.rejects(checkDeployment({ ...options, expectedFingerprint: '' }), /fingerprint/);
     console.log('deployment readiness gate tests passed');

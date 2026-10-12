@@ -132,6 +132,13 @@ After candidate review, target verification and explicit live-run authorization:
 5. Inspect the candidate digest, source commit, target binding, probe outcomes
    and cleanup before accepting the artifact.
 
+The hosted run's `live-events-delivery` check needs a deployment that serves
+live events before they are Supported. Only the staging target does, set with
+`NV_QUALIFICATION_CAPABILITIES=live-events`; it reports
+`qualification.capabilities` in `/api/config`, and the cohort readiness check
+fails it. Remove the variable in the same change that promotes live events: a
+server still naming a Supported capability refuses to start.
+
 The workflow exposes only `run_github` and `run_hosted`. A retired provider must
 not be reintroduced through an old input, target map or artifact. Independent
 hosted and manual evidence must bind the same candidate before a final GO.

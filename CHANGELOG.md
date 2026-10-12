@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Live events can be qualified on staging, and nowhere else
+
+- **One exception to "only what is Supported is served", named and bounded.**
+  Live events need a deployment GitHub can deliver webhooks to, so they can
+  only be proven on one. `NV_QUALIFICATION_CAPABILITIES=live-events` lets a
+  qualification deployment serve them while they are still Experimental; they
+  are still described as Experimental, and every other capability's gate is
+  unchanged. The variable accepts no other name, and a server whose live
+  events are already Supported refuses to start while it is set, so it cannot
+  outlive the promotion it exists for.
+- **A deployment says when it is serving ahead of proof.** `/api/config`
+  reports `qualification.capabilities`, and the cohort readiness check fails a
+  deployment that reports any, so a staging setting cannot reach a cohort
+  unnoticed.
+- **`/healthz` names the process that answered.** A `bootId`, drawn once per
+  start, lets a restart drill tell a restarted server from one that was never
+  down.
+
 ### Independent review of the hardening, fixed from tests that failed first
 
 - **Signing in with GitHub over a retired account is the choice it asked for.**

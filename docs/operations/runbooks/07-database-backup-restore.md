@@ -79,8 +79,11 @@ git status --short
 
 For the protected Alpha.17 live-qualification workflow, configure the
 `alpha17-live-qualification` environment with secrets
-`ALPHA17_DATABASE_URL`, `ALPHA17_RESTORE_DATABASE_URL`,
-`ALPHA17_BACKUP_KEY_BASE64`, and `ALPHA17_NEON_API_KEY`; configure variables
+`ALPHA17_DATABASE_URL`, `ALPHA17_RESTORE_DATABASE_URL` and
+`ALPHA17_NEON_API_KEY`. The backup key is not one of them: the job draws a
+fresh one for the step that writes and restores the backup, masks it, and
+drops it before anything else runs, so no stored key can open a backup a
+cancelled job left behind. Configure variables
 `ALPHA17_NEON_PROJECT_ID`, `ALPHA17_COHORT_NEON_BRANCH_ID`,
 `ALPHA17_RESTORE_NEON_PROJECT_ID`, `ALPHA17_RESTORE_NEON_BRANCH_ID`, and the
 out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`, plus

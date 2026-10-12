@@ -500,7 +500,6 @@ jobs:
           NV_ALPHA17_WORKFLOW_PATH: .github/workflows/public-alpha-alpha17.yml
           DATABASE_URL: ${{ secrets.ALPHA17_DATABASE_URL }}
           NV_RESTORE_DATABASE_URL: ${{ secrets.ALPHA17_RESTORE_DATABASE_URL }}
-          NV_BACKUP_KEY_BASE64: ${{ secrets.ALPHA17_BACKUP_KEY_BASE64 }}
           NEON_API_KEY: ${{ secrets.ALPHA17_NEON_API_KEY }}
           PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
           NV_COHORT_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
@@ -546,14 +545,23 @@ jobs:
           # failure, but a cancelled job never reaches that code. This trap is the
           # layer that survives cancellation, so it clears the decryptable backup
           # material too.
-          trap 'release_testers; unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
+          trap 'release_testers; unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64 NV_BACKUP_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
           printf '%s' "${OPERATIONAL_RECORD_BASE64}" | base64 -d > "${operational_record}"
           export NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
           NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"
+          # The backup is written and restored inside this step and removed
+          # after it, so its key is drawn here and never stored: no secret to
+          # hold or rotate, and a backup left behind by a cancelled job cannot
+          # be decrypted once the job ends.
+          export NV_BACKUP_KEY_BASE64
+          NV_BACKUP_KEY_BASE64="$(openssl rand -base64 32)"
+          echo "::add-mask::${NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64}"
+          echo "::add-mask::${NV_BACKUP_KEY_BASE64}"
           export NV_ALPHA17_RESTORE_ATTESTATION_PATH="${restore_attestation}"
           export NV_ALPHA17_OPERATIONAL_RECORD="${operational_record}"
           export NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"
           (cd "${trusted_root}" && node ci/run-alpha17-restore-validation.js)
+          unset NV_BACKUP_KEY_BASE64
           test -s "${restore_attestation}"
           # Made after the restore, so the mutation's CSRF token is fresh when the load uses it.
           (cd "${trusted_root}" && node ci/run-alpha17-hosted-testers.js provision "${testers}")

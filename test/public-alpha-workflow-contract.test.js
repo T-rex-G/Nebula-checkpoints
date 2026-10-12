@@ -938,7 +938,6 @@ assert(
 for (const binding of [
   'ALPHA17_DATABASE_URL',
   'ALPHA17_RESTORE_DATABASE_URL',
-  'ALPHA17_BACKUP_KEY_BASE64',
   'ALPHA17_NEON_API_KEY',
   'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID',
@@ -949,6 +948,26 @@ for (const binding of [
   'ALPHA17_OPERATOR_KEY_ID'
 ]) assert(hosted.includes(binding), `hosted restore execution must bind ${binding}`);
 assert(hosted.includes('ci/run-alpha17-restore-validation.js'));
+/*
+ * The backup is written and restored inside one step, so its key is drawn
+ * there and never stored: no environment secret holds it, it is masked, and it
+ * is gone before the testers and the gate run.
+ */
+assert(!/ALPHA17_BACKUP_KEY_BASE64/.test(workflow), 'the backup key must not be a stored secret');
+assert(
+  hosted.includes('NV_BACKUP_KEY_BASE64="$(openssl rand -base64 32)"') &&
+    hosted.includes('echo "::add-mask::${NV_BACKUP_KEY_BASE64}"'),
+  'the hosted job must draw and mask its own backup key'
+);
+assert(
+  hosted.indexOf('NV_BACKUP_KEY_BASE64="$(openssl rand') < hosted.indexOf('node ci/run-alpha17-restore-validation.js') &&
+    hosted.indexOf('unset NV_BACKUP_KEY_BASE64', hosted.indexOf('node ci/run-alpha17-restore-validation.js')) >
+      hosted.indexOf('node ci/run-alpha17-restore-validation.js') &&
+    hosted.indexOf('unset NV_BACKUP_KEY_BASE64', hosted.indexOf('node ci/run-alpha17-restore-validation.js')) <
+      hosted.indexOf('node ci/run-alpha17-hosted-testers.js provision'),
+  'the backup key must exist only for the restore, and be gone before the testers and the gate run'
+);
+assert(/trap '[^']*unset [^']*NV_BACKUP_KEY_BASE64/.test(hosted), 'a cancelled job must drop the backup key too');
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH'));
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION'));
 assert(hosted.includes('PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt'),

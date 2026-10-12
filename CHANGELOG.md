@@ -36,6 +36,11 @@
   `scripts/alpha17-operator-record.js` signs it on the operator's machine,
   refuses a failed or uncleaned run and checks its own output with the gate's
   validator.
+- **The backup key is drawn for the run, not stored.** The restore drill's
+  backup is written and restored inside one step, so the job now draws its
+  key there, masks it and drops it before the testers and the gate run.
+  `ALPHA17_BACKUP_KEY_BASE64` is no longer read, and a backup a cancelled job
+  left behind cannot be decrypted once the job ends.
 - **The hosted gate makes its own testers.** Its five load sessions and the
   bounded mutation used to be secrets minted by hand from a browser. The job
   now issues them by invitation through the deployment under test and

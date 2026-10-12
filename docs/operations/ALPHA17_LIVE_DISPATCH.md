@@ -192,7 +192,8 @@ them; a person reads the report and signs it.
    and releases them on every exit -- revoked, and the last one's data deleted,
    which removes every session that still carries the shared GitHub identity.
    The `ALPHA17_SESSION_COOKIES`, `ALPHA17_MUTATION_REQUEST` and
-   `ALPHA17_CLEANUP_REQUEST` secrets are no longer read; delete them.
+   `ALPHA17_CLEANUP_REQUEST` secrets are no longer read; delete them. Nor is
+   a backup key: the restore draws its own for the run and never stores it.
 
 The drills and the hosted gate read the staging service's `DATABASE_URL` and
 `NV_ALPHA_INVITE_PEPPER` from Render with `ALPHA17_RENDER_API_KEY`, so testers

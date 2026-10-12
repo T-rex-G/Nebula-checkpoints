@@ -665,7 +665,7 @@ assert.strictEqual(
 );
 assert(Number(shardCommand[1]) >= 2, 'the browser suite must be split across more than one runner');
 assert(/fail-fast:\s*false/.test(browserMatrix),
-  'one failing shard must not cancel the other three, which is how you tell a local break from a general one');
+  'one failing shard must not cancel the others, which is how you tell a local break from a general one');
 assert(browserMatrix.includes('bash ci/install-browser.sh'),
   'the browser-matrix job provisions its own browser, having no cache to share');
 assert(

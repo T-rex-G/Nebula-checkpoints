@@ -95,10 +95,12 @@ jobs:
       - run: npm run test:staging:gate
       - run: npm run test:release
 
-  # The browser suite, in four slices that run side by side, each with its own
-  # server, as the qualification workflow's browser matrix has run it since it
-  # was introduced. One worker per slice: the specs share one server and are
-  # not written to run concurrently against it.
+  # The browser suite, in six slices that run side by side, each with its own
+  # server, as the qualification workflow's browser matrix runs it. One worker
+  # per slice: the specs share one server and are not written to run
+  # concurrently against it. Six, not four: the heaviest of four slices reached
+  # its 20-minute bound on c9410a3 and b1a61d9, on runners that ran the
+  # identical tests 40% slower than the runs before them.
   #
   # After `verify`, not beside it: a type error or a failing unit test is
   # reported in minutes and no browser time is spent on a change that fails
@@ -111,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -126,7 +128,7 @@ jobs:
       # local run uses; unset there, the whole suite runs.
       - run: npm run test:e2e
         env:
-          NV_E2E_SHARD: ${{ matrix.shard }}/4
+          NV_E2E_SHARD: ${{ matrix.shard }}/6
       # This job uses synthetic browser credentials. Keep only its diagnostics;
       # live-provider and hosted jobs must not upload browser session material.
       - name: Retain browser failure evidence

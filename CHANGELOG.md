@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### The browser suite fits its bounds on a slow runner
+
+- **The same tests, 40% slower, on a different runner.** Shard 2 ran 202
+  identical tests in 655 s on 8dec400 and 937 s on b1a61d9; locally the
+  slowest of them took the same time on both commits. The heaviest of four CI
+  slices reached its 20-minute bound on c9410a3 and b1a61d9, and the trusted
+  candidate suite, run whole on one worker, its 50-minute bound.
+- **Six slices in CI and in the checkout matrix**, so the heaviest has room
+  under its bound on the slow runners as well as the fast ones.
+- **The trusted candidate suite runs in four slices of its own**, one after
+  another from the same extracted bytes, each bounded at 25 minutes. Their
+  Playwright blob reports are merged into the one JSON report the gate has
+  always validated: every browser case still runs against the candidate, and
+  no single bound has to grow with the suite again.
+
 ### Live events can be qualified on staging, and nowhere else
 
 - **One exception to "only what is Supported is served", named and bounded.**

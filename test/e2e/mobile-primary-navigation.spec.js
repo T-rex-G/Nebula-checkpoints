@@ -59,28 +59,33 @@ test('a phone can open the primary navigation from the bar it is looking at', as
   }
 });
 
-test('every primary destination arrives, and closes the menu behind it', async ({ page }) => {
-  /*
-   * From inside a repository, because Neural, Governance and the workbench are
-   * views of an open repository and refuse when there is none. Reaching them
-   * is the claim; inventing a repository to show is not.
-   */
-  const expectedPage = { overview: 'page-overview', repos: 'page-repos', site: 'page-site' };
+/*
+ * From inside a repository, because Neural, Governance and the workbench are
+ * views of an open repository and refuse when there is none. Reaching them is
+ * the claim; inventing a repository to show is not.
+ *
+ * One test per destination: each is its own journey from a freshly loaded
+ * repository, so each has its own time bound and a failure names the one that
+ * did not arrive. Six journeys in one bound ran 20 s on a fast runner and past
+ * 30 s on a slow one, with nothing wrong in any of them.
+ */
+const EXPECTED_PAGE = { overview: 'page-overview', repos: 'page-repos', site: 'page-site' };
 
-  for (const rail of DESTINATIONS) {
+for (const rail of DESTINATIONS) {
+  test(`the ${rail} destination arrives, and closes the menu behind it`, async ({ page }) => {
     await insideRepository(page);
     await menuButton(page).click();
     await page.locator(`#navRail [data-rail="${rail}"]`).click();
 
     await expect(
-      page.locator(`#${expectedPage[rail] || 'page-work'}`),
+      page.locator(`#${EXPECTED_PAGE[rail] || 'page-work'}`),
       `${rail} did not arrive`
     ).toHaveClass(/active/);
 
     /* A menu left open over the destination it just chose has not finished. */
     await expect(page.locator('#navRail')).not.toBeVisible();
-  }
-});
+  });
+}
 
 test('the menu can be dismissed without choosing anything', async ({ page }) => {
   await signedIn(page);

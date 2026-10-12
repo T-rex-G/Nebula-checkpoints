@@ -92,6 +92,11 @@
   Playwright blob reports are merged into the one JSON report the gate has
   always validated: every browser case still runs against the candidate, and
   no single bound has to grow with the suite again.
+- **One test, one journey.** The phone-navigation test walked all six
+  primary destinations, each from a freshly loaded repository, inside one
+  30-second bound: 20 s on a fast runner, past 30 s on a runner 1.6 times
+  slower, with every destination arriving. Each destination is now its own
+  test with its own bound, and a failure names the one that did not arrive.
 
 ### Live events can be qualified on staging, and nowhere else
 

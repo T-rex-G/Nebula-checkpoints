@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The sign-in field says what to grant before anything is typed
+
+- **The token guidance is the token field's description.** It sits after the
+  field and the "Enter orbit" button on screen, so a screen reader moving
+  forward reached the credential field, and could submit, before hearing which
+  permissions to grant. The field now names the guidance as its description,
+  read on arrival. Found while writing the manual pass script, and pinned by
+  the keyboard-only browser test, which failed first.
+- **The manual accessibility record says how to run its passes.** Step by
+  step for VoiceOver on an iPhone and for VoiceOver on a Mac or NVDA: the
+  gestures and keys, where each checked control lives, and what should be
+  heard. The record stays `Not executed` until a person runs it.
+
 ### The hosted drills run themselves, and a person signs what they saw
 
 - **Nine operational drills, performed rather than described.** The hosted

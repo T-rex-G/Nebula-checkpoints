@@ -866,7 +866,7 @@
     <p class="brand-sub">GitHub — a public alpha workspace for sandbox repositories.</p>
     <div class="card login-card">
       <label class="field-label" for="tokenInput" id="tokenLabel">GitHub Personal Access Token</label>
-      <input id="tokenInput" type="password" placeholder="ghp_••••••••••••••••" autocomplete="off" spellcheck="false">
+      <input id="tokenInput" type="password" placeholder="ghp_••••••••••••••••" autocomplete="off" spellcheck="false" aria-describedby="loginHint">
       <button class="btn btn-primary btn-block" id="loginBtn">Enter orbit</button>
       <button class="btn btn-ghost btn-block" id="oauthBtn" hidden>Continue with GitHub (OAuth)</button>
       <p class="hint" id="loginHint">Use a short-lived fine-grained token limited to selected repositories. Grant Contents read access for browsing; add write permission only for changes you intend to make. Sessions use an HttpOnly cookie stored by your browser.</p>

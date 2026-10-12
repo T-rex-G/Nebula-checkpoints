@@ -242,6 +242,42 @@ test('the chart is drawn at the width it is shown, not stretched to it', async (
 });
 
 /*
+ * A reading can land while its card is not laid out yet -- the overview still
+ * hidden behind the screen before it. Drawn then, the chart had no width to
+ * take, played its arrival at a 380-pixel guess, and was replaced at its real
+ * width a frame after the card appeared: a visible jump, and the element a
+ * reader's pointer (or a test) was holding gone. It waits for the card's first
+ * real width instead, and is drawn once.
+ */
+test('a chart whose card is hidden when the reading lands is drawn once, at the width it is shown', async ({ page }) => {
+  await overview(page);
+  await expect(page.locator('#wpFeed .wp-area')).toBeVisible();
+  await page.evaluate(() => {
+    const feed = document.querySelector('#wpFeed');
+    window.__charts = [];
+    new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === 1 && node.classList.contains('wp-area')) window.__charts.push(node.viewBox.baseVal.width);
+        }
+      }
+    }).observe(feed, { childList: true, subtree: true });
+    feed.style.display = 'none';
+    /* The overview's own read, while its card is out of the layout. */
+    return loadActivityFeed(true);
+  });
+  await page.evaluate(() => { document.querySelector('#wpFeed').style.display = ''; });
+  const chart = page.locator('#wpFeed .wp-area');
+  await expect(chart).toBeVisible();
+  /* Long enough for a refit to have happened if one was coming. */
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 300)))));
+  const drawn = await page.evaluate(() => window.__charts);
+  const shown = await chart.evaluate(svg => svg.getBoundingClientRect().width);
+  expect(drawn, `charts drawn ${JSON.stringify(drawn)} for a card ${Math.round(shown)} wide`).toHaveLength(1);
+  expect(Math.abs(drawn[0] - shown)).toBeLessThanOrEqual(26);
+});
+
+/*
  * A pointer over the plot names the day under it and its count; leaving the
  * plot puts it away. The table under the chart carries the same numbers for
  * every other reader.

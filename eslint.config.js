@@ -46,6 +46,7 @@ const APP_SHELL_GLOBALS = Object.freeze({
   EXPOSURE_DISPOSITION_WORDS: 'readonly',
   exportActivityFlow: 'readonly',
   exposureRuleLabel: 'readonly',
+  loadActivityFeed: 'readonly',
   modal: 'readonly',
   openFile: 'readonly',
   openSafeguards: 'readonly',

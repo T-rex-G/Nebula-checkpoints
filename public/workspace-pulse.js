@@ -1113,20 +1113,46 @@
    * reader has already seen the line arrive once.
    */
   function fittedArea(host, values, label, options) {
-    const measure = () => Math.round(host.getBoundingClientRect ? host.getBoundingClientRect().width : 0) || 380;
+    const measure = () => Math.round(host.getBoundingClientRect ? host.getBoundingClientRect().width : 0);
+    const observed = typeof ResizeObserver === 'function';
     let drawn = measure();
-    let chart = areaChart(values, label, Object.assign({}, options, { width: drawn }));
-    host.appendChild(chart);
-    if (typeof ResizeObserver === 'function') {
+    let chart = null;
+    /*
+     * A card that is not laid out yet -- its screen still hidden when the
+     * reading lands -- has no width to draw at. Drawn at a guess, the chart
+     * played its arrival at 380 pixels and was replaced at its real width a
+     * frame after the card appeared: a visible jump, and the element under the
+     * reader's pointer gone. Where the card can be watched, the chart keeps its
+     * place and is drawn once, at the card's first real width.
+     */
+    let slot = null;
+    if (drawn || !observed) {
+      drawn = drawn || 380;
+      chart = areaChart(values, label, Object.assign({}, options, { width: drawn }));
+      host.appendChild(chart);
+    } else {
+      slot = document.createComment(' area chart, drawn at its card\'s first width ');
+      host.appendChild(slot);
+    }
+    if (observed) {
       let redraw = 0;
+      const placed = () => (chart || slot).isConnected;
       const watcher = new ResizeObserver(() => {
-        if (!chart.isConnected) { watcher.disconnect(); cancelAnimationFrame(redraw); return; }
+        if (!placed()) { watcher.disconnect(); cancelAnimationFrame(redraw); return; }
         cancelAnimationFrame(redraw);
         // Replacing SVG inside a resize delivery can resize its observed card
         // again in the same frame. Draw in the next frame to avoid that loop.
         redraw = requestAnimationFrame(() => {
-          if (!chart.isConnected) { watcher.disconnect(); return; }
+          if (!placed()) { watcher.disconnect(); return; }
           const now = measure();
+          if (!now) return;
+          if (!chart) {
+            drawn = now;
+            chart = areaChart(values, label, Object.assign({}, options, { width: now }));
+            slot.replaceWith(chart);
+            slot = null;
+            return;
+          }
           if (Math.abs(now - drawn) < 24) return;
           drawn = now;
           const next = areaChart(values, label, Object.assign({}, options, { width: now, reveal: false }));

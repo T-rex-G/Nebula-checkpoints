@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### A chart drawn while its card is hidden no longer jumps when it appears
+
+- **The activity charts wait for a real width.** A reading could land while
+  the overview was still hidden behind the screen before it. The chart then
+  had no width to take, played its arrival at a 380-pixel guess, and was
+  replaced at its real width a frame after the card appeared, so the reader
+  saw the line arrive small and snap to size. It now keeps its place and is
+  drawn once, at the card's first real width; a card hidden later is no
+  longer redrawn at the guess either.
+- Found from a red `browser (2)` run in which the hover test held the chart
+  as it was replaced. A browser test that hides the card while the feed is
+  read failed first, drawing `[380, 891]` on desktop and `[380, 318]` on a
+  phone, and now draws once.
+
 ### The sign-in field says what to grant before anything is typed
 
 - **The token guidance is the token field's description.** It sits after the

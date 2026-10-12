@@ -5,7 +5,8 @@
  *
  * What these pin is what a reader relies on: nothing is asked of the provider
  * until the card is in view; the three columns hold what the list route said,
- * in an order that puts the longest wait first; a card opens its pull request
+ * in an order that puts the longest wait first; it sits last on the page, so
+ * its arrival moves nothing a reader is looking at; a card opens its pull request
  * in its own repository; a repository that could not be read is named rather
  * than drawn as one with nothing open, and the card says how many it read;
  * the lists are read a few at a time and read again on request; the card
@@ -60,6 +61,28 @@ test('the board waits until it is in view, then lays the open pull requests in t
   await expect(waiting.first().locator('.pb-chip')).toHaveText(['security', 'ci']);
   const draft = columns.nth(2).locator('.pb-item');
   await expect(draft.locator('.pb-chip')).toHaveText(['Idle 18 days', 'database', 'migration', 'needs-design', '+1']);
+});
+
+test('the board is last on the Overview, so its arrival moves nothing a reader is looking at', async ({ page }) => {
+  await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/repo/sandbox/demo/pulls?*', async route => { await held; await route.fallback(); });
+  await page.goto('/#/overview');
+  const last = await page.evaluate(() => {
+    const sections = [...document.querySelectorAll('#page-overview .container > section')];
+    return sections[sections.length - 1] && sections[sections.length - 1].id;
+  });
+  expect(last).toBe('wpPullsSection');
+  const feed = page.locator('#wpFeed');
+  await feed.scrollIntoViewIfNeeded();
+  await expect(page.locator('#wpPulls')).toContainText('Reading the open pull requests');
+  const before = await feed.evaluate(node => node.getBoundingClientRect().top);
+  release();
+  await expect(page.locator('#wpPulls .pb-item')).toHaveCount(4);
+  const after = await feed.evaluate(node => node.getBoundingClientRect().top);
+  expect(Math.abs(after - before), 'the feed stays where the reader left it').toBeLessThanOrEqual(1);
 });
 
 test('a card opens its pull request in its own repository', async ({ page }) => {

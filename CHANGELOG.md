@@ -4,7 +4,7 @@
 
 ### Open pull requests across the workspace, on the Overview
 
-- **A board below the security posture.** Open pull requests from the
+- **A board at the foot of the Overview.** Open pull requests from the
   repositories most recently pushed to, in three columns: waiting on review
   (longest wait first), open with nobody asked to review (oldest first), and
   drafts (most recently updated first). The first line says how many are open,
@@ -20,6 +20,9 @@
   bypasses that. The card says how many repositories it read when the
   inventory is larger, and names any outside the session's scope or that
   could not be read rather than drawing them as empty.
+- **Last on the page, so it moves nothing.** The board grows when its lists
+  arrive; placed after the activity feed, that growth no longer pushes the
+  feed out from under a reader who has scrolled to it.
 - The list route now also returns when a pull request was opened, how many
   reviewers and teams it asked for (counted, not named) and its label names,
   all from GitHub's list response; no further request is made for them.

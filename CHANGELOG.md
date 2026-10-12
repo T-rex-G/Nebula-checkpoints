@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### A database outage no longer signs a tester out for good
+
+- **The access cookie survives the database.** While the access store could
+  not be read, every tester's request answered 500 and the server cleared the
+  access cookie. An invitation is redeemed once, so a scale-to-zero wake that
+  failed, or a minute of database maintenance, locked every tester out until
+  someone issued them a new invitation. It now answers 503
+  `ALPHA_ACCESS_UNAVAILABLE` with a `Retry-After` and keeps the cookie; the
+  same cookie is the same session once the database answers. Only a session
+  that is genuinely over -- expired, revoked, never there -- is cleared.
+  `/api/alpha/status` behaves the same way.
+- **A redemption that could not be recorded is not spent.** It answers the
+  same 503, and the invitation redeems once the database is back.
+- **The landing asks again.** A page that met the waking store waits for
+  readiness and asks once more, rather than leaving the reader on
+  "Temporarily unavailable" until they reload.
+- Found by designing the hosted database-interruption drill, which expects
+  exactly this, and fixed from a real-PostgreSQL test that failed first.
+
 ### A GitHub rate limit is a rate limit, and says how long
 
 - **GitHub answers most of its limits with 403, and the server read that as

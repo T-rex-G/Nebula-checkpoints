@@ -253,6 +253,14 @@ function activeSession(letter) {
   };
 }
 
+/* The real module's exports, so the server meets the same interface it ships against. */
+class AlphaAccessOperationalError extends Error {
+  constructor() {
+    super('Alpha access operation could not be completed');
+    this.name = 'AlphaAccessOperationalError';
+  }
+}
+
 class AlphaAccessStore {
   constructor() {}
 
@@ -473,7 +481,7 @@ class Pool {
 
 Module._load = function load(request, parent, isMain) {
   if (request === './src/alpha-access-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaAccessStore };
+    return { AlphaAccessStore, AlphaAccessOperationalError };
   }
   if (request === './src/alpha-privacy-store' && parent && /server\.js$/.test(parent.filename)) {
     return { AlphaPrivacyStore };

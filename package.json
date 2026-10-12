@@ -33,7 +33,7 @@
     "check:secrets": "node scripts/check-secrets.js",
     "test:release": "node test/package-release.test.js",
     "test:migrations": "node test/migrations-postgres.test.js",
-    "test:multi-instance": "node test/multi-instance-contract.test.js && node test/corona-safety-persistence-server.test.js && node test/session-account-selection-server.test.js",
+    "test:multi-instance": "node test/multi-instance-contract.test.js && node test/corona-safety-persistence-server.test.js && node test/session-account-selection-server.test.js && node test/alpha-access-outage-server.test.js",
     "test:exposure-store": "node test/exposure-store.test.js",
     "test:code-audit-history": "node test/code-audit-history.test.js && node test/code-audit-triage-store.test.js && node test/workspace-security-posture-postgres.test.js",
     "test:governance-lifecycle": "node test/governance-lifecycle-postgres.test.js && node test/governance-activation-postgres.test.js",

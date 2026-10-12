@@ -328,10 +328,23 @@
     const readiness = waitUntilReady();
     try {
       status = await jsonRequest('/api/alpha/status');
-    } catch {
-      await readiness;
-      showWaking('Temporarily unavailable');
-      return Object.freeze({ allowed: false, reason: 'unavailable' });
+    } catch (error) {
+      /*
+       * ALPHA_ACCESS_UNAVAILABLE is the access store not answering -- a
+       * database waking from scale-to-zero -- and the server kept the
+       * reader's cookie for it. Once readiness says the database answers,
+       * ask once more rather than leaving the reader on "unavailable" until
+       * they think to reload.
+       */
+      const ready = await readiness;
+      status = null;
+      if (ready && error && error.code === 'ALPHA_ACCESS_UNAVAILABLE') {
+        try { status = await jsonRequest('/api/alpha/status'); } catch { status = null; }
+      }
+      if (!status) {
+        showWaking('Temporarily unavailable');
+        return Object.freeze({ allowed: false, reason: 'unavailable' });
+      }
     }
     if (status.access === 'revoked' || status.code === 'ALPHA_ACCESS_REVOKED') {
       showExpired('ALPHA_ACCESS_REVOKED');

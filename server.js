@@ -92,7 +92,7 @@ const {
   databaseReadiness,
   hostedConfigProjection
 } = require('./src/hosted-readiness');
-const { AlphaAccessStore } = require('./src/alpha-access-store');
+const { AlphaAccessStore, AlphaAccessOperationalError } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance } = require('./src/alpha-privacy');
 const {
@@ -1058,6 +1058,24 @@ function alphaOperationalFailure(res) {
   });
 }
 
+/*
+ * The access store could not be read or written. That is the database, not
+ * the tester: it answers 503 and leaves the access cookie alone. It used to
+ * answer 500 and clear the cookie, and an invitation is redeemed once, so a
+ * scale-to-zero wake that failed or a minute of database maintenance signed
+ * every tester out for good.
+ */
+function alphaStoreUnavailable(error) {
+  return error instanceof AlphaAccessOperationalError;
+}
+function alphaUnavailableFailure(res) {
+  res.setHeader('Retry-After', '5');
+  return res.status(503).json({
+    error: 'Alpha access is temporarily unavailable. Try again in a few seconds.',
+    code: 'ALPHA_ACCESS_UNAVAILABLE'
+  });
+}
+
 function alphaSessionFailure(res, error) {
   const code = String(error && error.code || '');
   if (!ALPHA_SESSION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
@@ -1079,6 +1097,8 @@ function alphaSessionFailure(res, error) {
 }
 
 function alphaRedemptionFailure(res, error) {
+  /* Nothing was spent: the redemption is one transaction, and it did not commit. */
+  if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
   const code = String(error && error.code || '');
   if (!ALPHA_REDEMPTION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
   return res.status(code === 'ALPHA_REDEMPTION_LOCKED' ? 429 : 403).json({
@@ -1168,6 +1188,7 @@ async function alphaAccessBoundary(req, res, next) {
       req.alpha = recovery;
       return next();
     }
+    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
     setAlphaCookie(res, '', 0);
     return alphaSessionFailure(res, error);
   }
@@ -1195,6 +1216,7 @@ app.get('/api/alpha/status', async (req, res) => {
     const access = await readAlphaRequestSession(req);
     return res.json(alphaStatusBody(access.session));
   } catch (error) {
+    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
     setAlphaCookie(res, '', 0);
     if (!ALPHA_SESSION_HTTP_CODES.has(String(error && error.code || ''))) {
       return alphaOperationalFailure(res);

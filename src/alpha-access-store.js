@@ -697,5 +697,6 @@ class AlphaAccessStore {
 
 module.exports = Object.freeze({
   AlphaAccessStore,
+  AlphaAccessOperationalError,
   GENERIC_REDEMPTION_ERROR
 });

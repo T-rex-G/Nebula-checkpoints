@@ -1591,6 +1591,47 @@ class ExposureStore {
     return Object.freeze({ weeks, opened: series(opened), fixed: series(fixed), accepted });
   }
 
+  /*
+   * The findings inbox's leaked credentials: every finding of each
+   * repository's newest finished scan, in the generation that scan used,
+   * that is not over -- open, removed from the tree (still in history) or an
+   * accepted risk. A credential its provider rejected is fixed and not listed.
+   * The same latest scans as the summary, so the inbox and the Overview count
+   * the same findings. Bounded, oldest first, with `truncated` when there were
+   * more.
+   */
+  async workspaceFindings(input = {}) {
+    const provider = requireText(input.provider, 'Scan provider', 40);
+    const authority = requireText(input.authority, 'Scan authority', 255);
+    const identityKey = requireDigest(input.identityKey, 'Summary identity');
+    const limit = boundedInteger(input.limit, 500, 1, 1000);
+    const found = await this.#query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
+                owner_login, repo_name, rules_version, engine_version, fingerprint_key_version
+           FROM nv_exposure_scans
+          WHERE provider=$1 AND authority=$2 AND identity_key=$3
+            AND state IN ('complete', 'partial')
+          ORDER BY lower(owner_login), lower(repo_name), finished_at DESC, scan_id DESC
+          LIMIT $4)
+       SELECT finding.* FROM latest
+         JOIN nv_exposure_findings AS finding
+           ON finding.provider=$1 AND finding.authority=$2 AND finding.identity_key=$3
+          AND finding.owner_login=latest.owner_login AND finding.repo_name=latest.repo_name
+          AND (finding.rules_version, finding.engine_version, finding.fingerprint_key_version)
+            = (latest.rules_version, latest.engine_version, latest.fingerprint_key_version)
+        WHERE finding.disposition IN ('open', 'removed-from-tree', 'accepted-risk')
+        ORDER BY finding.first_observed_at, finding.owner_login, finding.repo_name, finding.fingerprint
+        LIMIT $5`,
+      [provider, authority, identityKey, MAX_LIST_LIMIT * 5, limit + 1],
+      'list the workspace findings'
+    );
+    return Object.freeze({
+      truncated: found.rows.length > limit,
+      findings: Object.freeze(found.rows.slice(0, limit).map(findingFromRow))
+    });
+  }
+
   async listFindings(input = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');

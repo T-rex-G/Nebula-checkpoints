@@ -1497,6 +1497,22 @@ async function claim(store, now = T0) {
         'arrivals older than the window are not in it');
       assert.deepStrictEqual(JSON.parse(JSON.stringify((await trend({ now: clock - DAY })).opened)), [],
         'nothing observed after the moment asked about is counted');
+      /*
+       * The inbox's leaked credentials: what is not over -- open, removed from
+       * the tree (still in history) and accepted -- and not the credential the
+       * provider rejected, nor what a failed scan saw.
+       */
+      const listed = await store.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: TREND });
+      assert.strictEqual(listed.truncated, false);
+      assert.deepStrictEqual(listed.findings.map(item => [item.scope.repo, item.disposition]).sort(), [
+        ['PostureDelta', 'accepted-risk'], ['PostureDelta', 'open'], ['PostureDelta', 'removed-from-tree']
+      ], 'every finding that is not over, from the newest finished scan, and nothing else');
+      const bounded = await store.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: TREND, limit: 1 });
+      assert.deepStrictEqual([bounded.findings.length, bounded.truncated], [1, true], 'a bounded list says it was bounded');
+      assert.deepStrictEqual((await store.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: OTHER_IDENTITY }))
+        .findings.filter(item => /^Posture/.test(item.scope.repo)).map(item => item.scope.repo).sort(), ['PostureEpsilon', 'PostureGamma'],
+      'another identity lists its own scans and nobody else\'s');
+      await assert.rejects(store.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: 'nope' }), /sha-256/);
       for (const [target, identity] of [[delta, TREND], [epsilon, TREND], [epsilon, OTHER_IDENTITY]]) {
         await store.clearHistory({ scope: target, identityKey: identity });
       }

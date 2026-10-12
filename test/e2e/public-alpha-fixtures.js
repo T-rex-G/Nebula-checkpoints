@@ -201,6 +201,7 @@ function normalizedScenario(input = {}) {
     promote: Array.isArray(input.promote) ? input.promote : [],
     demote: Array.isArray(input.demote) ? input.demote : [],
     securityPosture: input.securityPosture || 'ready',
+    findingsInbox: input.findingsInbox || 'ready',
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -279,6 +280,39 @@ function securityPostureFixture(kind) {
   };
 }
 
+/* What the inbox route answers: audit findings of the sandbox, one leaked credential, one decision. */
+function findingsInboxFixture(kind, decided) {
+  const now = Date.now();
+  const at = days => new Date(now - days * 86400000).toISOString();
+  const vocabulary = require('../../src/code-audit-triage').VOCABULARY;
+  if (kind === 'empty') {
+    return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: 0, counts: {}, findings: [] };
+  }
+  const audit = (id, overrides) => {
+    const recorded = decided.get(id);
+    const decision = recorded && recorded.rule === (overrides.rule || 'SEC-011') ? recorded : null;
+    return {
+      key: `audit:sandbox/demo:${id}`, source: 'audit', id, owner: 'sandbox', repo: 'demo', ref: 'main', rule: 'SEC-011',
+      title: 'A shell command is built by string interpolation', kind: 'code', severity: 'serious', state: 'open',
+      path: 'src/run.js', line: 12, package: null, cves: [], exploited: false, verdict: 'needs-validation',
+      firstSeenAt: at(40), ageDays: 40, timesFixed: 0, regressedAfter: null, decision: null, historyOnly: false,
+      ...overrides,
+      ...(decision ? { state: decision.disposition, decision: { disposition: decision.disposition, reason: decision.reason, expiresAt: decision.expiresAt } } : {})
+    };
+  };
+  const findings = [
+    audit('a'.repeat(24), { severity: 'critical', state: 'new', firstSeenAt: at(2), ageDays: 2, title: 'Request input is executed as code', rule: 'SEC-010', path: 'src/eval.js' }),
+    audit('b'.repeat(24), { state: 'regressed', timesFixed: 1, regressedAfter: at(20), firstSeenAt: at(9), ageDays: 9 }),
+    audit('c'.repeat(24), { kind: 'dependencies', rule: 'DEP-003', title: 'A dependency has a published vulnerability', path: 'package-lock.json', line: 40,
+      package: { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0' }, cves: ['CVE-2020-11023'], exploited: true }),
+    { key: 'exposure:sandbox/demo:f1', source: 'exposure', id: 'f1', owner: 'sandbox', repo: 'demo', ref: null, rule: 'github-token', title: null,
+      kind: 'leaked-credentials', severity: 'critical', state: 'open', path: 'scripts/release.sh', line: null, package: null, cves: [], exploited: false,
+      verdict: null, firstSeenAt: at(30), ageDays: 30, timesFixed: 0, regressedAfter: null, decision: null, historyOnly: true },
+    audit('d'.repeat(24), { severity: 'warning', state: 'accepted-risk', decision: { disposition: 'accepted-risk', reason: 'low-impact', expiresAt: at(-60) }, rule: 'SEC-004', title: 'A cookie is set without HttpOnly or Secure', path: 'docs/cookie.md' })
+  ];
+  return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: findings.length, counts: {}, findings };
+}
+
 function capabilityProjection(provider, authMethod = 'token', availability = 'available', promote = [], demote = []) {
   const projected = sanitized(projectCapabilities(capabilityDocument, {
     provider,
@@ -327,6 +361,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     providerConnected: scenario.access === 'active',
     mutationRequests: [],
     visitRequests: [],
+    /* Decisions recorded through the triage route, by finding, so the inbox reads them back. */
     disconnected: false,
     alphaEnded: false
   };
@@ -549,6 +584,19 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       if (scenario.securityPosture === 'error') return fulfill({ error: 'Service unavailable', code: 'SERVICE_UNAVAILABLE' }, 503);
       if (scenario.securityPosture === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
       return fulfill(securityPostureFixture(scenario.securityPosture));
+    }
+    /*
+     * The findings inbox and what it reaches: `findingsInbox` selects a list
+     * of findings (`ready`), an empty one (`empty`) or a database that did
+     * not answer (`unavailable`). A decision is the one the audit triage
+     * route below records, so the inbox reads what the Audit tab decided.
+     */
+    if (pathname === '/api/workspace/findings') {
+      if (scenario.findingsInbox === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
+      return fulfill(findingsInboxFixture(scenario.findingsInbox, state.triage));
+    }
+    if (pathname === '/api/repo/sandbox/demo/codeowners') {
+      return fulfill({ path: '.github/CODEOWNERS', rules: [{ pattern: '*', owners: ['@sandbox/everyone'] }, { pattern: 'src/', owners: ['@sandbox/web'] }], tooLarge: false });
     }
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {

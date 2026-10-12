@@ -77,6 +77,11 @@
           "Provider-verified",
           "Qualified expected-head file writes."
         ],
+        "findings.inbox": [
+          "Supported",
+          "Deterministic",
+          "Every open finding across the workspace, read from the audit history and the exposure scans this identity holds; nothing is fetched from the provider, a store that cannot answer is reported unmeasured, and decisions are made through the repository's own triage routes."
+        ],
         "folder.move": [
           "Supported",
           "Provider-verified",

@@ -91,6 +91,21 @@ test('the weekly chart reads by hover, by its legend and by its table', async ({
   await expect(rows.first()).toHaveText(/This week\s*3\s*1/);
 });
 
+test('a reading that lands as the numbers are opened leaves them open', async ({ page }) => {
+  const card = await overview(page);
+  await expect(card.locator('.pp-trend .wp-numbers summary')).toBeVisible();
+  /* The press and the rebuild share one task, ahead of the toggle event. */
+  const open = await page.evaluate(async () => {
+    const payload = await (await fetch('/api/workspace/security-posture')).json();
+    const host = document.querySelector('#wpPosture .wp-body');
+    host.querySelector('.pp-trend .wp-numbers summary').click();
+    const Posture = window.NebulaSecurityPosture;
+    Posture.render(host, Posture.model(payload, []), {});
+    return host.querySelector('.pp-trend .wp-numbers').open;
+  });
+  expect(open).toBe(true);
+});
+
 test('a repository named on the card opens its audit', async ({ page }) => {
   const card = await overview(page);
   const top = card.locator('.pp-repos .pp-repo-name').first();

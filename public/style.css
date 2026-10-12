@@ -449,7 +449,7 @@ em{color:var(--teal);font-style:normal}
 [data-theme="light"] body:has(#page-repos.active) #lightWaves{display:none}
 [data-theme="light"] body:has(#page-alpha-access.active) #lightWaves{display:none}
 @media(min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #lightWaves{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active, #page-findings.active) #lightWaves{
     inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}
 }
 /*
@@ -507,7 +507,7 @@ em{color:var(--teal);font-style:normal}
 
 /* ---------------- pages ---------------- */
 .page{display:none;min-height:100dvh}
-#page-overview, #page-repos, #page-work, #page-site{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
+#page-overview, #page-repos, #page-work, #page-site, #page-findings{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
 .page.active{display:block;animation:pageIn .24s var(--ease) both}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
@@ -1826,7 +1826,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    * Only where the mark is what it holds: the workbench bar uses this class
    * for the repository name and still needs to be able to shrink.
    */
-  #page-overview .topbar-brand,#page-repos .topbar-brand,#page-site .topbar-brand{flex:0 0 auto;min-width:44px}
+  #page-overview .topbar-brand,#page-repos .topbar-brand,#page-site .topbar-brand,#page-findings .topbar-brand{flex:0 0 auto;min-width:44px}
   /* Four gaps between five controls is 28px of a 304px bar. */
   .topbar{gap:6px;padding:8px 8px}
   .topbar-actions{gap:4px}
@@ -3752,7 +3752,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 #shellPlate{display:none}
 @media (min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #shellPlate{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active, #page-findings.active) #shellPlate{
     display:block;position:fixed;inset:22px;z-index:-1;pointer-events:none;
     border-radius:24px;border:1px solid var(--sb);
     background:var(--shellArt),var(--shellSolid);
@@ -3803,7 +3803,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * The workbench is already built this way -- a full-height grid that scrolls
    * its own panes -- which is why it never showed this and the other two did.
    */
-  #page-overview .container,#page-repos .container,#page-site .container{
+  #page-overview .container,#page-repos .container,#page-site .container,#page-findings .container{
     position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
     left:var(--shell-inset);right:23px;
     max-width:none;margin:0;padding:24px 26px 44px;
@@ -3825,8 +3825,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     background:var(--shellSolid);border-bottom:1px solid var(--sb)}
   /* The pages no longer reserve room for a bar that is now outside their
      scroll, and the document itself has nothing left to scroll. */
-  #page-overview,#page-repos,#page-site{padding-top:0}
-  body:has(#page-overview.active, #page-repos.active, #page-site.active){overflow:hidden}
+  #page-overview,#page-repos,#page-site,#page-findings{padding-top:0}
+  body:has(#page-overview.active, #page-repos.active, #page-site.active, #page-findings.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
   /*
@@ -3851,7 +3851,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * to see through it. Below this width the bar floats over scrolling content
    * and keeps its glass.
    */
-  #page-overview .topbar,#page-repos .topbar,#page-work .topbar,#page-site .topbar{
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar,#page-site .topbar,#page-findings .topbar{
     left:var(--shell-inset);right:23px;top:23px;border-radius:0 23px 0 0;
     background:transparent;border-top:0;border-left:0;border-right:0;
     border-bottom:1px solid var(--sb);
@@ -4031,6 +4031,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .nv-rail-group{margin-bottom:-8px}
   .nv-rail-foot{padding-top:10px;gap:8px}
 }
+/* A 720 or 768 frame holds the workspace's three entries and the six systems
+   only on a tighter rhythm still; each entry stays a 44-pixel target. */
+@media (min-width:1140px) and (max-height:780px){
+  .nv-rail{gap:10px;padding-top:16px;padding-bottom:14px}
+  .nv-rail-nav{gap:2px}
+  .nv-rail-item{padding-top:6px;padding-bottom:6px;min-height:44px}
+  .nv-rail-group{margin-top:2px;margin-bottom:-4px}
+  .nv-rail-foot{padding-top:8px;gap:6px}
+}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
 .nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
 .nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
@@ -4056,7 +4065,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    */
   #page-overview .topbar-brand .hide-sm,
   #page-repos .topbar-brand .hide-sm,
-  #page-site .topbar-brand .hide-sm{display:none}
+  #page-site .topbar-brand .hide-sm,#page-findings .topbar-brand .hide-sm{display:none}
   #page-repos .page-head-tools{flex-wrap:nowrap}
 }
 
@@ -4313,6 +4322,93 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   /* On a phone the name keeps its own line rather than giving up letters to the bar. */
   .pp-cat{grid-template-columns:minmax(0,1fr) auto;row-gap:5px}
   .pp-cat-track{grid-column:1 / -1;grid-row:2}
+}
+
+/* ---- findings inbox ------------------------------------------------------
+ * One list to work through. Severity is a word with its colour beside it,
+ * never the colour alone; the state is a chip in ink; a row's record opens in
+ * place. The filter bar wraps rather than scrolls, and every row stays inside
+ * the page at 320px.
+ */
+.fi-shell{display:grid;gap:14px;min-width:0}
+.fi-filters{display:grid;gap:10px}
+.fi-views,.fi-severities{display:flex;flex-wrap:wrap;gap:8px}
+.fi-filter{appearance:none;min-height:34px;padding:0 13px;border:1px solid var(--cb);border-radius:999px;background:transparent;
+  color:var(--fg2);font:inherit;font-size:12.5px;cursor:pointer;font-variant-numeric:tabular-nums}
+.fi-filter:hover{color:var(--fg)}
+.fi-filter[aria-pressed="true"]{color:var(--fg);border-color:var(--fg2);background:var(--wp-track)}
+.fi-filter:focus-visible{outline:2px solid var(--focus,var(--fg));outline-offset:2px}
+.fi-selects{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+/* background-color, not the shorthand: the shared select chevron is a background image. */
+.fi-selects select,.fi-selects input,.fi-bulk select{min-width:0;min-height:38px;padding:0 10px;border:1px solid var(--cb);border-radius:10px;
+  background-color:var(--shellSolid);backdrop-filter:none;color:var(--fg);font:inherit;font-size:13px}
+.fi-selects select,.fi-bulk select{padding-right:32px}
+.fi-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.fi-count{margin:0;font-family:var(--font-mono);font-size:.7rem;letter-spacing:.06em;color:var(--fg3)}
+/* The decision bar stays in reach while the selection grows further down the list. */
+.fi-bulk{display:grid;gap:8px;padding:12px;border:1px solid var(--cb);border-radius:12px;
+  background:linear-gradient(var(--wp-track),var(--wp-track)),var(--shellSolid);
+  position:sticky;top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 12px);z-index:6;box-shadow:0 10px 24px -18px rgba(0,0,0,.6)}
+@media (min-width:1140px){.fi-bulk{top:8px}}
+.fi-bulk[hidden]{display:none}
+.fi-bulk{grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px}
+.fi-bulk-count{margin:0;font-weight:600;color:var(--fg);font-size:13px;white-space:nowrap}
+.fi-bulk-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.fi-bulk-form select{width:auto}
+.fi-bulk-disposition{flex:1 1 150px}
+.fi-bulk-reason{flex:2 1 220px}
+.fi-bulk-days{flex:0 1 120px}
+.fi-bulk-form .btn{flex:none}
+.fi-bulk-progress{grid-column:1 / -1;margin:0;font-size:12.5px;color:var(--fg2)}
+.fi-bulk-progress:empty{display:none}
+.fi-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.fi-item{min-width:0;border:1px solid var(--cb);border-radius:12px;padding:10px 12px;border-left:3px solid var(--sev-warning)}
+.fi-item.fi-sev-critical{border-left-color:var(--sev-critical)}
+.fi-item.fi-sev-serious{border-left-color:var(--sev-serious)}
+.fi-item-head{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:start;gap:10px}
+.fi-select,.fi-select-gap{display:block;width:18px;height:18px;margin:3px 0 0}
+.fi-sev{font-family:var(--font-mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fg2);padding-top:4px;white-space:nowrap;min-width:6em}
+.fi-main{min-width:0}
+.fi-title{margin:0;font-weight:600;color:var(--fg);font-size:13.5px;line-height:1.35;overflow-wrap:anywhere}
+.fi-where{margin:3px 0 0;font-family:var(--font-mono);font-size:11.5px;color:var(--fg2);overflow-wrap:anywhere}
+.fi-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.fi-chip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--cb);border-radius:999px;font-size:11.5px;color:var(--fg2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fi-state-regressed,.fi-exploited{color:var(--fg);border-color:var(--sev-critical)}
+.fi-state-new{color:var(--fg);border-color:var(--fg2)}
+.fi-open{min-height:34px}
+.fi-details{margin-top:8px}
+.fi-details>summary{cursor:pointer;font-size:12px;color:var(--fg2);width:max-content;padding:2px 0}
+.fi-details>summary:hover{color:var(--fg)}
+.fi-record{margin-top:6px;padding:8px 0 2px;border-top:1px solid var(--hair)}
+.fi-timeline{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:12.5px;color:var(--fg2)}
+.fi-timeline li{display:flex;gap:10px;flex-wrap:wrap}
+.fi-when{font-family:var(--font-mono);font-size:11.5px;color:var(--fg3);min-width:7.5em}
+.fi-fact,.fi-decisions p{margin:6px 0 0;font-size:12.5px;color:var(--fg2);overflow-wrap:anywhere}
+.fi-more{justify-self:center}
+.fi-empty{padding:6px 0}
+.fi-empty-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:1rem;color:var(--fg)}
+.fi-empty-text{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--fg2);max-width:62ch}
+.pp-inbox-link{margin-top:12px}
+@media (max-width:720px){
+  .fi-selects{grid-template-columns:minmax(0,1fr)}
+  .fi-item-head{grid-template-columns:auto minmax(0,1fr) auto}
+  .fi-select,.fi-select-gap{grid-column:1;grid-row:1}
+  .fi-sev{grid-column:2;grid-row:1;padding-top:0}
+  .fi-main{grid-column:1 / -1}
+  .fi-open{grid-column:3;grid-row:1}
+  /* On a phone the form's controls join the bar's own grid: the count and its
+     undo share a row, each choice gets the full width it needs to be read. */
+  .fi-bulk{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:10px}
+  .fi-bulk-form{display:contents}
+  .fi-bulk-form select{width:100%;min-height:36px}
+  .fi-bulk-count{grid-column:1;grid-row:1;align-self:center}
+  .fi-bulk-clear{grid-column:2;grid-row:1;justify-self:end}
+  .fi-bulk-disposition{grid-column:1 / -1;grid-row:2}
+  .fi-bulk-reason{grid-column:1 / -1;grid-row:3}
+  .fi-bulk-days{grid-column:1;grid-row:4}
+  .fi-bulk-apply{grid-column:2;grid-row:4}
+  .fi-bulk-form:has(.fi-bulk-days[hidden]) .fi-bulk-apply{grid-column:1 / -1}
+  .fi-bulk-progress{grid-row:5}
 }
 
 .wp-feed-section{margin-top:16px}

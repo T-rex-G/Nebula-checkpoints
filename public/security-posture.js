@@ -164,12 +164,17 @@
   const openNumbers = new Set();
   function numbersTable(caption, headings, rows) {
     const details = element('details', 'wp-numbers');
-    details.appendChild(element('summary', null, 'Show the numbers'));
+    const summary = element('summary', null, 'Show the numbers');
+    details.appendChild(summary);
     details.open = openNumbers.has(caption);
-    details.addEventListener('toggle', () => {
-      if (details.open) openNumbers.add(caption);
-      else openNumbers.delete(caption);
-    });
+    const remember = open => { if (open) openNumbers.add(caption); else openNumbers.delete(caption); };
+    /*
+     * The reader's choice is kept the moment the summary is pressed, not when
+     * the toggle event lands a task later: a rebuild in between used to read
+     * the old choice and draw the numbers shut again.
+     */
+    summary.addEventListener('click', () => remember(!details.open));
+    details.addEventListener('toggle', () => remember(details.open));
     const table = element('table');
     table.appendChild(element('caption', null, caption));
     const head = document.createElement('thead');
@@ -475,6 +480,12 @@
     grid.appendChild(where);
     host.appendChild(grid);
     fittedTrend(plot, view);
+    if (actions && actions.inbox) {
+      const link = element('button', 'btn btn-ghost small pp-inbox-link', `Work through the ${plural(view.open.total, 'open finding', 'open findings')}`);
+      link.type = 'button';
+      link.addEventListener('click', () => actions.inbox(''));
+      host.appendChild(link);
+    }
 
     const row = unreadRow(view, actions);
     if (row) host.appendChild(row);

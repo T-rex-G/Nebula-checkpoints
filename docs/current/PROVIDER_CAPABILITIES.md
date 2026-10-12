@@ -57,12 +57,12 @@ rejected before credential resolution or transport.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 34 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
+Counted from the capability registry: 35 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture |
+| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture; findings inbox |
 | Experimental | repository create/delete; notifications; live events |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
@@ -142,6 +142,13 @@ and category, what each repository's latest audit counted, findings opened and
 fixed per week, median time to fix, and the merges governance gated this week --
 and fetches nothing from the provider. A store that cannot answer leaves its
 part unmeasured rather than zero.
+
+The findings inbox is `Deterministic` on the same terms: every open finding
+across the workspace, from the same audits and scans, with its state -- new,
+seen again after a fix, open, or covered by a decision -- and the owner the
+repository's CODEOWNERS file names for its path. Decisions taken from the inbox
+go through each repository's own triage routes, with the same permissions as
+the audit screen.
 
 The repository audit and the site check are `Deterministic` too, and every
 rule is fixture-tested firing and staying quiet. The audit reads the branch

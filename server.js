@@ -185,6 +185,8 @@ const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
 const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
 const { summarizePosture } = require('./src/posture-summary');
+const { buildInbox } = require('./src/findings-inbox');
+const codeowners = require('./public/codeowners');
 const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
@@ -4505,6 +4507,68 @@ app.get('/api/workspace/security-posture', providerSessionAccess, capabilityAcce
     ]);
     const exposure = exposureRows ? { available: true, repositories: exposureSummary(exposureRows, exposureSeverityOf) } : null;
     res.json({ available: true, ...summarizePosture({ audit, exposure, exposureTrend, merges, now, weeks: POSTURE_WEEKS }) });
+  } catch (e) { fail(res, e); }
+});
+
+/*
+ * The findings inbox (src/findings-inbox.js): every open finding across the
+ * workspace, from the audit history and the exposure scans this identity
+ * holds, with its state and a team's decision where one applies. Nothing is
+ * fetched from the provider; a path from an exposure scan is masked as the
+ * findings screen masks it. A store that fails leaves its part unmeasured.
+ */
+app.get('/api/workspace/findings', providerSessionAccess, capabilityAccess('findings.inbox'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const account = req.gh;
+    if (!account || (account.provider || 'github') !== 'github') {
+      throw Object.assign(new Error('The findings inbox requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
+    }
+    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
+    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
+    const provider = 'github';
+    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
+    const key = identityKey(account);
+    const now = Date.now();
+    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
+    const [audit, exposure] = await Promise.all([
+      settle(() => auditHistory().workspaceFindings({ provider, authority, identityKey: key, now })),
+      settle(() => exposureService().workspaceFindings({ provider, authority, identityKey: key }))
+    ]);
+    res.json({
+      available: true,
+      vocabulary: TRIAGE_VOCABULARY,
+      ...buildInbox({ audit, exposure, now, severityOf: exposureSeverityOf, displayPath: safeDisplayPath })
+    });
+  } catch (e) { fail(res, e); }
+});
+
+/*
+ * Who owns what in a repository, by its CODEOWNERS file, for the findings
+ * inbox to name beside each finding (public/codeowners.js parses and
+ * matches). Read from the default branch at the three places GitHub looks,
+ * first found wins; patterns and owners only, bounded in size and lines.
+ */
+const CODEOWNERS_MAX_BYTES = 256 * 1024;
+app.get('/api/repo/:owner/:repo/codeowners', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    for (const location of codeowners.LOCATIONS) {
+      let meta;
+      try {
+        meta = await gh(req.gh, `${R(req)}/contents/${encodePath(location)}`);
+      } catch (error) {
+        if (error && Number(error.status) === 404) continue;
+        throw error;
+      }
+      if (!meta || meta.type !== 'file') continue;
+      if (Number(meta.size) > CODEOWNERS_MAX_BYTES || !meta.content) {
+        return res.json({ path: location, rules: [], tooLarge: Number(meta.size) > CODEOWNERS_MAX_BYTES });
+      }
+      const text = Buffer.from(meta.content, 'base64').toString('utf8');
+      return res.json({ path: location, rules: codeowners.serialize(codeowners.parse(text)), tooLarge: false });
+    }
+    res.json({ path: null, rules: [], tooLarge: false });
   } catch (e) { fail(res, e); }
 });
 

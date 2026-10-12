@@ -100,6 +100,26 @@ test('a signed-in session lands on the overview and reports a trust score it can
   await expect(page.getByRole('article', { name: 'Repository activity' })).toBeVisible();
 });
 
+test('a reading that lands as the numbers are opened leaves them open', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust.locator('.wp-numbers summary').first()).toBeVisible();
+  /*
+   * The press and the rebuild share one task, so the rebuild runs before the
+   * details element's toggle event: the choice has to be kept on the press.
+   */
+  const open = await page.evaluate(() => {
+    const host = document.querySelector('#wpTrust');
+    host.querySelector('.wp-numbers summary').click();
+    const Pulse = window.NebulaWorkspacePulse;
+    Pulse.render({ trust: host }, Pulse.model({ repos: [] }));
+    return host.querySelector('.wp-numbers').open;
+  });
+  expect(open).toBe(true);
+  await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+});
+
 test('an open critical leak caps the score and says why', async ({ page }) => {
   await mockPublicAlphaApi(page, {
     access: 'required', ready: 'ready', provider: 'github', repositoryState: 'current', postureState: 'critical-leak'

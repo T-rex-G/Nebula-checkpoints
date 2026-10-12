@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### A findings inbox for the whole workspace
+
+- **Every open finding in one list.** A new Findings page, in the rail and
+  linked from the Overview's posture card, lists what the audits and exposure
+  scans have kept across your repositories, most severe and oldest first:
+  findings that came back after a fix ("Seen again", with when they were
+  fixed), what is new this week, what is open, and what a team decided.
+- **Filters in the address.** Open work, seen again, new, decided or
+  everything; severity, kind, repository and a search over titles, paths,
+  packages and CVEs. A filtered list survives a reload and can be sent to
+  someone.
+- **Owners from CODEOWNERS.** Each row names the owner the repository's own
+  CODEOWNERS file gives its path, matched as GitHub documents it -- last line
+  wins, anchored and unanchored patterns, shallow `docs/*` -- and read once
+  per repository, only for the repositories on screen.
+- **Decide in bulk, through the same door.** Select audit findings and accept
+  the risk or mark them false positives with one of the listed reasons; each
+  decision goes through that repository's own triage route with the audit
+  screen's permissions, the progress is announced, and the list reads itself
+  again. The decision bar stays in view while the selection grows down a long
+  list. A decision you made applies at once on the Overview and in the inbox.
+- **Each finding's record opens in place**: first seen, fixed and seen again,
+  the decision in force, the package and its fixed version, and the team's
+  decisions with who made them.
+- **The rail keeps its foot on a laptop.** With a third workspace entry the
+  rail ran past a 720- or 768-pixel frame; below 780 pixels its rhythm now
+  tightens again, each entry still a 44-pixel target, and the phone drawer
+  brings the new entry in on its own beat.
+- **An opened table stays open.** The Overview's "Show the numbers" tables,
+  and a finding's record in the inbox, kept the reader's choice only when the
+  toggle event landed, a task after the press; a reading that arrived in
+  between redrew them shut. The choice is now kept on the press itself.
+- `GET /api/workspace/findings` is gated by its own capability,
+  `findings.inbox` (Supported, Deterministic), fetches nothing from the
+  provider and masks credential-shaped paths on the server.
+  `GET /api/repo/:owner/:repo/codeowners` reads one file through the qualified
+  file read. The store reads are tested against PostgreSQL, the states, order,
+  filters and CODEOWNERS matching in isolation, and the page in the browser at
+  320px in both presets and both themes, with an axe pass.
+
 ### The workspace's security posture on the Overview
 
 - **How the code stands, beside how the session stands.** A new card between

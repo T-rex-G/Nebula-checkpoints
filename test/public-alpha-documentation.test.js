@@ -94,7 +94,7 @@ assert(!/^## (GitLab|Gitea) —/m.test(capabilities), 'retired providers must no
 
 const providerMappings = {
   'GitHub — evidence-bounded alpha subset': [
-    ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture'],
+    ['Supported', 'repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture; findings inbox'],
     ['Experimental', 'repository create/delete; notifications; live events'],
     ['Unavailable', 'none at the provider level; connection permissions and invitation scopes still apply']
   ],

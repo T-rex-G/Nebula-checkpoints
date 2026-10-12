@@ -1180,6 +1180,70 @@ class CodeAuditHistory {
     };
   }
 
+  /*
+   * The findings inbox: every finding the workspace's latest audits hold,
+   * one row each, on the same terms as the workspace read above -- the same
+   * latest audit per repository, and the same rule for which decisions apply.
+   * Each row says when it was first seen, whether it was fixed once before
+   * and came back (the last fix earlier than this sighting), and how many
+   * times it has been fixed on that branch. Waivers in the code or in the
+   * licence policy are not findings and are not listed.
+   *
+   * Bounded: `limit` rows, most severe and oldest first, and `truncated`
+   * says when there were more.
+   */
+  async workspaceFindings({ provider, authority, identityKey, now = Date.now(), limit = 1000, repositoryLimit = 200 }) {
+    const where = requireScope({ provider, authority, owner: 'workspace', repo: 'workspace' });
+    const identity = requireIdentity(identityKey);
+    const bound = Number.isSafeInteger(limit) && limit >= 1 && limit <= 2000 ? limit : 1000;
+    const repositories = Number.isSafeInteger(repositoryLimit) && repositoryLimit >= 1 && repositoryLimit <= 500 ? repositoryLimit : 200;
+    const found = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT p.owner_login, p.repo_name, p.ref_name, p.audited_at,
+              ${FINDING_COLUMNS.split(',').map(column => `f.${column.trim()}`).join(', ')},
+              CASE
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule
+                     AND (t.disposition = 'false-positive' OR t.expires_at > $5::timestamptz) THEN t.disposition
+                ELSE NULL
+              END AS decision,
+              CASE WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule THEN t.reason END AS decision_reason,
+              CASE WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule THEN t.expires_at END AS decision_expires_at,
+              fixes.times_fixed, fixes.last_fixed_at
+         FROM picked p
+         JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         LEFT JOIN nv_code_audit_triage t
+           ON t.provider=$1 AND t.authority=$2 AND t.owner_login=p.owner_login AND t.repo_name=p.repo_name AND t.finding_id=f.finding_id
+         LEFT JOIN LATERAL (
+           SELECT count(*)::integer AS times_fixed,
+                  max(r.resolved_at) FILTER (WHERE f.first_seen_at IS NOT NULL AND r.resolved_at <= f.first_seen_at) AS last_fixed_at
+             FROM nv_code_audit_resolutions r
+            WHERE r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+              AND r.identity_key=$3 AND r.ref_name=p.ref_name AND r.finding_id=f.finding_id
+         ) fixes ON true
+        WHERE f.waived IS NULL OR f.waived = 'triage'
+        ORDER BY ${SEVERITY_ORDER_SQL}, f.first_seen_at ASC NULLS LAST, p.owner_login, p.repo_name, f.finding_id
+        LIMIT $6`,
+      [where.provider, where.authority, identity, repositories, new Date(now).toISOString(), bound + 1]
+    );
+    const rows = found.rows.slice(0, bound);
+    return {
+      truncated: found.rows.length > bound,
+      findings: rows.map(row => ({
+        ...findingFromRow(row),
+        owner: row.owner_login,
+        repo: row.repo_name,
+        ref: row.ref_name,
+        auditedAt: iso(row.audited_at),
+        decision: row.decision ? {
+          disposition: row.decision,
+          reason: row.decision_reason || null,
+          expiresAt: iso(row.decision_expires_at)
+        } : null,
+        timesFixed: Number(row.times_fixed) || 0,
+        regressedAfter: iso(row.last_fixed_at)
+      }))
+    };
+  }
 }
 
 /*

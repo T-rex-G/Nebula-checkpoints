@@ -163,6 +163,43 @@ function triageRow(repo, seed, disposition, expiresAt, rule = 'SEC-011') {
     assert.deepStrictEqual(elsewhere.audits, [], 'another authority is another workspace');
     await assert.rejects(history.workspace({ provider: 'github', authority: 'github.com', identityKey: 'nope' }), error => error.code === 'CODE_AUDIT_IDENTITY_INVALID');
 
+    /* ---- The findings inbox, one row per finding ---------------------- */
+    /*
+     * Loop: a finding seen, then fixed (an audit that read every file no
+     * longer saw it), then seen again. The inbox says it came back, and when
+     * it was last fixed.
+     */
+    const loop = scopeOf('Loop');
+    await history.record({ scope: loop, identityKey: IDENTITY, now: T0, result: result({ commit: 'loop-1', at: T0, findings: [finding('again', 'serious')] }) });
+    await history.record({ scope: loop, identityKey: IDENTITY, now: T0 + DAY, result: result({ commit: 'loop-2', at: T0 + DAY }) });
+    await history.record({ scope: loop, identityKey: IDENTITY, now: T0 + 2 * DAY, result: result({ commit: 'loop-3', at: T0 + 2 * DAY, findings: [finding('again', 'serious')] }) });
+    const inbox = await history.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: IDENTITY, now });
+    assert.strictEqual(inbox.truncated, false);
+    const byId = new Map(inbox.findings.map(item => [`${item.repo}:${item.id}`, item]));
+    const shopRow = seed => byId.get(`Shop:${id(seed)}`);
+    assert.deepStrictEqual(shopRow('kept').decision && shopRow('kept').decision.disposition, 'accepted-risk', 'a decision this identity made applies at once');
+    assert.strictEqual(shopRow('new').decision, null, 'a teammate\'s later decision waits for the next audit');
+    assert.strictEqual(shopRow('accepted').decision.disposition, 'accepted-risk');
+    assert.strictEqual(shopRow('accepted').decision.reason, 'low-impact');
+    assert.strictEqual(shopRow('lapsed').decision, null, 'an expired acceptance is no decision');
+    assert.strictEqual(shopRow('dismissed').decision.disposition, 'false-positive');
+    assert.strictEqual(shopRow('reopened').decision, null, 'a reopened finding is open');
+    assert.strictEqual(byId.has(`Shop:${id('in-code')}`), false, 'a waiver in the code is not listed');
+    assert.strictEqual(byId.has(`Shop:${id('fixed')}`), false, 'a fixed finding is not listed');
+    assert.strictEqual(inbox.findings.filter(item => item.repo === 'Api').length, 0, 'Api stands as its latest, empty, audit');
+    const again = byId.get(`Loop:${id('again')}`);
+    assert.deepStrictEqual([again.timesFixed, again.regressedAfter], [1, new Date(T0 + DAY).toISOString()],
+      'a finding fixed and seen again says so, and when it was fixed');
+    assert.strictEqual(shopRow('kept').regressedAfter, null);
+    assert.strictEqual(again.ref, 'main');
+    assert.strictEqual(again.title, 'A shell command is built by string interpolation', 'the title is the rule\'s own, never text from the repository');
+    assert.deepStrictEqual(inbox.findings.map(item => item.severity), [...inbox.findings.map(item => item.severity)].sort((a, b) =>
+      ['critical', 'serious', 'warning'].indexOf(a) - ['critical', 'serious', 'warning'].indexOf(b)), 'most severe first');
+    const capped = await history.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: IDENTITY, now, limit: 2 });
+    assert.deepStrictEqual([capped.findings.length, capped.truncated], [2, true], 'a bounded read says it was bounded');
+    const theirInbox = await history.workspaceFindings({ provider: 'github', authority: 'github.com', identityKey: OTHER, now });
+    assert.deepStrictEqual(theirInbox.findings.map(item => item.id), [id('theirs')], 'another identity\'s inbox is its own');
+
     /* ---- Merges governance decided ------------------------------------- */
     const governance = new GovernanceStore(pool, { secret: 'workspace-posture-postgres-secret-0123456789' });
     const decide = async (identityKey, action, repo = 'Shop') => {

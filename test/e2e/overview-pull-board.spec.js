@@ -139,6 +139,31 @@ test('repositories it could not read are named, and it says how many it read, a 
   await expect(waiting.getByRole('button', { name: 'Show fewer' })).toHaveAttribute('aria-expanded', 'true');
 });
 
+test('a GitHub rate limit says so and how long to wait, rather than "could not be read"', async ({ page }) => {
+  const names = ['busy-0', 'busy-1', 'calm'];
+  await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/repos?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(names.map((name, i) => ({ full_name: `acme/${name}`, name, owner: 'acme', private: false, pushed_at: new Date(Date.now() - i * 3600000).toISOString() })))
+  }));
+  await page.route('**/api/repo/acme/*/pulls*', route => {
+    const name = new URL(route.request().url()).pathname.split('/')[4];
+    if (name === 'calm') return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    /* The server's answer to a GitHub limit: 429, its code, and GitHub's own wait. */
+    return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'retry-after': name === 'busy-0' ? '42' : '150' },
+      body: JSON.stringify({ error: 'API rate limit exceeded for user ID 41.', code: 'PROVIDER_RATE_LIMITED' }) });
+  });
+  await page.goto('/#/overview');
+  const card = page.locator('#wpPulls');
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.locator('.pb-sentence')).toHaveText('No open pull requests in the 1 repository read.');
+  await expect(card.locator('.pb-notes li')).toHaveText([
+    'GitHub is limiting requests for this account, so 2 repositories were not read: acme/busy-0, acme/busy-1. Read again in 3 minutes.'
+  ]);
+});
+
 test('a repository outside the scope is said, not drawn as nothing open', async ({ page }) => {
   const card = await board(page, { pullBoard: 'refused' });
   await expect(card).toContainText('Every repository asked is outside this session\'s repository scope.');

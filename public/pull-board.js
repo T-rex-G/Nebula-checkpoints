@@ -113,7 +113,8 @@
   /*
    * The board, decided. `results` holds one entry per repository asked:
    * `{ owner, repo, pulls }` when it answered, `{ owner, repo, error }` when
-   * it did not, with `error` one of 'scope', 'offline' or 'unreadable'.
+   * it did not, with `error` one of 'scope', 'offline', 'limited' or
+   * 'unreadable' -- a limited one carrying the `retryAfter` GitHub gave.
    * `results` is null while the reading is on its way.
    */
   function model({ results, repos, limit = REPOSITORY_LIMIT, now = Date.now() } = {}) {
@@ -122,12 +123,20 @@
     if (!Array.isArray(results)) return { state: 'loading', asked: Math.min(limit, known.length), inventory: known.length };
     const read = results.filter(result => Array.isArray(result.pulls));
     const refused = results.filter(result => !Array.isArray(result.pulls) && result.error === 'scope').map(result => `${result.owner}/${result.repo}`);
-    const unreadable = results.filter(result => !Array.isArray(result.pulls) && result.error !== 'scope').map(result => `${result.owner}/${result.repo}`);
+    const failed = results.filter(result => !Array.isArray(result.pulls) && result.error !== 'scope');
+    const unreadable = failed.filter(result => result.error !== 'limited').map(result => `${result.owner}/${result.repo}`);
+    const limited = failed.filter(result => result.error === 'limited');
     const offline = results.some(result => result.error === 'offline');
     const capped = read.filter(result => result.pulls.length >= LIST_PAGE).map(result => `${result.owner}/${result.repo}`);
-    const coverage = { read: read.length, asked: results.length, inventory: known.length, refused, unreadable, capped };
+    const coverage = {
+      read: read.length, asked: results.length, inventory: known.length, refused, unreadable, capped,
+      limited: limited.map(result => `${result.owner}/${result.repo}`),
+      /* The longest wait GitHub named: reading again sooner would be refused again. */
+      retryAfter: limited.reduce((longest, result) => Math.max(longest, Number(result.retryAfter) || 0), 0)
+    };
     if (!read.length) {
-      return { state: 'unavailable', coverage, reason: offline ? 'offline' : refused.length === results.length ? 'scope' : 'unreadable' };
+      const reason = offline ? 'offline' : refused.length === results.length ? 'scope' : !unreadable.length && limited.length ? 'limited' : 'unreadable';
+      return { state: 'unavailable', coverage, reason };
     }
     const entries = [];
     for (const result of read) {
@@ -183,12 +192,31 @@
     if (coverage.unreadable.length) {
       out.push(`${plural(coverage.unreadable.length, 'repository', 'repositories')} could not be read just now: ${names(coverage.unreadable)}.`);
     }
+    if (coverage.limited && coverage.limited.length) {
+      out.push(`GitHub is limiting requests for this account, so ${plural(coverage.limited.length, 'repository was', 'repositories were')} not read: ${names(coverage.limited)}. Read again in ${waitPhrase(coverage.retryAfter)}.`);
+    }
     if (coverage.capped && coverage.capped.length) {
       out.push(coverage.capped.length === 1
         ? `${coverage.capped[0]} has more open pull requests than one list holds; these are its ${LIST_PAGE} most recently updated.`
         : `${names(coverage.capped)} have more open pull requests than one list holds; each shows its ${LIST_PAGE} most recently updated.`);
     }
     return out;
+  }
+
+  /*
+   * How long, said the way a reader says it. A limit that named no wait is
+   * read again after a minute, which is what GitHub asks of a client that was
+   * given none.
+   */
+  function waitPhrase(seconds) {
+    const value = Math.ceil(Number(seconds) || 0);
+    if (value <= 0) return 'a minute';
+    if (value === 1) return 'a second';
+    if (value < 60) return `${value} seconds`;
+    const minutes = Math.ceil(value / 60);
+    if (minutes === 1) return 'a minute';
+    if (minutes < 60) return `${minutes} minutes`;
+    return minutes === 60 ? 'an hour' : 'more than an hour';
   }
 
   /* Read the repositories a few at a time; one that fails is recorded, not fatal. */
@@ -204,6 +232,10 @@
           results[index] = Array.isArray(pulls) ? { owner, repo, pulls } : { owner, repo, error: 'unreadable' };
         } catch (error) {
           const code = String(error && error.code || '');
+          if (code === 'PROVIDER_RATE_LIMITED') {
+            results[index] = { owner, repo, error: 'limited', retryAfter: Math.max(0, Number(error.retryAfter) || 0) };
+            continue;
+          }
           const kind = /^ALPHA_REPOSITORY_/.test(code) ? 'scope' : error && error.offline ? 'offline' : 'unreadable';
           results[index] = { owner, repo, error: kind };
         }
@@ -320,7 +352,9 @@
       host.appendChild(element('p', 'wp-stat-note', `Reading the open pull requests of ${plural(view.asked, 'repository', 'repositories')}…`));
       return;
     }
-    if (view.state === 'unavailable') {
+    if (view.state === 'unavailable' && view.reason === 'limited') {
+      host.appendChild(element('p', 'wp-stat-note', `GitHub is limiting requests for this account, so the pull requests could not be read. Read again in ${waitPhrase(view.coverage.retryAfter)}.`));
+    } else if (view.state === 'unavailable') {
       host.appendChild(element('p', 'wp-stat-note', UNAVAILABLE[view.reason] || UNAVAILABLE.unreadable));
     } else {
       host.appendChild(element('p', 'pb-sentence', sentence(view)));
@@ -340,7 +374,7 @@
 
   global.NebulaPullBoard = Object.freeze({
     COLUMNS, REPOSITORY_LIMIT, CONCURRENCY, COLUMN_SHOWN, IDLE_DAYS, LIST_PAGE,
-    pickRepositories, readAll, model, sentence, notes, render
+    pickRepositories, readAll, model, sentence, notes, render, waitPhrase
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 

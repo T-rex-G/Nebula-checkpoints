@@ -2484,6 +2484,31 @@ function providerFailureCode(status) {
   return 'PROVIDER_REQUEST_FAILED';
 }
 
+/*
+ * GitHub answers an exhausted primary rate limit, and every secondary limit,
+ * with 403 as often as with 429. Read as a 403 it told the reader their
+ * credential could not do what it had just been doing, sent the deletion and
+ * webhook routes into permission advice, and gave no time to try again. A
+ * limit is recognised by what GitHub documents for it -- a retry-after, an
+ * exhausted x-ratelimit-remaining, or its own words -- and the wait is the one
+ * GitHub gives: retry-after, else the reset, else a minute. The server does not
+ * retry on the reader's behalf; it says when, and the client decides.
+ */
+function providerRateLimit(status, headers, body, now = Date.now()) {
+  const retryAfter = headers.get('retry-after');
+  const limited = status === 429 || (status === 403 && (
+    retryAfter != null || headers.get('x-ratelimit-remaining') === '0'
+    || /\brate limit\b/i.test(String(body && body.message || ''))));
+  if (!limited) return null;
+  let seconds = /^\d+$/.test(String(retryAfter || '').trim()) ? Number(retryAfter) : NaN;
+  if (!Number.isFinite(seconds) && headers.get('x-ratelimit-remaining') === '0') {
+    const reset = Number(headers.get('x-ratelimit-reset'));
+    if (Number.isFinite(reset) && reset > 0) seconds = Math.ceil(reset - now / 1000);
+  }
+  if (!Number.isFinite(seconds)) seconds = 60;
+  return Object.freeze({ retryAfterSeconds: Math.min(Math.max(Math.trunc(seconds), 1), 3600) });
+}
+
 async function gh(acct, apiPath, opts = {}) {
   if (typeof acct === 'string') acct = { provider: 'github', token: acct };
   assertGithubAccount(acct);
@@ -2522,8 +2547,10 @@ async function gh(acct, apiPath, opts = {}) {
       githubAppBroker.invalidate(acct.installationId);
     }
     const err = new Error((data && data.message) || `GitHub error ${r.status}`);
-    err.status = r.status; err.body = data;
-    err.code = providerFailureCode(r.status);
+    const limit = providerRateLimit(r.status, r.headers, data);
+    err.status = limit ? 429 : r.status; err.body = data;
+    err.code = providerFailureCode(err.status);
+    if (limit) err.retryAfterSeconds = limit.retryAfterSeconds;
     throw err;
   }
   if (ck && r.headers.get('etag')) {
@@ -2584,6 +2611,10 @@ const fail = (res, error) => {
   }
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
   const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+  /* A limit that named its own wait passes it on, so a client waits that long and no longer. */
+  if (status === 429 && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+    res.setHeader('Retry-After', String(error.retryAfterSeconds));
+  }
   /* A refusal that has a compliant route carries it alongside the refusal. The
    * public error body itself is left exactly as it was. */
   const passage = error && error.safePassage;

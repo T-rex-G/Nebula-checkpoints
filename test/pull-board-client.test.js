@@ -133,5 +133,27 @@ const pull = (number, fields = {}) => ({
   assert.deepStrictEqual(roomy.coverage.capped, []);
   assert(!/At least|shown/.test(Board.sentence(roomy)), 'a list shorter than a page is the whole list');
 
+  /* A rate limit is not "could not be read just now": it says how long, and it is not offline. */
+  const limitedRead = await Board.readAll([{ owner: 'acme', repo: 'a' }, { owner: 'acme', repo: 'b' }, { owner: 'acme', repo: 'c' }], async (owner, name) => {
+    if (name === 'a') throw Object.assign(new Error('API rate limit exceeded'), { status: 429, code: 'PROVIDER_RATE_LIMITED', retryAfter: 42 });
+    if (name === 'b') throw Object.assign(new Error('secondary'), { status: 429, code: 'PROVIDER_RATE_LIMITED', retryAfter: 90 });
+    return [];
+  });
+  assert.deepStrictEqual(limitedRead.map(r => [r.error || 'read', r.retryAfter || 0]), [['limited', 42], ['limited', 90], ['read', 0]]);
+  const someLimited = Board.model({ results: limitedRead, repos: [repo('a', 0), repo('b', 0), repo('c', 0)], now: NOW });
+  assert.strictEqual(someLimited.state, 'empty');
+  assert.deepStrictEqual(someLimited.coverage.unreadable, [], 'a limited repository is not counted as unreadable');
+  assert.deepStrictEqual(someLimited.coverage.limited, ['acme/a', 'acme/b']);
+  assert(Board.notes(someLimited).some(line => /GitHub is limiting requests/.test(line) && /acme\/a, acme\/b/.test(line) && /2 minutes/.test(line)),
+    `the note says why and for how long, the longer wait: ${JSON.stringify(Board.notes(someLimited))}`);
+  const allLimited = Board.model({ results: limitedRead.slice(0, 2), repos: [repo('a', 0), repo('b', 0)], now: NOW });
+  assert.deepStrictEqual([allLimited.state, allLimited.reason], ['unavailable', 'limited']);
+  assert.strictEqual(Board.waitPhrase(42), '42 seconds');
+  assert.strictEqual(Board.waitPhrase(1), 'a second');
+  assert.strictEqual(Board.waitPhrase(90), '2 minutes');
+  assert.strictEqual(Board.waitPhrase(60), 'a minute');
+  assert.strictEqual(Board.waitPhrase(0), 'a minute', 'a limit that named no wait is read again after a minute, as GitHub advises');
+  assert.strictEqual(Board.waitPhrase(3600), 'an hour');
+
   console.log('pull board client tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

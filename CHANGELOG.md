@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### A GitHub rate limit is a rate limit, and says how long
+
+- **GitHub answers most of its limits with 403, and the server read that as
+  "forbidden".** An exhausted primary limit and every secondary limit came back
+  to the reader as a refusal of their credential, the repository-deletion and
+  live-events routes offered permission advice for it, and nothing said when to
+  try again. A 403 that carries a `retry-after`, an exhausted
+  `x-ratelimit-remaining` or GitHub's own "rate limit" now answers 429
+  `PROVIDER_RATE_LIMITED`, and the response carries `Retry-After` with the wait
+  GitHub gave: its `retry-after`, else its reset, else a minute. A 403 without
+  any of those is still a refusal. The server asks GitHub once per request and
+  leaves the retrying to the client it has told when to retry.
+- **The pull-request board says it was limited, and for how long.** A
+  repository GitHub limited is no longer counted among those that "could not
+  be read just now": the board names them and says "Read again in 3 minutes",
+  the longest wait GitHub gave.
+
 ### The browser suite fits its bounds on a slow runner
 
 - **The same tests, 40% slower, on a different runner.** Shard 2 ran 202

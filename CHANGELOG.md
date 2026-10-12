@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### The hosted drills run themselves, and a person signs what they saw
+
+- **Nine operational drills, performed rather than described.** The hosted
+  gate has always trusted a signed operator record for the observations a
+  runner cannot make about itself, and nothing produced one. A `run_drills`
+  dispatch now performs each of them against staging: a push to the sandbox
+  repository arriving on the live-events stream, a GitHub rate limit, a
+  revoked session refused, a disconnected provider purged, a restart that
+  keeps the session, a scale-to-zero wake, a database interruption that fails
+  closed and recovers, a rollback to the parent deployment and back, and a
+  tester purge read back in the database.
+- **It refuses a target it should not touch.** A service that deploys on its
+  own, one that is not serving live events or one whose fingerprint is not the
+  candidate's is refused before any restart, suspension or redeploy. Every
+  disruptive step undoes itself in a `finally`, and the run fails unless its
+  cleanup reads back clean.
+- **Nothing in the job signs.** The report, free of invitations, cookies,
+  tokens, database addresses and peppers, goes to the job log;
+  `scripts/alpha17-operator-record.js` signs it on the operator's machine,
+  refuses a failed or uncleaned run and checks its own output with the gate's
+  validator.
+- **The hosted gate makes its own testers.** Its five load sessions and the
+  bounded mutation used to be secrets minted by hand from a browser. The job
+  now issues them by invitation through the deployment under test and
+  releases them on every exit, so no live cookie passes through a settings
+  page.
+
 ### A database outage no longer signs a tester out for good
 
 - **The access cookie survives the database.** While the access store could

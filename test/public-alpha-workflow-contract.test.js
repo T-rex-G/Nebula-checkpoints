@@ -551,7 +551,7 @@ for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
 }
 for (const input of [
-  'run_github', 'run_hosted'
+  'run_github', 'run_hosted', 'run_drills'
 ]) {
   assert(new RegExp(`^      ${input}:`, 'm').test(workflow), `missing dispatch input ${input}`);
 }
@@ -871,7 +871,7 @@ assert(
   'the spent-approval ledger must be saved even when verification fails after recording a spend'
 );
 
-for (const name of ['github-live', 'hosted-live']) {
+for (const name of ['github-live', 'hosted-live', 'hosted-drills']) {
   const block = job(name);
   assert(block.includes("github.event_name == 'workflow_dispatch'"), `${name} must be dispatch-only`);
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
@@ -957,6 +957,41 @@ assert(
   !/path:[^\n]*restore-attestation/.test(hosted),
   'the standalone runner restore attestation must not be uploaded outside the sanitized hosted envelope'
 );
+
+/*
+ * The drills act on the hosted target, so they are authorized as it and bound
+ * to its signed hash; they run from the trusted checkout with nothing
+ * installed by a lifecycle script; and they sign nothing and upload nothing.
+ */
+const drills = job('hosted-drills');
+assert(drills.includes('inputs.run_drills'), 'the drills run only when asked for by name');
+assert(drills.includes('NV_ALPHA17_TARGET_JOB: hosted') && drills.includes('needs.authorize-live.outputs.hosted_target_sha256'),
+  'the drills are bound to the signed hosted target');
+assert(/inputs\.run_hosted \}\}" = "true" \] \|\| \[ "\$\{\{ inputs\.run_drills \}\}" = "true" \]; \} && requested_jobs="\$\{requested_jobs\},hosted"/.test(authorization),
+  'a drills dispatch authorizes the hosted target');
+assert(/\(inputs\.run_github \|\| inputs\.run_hosted \|\| inputs\.run_drills\)/.test(authorization), 'the authorization job runs for a drills dispatch');
+assert(drills.includes('path: trusted-runner') && drills.includes('ci/run-alpha17-hosted-drills.js'), 'the drills run from the trusted checkout');
+assert(drills.includes('npm ci --ignore-scripts --no-audit --no-fund'), 'drill dependencies are installed without lifecycle scripts');
+assert(drills.indexOf('Install drill dependencies') < drills.indexOf('${{ secrets.'), 'no credential is in scope while dependencies install');
+for (const binding of ['ALPHA17_RENDER_API_KEY', 'ALPHA17_NEON_API_KEY', 'ALPHA17_GITHUB_MUTATION_CREDENTIAL', 'ALPHA17_GITHUB_READ_ONLY_CREDENTIAL',
+  'needs.automated.outputs.source_parent']) {
+  assert(drills.includes(binding), `the drills must bind ${binding}`);
+}
+assert(!/upload-artifact|OPERATOR_PRIVATE|alpha17-operator-record/.test(drills), 'the drills sign nothing and upload nothing; the operator signs the report');
+assert(/timeout-minutes:\s*\d+/.test(drills), 'the drills are bounded');
+
+/*
+ * The load's testers are made by the job that uses them, after the restore,
+ * and released on every exit; no session cookie or CSRF-bearing request is a
+ * standing secret any more.
+ */
+assert(!/ALPHA17_SESSION_COOKIES|ALPHA17_MUTATION_REQUEST|ALPHA17_CLEANUP_REQUEST/.test(hosted),
+  'hosted session cookies and requests are made in the job, not stored as secrets');
+const provisionAt = hosted.indexOf('ci/run-alpha17-hosted-testers.js provision');
+assert(provisionAt > hosted.indexOf('ci/run-alpha17-restore-validation.js') && provisionAt < hosted.indexOf('ci/run-hosted-alpha17-validation.js'),
+  'testers are made after the restore and before the gate that uses them');
+assert(/trap 'release_testers;/.test(hosted) && hosted.includes('ci/run-alpha17-hosted-testers.js release'),
+  'the testers are released on every exit');
 
 for (const artifact of [
   'alpha17-automated-evidence',

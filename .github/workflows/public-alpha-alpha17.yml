@@ -14,6 +14,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_drills:
+        description: Run the hosted operational drills against staging and report them for the operator to sign
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -234,7 +239,7 @@ jobs:
   authorize-live:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      (inputs.run_github || inputs.run_hosted)
+      (inputs.run_github || inputs.run_hosted || inputs.run_drills)
     needs: [automated]
     runs-on: ubuntu-24.04
     outputs:
@@ -312,7 +317,9 @@ jobs:
         run: |
           requested_jobs=""
           [ "${{ inputs.run_github }}" = "true" ] && requested_jobs="${requested_jobs},github"
-          [ "${{ inputs.run_hosted }}" = "true" ] && requested_jobs="${requested_jobs},hosted"
+          # The drills act on the same staging target the hosted gate does, so
+          # they are authorized as that target and bound to the same hash.
+          { [ "${{ inputs.run_hosted }}" = "true" ] || [ "${{ inputs.run_drills }}" = "true" ]; } && requested_jobs="${requested_jobs},hosted"
           export NV_ALPHA17_REQUESTED_JOBS="${requested_jobs#,}"
           mkdir -p "${NV_ALPHA17_AUTHORIZATION_CLAIM_DIR}"
           node scripts/alpha17-authorize.js sign \
@@ -512,9 +519,10 @@ jobs:
           NV_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
           NV_ALPHA17_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
           NV_ALPHA17_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
-          NV_ALPHA_SESSION_COOKIES: ${{ secrets.ALPHA17_SESSION_COOKIES }}
-          NV_ALPHA_MUTATION_REQUEST: ${{ secrets.ALPHA17_MUTATION_REQUEST }}
-          NV_ALPHA_CLEANUP_REQUEST: ${{ secrets.ALPHA17_CLEANUP_REQUEST }}
+          RENDER_API_KEY: ${{ secrets.ALPHA17_RENDER_API_KEY }}
+          NV_ALPHA17_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_MUTATION_CREDENTIAL }}
+          NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_READ_ONLY_CREDENTIAL }}
           NV_ALPHA17_OPERATOR_PUBLIC_KEY_BASE64: ${{ vars.ALPHA17_OPERATOR_PUBLIC_KEY_BASE64 }}
           NV_ALPHA17_OPERATOR_KEY_ID: ${{ vars.ALPHA17_OPERATOR_KEY_ID }}
           OPERATIONAL_RECORD_BASE64: ${{ vars.ALPHA17_OPERATIONAL_RECORD_BASE64 }}
@@ -524,11 +532,21 @@ jobs:
           subject_root="$(find "${RUNNER_TEMP}/subject" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           operational_record="${RUNNER_TEMP}/alpha17-operational.json"
           restore_attestation="${RUNNER_TEMP}/alpha17-restore-attestation.json"
+          testers="${RUNNER_TEMP}/alpha17-hosted-testers.json"
+          # The load's five testers are made in this job and released by it,
+          # whatever happens: revoked, and the last one's data deleted, which
+          # removes every session that still carries the shared identity.
+          release_testers() {
+            if [ -s "${testers}" ]; then
+              (cd "${trusted_root}" && node ci/run-alpha17-hosted-testers.js release "${testers}") || echo "hosted testers were not released" >&2
+            fi
+            rm -f -- "${testers}"
+          }
           # The restore runner removes its own backup directory on success and on
           # failure, but a cancelled job never reaches that code. This trap is the
           # layer that survives cancellation, so it clears the decryptable backup
           # material too.
-          trap 'unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
+          trap 'release_testers; unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64; rm -f -- "${operational_record}" "${restore_attestation}"; rm -rf -- "${RUNNER_TEMP}"/nvx-alpha17-restore-*' EXIT
           printf '%s' "${OPERATIONAL_RECORD_BASE64}" | base64 -d > "${operational_record}"
           export NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
           NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64="$(openssl rand -base64 32)"
@@ -537,7 +555,14 @@ jobs:
           export NV_ALPHA17_RESTORE_ATTESTATION="${restore_attestation}"
           (cd "${trusted_root}" && node ci/run-alpha17-restore-validation.js)
           test -s "${restore_attestation}"
+          # Made after the restore, so the mutation's CSRF token is fresh when the load uses it.
+          (cd "${trusted_root}" && node ci/run-alpha17-hosted-testers.js provision "${testers}")
+          export NV_ALPHA_SESSION_COOKIES NV_ALPHA_MUTATION_REQUEST NV_ALPHA_CLEANUP_REQUEST
+          NV_ALPHA_SESSION_COOKIES="$(node -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).cookies))' "${testers}")"
+          NV_ALPHA_MUTATION_REQUEST="$(node -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).mutation))' "${testers}")"
+          NV_ALPHA_CLEANUP_REQUEST="$(node -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).cleanup))' "${testers}")"
           (cd "${trusted_root}" && node ci/run-hosted-alpha17-validation.js > "${RUNNER_TEMP}/hosted.json")
+          unset NV_ALPHA_SESSION_COOKIES NV_ALPHA_MUTATION_REQUEST NV_ALPHA_CLEANUP_REQUEST
           unset NV_ALPHA17_RESTORE_ATTESTATION_KEY_BASE64
           (cd "${trusted_root}" && node scripts/check-secrets.js)
           (cd "${subject_root}" && node scripts/check-secrets.js)
@@ -547,3 +572,94 @@ jobs:
           path: ${{ runner.temp }}/hosted.json
           if-no-files-found: error
           retention-days: 14
+
+  # The hosted operational drills, against the same signed staging target the
+  # hosted gate validates: a live-event delivery through GitHub, a provider
+  # rate limit, session revocation, provider disconnect, a restart, a
+  # scale-to-zero wake, a database interruption, a rollback and a tester purge.
+  # They restart, suspend, interrupt and redeploy staging, so they run only
+  # when asked for by name.
+  #
+  # Nothing here signs anything. The report goes to this job's log between
+  # ALPHA17_DRILL_REPORT_BEGIN and _END; the operator reads it and signs it with
+  # scripts/alpha17-operator-record.js, and the hosted gate trusts only that
+  # signature (ALPHA17_OPERATIONAL_RECORD_BASE64). The report carries no
+  # invitation, cookie, token, database address or pepper.
+  hosted-drills:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_drills
+    needs: [automated, authorize-live]
+    runs-on: ubuntu-24.04
+    environment: alpha17-live-qualification
+    timeout-minutes: 120
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: alpha17-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ needs.automated.outputs.source_commit }}
+          path: trusted-runner
+          fetch-depth: 1
+      - name: Verify candidate before extraction
+        shell: bash
+        env:
+          NV_ALPHA17_CANDIDATE_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+        run: |
+          archive="${RUNNER_TEMP}/candidate/Nebulaverse-X-v5.3.0-alpha.17.0.zip"
+          printf '%s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" | grep -qxE '[0-9a-f]{64}'
+          printf '%s  %s\n' "${NV_ALPHA17_CANDIDATE_SHA256}" "${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/subject"
+          unzip -q "${archive}" -d "${RUNNER_TEMP}/subject"
+      - name: Verify signed live target
+        shell: bash
+        env:
+          NV_ALPHA17_TARGET_JOB: hosted
+          NV_ALPHA17_TARGET_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_TARGET_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_TARGET_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_PROJECT_ID: ${{ vars.ALPHA17_RESTORE_NEON_PROJECT_ID }}
+          NV_ALPHA17_TARGET_RESTORE_NEON_BRANCH_ID: ${{ vars.ALPHA17_RESTORE_NEON_BRANCH_ID }}
+          NV_ALPHA17_TARGET_RESTORE_TARGET_KIND: isolated-neon-branch
+          NV_ALPHA17_TARGET_RESTORE_TARGET_FINGERPRINT: ${{ vars.ALPHA17_RESTORE_TARGET_FINGERPRINT }}
+          NV_ALPHA17_TARGET_RESTORE_APP_BASE_URL: ${{ vars.ALPHA17_RESTORE_APP_BASE_URL }}
+          NV_ALPHA17_TARGET_RESTORE_APP_DEPLOY_ID: ${{ vars.ALPHA17_RESTORE_APP_DEPLOY_ID }}
+          NV_ALPHA17_SIGNED_TARGET_SHA256: ${{ needs.authorize-live.outputs.hosted_target_sha256 }}
+          NV_ALPHA17_EXPECTED_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+        run: |
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          printf '%s\n' "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}" | grep -qxE '[0-9a-f]{40}'
+          test "$(git -C "${trusted_root}" rev-parse HEAD)" = "${NV_ALPHA17_EXPECTED_SOURCE_COMMIT}"
+          (cd "${trusted_root}" && node ci/verify-alpha17-authorization.js target)
+      - name: Install drill dependencies without lifecycle scripts
+        shell: bash
+        env:
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: |
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          (cd "${trusted_root}" && npm ci --ignore-scripts --no-audit --no-fund)
+      - name: Run the hosted drills from the trusted runner
+        shell: bash
+        env:
+          NV_PUBLIC_ALPHA_SUBJECT_SHA256: ${{ needs.automated.outputs.subject_sha256 }}
+          NV_PUBLIC_ALPHA_SOURCE_COMMIT: ${{ needs.automated.outputs.source_commit }}
+          NV_PUBLIC_ALPHA_SOURCE_PARENT: ${{ needs.automated.outputs.source_parent }}
+          NV_ALPHA17_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          NV_ALPHA_BASE_URL: ${{ vars.ALPHA17_HOSTED_BASE_URL }}
+          NV_ALPHA17_RENDER_SERVICE_ID: ${{ vars.ALPHA17_RENDER_SERVICE_ID }}
+          NV_ALPHA17_NEON_PROJECT_ID: ${{ vars.ALPHA17_NEON_PROJECT_ID }}
+          NV_ALPHA17_COHORT_NEON_BRANCH_ID: ${{ vars.ALPHA17_COHORT_NEON_BRANCH_ID }}
+          NV_ALPHA17_REPOSITORY: ${{ vars.ALPHA17_GITHUB_REPOSITORY }}
+          PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt
+          RENDER_API_KEY: ${{ secrets.ALPHA17_RENDER_API_KEY }}
+          NEON_API_KEY: ${{ secrets.ALPHA17_NEON_API_KEY }}
+          NV_ALPHA17_MUTATION_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_MUTATION_CREDENTIAL }}
+          NV_ALPHA17_READ_ONLY_CREDENTIAL: ${{ secrets.ALPHA17_GITHUB_READ_ONLY_CREDENTIAL }}
+        run: |
+          trusted_root="${GITHUB_WORKSPACE}/trusted-runner"
+          (cd "${trusted_root}" && node ci/run-alpha17-hosted-drills.js)

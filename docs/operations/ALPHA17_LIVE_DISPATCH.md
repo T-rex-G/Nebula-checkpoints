@@ -139,9 +139,66 @@ live events before they are Supported. Only the staging target does, set with
 fails it. Remove the variable in the same change that promotes live events: a
 server still naming a Supported capability refuses to start.
 
-The workflow exposes only `run_github` and `run_hosted`. A retired provider must
-not be reintroduced through an old input, target map or artifact. Independent
-hosted and manual evidence must bind the same candidate before a final GO.
+The workflow exposes `run_github`, `run_hosted` and `run_drills`. A retired
+provider must not be reintroduced through an old input, target map or artifact.
+Independent hosted and manual evidence must bind the same candidate before a
+final GO.
+
+## Hosted drills and the operator record
+
+The hosted gate trusts one Ed25519-signed operator record for the observations
+no runner can make on its own behalf: a live event delivered by GitHub, a
+provider rate limit, session revocation, provider disconnect, a restart, a
+scale-to-zero wake, a database interruption, a rollback and a tester purge.
+`run_drills` performs every one of them against the staging target and reports
+them; a person reads the report and signs it.
+
+1. **Dispatch `run_drills` alone.** The `hosted-drills` job verifies the same
+   signed hosted target the gate does, then runs `ci/run-alpha17-hosted-drills.js`
+   from the trusted checkout. Before it touches anything it refuses
+   (`ALPHA17_DRILL_TARGET_REFUSED`) a service that deploys on its own, one
+   that is not serving live events, or one whose deployment fingerprint is not
+   the candidate's. It restarts, suspends, interrupts and redeploys that
+   service and its cohort compute, so it never runs unless named.
+2. **Read the report.** It is the one line between
+   `ALPHA17_DRILL_REPORT_BEGIN` and `ALPHA17_DRILL_REPORT_END` in the job log:
+   each check with its observations (latencies, statuses, counts) and the
+   cleanup readback: compute enabled, no webhook left on the sandbox, the
+   candidate served again, no active drill tester. It carries no invitation,
+   cookie, token, database address or pepper. A run that did not pass or did
+   not clean up prints `"ok": false` and the job fails.
+3. **Sign it.** The operator holds the private key; it never enters the
+   repository, the environment or a job.
+
+   ```bash
+   node scripts/alpha17-operator-record.js keygen --out ~/.nvx-operator   # once
+   node scripts/alpha17-operator-record.js sign \
+     --report job.log --key ~/.nvx-operator/operator.pem --key-id <keyId>
+   ```
+
+   `keygen` prints the key ID and the public key and never overwrites a key.
+   `sign` takes the report JSON or the whole job log, refuses a failed or
+   uncleaned run, signs exactly the fields the gate validates and checks the
+   result with the gate's own validator before printing it.
+4. **Set three variables** in the `alpha17-live-qualification` environment:
+   `ALPHA17_OPERATOR_KEY_ID`, `ALPHA17_OPERATOR_PUBLIC_KEY_BASE64` and
+   `ALPHA17_OPERATIONAL_RECORD_BASE64`. None is secret. The record binds the
+   candidate archive digest and source commit and is accepted for 72 hours
+   from `completedAt`; a new candidate needs a new drill run and a new
+   signature.
+5. **Dispatch `run_hosted`.** It needs no session material: the job makes its
+   own five testers by invitation for the sandbox repository, the first signed
+   in with the mutation credential and the rest read-only, after the restore,
+   and releases them on every exit -- revoked, and the last one's data deleted,
+   which removes every session that still carries the shared GitHub identity.
+   The `ALPHA17_SESSION_COOKIES`, `ALPHA17_MUTATION_REQUEST` and
+   `ALPHA17_CLEANUP_REQUEST` secrets are no longer read; delete them.
+
+The drills and the hosted gate read the staging service's `DATABASE_URL` and
+`NV_ALPHA_INVITE_PEPPER` from Render with `ALPHA17_RENDER_API_KEY`, so testers
+are issued by the deployment under test. `ALPHA17_NEON_API_KEY` suspends and
+interrupts only the cohort branch's compute and re-enables it in a `finally`;
+the cleanup readback fails the run if it did not.
 
 ## What the GitHub run proves
 

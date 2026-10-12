@@ -89,7 +89,7 @@ out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`, plus
 to that isolated branch; also configure
 `ALPHA17_OPERATOR_KEY_ID` and `ALPHA17_OPERATOR_PUBLIC_KEY_BASE64` as one
 reviewed Ed25519 verification-key binding. The hosted job
-requires authorization schema `1.2.0`; its target hash binds all of those
+requires authorization schema `1.3.0`; its target hash binds all of those
 project/branch identifiers, the isolated-target kind, and the reviewed
 fingerprint. It verifies that signed target from an exact trusted checkout and
 installs that checkout without lifecycle scripts before any of these secrets are

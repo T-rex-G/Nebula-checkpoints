@@ -95,6 +95,23 @@ async function main() {
     }
     assert.equal((logs.match(/STREAM_FIXTURE_REQUEST/g) || []).length, beforeLegacy,
       'retired saved sessions and cleanup must never dispatch provider transport');
+    /*
+     * Signing in with GitHub is a choice: the new account is selected, and the
+     * choice holds on the next read. The flag that asked for it belongs to the
+     * read that computed it, never to the saved session.
+     */
+    for (const provider of ['gitlab', 'gitea']) {
+      const retired = { provider, login: 'retired', token: 'retired-provider-secret', baseUrl: `https://${provider}.example` };
+      const github = { provider: 'github', login: 'fixture-github', token: 'stream-fixture-only' };
+      const relogin = await fetch(`${origin}/api/login`, { method: 'POST',
+        headers: { cookie: sessionCookie([retired, github], 0), 'content-type': 'application/json', 'x-nv': '1' },
+        body: JSON.stringify({ provider: 'github', token: 'stream-fixture-only' }) });
+      assert.equal(relogin.status, 200, await relogin.clone().text());
+      const chosen = relogin.headers.get('set-cookie').split(';')[0];
+      const after = await fetch(origin + '/api/me', { headers: { cookie: chosen } });
+      assert.equal(after.status, 200, `${provider}: a GitHub sign-in left the session asking for a choice it had just made`);
+      await after.body.cancel();
+    }
     for (const provider of ['github']) {
       const login = await fetch(`${origin}/api/login`, { method: 'POST',
         headers: { 'content-type': 'application/json', 'x-nv': '1' },

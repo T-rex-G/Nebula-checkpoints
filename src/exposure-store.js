@@ -1210,20 +1210,57 @@ class ExposureStore {
         );
         finding = findingFromRow(moved.rows[0] || null);
       } else if (attempt.state === 'verified') {
-        /* A newer live verdict invalidates a machine rejection, never a
-           person's accepted-risk decision. Late replies cannot regress it. */
+        /*
+         * A newer live verdict invalidates a machine rejection, never a
+         * person's accepted-risk decision. Late replies cannot regress it.
+         *
+         * The verdict is about the credential, not the tree. A finding the
+         * tree had already been shown to have lost -- a complete scan after
+         * it was last seen, missing it, whose complete parent on the same ref
+         * held it, which is exactly what concludeRemovedFromTree requires --
+         * goes back to removed-from-tree, not into the tree.
+         */
         const moved = await client.query(
-          `UPDATE nv_exposure_findings
-              SET disposition='open', disposition_at=NULL, disposition_by=NULL
-            WHERE provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4
-              AND fingerprint=$5 AND identity_key=$7 AND disposition='credential-rejected'
-              AND (disposition_at IS NULL OR disposition_at <= $6)
+          `WITH target AS (
+             SELECT f.provider, f.authority, f.owner_login, f.repo_name, f.fingerprint, f.identity_key,
+                    EXISTS (
+                      SELECT 1 FROM nv_exposure_scans AS after
+                        JOIN nv_exposure_scans AS before ON before.scan_id = after.parent_scan_id
+                       WHERE after.provider=$1 AND after.authority=$2 AND after.owner_login=$3 AND after.repo_name=$4
+                         AND after.identity_key=$7 AND before.identity_key=$7
+                         AND after.state='complete' AND after.coverage='complete'
+                         AND before.state='complete' AND before.coverage='complete'
+                         AND before.ref_name = after.ref_name
+                         AND after.rules_version = f.rules_version AND before.rules_version = f.rules_version
+                         AND after.engine_version = f.engine_version AND before.engine_version = f.engine_version
+                         AND after.fingerprint_key_version = f.fingerprint_key_version
+                         AND before.fingerprint_key_version = f.fingerprint_key_version
+                         AND after.finished_at >= f.last_observed_at
+                         AND EXISTS (SELECT 1 FROM nv_exposure_observations AS seen
+                                      WHERE seen.scan_id = before.scan_id AND seen.fingerprint = f.fingerprint)
+                         AND NOT EXISTS (SELECT 1 FROM nv_exposure_observations AS gone
+                                          WHERE gone.scan_id = after.scan_id AND gone.fingerprint = f.fingerprint)
+                    ) AS removed
+               FROM nv_exposure_findings AS f
+              WHERE f.provider=$1 AND f.authority=$2 AND f.owner_login=$3 AND f.repo_name=$4
+                AND f.fingerprint=$5 AND f.identity_key=$7
+           )
+           UPDATE nv_exposure_findings AS finding
+              SET disposition = CASE WHEN target.removed THEN 'removed-from-tree' ELSE 'open' END,
+                  disposition_at = CASE WHEN target.removed THEN $6::timestamptz ELSE NULL END,
+                  disposition_by = NULL
+             FROM target
+            WHERE finding.provider=target.provider AND finding.authority=target.authority
+              AND finding.owner_login=target.owner_login AND finding.repo_name=target.repo_name
+              AND finding.fingerprint=target.fingerprint AND finding.identity_key=target.identity_key
+              AND finding.disposition='credential-rejected'
+              AND (finding.disposition_at IS NULL OR finding.disposition_at <= $6)
               AND NOT EXISTS (
                 SELECT 1 FROM nv_exposure_verifications newer
                  WHERE newer.provider=$1 AND newer.authority=$2 AND newer.owner_login=$3
                    AND newer.repo_name=$4 AND newer.fingerprint=$5 AND newer.identity_key=$7
                    AND newer.state IN ('verified','rejected') AND newer.observed_at > $6)
-           RETURNING *`,
+           RETURNING finding.*`,
           [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
         );
         finding = findingFromRow(moved.rows[0] || null);

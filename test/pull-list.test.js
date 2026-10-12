@@ -76,5 +76,9 @@ const route = server.slice(server.indexOf("app.get('/api/repo/:owner/:repo/pulls
 assert(route.includes('res.json(pulls.map(pullListItem))'), 'the list route maps through pullListItem');
 assert(/capabilityAccess\('pulls\.read'\)/.test(route), 'the list route stays behind pulls.read');
 assert(/alphaRepositoryAccess/.test(route), 'the list route stays inside the repository scope');
+/* The board reads a full page as "at least this many": its page size is the route's. */
+const page = route.match(/per_page=(\d+)/);
+assert(page, 'the list route names its page size');
+assert.strictEqual(Number(page[1]), require('../public/pull-board').LIST_PAGE, 'the board and the list route disagree about one page');
 
 console.log('pull list tests passed');

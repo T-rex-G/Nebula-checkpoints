@@ -2437,7 +2437,18 @@ async function loadPullBoard(force) {
       throw error;
     }
   });
-  if (stale()) return;
+  if (stale()) {
+    /*
+     * Overtaken by a new identity or a new interface epoch rather than by a
+     * newer reading: the answer is dropped, and so is the flag that held the
+     * card at "reading", so the board reads again for whoever is now here.
+     */
+    if (request === pullBoardState.request) {
+      pullBoardState.inflight = false;
+      renderPullBoard();
+    }
+    return;
+  }
   pullBoardState.inflight = false;
   pullBoardState.results = results;
   pullBoardState.at = Date.now();
@@ -9234,6 +9245,7 @@ function renderPullGate(host, p, answer) {
   else if (gate && gate.state === 'current') { state = gate.blocking.length ? 'hold' : 'pass'; word = gate.blocking.length ? `${gate.blocking.length} ${gate.blocking.length === 1 ? 'reason' : 'reasons'} to hold` : 'Passes'; }
   else if (gate && gate.state === 'stale') { state = 'stale'; word = 'Audit is behind the head'; }
   else if (gate && gate.state === 'missing') { state = 'missing'; word = 'Not audited'; }
+  else if (gate && gate.state === 'unavailable' && gate.complete === false) { state = 'incomplete'; word = 'Audit incomplete'; }
   const badge = node('span', 'nv-chip pr-gate-chip');
   badge.dataset.tone = state === 'pass' ? 'good' : state === 'hold' ? 'critical' : 'pending';
   badge.appendChild(node('span', null, word));
@@ -9249,6 +9261,16 @@ function renderPullGate(host, p, answer) {
       : `You have not audited ${p.head}. Audit it before merging, so the merge is judged by what it brings in.`);
   } else if (gate.state === 'stale') {
     line(`Your latest audit of ${p.head} is of ${String(gate.commitSha || '').slice(0, 7)}; the head is now ${String(answer.pull.headSha || '').slice(0, 7)}. Audit it again before merging.`);
+  } else if (gate.state === 'unavailable' && gate.complete === false) {
+    /*
+     * The kept audit was read; it is the evidence in it that falls short. An
+     * audit kept before audits recorded their own completeness is cured by
+     * auditing again; a recorded gap waits on an approval.
+     */
+    const sha = String(gate.commitSha || '').slice(0, 7);
+    line(gate.evidence === 'unrecorded'
+      ? `Your audit of ${p.head} at ${sha} was kept before audits recorded how complete they were. Audit it again so the gate can judge it; until then the merge waits on an approval.`
+      : `Part of your audit of ${p.head} at ${sha} could not be completed: some files, findings or dependency answers are missing. The gate cannot clear this head on its own, so the merge waits on an approval.`);
   } else if (gate.state === 'unavailable') {
     line('The kept audits could not be read just now.');
   } else {
@@ -9267,6 +9289,7 @@ function renderPullGate(host, p, answer) {
       for (const reason of gate.blocking) if (GATE_REASON[reason]) list.appendChild(node('li', null, GATE_REASON[reason](gate)));
       host.appendChild(list);
     }
+    if (gate.complete === false) line('Part of this audit could not be completed, so there may be more than this.', 'pr-gate-line pr-gate-muted');
   }
   const policies = answer && answer.enforcement && Array.isArray(answer.enforcement.policies) ? answer.enforcement.policies : [];
   const acting = policies.filter(policy => policy.effect !== 'allow');
@@ -9280,10 +9303,10 @@ function renderPullGate(host, p, answer) {
       sentence.textContent = `Policy ${policy.policyKey} (${policy.mode}) ${effect}${rule ? `: ${rule.description}` : '.'}`;
       host.appendChild(sentence);
     }
-  } else if (gate && (state === 'hold' || state === 'missing' || state === 'stale') && answer.enforcement && answer.enforcement.available) {
+  } else if (gate && (state === 'hold' || state === 'missing' || state === 'stale' || state === 'incomplete') && answer.enforcement && answer.enforcement.available) {
     line('No active policy acts on the gate yet. The Audit merge gate template in Governance does.', 'pr-gate-line pr-gate-muted');
   }
-  if (gate && (gate.state === 'missing' || gate.state === 'stale') && !(answer.pull && answer.pull.fork)) {
+  if (gate && (gate.state === 'missing' || gate.state === 'stale' || gate.evidence === 'unrecorded') && !(answer.pull && answer.pull.fork)) {
     const branchKnown = [...$('#branchSelect').options].some(option => option.value === p.head);
     if (branchKnown) {
       const go = node('button', 'btn btn-ghost small pr-gate-audit', 'Audit this head');

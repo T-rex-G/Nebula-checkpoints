@@ -19,9 +19,18 @@
 (function (global) {
   'use strict';
 
+  /* Shared with the other Overview cards, so they agree about which repositories exist. */
+  const Inventory = global.NebulaRepoInventory || (typeof require === 'function' ? require('./repo-inventory') : null);
+
   /* How many repositories one reading asks, most recently pushed first, and how many at a time. */
   const REPOSITORY_LIMIT = 12;
   const CONCURRENCY = 4;
+  /*
+   * One page of the list route (per_page in server.js), most recently updated
+   * first. A repository that fills it may hold more, and the ones left out are
+   * the least recently touched.
+   */
+  const LIST_PAGE = 30;
   /* A column shows this many before it offers the rest. */
   const COLUMN_SHOWN = 5;
   /* A pull request nobody has touched for this long is called idle. */
@@ -39,26 +48,12 @@
     return `${count} ${count === 1 ? one : many}`;
   }
 
-  function repoKey(owner, name) {
-    return `${String(owner || '')}/${String(name || '')}`.toLowerCase();
-  }
+  const repoKey = Inventory.repoKey;
 
   /* The inventory, most recently pushed first, without duplicates. */
+  /* The inventory, most recently pushed first (public/repo-inventory.js reads it). */
   function inventory(repos) {
-    const list = [];
-    const seen = new Set();
-    for (const repo of Array.isArray(repos) ? repos : []) {
-      if (!repo) continue;
-      let owner = repo.owner && typeof repo.owner === 'object' ? repo.owner.login : repo.owner;
-      let name = repo.name;
-      if ((!owner || !name) && repo.full_name) [owner, name] = String(repo.full_name).split('/');
-      if (!owner || !name) continue;
-      const key = repoKey(owner, name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push({ owner: String(owner), repo: String(name), key, pushedAt: Date.parse(repo.pushed_at || repo.updated_at || '') || 0 });
-    }
-    return list.sort((a, b) => b.pushedAt - a.pushedAt || a.key.localeCompare(b.key));
+    return Inventory.inventory(repos).sort((a, b) => b.pushedAt - a.pushedAt || a.key.localeCompare(b.key));
   }
 
   /* Which repositories one reading asks: the most recently pushed, up to the limit. */
@@ -129,7 +124,8 @@
     const refused = results.filter(result => !Array.isArray(result.pulls) && result.error === 'scope').map(result => `${result.owner}/${result.repo}`);
     const unreadable = results.filter(result => !Array.isArray(result.pulls) && result.error !== 'scope').map(result => `${result.owner}/${result.repo}`);
     const offline = results.some(result => result.error === 'offline');
-    const coverage = { read: read.length, asked: results.length, inventory: known.length, refused, unreadable };
+    const capped = read.filter(result => result.pulls.length >= LIST_PAGE).map(result => `${result.owner}/${result.repo}`);
+    const coverage = { read: read.length, asked: results.length, inventory: known.length, refused, unreadable, capped };
     if (!read.length) {
       return { state: 'unavailable', coverage, reason: offline ? 'offline' : refused.length === results.length ? 'scope' : 'unreadable' };
     }
@@ -163,9 +159,13 @@
   /* The card's first line: how much is open and how long the longest wait has been. */
   function sentence(view) {
     if (view.state === 'empty') return `No open pull requests in the ${plural(view.coverage.read, 'repository', 'repositories')} read.`;
-    const open = `${plural(view.total, 'open pull request', 'open pull requests')} in ${plural(view.repositories, 'repository', 'repositories')}`;
-    if (!view.waiting) return `${open}; none waiting on a reviewer.`;
-    const longest = view.longestWait === null ? '' : view.longestWait === 0 ? ', the longest since today' : `, the longest for ${plural(view.longestWait, 'day', 'days')}`;
+    /* A repository cut at one page makes every count a floor and the longest wait the longest shown. */
+    const cut = Boolean(view.coverage && view.coverage.capped && view.coverage.capped.length);
+    const count = plural(view.total, 'open pull request', 'open pull requests');
+    const open = `${cut ? `At least ${count}` : count.charAt(0).toUpperCase() + count.slice(1)} in ${plural(view.repositories, 'repository', 'repositories')}`;
+    if (!view.waiting) return `${open}; none waiting on a reviewer${cut ? ' among those shown' : ''}.`;
+    const shown = cut ? 'the longest shown' : 'the longest';
+    const longest = view.longestWait === null ? '' : view.longestWait === 0 ? `, ${shown} since today` : `, ${shown} for ${plural(view.longestWait, 'day', 'days')}`;
     return `${open}: ${view.waiting} waiting on review${longest}.`;
   }
 
@@ -182,6 +182,11 @@
     }
     if (coverage.unreadable.length) {
       out.push(`${plural(coverage.unreadable.length, 'repository', 'repositories')} could not be read just now: ${names(coverage.unreadable)}.`);
+    }
+    if (coverage.capped && coverage.capped.length) {
+      out.push(coverage.capped.length === 1
+        ? `${coverage.capped[0]} has more open pull requests than one list holds; these are its ${LIST_PAGE} most recently updated.`
+        : `${names(coverage.capped)} have more open pull requests than one list holds; each shows its ${LIST_PAGE} most recently updated.`);
     }
     return out;
   }
@@ -334,7 +339,7 @@
   }
 
   global.NebulaPullBoard = Object.freeze({
-    COLUMNS, REPOSITORY_LIMIT, CONCURRENCY, COLUMN_SHOWN, IDLE_DAYS,
+    COLUMNS, REPOSITORY_LIMIT, CONCURRENCY, COLUMN_SHOWN, IDLE_DAYS, LIST_PAGE,
     pickRepositories, readAll, model, sentence, notes, render
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);

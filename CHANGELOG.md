@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Independent review of the hardening, fixed from tests that failed first
+
+- **Signing in with GitHub over a retired account is the choice it asked for.**
+  The "choose an account" flag that a session holding a retired provider
+  account computes on each read was saved with the session when a GitHub
+  sign-in selected the new account, so every provider route went on answering
+  409 until sign-out. The flag is never stored now, and a GitHub App callback
+  refuses a retired selection instead of acting as another account.
+- **Removing an account keeps the same identity acting.** Removing an account
+  listed before the selected one used to hand the session to whichever account
+  slid into its place. The selected identity stays selected; if it is the one
+  removed, a GitHub account is chosen, never a retired one.
+- **A session store that cannot be read is unavailable, not empty.** A failed
+  read during a sign-in was taken for "no session", and the existing session
+  row was deleted. It now answers 503 and keeps the session.
+- **The audit gate says what kind of incomplete an audit is.** An exact but
+  incomplete audit was shown as "the kept audits could not be read". The pull
+  request now says "Audit incomplete": an audit kept before audits recorded
+  their completeness asks to be run again (with "Audit this head"), and a
+  recorded gap says the merge waits on an approval. What an incomplete audit
+  did find still holds the merge, with a note that there may be more.
+- **The pull-request board says when a list is a page.** The list route
+  answers 30 per repository, most recently updated first. A repository that
+  fills the page now makes the count "at least", the longest wait "the longest
+  shown", and is named in the card's notes.
+- **The board no longer hangs on "Reading".** A reading overtaken by a change of
+  identity or interface epoch used to keep its in-flight flag; it now lets go
+  and reads again.
+- **A live verdict does not put a removed credential back in the tree.** A
+  credential that had left the tree, then been rejected, then verified live
+  again returned as open. It returns as removed-from-tree when the same
+  evidence that concluded the removal still holds, and open otherwise.
+- **The findings inbox has one order.** Two findings without a first-seen
+  date both claimed to be the older, so their order depended on the input;
+  they now tie and fall through to their key.
+- **One reading of the repository inventory.** The security posture card and
+  the pull-request board share `public/repo-inventory.js` instead of two copies
+  of the same parsing.
+
 ### The landing's scene gives a slow device its page back
 
 - **The vortex's budget answers to the clock.** It used to count frames --

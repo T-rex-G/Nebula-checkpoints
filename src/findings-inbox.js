@@ -106,7 +106,8 @@ function compare(a, b) {
   return decidedA - decidedB
     || SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
     || STATE_RANK[a.state] - STATE_RANK[b.state]
-    || (b.ageDays === null ? -1 : a.ageDays === null ? 1 : b.ageDays - a.ageDays)
+    /* Oldest first; an undated finding after every dated one; two undated ones tie. */
+    || (a.ageDays === null && b.ageDays === null ? 0 : b.ageDays === null ? -1 : a.ageDays === null ? 1 : b.ageDays - a.ageDays)
     || a.key.localeCompare(b.key);
 }
 

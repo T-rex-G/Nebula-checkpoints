@@ -191,3 +191,52 @@ test('a pull request whose head nobody audited offers to audit it, and a cleared
   await expect(page.locator('#prGate')).toHaveAttribute('data-state', 'pass');
   await expect(page.locator('#prGate .pr-gate-chip')).toHaveText('Passes');
 });
+
+/*
+ * A head whose audit is exact but incomplete is not "unreadable". The gate says
+ * which kind of incomplete it is: an audit kept before audits recorded their
+ * completeness is cured by auditing again, and offers to; a recorded gap
+ * waits on an approval, and says so.
+ */
+test('a pull request whose audit is incomplete says why, and what clears it', async ({ page }) => {
+  const legacy = kept([]);
+  legacy.audit = { ...legacy.audit, analysisComplete: null };
+  const unrecorded = evaluateMergeGate({ headSha: HEAD, head: legacy, base: null, decisions: new Map(), now });
+  expect([unrecorded.state, unrecorded.evidence]).toEqual(['unavailable', 'unrecorded']);
+  const box = await openPull(page, { available: true, pull: { number: 90, head: 'feature/long', base: 'main', headSha: HEAD, fork: false, open: true },
+    gate: unrecorded, enforcement: { available: true, policies: [] } });
+  await expect(box).toHaveAttribute('data-state', 'incomplete');
+  await expect(box.locator('.pr-gate-chip')).toHaveText('Audit incomplete');
+  await expect(box).toContainText(`Your audit of feature/long at ${HEAD.slice(0, 7)} was kept before audits recorded how complete they were.`);
+  await expect(box).not.toContainText('could not be read');
+  /* Auditing again is offered once the head is a branch this repository lists. */
+  await page.evaluate(() => { document.querySelector('#branchSelect').add(new Option('feature/long', 'feature/long')); });
+  await page.locator('#prList .list-item').first().click();
+  await expect(page.locator('#prGate').getByRole('button', { name: 'Audit this head' })).toBeVisible();
+
+  const partial = kept([]);
+  partial.audit = { ...partial.audit, files: { complete: false } };
+  const gap = evaluateMergeGate({ headSha: HEAD, head: partial, base: null, decisions: new Map(), now });
+  expect([gap.state, gap.evidence]).toEqual(['unavailable', 'incomplete']);
+  await page.unroute('**/api/repo/sandbox/demo/code-audit/gate**');
+  await page.route('**/api/repo/sandbox/demo/code-audit/gate**', route => route.fulfill({ json: {
+    available: true, pull: { number: 89, head: 'feature/long', base: 'main', headSha: HEAD, fork: false, open: true }, gate: gap, enforcement: { available: true, policies: [] } } }));
+  await page.locator('#prList .list-item').nth(1).click();
+  const second = page.locator('#prGate');
+  await expect(second).toHaveAttribute('data-state', 'incomplete');
+  await expect(second).toContainText('could not be completed: some files, findings or dependency answers are missing');
+  await expect(second).toContainText('the merge waits on an approval');
+  await expect(second.getByRole('button', { name: 'Audit this head' })).toHaveCount(0);
+
+  /* What an incomplete audit did find still holds the merge, and the gate says there may be more. */
+  const known = kept([finding('a')]);
+  known.audit = { ...known.audit, files: { complete: false } };
+  const held = evaluateMergeGate({ headSha: HEAD, head: known, base: null, decisions: new Map(), now });
+  expect([held.state, held.complete]).toEqual(['current', false]);
+  await page.unroute('**/api/repo/sandbox/demo/code-audit/gate**');
+  await page.route('**/api/repo/sandbox/demo/code-audit/gate**', route => route.fulfill({ json: {
+    available: true, pull: { number: 90, head: 'feature/long', base: 'main', headSha: HEAD, fork: false, open: true }, gate: held, enforcement: { available: true, policies: [] } } }));
+  await page.locator('#prList .list-item').first().click();
+  await expect(page.locator('#prGate')).toHaveAttribute('data-state', 'hold');
+  await expect(page.locator('#prGate')).toContainText('Part of this audit could not be completed, so there may be more than this.');
+});

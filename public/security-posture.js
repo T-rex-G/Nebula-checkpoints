@@ -19,6 +19,9 @@
 (function (global) {
   'use strict';
 
+  /* Shared with the other Overview cards, so they agree about which repositories exist. */
+  const Inventory = global.NebulaRepoInventory || (typeof require === 'function' ? require('./repo-inventory') : null);
+
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const SEVERITIES = Object.freeze(['critical', 'serious', 'warning']);
   const SEVERITY_WORD = Object.freeze({ critical: 'critical', serious: 'serious', warning: 'warning' });
@@ -41,26 +44,9 @@
     return `${count} ${count === 1 ? one : many}`;
   }
 
-  function repoKey(owner, name) {
-    return `${String(owner || '')}/${String(name || '')}`.toLowerCase();
-  }
+  const repoKey = Inventory.repoKey;
 
-  function inventory(repos) {
-    const list = [];
-    const seen = new Set();
-    for (const repo of Array.isArray(repos) ? repos : []) {
-      if (!repo) continue;
-      let owner = repo.owner && typeof repo.owner === 'object' ? repo.owner.login : repo.owner;
-      let name = repo.name;
-      if ((!owner || !name) && repo.full_name) [owner, name] = String(repo.full_name).split('/');
-      if (!owner || !name) continue;
-      const key = repoKey(owner, name);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push({ owner: String(owner), repo: String(name), key, pushedAt: Date.parse(repo.pushed_at || repo.updated_at || '') || 0 });
-    }
-    return list;
-  }
+  const inventory = repos => Inventory.inventory(repos);
 
   function categoryLabel(id) {
     return CATEGORY_LABEL[id] || String(id || 'Other').replace(/-/g, ' ').replace(/^./, letter => letter.toUpperCase());

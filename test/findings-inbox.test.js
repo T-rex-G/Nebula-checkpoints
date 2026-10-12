@@ -46,6 +46,23 @@ const exposure = {
 const severityOf = rule => ({ 'github-token': 'critical', 'aws-access-key': 'serious', 'slack-webhook': 'warning' })[rule];
 const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
 
+/*
+ * Undated findings tie on age, and a tie falls through to the key -- in either
+ * input order. A comparator that called both of two undated findings the
+ * older one left the order to the sort and the input, so the list and its
+ * pages could reorder between reloads.
+ */
+{
+  const undated = [auditFinding('y'.repeat(24), { firstSeenAt: null }), auditFinding('x'.repeat(24), { firstSeenAt: null })];
+  const forward = buildInbox({ audit: { truncated: false, findings: undated }, exposure: null, now: NOW });
+  const backward = buildInbox({ audit: { truncated: false, findings: [...undated].reverse() }, exposure: null, now: NOW });
+  assert.deepStrictEqual(forward.findings.map(item => item.id), ['x'.repeat(24), 'y'.repeat(24)], 'undated findings fall back to their key');
+  assert.deepStrictEqual(backward.findings.map(item => item.id), forward.findings.map(item => item.id), 'the order does not depend on the input');
+  /* A dated finding still comes before an undated one of the same severity and state. */
+  const mixed = buildInbox({ audit: { truncated: false, findings: [auditFinding('z'.repeat(24), { firstSeenAt: null }), auditFinding('w'.repeat(24), { firstSeenAt: at(20) })] }, exposure: null, now: NOW });
+  assert.deepStrictEqual(mixed.findings.map(item => item.id), ['w'.repeat(24), 'z'.repeat(24)]);
+}
+
 {
   const inbox = buildInbox({ audit, exposure, now: NOW, severityOf, displayPath });
   assert.deepStrictEqual(inbox.sources, { audit: 'measured', exposure: 'measured' });

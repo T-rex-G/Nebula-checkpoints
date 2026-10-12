@@ -1648,7 +1648,18 @@ function recomputeHostedSessionMutation(base, desired, current) {
   next.active = Math.max(0, mergedOrder.indexOf(desiredActiveKey));
   return next;
 }
+/*
+ * retiredSelection is computed by githubSession() on each read, from the
+ * accounts the session holds. Stored, it would outlive the choice that cleared
+ * it, and every provider route would keep asking for an account.
+ */
+function persistedSession(data) {
+  if (!data || typeof data !== 'object' || !('retiredSelection' in data)) return data;
+  const { retiredSelection, ...stored } = data;
+  return stored;
+}
 async function setSession(req, res, data, { createNew = false } = {}) {
+  data = persistedSession(data);
   if (DB_URL) {
     if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
     let sid = null;
@@ -1747,8 +1758,14 @@ async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
       req[HOSTED_SESSION_REVISION] = owned.revision;
       return supported(owned.session);
     }
-    const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => null);
-    if (!r || !r.rows.length) return null;
+    /*
+     * A store that cannot answer is unavailable, not empty. Read as "no
+     * session", a fault here let a sign-in delete the row it could not read.
+     */
+    const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => {
+      throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
+    });
+    if (!r.rows.length) return null;
     const d = unseal(r.rows[0].data);
     return (d && Array.isArray(d.accounts) && d.accounts.length) ? supported(d) : null;
   }
@@ -3379,10 +3396,18 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
         { actor: retainedActor(req), status: 'disconnected' }
       );
     }
-    req.session.accounts = req.session.accounts.filter(account => !targetKeys.has(hostedAccountKey(account)));
-    req.session.active = req.session.accounts.length
-      ? Math.min(Math.max(Number(req.session.active) || 0, 0), req.session.accounts.length - 1)
-      : 0;
+    /*
+     * The selected identity stays selected when an account before it leaves;
+     * an index that merely clamps hands the session to whichever account slid
+     * into its place. If the selected one is the account leaving, a GitHub
+     * account is chosen, never a retired one -- the same rule the hosted path
+     * follows.
+     */
+    const before = req.session.accounts;
+    const selected = before[Math.min(Math.max(Number(req.session.active) || 0, 0), Math.max(before.length - 1, 0))];
+    req.session.accounts = before.filter(account => !targetKeys.has(hostedAccountKey(account)));
+    const kept = req.session.accounts.indexOf(selected);
+    req.session.active = kept >= 0 ? kept : Math.max(0, req.session.accounts.findIndex(isGithubAccount));
     clearStepUpAuthorization(req.session);
     const manualCleanup = accounts.filter(account => !isGithubAccount(account)).map(account => providerRevocationGuidance(account));
     return Object.freeze({ complete: true, supportedComplete: true, legacy: true, results: Object.freeze([]), manualCleanup: Object.freeze(manualCleanup) });
@@ -3689,6 +3714,8 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   }
   while (s.accounts.length > ACCOUNT_CAP()) s.accounts.shift();
   s.active = s.accounts.length - 1;
+  /* Signing in with GitHub is the choice a retired selection asked for. */
+  delete s.retiredSelection;
   clearStepUpAuthorization(s);
   if (!existingSession && DB_URL) {
     /* The cookie may still name a row this sign-in replaces, such as one that
@@ -3879,6 +3906,9 @@ async function consumeGithubAppPending(session, slot, nonce, identity, now = Dat
 async function githubAppCallbackContext(req, res) {
   const session = await sessionOf(req);
   if (!session) throw new GithubAppError('Sign in before connecting a GitHub App', 'AUTH_REQUIRED', 401);
+  if (session.retiredSelection) {
+    throw new GithubAppError('The selected account is no longer supported. Choose a GitHub account.', 'ACCOUNT_SELECTION_REQUIRED', 409);
+  }
   req.session = session;
   req.sessionAccount = session.accounts[Math.min(session.active || 0, session.accounts.length - 1)];
   req.gh = { ...req.sessionAccount };

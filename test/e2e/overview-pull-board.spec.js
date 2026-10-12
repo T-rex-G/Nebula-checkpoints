@@ -249,3 +249,33 @@ test('the board has no critical or serious accessibility violations', async ({ p
     .map(violation => ({ id: violation.id, targets: violation.nodes.map(node => node.target.join(' ')) }));
   expect(violations).toEqual([]);
 });
+
+/*
+ * A reading overtaken by a change of identity is dropped, and the board reads
+ * again for whoever is now signed in. It used to drop the answer and keep its
+ * "reading" flag, so the card said "Reading the open pull requests" until the
+ * page was reloaded.
+ */
+test('a reading overtaken by a new identity reads again instead of hanging', async ({ page }) => {
+  await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let calls = 0;
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/repo/sandbox/demo/pulls?*', async route => {
+    calls += 1;
+    if (calls === 1) await held;
+    await route.fallback();
+  });
+  await page.goto('/#/overview');
+  const card = page.locator('#wpPulls');
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toContainText('Reading the open pull requests');
+  await expect.poll(() => calls).toBe(1);
+  /* The signed-in identity is replaced while the first reading is on its way. */
+  await page.evaluate(() => { state.me = { ...state.me }; });
+  release();
+  /* Read again (from the lists already fetched, within their five minutes), not left reading. */
+  await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');
+  await expect(card).not.toContainText('Reading the open pull requests');
+});

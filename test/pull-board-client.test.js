@@ -111,5 +111,27 @@ const pull = (number, fields = {}) => ({
     '4 repositories could not be read just now: acme/r1, acme/r2, acme/r3 and 1 more.'
   ]);
 
+  /* ---- A full page is not the whole list -------------------------------- */
+  /*
+   * The list route answers one page, the most recently updated first. A
+   * repository that fills it may hold more, and the ones left out are the
+   * least recently touched -- often the longest waiting. So the count is a
+   * floor, the longest wait is the longest shown, and the card says which
+   * repository was cut.
+   */
+  assert.strictEqual(Board.LIST_PAGE, 30, 'the board and the list route agree on one page');
+  const busy = Array.from({ length: Board.LIST_PAGE }, (_, i) => pull(100 + i, { reviewers: 1, created_at: daysAgo(i + 1) }));
+  const capped = Board.model({
+    repos: [repo('web', 0), repo('api', 1)],
+    now: NOW,
+    results: [{ owner: 'acme', repo: 'web', pulls: busy }, { owner: 'acme', repo: 'api', pulls: [pull(7)] }]
+  });
+  assert.deepStrictEqual(capped.coverage.capped, ['acme/web']);
+  assert.strictEqual(Board.sentence(capped), 'At least 31 open pull requests in 2 repositories: 30 waiting on review, the longest shown for 30 days.');
+  assert.deepStrictEqual(Board.notes(capped), ['acme/web has more open pull requests than one list holds; these are its 30 most recently updated.']);
+  const roomy = Board.model({ repos: [repo('web', 0)], now: NOW, results: [{ owner: 'acme', repo: 'web', pulls: busy.slice(1) }] });
+  assert.deepStrictEqual(roomy.coverage.capped, []);
+  assert(!/At least|shown/.test(Board.sentence(roomy)), 'a list shorter than a page is the whole list');
+
   console.log('pull board client tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

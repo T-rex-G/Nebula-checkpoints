@@ -491,11 +491,19 @@ function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } 
    * vulnerability, an overdue finding) is judged as it stands; anything less
    * waits on an approval, as a head nobody could fully audit does.
    */
+  /*
+   * Which kind of incomplete: an audit kept before audits recorded their own
+   * completeness ('unrecorded') is cured by auditing again; one that recorded
+   * a gap ('incomplete') waits on an approval. A gate that could not read the
+   * kept audits at all says neither.
+   */
+  const evidence = evidenceComplete ? null
+    : (audit.analysisComplete === true || audit.analysisComplete === false ? 'incomplete' : 'unrecorded');
   if (!evidenceComplete && !blocking.some(reason => DENY_ON_KNOWN.has(reason))) {
     return gateResult('unavailable', {
       grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, blocking, open: counts,
       overdue: overdue.length, exploited: exploitedRows.length, introduced,
-      base: base && base.audit ? 'audited' : 'missing', complete: false
+      base: base && base.audit ? 'audited' : 'missing', complete: false, evidence
     });
   }
   return gateResult('current', {
@@ -509,6 +517,7 @@ function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } 
     introduced,
     base: base && base.audit ? 'audited' : 'missing',
     complete: evidenceComplete ? (audit.files ? audit.files.complete === true : null) : false,
+    evidence,
     sla: { ...sla, source: base && base.audit && base.audit.sla ? 'base' : 'default' }
   });
 }
@@ -526,6 +535,7 @@ function gateResult(state, facts = {}) {
     introduced: facts.introduced === undefined ? null : facts.introduced,
     base: facts.base || 'missing',
     complete: facts.complete === undefined ? null : facts.complete,
+    evidence: facts.evidence || null,
     sla: facts.sla ? Object.freeze(facts.sla) : null
   });
 }

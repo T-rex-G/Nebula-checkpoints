@@ -860,6 +860,32 @@ async function claim(store, now = T0) {
       assert(Date.parse(history[0].freshnessDeadline) > Date.parse(history[0].observedAt));
     }
 
+    /*
+     * A credential the tree no longer holds says so through a rejection that
+     * a later live verdict overturns. The verdict is about the credential; it
+     * says nothing about the tree, so it must not put the finding back in it.
+     */
+    {
+      const target = fingerprint('eight');
+      const before = await store.listFindings({ scope, identityKey: IDENTITY, dispositions: ['removed-from-tree'], limit: 50 });
+      assert(before.some(item => item.fingerprint === target), 'the fixture must already be removed from the tree');
+      const base = T0 + 2_050_000;
+      const refused = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: { state: 'rejected', reason: 'credential-refused', adapter: 'github-user-token', observedAt: new Date(base).toISOString() }
+      });
+      assert.strictEqual(refused.finding.disposition, 'credential-rejected');
+      const live = await store.recordVerification({
+        scope, identityKey: IDENTITY, fingerprint: target, requestedBy: 'alice',
+        record: {
+          state: 'verified', reason: 'identity-confirmed', adapter: 'github-user-token', subjectDigest: '3'.repeat(32),
+          observedAt: new Date(base + 1000).toISOString(), freshnessDeadline: new Date(base + 86_400_000).toISOString(), retryAfterMs: null
+        }
+      });
+      assert.strictEqual(live.finding.disposition, 'removed-from-tree',
+        'a live credential that left the tree is live and still out of it, not back in it');
+    }
+
     /* A person's decision is not overturned by a later provider answer. */
     {
       const target = fingerprint('two');

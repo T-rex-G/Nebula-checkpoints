@@ -137,6 +137,7 @@ const HEAD = 'a'.repeat(40);
   const stale = evaluateMergeGate({ headSha: HEAD, head: kept('b'.repeat(40), [row('a1', { severity: 'critical' })]), base: null });
   assert.deepStrictEqual([stale.state, [...stale.blocking], stale.commitSha], ['stale', [], 'b'.repeat(40)], 'an audit of another commit judges nothing');
   assert.strictEqual(unavailableGate().state, 'unavailable');
+  assert.strictEqual(unavailableGate().evidence, null, 'a gate that could not read the kept audits claims nothing about their evidence');
   assert.deepStrictEqual([...GATE_STATES].sort(), ['current', 'missing', 'stale', 'unavailable']);
 
   const clean = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('w1', { severity: 'warning' })]), base: kept('c'.repeat(40), []), now: T0 + DAY });
@@ -153,6 +154,10 @@ const HEAD = 'a'.repeat(40);
   ]) {
     const incomplete = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [], extra), base: null, now: T0 });
     assert.strictEqual(incomplete.state, 'unavailable', 'an exact commit does not make incomplete audit evidence current');
+    /* Which kind: an audit kept before completeness was recorded is cured by auditing again; a recorded gap is not. */
+    assert.strictEqual(incomplete.evidence, 'analysisComplete' in extra && extra.analysisComplete !== false ? 'unrecorded' : 'incomplete',
+      `the gate does not say what kind of incomplete ${JSON.stringify(extra)} is`);
+    assert.strictEqual(incomplete.complete, false);
     const template = getPolicyTemplate('audit-merge-gate');
     const actions = previewMergePolicies([{ policyKey: 'audit-gate', document: { ...template.document, enforcement: { mode: 'block' } } }],
       { branch: 'main', audit: gateAttributes(incomplete) });

@@ -150,6 +150,14 @@ repository's CODEOWNERS file names for its path. Decisions taken from the inbox
 go through each repository's own triage routes, with the same permissions as
 the audit screen.
 
+The Overview's pull-request board adds no capability of its own: it is the
+Provider-verified `pulls.read` list, asked for the twelve repositories most
+recently pushed to, four at a time, and only once the card is in view. It
+counts the reviewers a pull request asked for, which the list carries, and
+claims nothing about what a reviewer decided, which the list does not. A
+repository outside the session's scope, or one that could not be read, is
+named on the card rather than counted as having nothing open.
+
 The repository audit and the site check are `Deterministic` too, and every
 rule is fixture-tested firing and staying quiet. The audit reads the branch
 through the same Provider-verified reader as exposure scanning -- files are read,

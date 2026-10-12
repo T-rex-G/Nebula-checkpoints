@@ -156,6 +156,8 @@ const VALID = Object.freeze({
    * so the critical and serious ones are past their deadline.
    */
   triage: new Set(['reviewer', 'reader']),
+  /* The pull-request list: open pull requests, none, a repository outside the scope, or a provider that did not answer. */
+  pullBoard: new Set(['ready', 'empty', 'refused', 'error']),
   auditClock: new Set(['fresh', 'aged']),
   /*
    * The gate's own setting, in the words the server uses for it: 'off' or
@@ -202,6 +204,7 @@ function normalizedScenario(input = {}) {
     demote: Array.isArray(input.demote) ? input.demote : [],
     securityPosture: input.securityPosture || 'ready',
     findingsInbox: input.findingsInbox || 'ready',
+    pullBoard: input.pullBoard || 'ready',
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -311,6 +314,26 @@ function findingsInboxFixture(kind, decided) {
     audit('d'.repeat(24), { severity: 'warning', state: 'accepted-risk', decision: { disposition: 'accepted-risk', reason: 'low-impact', expiresAt: at(-60) }, rule: 'SEC-004', title: 'A cookie is set without HttpOnly or Secure', path: 'docs/cookie.md' })
   ];
   return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: findings.length, counts: {}, findings };
+}
+
+/*
+ * What the pull-request list route answers for the sandbox: one waiting on
+ * two reviewers, one with nobody asked, a draft left alone for weeks with
+ * more labels than a card shows, and one opened two days ago.
+ */
+function pullListFixture() {
+  const now = Date.now();
+  const at = days => new Date(now - days * 86400000).toISOString();
+  const pull = (number, fields) => ({
+    number, state: 'open', draft: false, merged: false, user: 'maya', avatar: null, head: `feature/${number}`, base: 'main',
+    created_at: at(1), updated_at: at(0), reviewers: 0, labels: [], ...fields
+  });
+  return [
+    pull(42, { title: 'Pin the release workflow\'s actions to commits', created_at: at(9), updated_at: at(1), reviewers: 2, labels: ['security', 'ci'] }),
+    pull(41, { title: 'Read the inventory in pages', user: 'jon', created_at: at(4), updated_at: at(0.1) }),
+    pull(39, { title: 'Move the audit store to its own schema', draft: true, created_at: at(20), updated_at: at(18), labels: ['database', 'migration', 'needs-design', 'blocked'] }),
+    pull(38, { title: 'Fix the posture chart\'s axis on narrow screens', user: 'jon', created_at: at(2), updated_at: at(0.1), reviewers: 1, labels: ['ui'] })
+  ];
 }
 
 function capabilityProjection(provider, authMethod = 'token', availability = 'available', promote = [], demote = []) {
@@ -594,6 +617,28 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     if (pathname === '/api/workspace/findings') {
       if (scenario.findingsInbox === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
       return fulfill(findingsInboxFixture(scenario.findingsInbox, state.triage));
+    }
+    /*
+     * The pull-request list: `pullBoard` selects the sandbox's open pull
+     * requests (`ready`), none (`empty`), a repository outside the session's
+     * scope (`refused`) or a provider that did not answer (`error`).
+     */
+    if (pathname === '/api/repo/sandbox/demo/pulls' && method === 'GET') {
+      if (scenario.pullBoard === 'refused') return fulfill(publicError('ALPHA_REPOSITORY_NOT_ALLOWED', 'This repository is outside the alpha scope'), 403);
+      if (scenario.pullBoard === 'error') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'GitHub did not answer'), 502);
+      if (scenario.pullBoard === 'empty') return fulfill([]);
+      return fulfill(url.searchParams.get('state') === 'closed' ? [] : pullListFixture());
+    }
+    const pullDetail = /^\/api\/repo\/sandbox\/demo\/pulls\/(\d+)$/.exec(pathname);
+    if (pullDetail && method === 'GET') {
+      const listed = pullListFixture().find(pull => pull.number === Number(pullDetail[1]));
+      if (!listed) return fulfill(publicError('NOT_FOUND', 'Not found'), 404);
+      return fulfill({
+        number: listed.number, title: listed.title, body: '', state: 'open', draft: listed.draft, merged: false,
+        mergeable: true, mergeable_state: 'clean', user: listed.user, head: listed.head, base: listed.base,
+        headSha: 'c'.repeat(40), additions: 12, deletions: 3, changed_files: 1,
+        files: [{ filename: 'README.md', status: 'modified', additions: 12, deletions: 3, patch: '@@ -1 +1 @@\n-old\n+new' }]
+      });
     }
     if (pathname === '/api/repo/sandbox/demo/codeowners') {
       return fulfill({ path: '.github/CODEOWNERS', rules: [{ pattern: '*', owners: ['@sandbox/everyone'] }, { pattern: 'src/', owners: ['@sandbox/web'] }], tooLarge: false });

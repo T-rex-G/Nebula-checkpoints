@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Open pull requests across the workspace, on the Overview
+
+- **A board below the security posture.** Open pull requests from the
+  repositories most recently pushed to, in three columns: waiting on review
+  (longest wait first), open with nobody asked to review (oldest first), and
+  drafts (most recently updated first). The first line says how many are open,
+  in how many repositories, and how long the longest has waited; a pull
+  request untouched for two weeks is marked idle; labels are shown, three to a
+  card.
+- **A card opens its pull request** in its own repository, on the open list,
+  under its row -- where reviewing, the merge gate and merging already live.
+- **Read only when it is looked at.** Nothing is asked of the provider until
+  the card comes into view; then the twelve most recently pushed repositories
+  are read four at a time through the existing `pulls.read` list route, kept
+  for five minutes and shared with the workbench's own list, and "Read again"
+  bypasses that. The card says how many repositories it read when the
+  inventory is larger, and names any outside the session's scope or that
+  could not be read rather than drawing them as empty.
+- The list route now also returns when a pull request was opened, how many
+  reviewers and teams it asked for (counted, not named) and its label names,
+  all from GitHub's list response; no further request is made for them.
+- **The Trust core names its authority whole.** On a narrow card its state now
+  moves under the title instead of cutting the provider's name short.
+
 ### A findings inbox for the whole workspace
 
 - **Every open finding in one list.** A new Findings page, in the rail and

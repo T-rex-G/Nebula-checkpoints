@@ -2115,6 +2115,8 @@ function showOverview() {
   loadSecurityPosture();
   loadActivityFeed();
   showPage('overview');
+  watchPullBoard();
+  if (pullBoardState.visible) void loadPullBoard();
 }
 
 /*
@@ -2275,6 +2277,7 @@ function clearPosture() {
   paintBoundary(null);
   clearSecurityPosture();
   clearFindings();
+  clearPullBoard();
 }
 async function loadPosture(force) {
   if (!state.me) return;
@@ -2348,6 +2351,97 @@ async function loadSecurityPosture(force) {
     state.securityPosture = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
   }
   renderSecurityPosture();
+}
+
+/*
+ * The open pull requests across the workspace (public/pull-board.js). Read
+ * only when the card comes into view, from the repositories most recently
+ * pushed to, a few at a time, through the same list route the workbench
+ * uses -- so a card opened from here lands on a list already in the cache.
+ * Bound to the identity that asked, like the posture above it.
+ */
+const PULL_BOARD_TTL_MS = 5 * 60 * 1000;
+const pullBoardState = { results: null, at: 0, request: 0, inflight: false, visible: false, observer: null };
+function clearPullBoard() {
+  pullBoardState.request++;
+  pullBoardState.results = null;
+  pullBoardState.at = 0;
+  pullBoardState.inflight = false;
+}
+function pullBoardOffered() {
+  return Boolean(window.NebulaCapabilityUI && window.NebulaPullBoard) && window.NebulaCapabilityUI.decision('pulls.read').status === 'Supported';
+}
+function renderPullBoard() {
+  const section = $('#wpPullsSection');
+  const host = $('#wpPulls .wp-body');
+  if (!section || !host || !window.NebulaPullBoard) return;
+  section.hidden = !pullBoardOffered();
+  if (section.hidden) return;
+  const Board = window.NebulaPullBoard;
+  Board.render(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
+    open: (owner, repo, number) => {
+      state.pendingPull = { key: `${owner}/${repo}`.toLowerCase(), number: Number(number) };
+      /* The board lists open pull requests, so the list it lands on is the open one. */
+      if (state.prState !== 'open') {
+        state.prState = 'open';
+        selectSegment('#prState', button => button.dataset.v === 'open');
+      }
+      void openRepositoryTool(owner, repo, 'pulls').then(() => {
+        /* The list was already drawn, so the tab did not read it again: read it now to open the card's pull request. */
+        if (state.pendingPull && !$('#prList .skeleton')) loadPRs();
+      });
+    },
+    refresh: () => { void loadPullBoard(true); }
+  });
+  /*
+   * The inventory arrived after the card came into view: read it now. Only
+   * when there is someone to read for and something readable to ask, so the
+   * reading's own early returns, which draw the card, never ask again.
+   */
+  if (pullBoardState.visible && !pullBoardState.inflight && !pullBoardState.results && state.me
+    && Board.pickRepositories(state.repos).length) void loadPullBoard();
+}
+function watchPullBoard() {
+  const section = $('#wpPullsSection');
+  if (!section || pullBoardState.observer) return;
+  if (typeof IntersectionObserver !== 'function') { pullBoardState.visible = true; return; }
+  pullBoardState.observer = new IntersectionObserver(entries => {
+    pullBoardState.visible = entries.some(entry => entry.isIntersecting);
+    if (pullBoardState.visible) void loadPullBoard();
+  }, { rootMargin: '200px 0px' });
+  pullBoardState.observer.observe(section);
+}
+async function loadPullBoard(force) {
+  if (!state.me || !pullBoardOffered()) { renderPullBoard(); return; }
+  if (pullBoardState.inflight && !force) return;
+  if (!force && pullBoardState.results && Date.now() - pullBoardState.at < PULL_BOARD_TTL_MS) { renderPullBoard(); return; }
+  const Board = window.NebulaPullBoard;
+  const repositories = Board.pickRepositories(state.repos);
+  if (!repositories.length) { renderPullBoard(); return; }
+  const request = ++pullBoardState.request;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const stale = () => request !== pullBoardState.request || epoch !== state.uiEpoch || identity !== state.me;
+  pullBoardState.inflight = true;
+  pullBoardState.results = null;
+  renderPullBoard();
+  const results = await Board.readAll(repositories, async (owner, repo) => {
+    const path = `/api/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=open`;
+    try {
+      if (!force) return await apiCached(path, PULL_BOARD_TTL_MS);
+      const fresh = await api(path);
+      _cache.set(path, { d: fresh, t: Date.now() });
+      return fresh;
+    } catch (error) {
+      error.offline = isOfflineError(error);
+      throw error;
+    }
+  });
+  if (stale()) return;
+  pullBoardState.inflight = false;
+  pullBoardState.results = results;
+  pullBoardState.at = Date.now();
+  renderPullBoard();
 }
 
 /*
@@ -2478,6 +2572,7 @@ function renderWorkspacePulse(repos) {
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
   if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
   renderSecurityPosture();
+  renderPullBoard();
 }
 
 /*
@@ -9075,6 +9170,14 @@ async function loadPRs() {
       el.addEventListener('click', () => openPR(p.number, el));
       host.appendChild(el);
     });
+    /* A card on the Overview's board asked for this pull request: open it under its row. */
+    const pending = state.pendingPull;
+    if (pending && pending.key === String(wPath() || '').toLowerCase()) {
+      state.pendingPull = null;
+      const index = prs.findIndex(p => Number(p.number) === pending.number);
+      if (index >= 0) openPR(pending.number, host.children[index]);
+      else toast(`Pull request #${pending.number} is no longer in this list`, 'err');
+    }
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
 /*

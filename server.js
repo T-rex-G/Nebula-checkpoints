@@ -185,6 +185,7 @@ const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
 const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
 const { summarizePosture } = require('./src/posture-summary');
+const { pullListItem } = require('./src/pull-list');
 const { buildInbox } = require('./src/findings-inbox');
 const codeowners = require('./public/codeowners');
 const { normalizePolicyScope } = require('./src/governance-model');
@@ -6245,11 +6246,7 @@ app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAc
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
     const pulls = await gh(req.gh, `${R(req)}/pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
-    res.json(pulls.map(p => ({
-      number: p.number, title: p.title, state: p.state, draft: p.draft, merged: !!p.merged_at,
-      user: p.user && p.user.login, avatar: p.user && p.user.avatar_url,
-      head: p.head.ref, base: p.base.ref, updated_at: p.updated_at
-    })));
+    res.json(pulls.map(pullListItem));
   } catch (e) { fail(res, e); }
 });
 app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {

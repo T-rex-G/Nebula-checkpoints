@@ -1268,6 +1268,22 @@
     </section>
 
     <!--
+      Open pull requests across the workspace (public/pull-board.js).
+      ----------------------------------------------------------------
+      Read-only: the list route the workbench already uses, asked for the
+      repositories most recently pushed to, and only once the card is in
+      view. A card opens that pull request in its own repository, where
+      reviewing and merging live behind their own checks. Hidden until the
+      deployment is known to offer pull-request reads.
+    -->
+    <section class="wp-pulls-section" id="wpPullsSection" hidden>
+      <article class="card wp-card wp-card-pulls" id="wpPulls" aria-labelledby="ovPullsTitle">
+        <h2 class="sr-only" id="ovPullsTitle">Open pull requests</h2>
+        <div class="wp-body"></div>
+      </article>
+    </section>
+
+    <!--
       Recent activity: what happened, where the card above says how much.
       -------------------------------------------------------------------
       The activity card beside the trust score plots a trailing seven-day count
@@ -2115,6 +2131,7 @@
 <script src="/repo-sigil.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/workspace-pulse.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/security-posture.js?v=__NV_ASSET_VERSION__"></script>
+<script src="/pull-board.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/codeowners.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/findings-inbox-ui.js?v=__NV_ASSET_VERSION__"></script>
 <script src="/code-audit-ui.js?v=__NV_ASSET_VERSION__"></script>

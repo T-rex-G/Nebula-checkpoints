@@ -3490,6 +3490,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
         animation-timeline:view();
         animation-range:entry 5% entry 40%;
         animation-range:entry 0px entry 200px;
+        /*
+         * And never more than the card's own entry. A card shorter than
+         * 200px that is also the last on the page -- the pull-request board
+         * when it is empty or could not read -- has less than 200px of
+         * scroll left under it, and stopped short at 0.94 opacity with its
+         * offset still applied. 100% of entry is reached by every card; an
+         * engine that rejects min() keeps the line above.
+         */
+        animation-range:entry 0px entry min(200px, 100%);
       }
       /* The hero is already on screen at rest, so it has no arrival to play --
          animating it would hide the first thing the reader came for. */

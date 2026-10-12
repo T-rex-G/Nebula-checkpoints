@@ -34,8 +34,8 @@ const PHONE_MAX = 760;
 /* Where a reader meets a card: its top edge in the lower-middle of the screen. */
 const READING_FRACTION = 0.75;
 
-async function overview(page) {
-  await mockPublicAlphaApi(page, { access: 'active' });
+async function overview(page, options = {}) {
+  await mockPublicAlphaApi(page, { access: 'active', ...options });
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await expect(page.locator('#wpFeed')).toBeVisible();
@@ -110,4 +110,33 @@ test('the last card on the page reaches its end state', async ({ page }) => {
   const rested = await arrival(page, '#wpFeed');
   expect(rested.opacity, 'the last card must not rest invisible').toBeGreaterThan(0.99);
   expect(rested.offsetY, 'the last card must not rest displaced').toBeLessThan(0.5);
+});
+
+test('the last card rests arrived even when it is shorter than the arrival', async ({ page }) => {
+  test.skip(page.viewportSize().width > PHONE_MAX, 'the arrival timeline is declared for phone widths');
+  /*
+   * The pull-request board is last on the Overview, and when it has nothing
+   * open it is shorter than the 200px the arrival takes -- with less than
+   * that left to scroll under it. It stopped at 0.94 opacity with its offset
+   * still applied. The arrival is bounded by the card's own entry as well.
+   */
+  await overview(page, { pullBoard: 'empty' });
+  for (let i = 0; i < 3; i += 1) {
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(300);
+  }
+  await expect(page.locator('#wpPulls .pb-sentence')).toHaveText(/No open pull requests/);
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(150);
+  await settle(page);
+  const last = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#page-overview .wp-card')].filter(card => card.getBoundingClientRect().height > 0);
+    const card = cards[cards.length - 1];
+    return { id: card.id, height: card.getBoundingClientRect().height };
+  });
+  expect(last.id).toBe('wpPulls');
+  expect(last.height, 'the case under test is a card shorter than the arrival').toBeLessThan(200);
+  const rested = await arrival(page, '#wpPulls');
+  expect(rested.opacity, 'a short last card must not rest faded').toBeGreaterThan(0.99);
+  expect(rested.offsetY, 'a short last card must not rest displaced').toBeLessThan(0.5);
 });

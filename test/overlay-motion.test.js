@@ -758,6 +758,68 @@ check('the vortex cannot ask for more vertices than its index type can address',
 });
 
 /*
+ * The pacer, run against a clock rather than read.
+ *
+ * Each case is a device: the intervals between its frames, in milliseconds.
+ * The old budget counted frames -- 45 to warm up, 30 slow ones per tier -- so
+ * a renderer at a second a frame held the full scene for more than a minute
+ * and never rested at all. These are the answers that budget could not give.
+ */
+check('the vortex budget answers to the clock, and rests a device that cannot keep up', () => {
+  const vortex = loadVortex();
+  assert.strictEqual(typeof vortex.pacer, 'function', 'the pacer is not reachable, so none of this is proven');
+  /* Feed one interval at a time until a verdict; report when (simulated ms) and what. */
+  const drive = (start, interval, limit) => {
+    const pace = vortex.pacer(start);
+    const log = [];
+    let clock = 0;
+    for (let i = 0; clock < (limit || 60000); i += 1) {
+      const dt = typeof interval === 'function' ? interval(i) : interval;
+      clock += dt;
+      const verdict = pace.step(dt);
+      if (verdict !== 'steady') log.push({ at: clock, verdict, cap: pace.cap() });
+      if (verdict === 'rest') break;
+    }
+    return { log, cap: pace.cap(), rest: log.find(entry => entry.verdict === 'rest') };
+  };
+
+  /* A device that keeps up is never touched. */
+  assert.deepStrictEqual(drive(2, 16).log, [], 'a 60fps device lost detail');
+  assert.deepStrictEqual(drive(0, 33).log, [], 'the lite scene at its own thirty frames a second was rested');
+
+  /* Mildly behind: one tier at a time, each within about two seconds, and never rested at the lightest. */
+  const mild = drive(2, 50);
+  assert.deepStrictEqual(mild.log.map(entry => entry.cap), [1, 0], 'a 20fps device was not stepped down one tier at a time');
+  assert.ok(mild.log[0].at < 2500, `the first step down took ${mild.log[0].at}ms`);
+  assert.ok(!mild.rest, 'a device that can hold twenty frames a second at the lightest tier was rested');
+
+  /* Grossly behind: straight to the lightest, then rested within seconds. */
+  const gross = drive(2, 600);
+  assert.deepStrictEqual(gross.log[0], { at: gross.log[0].at, verdict: 'lower', cap: 0 }, 'a device at 600ms a frame was lowered one tier at a time');
+  assert.ok(gross.rest && gross.rest.at <= 6000, `a device at 600ms a frame was still drawing at ${gross.rest && gross.rest.at}ms`);
+  const lite = drive(0, 300);
+  assert.ok(lite.rest && lite.rest.at <= 4000, `the lite scene at 300ms a frame was still drawing at ${lite.rest && lite.rest.at}ms`);
+
+  /* A renderer that needs whole seconds a frame rests on its second one. */
+  const stalled = drive(2, 5000);
+  assert.ok(stalled.rest && stalled.rest.at <= 10000, `a five-second frame was answered at ${stalled.rest && stalled.rest.at}ms`);
+
+  /* One long frame among good ones is forgiven, whenever it lands. */
+  [3, 40, 400].forEach(at => {
+    const hiccup = drive(0, i => (i === at ? 3000 : 33), 30000);
+    assert.ok(!hiccup.rest, `one three-second frame at frame ${at} rested a healthy scene`);
+    const twice = drive(2, i => (i === at || i === at + 1 ? 3000 : 16), 30000);
+    assert.ok(twice.rest, `two three-second frames in a row at frame ${at} were not taken as a stall`);
+  });
+
+  /* Nonsense from a clock is ignored rather than trusted. */
+  const odd = vortex.pacer(2);
+  [NaN, -5, 0, Infinity, undefined].forEach(value => assert.strictEqual(odd.step(value), 'steady'));
+  assert.strictEqual(odd.cap(), 2);
+  assert.strictEqual(vortex.pacer(-3).cap(), 0);
+});
+
+/*
  * Every shape a page can name is one the module can draw, and anything else a
  * caller passes is held to the ranges the shader was written for. The themes
  * are the four the driver asks for by name; a missing one falls back to dark
@@ -820,11 +882,15 @@ function runLandingStage(options) {
   const settings = options || {};
   const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [], created: [] };
   let running = false;
+  let resting = false;
   const ring = {
     renderStill() { calls.still += 1; },
-    start() { if (running) return; running = true; calls.start += 1; },
+    start() { if (running || resting) return; running = true; calls.start += 1; },
     stop() { running = false; calls.stop += 1; },
     isRunning: () => running,
+    budget: () => ({ lite: false, tier: 2, resting }),
+    /* What the real scene does when its pacer gives up: stop itself, then tell the host. */
+    rest() { resting = true; running = false; calls.created[0].options.onRest(); },
     setTheme(name) { calls.theme.push(name); },
     setReaching(on) { calls.reaching.push(!!on); },
     interactive: () => settings.interactive !== false,
@@ -1049,6 +1115,32 @@ check('the scene honours a reader who asked for less motion', () => {
   reduced.enter();
   assert.strictEqual(reduced.calls.start, 0, 'the scene animates despite prefers-reduced-motion');
   assert.ok(reduced.calls.still > 0, 'prefers-reduced-motion took the picture away');
+});
+
+/*
+ * A scene that rested is held for the visit. The stage stops asking it to
+ * move -- not when the reader returns to the screen, not when motion is
+ * switched back on -- and does not draw its frame a second time: that frame
+ * is already on screen, and drawing is the cost the device could not pay.
+ */
+check('a scene that could not keep moving is held still for the visit', () => {
+  const run = runLandingStage({});
+  run.enter();
+  assert.strictEqual(run.ring.isRunning(), true);
+  assert.strictEqual(run.canvas.dataset.sceneState, 'running', 'the running scene does not say so');
+  assert.strictEqual(typeof run.calls.created[0].options.onRest, 'function', 'the stage never hears that the scene rested');
+  const stills = run.calls.still;
+  run.ring.rest();
+  assert.strictEqual(run.canvas.dataset.sceneState, 'resting', 'a rested scene is reported as running or merely still');
+  assert.strictEqual(run.calls.still, stills, 'the held frame was drawn again on a device that could not afford it');
+  run.leave(); run.enter();
+  run.motion(false); run.motion(true);
+  run.visibility(false); run.visibility(true);
+  run.gate(false); run.gate(true);
+  assert.strictEqual(run.calls.start, 1, 'the stage asked a rested scene to move again');
+  assert.strictEqual(run.ring.isRunning(), false);
+  assert.strictEqual(run.canvas.dataset.sceneState, 'resting');
+  assert.ok(run.canvas.classList.contains('is-live'), 'the rested picture was taken away');
 });
 
 check('a gesture cannot bypass a later stop-animation preference', () => {

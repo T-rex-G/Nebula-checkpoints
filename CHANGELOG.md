@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### The landing's scene gives a slow device its page back
+
+- **The vortex's budget answers to the clock.** It used to count frames --
+  forty-five to settle, then thirty slow ones before it stepped down a tier --
+  so a renderer that needed a second a frame held the full scene for more than
+  a minute, and the page's own work queued behind every frame. "Get started"
+  was on screen and could not be pressed. Now a device that cannot hold the
+  frame for a second and a half drops a tier; one that is grossly behind goes
+  straight to the lightest.
+- **A scene that cannot keep moving rests.** When even the lightest tier draws
+  fewer than ten frames a second for two seconds, or two frames in a row each
+  take a second, the scene keeps the frame it has, still, for the rest of the
+  visit -- the same picture a reader who asked for less motion is given -- and
+  is not started again by scrolling back to it or by the motion switch. One
+  long frame among good ones is forgiven. The canvas reports its state
+  (`data-scene-state`: running, still or resting).
+- This was the WebKit real-server journey that intermittently could not press
+  "Get started" on CI: the passing runs took 45 s against Chromium's 13 s.
+
 ### Open pull requests across the workspace, on the Overview
 
 - **A board at the foot of the Overview.** Open pull requests from the

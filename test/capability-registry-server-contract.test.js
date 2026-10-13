@@ -246,15 +246,18 @@ async function expectRetiredSessionRejection(entry, cookie = sessionCookie()) {
        */
       for (const feature of [
         'file.rename', 'folder.move', 'stars.read', 'stars.write', 'issues.write', 'pulls.write',
-        'releases.write', 'search', 'global-search', 'workflows.rerun', 'exposure.scan'
+        'releases.write', 'search', 'global-search', 'workflows.rerun', 'exposure.scan',
+        'notifications', 'repository.create', 'repository.delete'
       ]) {
         assert.strictEqual(github.features[feature].status, 'Supported', `${feature} is provider-verified for GitHub`);
         assert.strictEqual(github.features[feature].evidenceState, 'Provider-verified');
+        assert.match(github.features[feature].reason, /live-provider harness/, `${feature} says which proof it rests on`);
       }
-      for (const feature of ['live-events', 'notifications', 'repository.create', 'repository.delete']) {
-        assert.strictEqual(github.features[feature].status, 'Experimental', `${feature} must remain evidence-bounded for GitHub`);
-        assert.match(github.features[feature].reason, /Not provider-verified/);
-      }
+      /* Live events are proven where GitHub can reach: the hosted gate, and they say so. */
+      assert.deepStrictEqual([github.features['live-events'].status, github.features['live-events'].evidenceState], ['Supported', 'Provider-verified']);
+      assert.match(github.features['live-events'].reason, /hosted staging deployment/);
+      assert.deepStrictEqual(Object.entries(github.features).filter(([, feature]) => feature.status !== 'Supported').map(([name]) => name), [],
+        'nothing GitHub serves in the hosted alpha is held back');
 
       const routeCases = [
       {

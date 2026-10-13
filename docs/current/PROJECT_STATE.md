@@ -62,7 +62,7 @@ Generated from the current registry. Evidence maturity is not current-candidate 
 
 | Provider | Supported | Experimental | Unavailable | Provider-verified evidence |
 |---|---:|---:|---:|---:|
-| github | 35 | 4 | 0 | 26 |
+| github | 39 | 0 | 0 | 30 |
 
 ## Next authorized action
 

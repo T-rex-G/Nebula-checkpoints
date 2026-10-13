@@ -23,13 +23,13 @@ async function boot(page, motion = true) {
   await page.addInitScript(value => {
     if (!localStorage.getItem('nv_settings')) localStorage.setItem('nv_settings', JSON.stringify({ motion: value }));
   }, motion);
-  await mockPublicAlphaApi(page, { promote: ['repository.create', 'repository.delete', 'notifications'] });
+  await mockPublicAlphaApi(page);
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
 }
 
 test('late notification response cannot restore a purged account badge', async ({ page }) => {
-  await mockPublicAlphaApi(page, { promote: ['repository.create', 'repository.delete', 'notifications'] });
+  await mockPublicAlphaApi(page);
   const request = deferred();
   const release = deferred();
   await page.route('**/api/notifications', async route => {
@@ -48,7 +48,7 @@ test('late notification response cannot restore a purged account badge', async (
 });
 
 test('an older unread refresh cannot overwrite a newer inbox result', async ({ page }) => {
-  await mockPublicAlphaApi(page, { promote: ['repository.create', 'repository.delete', 'notifications'] });
+  await mockPublicAlphaApi(page);
   const started = deferred();
   const release = deferred();
   let calls = 0;
@@ -72,7 +72,7 @@ test('an older unread refresh cannot overwrite a newer inbox result', async ({ p
 });
 
 test('an account switch cannot inherit the old account unread response', async ({ page }) => {
-  await mockPublicAlphaApi(page, { promote: ['repository.create', 'repository.delete', 'notifications'] });
+  await mockPublicAlphaApi(page);
   const started = deferred();
   const release = deferred();
   let switched = false;

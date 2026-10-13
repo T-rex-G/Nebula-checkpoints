@@ -1772,11 +1772,6 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 @media (max-width:900px){
   .toast-stack{top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 18px);bottom:auto;
     left:16px;right:16px;max-width:none;align-items:center}
-  /* Opaque, because it now sits over content rather than over the page's own
-     ground. A blurred panel is only legible while what passes under it is
-     quiet, and a message that cannot be read is not a message. */
-  .toast{width:100%;max-width:420px;background:var(--shellSolid);
-    backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 /* While the navigation drawer is out, a message waits under its scrim instead of lying across the drawer's entries. */
 @media (max-width:1139px){
@@ -1788,6 +1783,22 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   animation:toastIn .3s var(--ease) both}
 [data-theme="light"] .toast{background:rgba(255,255,255,0.5)}
 @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@keyframes toastDrop{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:none}}
+/*
+ * Opaque on a phone, because there it sits over content rather than over the
+ * page's own ground. A blurred panel is only legible while what passes under
+ * it is quiet, and a message that cannot be read is not a message. This comes
+ * after the panel above and carries the theme selector too: placed before it,
+ * at the same weight, it lost to it, and every phone toast stayed see-through
+ * with the header showing behind its text. It drops from the top it now lives
+ * at instead of sliding in from a right edge it no longer touches.
+ */
+@media (max-width:900px){
+  .toast,[data-theme="light"] .toast{width:100%;max-width:420px;background:var(--shellSolid);
+    backdrop-filter:none;-webkit-backdrop-filter:none;animation-name:toastDrop}
+}
+[data-motion="off"] .toast{animation:none}
+@media (prefers-reduced-motion:reduce){:root .toast{animation:none}}
 .toast.ok{border-color:rgba(52,211,153,0.4)}
 .toast.err{border-color:rgba(244,63,110,0.45)}
 

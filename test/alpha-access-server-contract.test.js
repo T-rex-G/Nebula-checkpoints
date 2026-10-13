@@ -304,8 +304,13 @@ assert.deepStrictEqual(Object.keys(capabilityDocument.providers), ['github']);
 for (const provider of ['github']) {
   const features = capabilityDocument.providers[provider]['hosted-alpha'];
   for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
-    /* GitHub's global search is the scoped query the live harness proves; the rest it cannot reach. */
-    const github = feature === 'global-search' ? ['Supported', 'Provider-verified'] : ['Experimental', 'Deterministic'];
+    /*
+     * Global search is the scoped query the live harness proves; creation,
+     * deletion and the inbox are proven by its probes with the credentials the
+     * repository-confined harness credential must never hold. Each claim is
+     * exactly as strong as its proof.
+     */
+    const github = ['Supported', 'Provider-verified'];
     assert.deepStrictEqual(
       features[feature].slice(0, 2),
       github,

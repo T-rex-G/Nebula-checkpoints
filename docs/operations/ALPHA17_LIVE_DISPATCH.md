@@ -133,11 +133,11 @@ After candidate review, target verification and explicit live-run authorization:
    and cleanup before accepting the artifact.
 
 The hosted run's `live-events-delivery` check needs a deployment that serves
-live events before they are Supported. Only the staging target does, set with
-`NV_QUALIFICATION_CAPABILITIES=live-events`; it reports
-`qualification.capabilities` in `/api/config`, and the cohort readiness check
-fails it. Remove the variable in the same change that promotes live events: a
-server still naming a Supported capability refuses to start.
+live events. They are Supported now, so every deployment does, staging
+included; before their promotion only staging did, through
+`NV_QUALIFICATION_CAPABILITIES=live-events`. That variable names no capability
+any more: a server still carrying it refuses to start, so remove it from the
+staging service before deploying a candidate that carries the promotion.
 
 The workflow exposes `run_github`, `run_hosted` and `run_drills`. A retired
 provider must not be reintroduced through an old input, target map or artifact.
@@ -242,9 +242,10 @@ and exercises the product's own provider boundary:
   against its permanent fixture and workflow rerun.
 
 Provider-verified registry labels record claim history. They do not prove that
-the current candidate ran these probes. Repository create/delete,
-notifications and verified live events remain subject to their own current
-maturity and qualification requirements; a standard sandbox run must not claim
+the current candidate ran these probes: each release record binds the
+candidate's own run. Repository create/delete and notifications are claimed
+from their probes in the GitHub run, and verified live events from the hosted
+gate's `live-events-delivery` check; a standard sandbox run must not claim
 unexecuted probes.
 
 ### Concurrency proof

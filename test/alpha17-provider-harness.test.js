@@ -239,11 +239,14 @@ async function runOne(provider, runner, options = {}) {
     'issues.write',
     'lfs',
     'native-push',
+    'notifications',
     'pulls.read',
     'pulls.write',
     'rate.read',
     'releases.read',
     'releases.write',
+    'repository.create',
+    'repository.delete',
     'repository.read',
     'search',
     'stars.read',
@@ -311,16 +314,14 @@ async function runOne(provider, runner, options = {}) {
     );
   }
   /*
-   * What the harness still does not prove, and must not claim: live events
-   * need a deployment the provider can deliver to; notifications are not
-   * served to the fine-grained credential the harness uses; and the
-   * credential is confined to one repository, so it can neither create nor
-   * delete one. The rest of this list was never a GitHub capability here.
+   * What the harness does not prove, and must not claim: live events need a
+   * deployment the provider can deliver to, so the hosted gate proves them
+   * instead. The rest of this list was never a GitHub capability here.
+   * Repository creation and deletion and notifications are claimed: their
+   * probes run with the administration and classic notification credentials
+   * the repository-confined harness credential never holds.
    */
-  for (const unproven of [
-    'live-events', 'notifications', 'repository.create', 'repository.delete',
-    'webhooks.read', 'webhooks.write', 'auth.app'
-  ]) {
+  for (const unproven of ['live-events', 'webhooks.read', 'webhooks.write', 'auth.app']) {
     assert(!githubResult.capabilities.includes(unproven), `provider harness must not claim ${unproven}`);
   }
 

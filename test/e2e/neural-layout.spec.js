@@ -403,12 +403,8 @@ test('the node search is focused as one control, with no ring inside it', async 
  * line each, rather than four slabs with wrapped figures.
  */
 test('the Neural view drops the trust bar and keeps its header to one compact band', async ({ page }) => {
-  /*
-   * Measured with all three controls drawn: the live-events button appears
-   * only once live events are Supported, and that is the narrowest the band
-   * will ever have to hold.
-   */
-  await openGraph(page, null, { promote: ['live-events'] });
+  /* Measured with all three controls drawn, live events included: the narrowest the band has to hold. */
+  await openGraph(page, null);
   await expect(page.locator('#trustSummary')).toBeHidden();
 
   const actions = await page.locator('.neural-head-actions .btn').evaluateAll(buttons =>

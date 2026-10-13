@@ -57,28 +57,27 @@ rejected before credential resolution or transport.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 35 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
+Counted from the capability registry: 39 Supported, 0 Experimental, 0 Unavailable. Of those, 30 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture; findings inbox |
-| Experimental | repository create/delete; notifications; live events |
+| Supported | repository reads; branch reads and controlled writes; repository create/delete; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; notifications; live events; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture; findings inbox |
+| Experimental | none |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
-Repository creation/deletion and notifications are implemented with
-deterministic coverage and are not offered until the live run qualifies them.
-The GitHub live harness now carries their probes -- one disposable repository
-created and deleted in a dedicated qualification account, and the inbox read
-through a classic notification credential -- run with credentials the
-repository-confined harness credential never needs: see
-`docs/operations/ALPHA17_LIVE_DISPATCH.md`. Live events need
-a deployment the provider can deliver webhooks to, which the harness does not
-have. The staging deployment is that deployment: it alone serves them ahead of
-their proof, through `NV_QUALIFICATION_CAPABILITIES=live-events`, the one
-exception to "only what is Supported is served". It names no other capability,
-reports itself in `/api/config`, and fails the cohort readiness check, so it
-never stands in for a cohort deployment. Creation verifies the personal account identity and reads
+Repository creation/deletion and notifications are proven by the GitHub live
+harness: one disposable repository created and deleted in a dedicated
+qualification account, and the inbox read through a classic notification
+credential, with credentials the repository-confined harness credential never
+needs (see `docs/operations/ALPHA17_LIVE_DISPATCH.md`). Live events need a
+deployment GitHub can deliver webhooks to, which no runner has, so they are
+proven by the hosted gate instead: GitHub delivers a push to the staging
+deployment, which verifies its signature and streams it to a signed-in tester.
+That proof is the `live-events-delivery` check every release record requires.
+Until it passed, staging alone served live events ahead of their proof through
+`NV_QUALIFICATION_CAPABILITIES`; no capability awaits hosted proof now, and a
+server still carrying the variable refuses to start. Creation verifies the personal account identity and reads
 the resulting repository back by name and ID. An existing restricted invitation
 must already authorize the exact new repository name; creation never expands
 its scope. With invitations off, the normal connected account can create in its

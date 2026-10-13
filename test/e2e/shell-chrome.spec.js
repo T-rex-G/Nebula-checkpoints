@@ -1044,6 +1044,58 @@ test('a message never covers the bottom navigation', async ({ page }) => {
 });
 
 /*
+ * On a phone a message lies over content, so it has to be solid there. The
+ * opaque rule for it sat before the translucent panel at the same weight and
+ * lost, so every phone toast stayed see-through: the Neural gesture hint
+ * showed the header's text through its own.
+ */
+for (const design of ['nebula', 'obsidian']) {
+  for (const theme of ['dark', 'light']) {
+    test(`a phone message is solid in ${design} ${theme}`, async ({ page }) => {
+      test.skip(page.viewportSize().width > 900, 'on a wider screen the message sits beside content, over the page ground');
+      await page.addInitScript(([chosen, mode]) => {
+        localStorage.setItem('nv_theme', mode);
+        localStorage.setItem('nv_settings', JSON.stringify({ motion: true, design: chosen }));
+      }, [design, theme]);
+      await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+      await page.goto('/#/sandbox/demo@main/files');
+      await page.locator('#page-work.active').waitFor();
+
+      await page.evaluate(() => window.toast('Two fingers zoom and move the graph'));
+      const message = page.locator('#toasts .toast').last();
+      await expect(message).toBeVisible();
+      const look = await message.evaluate(element => {
+        const style = getComputedStyle(element);
+        const probe = document.createElement('canvas').getContext('2d');
+        probe.fillStyle = style.backgroundColor;
+        probe.fillRect(0, 0, 1, 1);
+        return {
+          alpha: probe.getImageData(0, 0, 1, 1).data[3],
+          filter: style.backdropFilter,
+          animation: style.animationName,
+          root: document.documentElement.dataset.design + ' ' + document.documentElement.dataset.theme
+        };
+      });
+      expect(look.root).toBe(`${design} ${theme}`);
+      expect(look.alpha, 'nothing behind the message shows through it').toBe(255);
+      expect(look.filter).toBe('none');
+      expect(look.animation, 'it drops from the top it lives at').toBe('toastDrop');
+    });
+  }
+}
+
+test('a message does not move for a reader who asked for less motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/files');
+  await page.locator('#page-work.active').waitFor();
+  await page.evaluate(() => window.toast('Saved', 'ok'));
+  const message = page.locator('#toasts .toast').last();
+  await expect(message).toBeVisible();
+  expect(await message.evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+});
+
+/*
  * Every destination the rail claims to offer, it reaches -- and the two tabs
  * that are destinations rather than views of an open file are both there.
  *

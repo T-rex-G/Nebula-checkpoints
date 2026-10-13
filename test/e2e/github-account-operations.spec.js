@@ -6,20 +6,21 @@ const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
-/* The four capabilities that wait on live qualification are not drawn at all until it passes. */
-test('repository creation, deletion and notifications are not offered while they await live qualification', async ({ page }) => {
+/*
+ * Proven live and promoted: repository creation and notifications are drawn as
+ * any Supported control is, enabled, with no maturity label beside them.
+ */
+test('repository creation and notifications are offered as Supported controls', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', login: 'sandbox' });
   await page.goto('/');
   const repos = await ui.enterRepositories(page);
-  await expect(repos.getByRole('button', { name: 'Create repository' })).toHaveCount(0);
-  await expect(repos.getByRole('button', { name: 'Notifications' })).toHaveCount(0);
+  await expect(ui.button(repos, 'Create repository')).toHaveAttribute('aria-disabled', 'false');
+  await expect(ui.button(repos, 'Notifications')).toHaveAttribute('aria-disabled', 'false');
   await expect(repos).not.toContainText(/\b(?:Experimental|Unavailable)\b/);
 });
 
-const AWAITING_LIVE_QUALIFICATION = ['repository.create', 'repository.delete', 'notifications'];
-
 test('personal accounts can create and open a repository through the ordinary interface', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', login: 'sandbox', promote: AWAITING_LIVE_QUALIFICATION });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', login: 'sandbox' });
   await page.goto('/');
   const repos = await ui.enterRepositories(page);
   const create = ui.button(repos, 'Create repository');
@@ -45,7 +46,7 @@ test('personal accounts can create and open a repository through the ordinary in
  * the behaviour the removed button used to hide behind the Enter key.
  */
 test('personal accounts can read notifications and filter the inventory in place', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', promote: AWAITING_LIVE_QUALIFICATION });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/');
   const repos = await ui.enterRepositories(page);
   await ui.button(repos, 'Notifications').click();

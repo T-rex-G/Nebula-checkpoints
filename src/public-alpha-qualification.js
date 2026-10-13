@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const {
   EVIDENCE_SCHEMA_VERSION,
+  HOSTED_CAPABILITY_REQUIREMENTS,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   artifactTypeForLabel,
   validateEvidenceEnvelope,
@@ -180,6 +181,21 @@ function qualificationCatalog(registry) {
       }
     }
     /*
+     * A capability the provider can prove only to a reachable deployment is
+     * Provider-verified on a hosted check instead, and only on one every
+     * release record requires.
+     */
+    const hostedBacked = HOSTED_CAPABILITY_REQUIREMENTS[provider] || {};
+    for (const [feature, keys] of Object.entries(hostedBacked)) {
+      const tuple = deployment[feature];
+      if (
+        !Array.isArray(tuple) || tuple[0] !== 'Supported' || tuple[1] !== 'Provider-verified'
+        || Object.hasOwn(requirements, feature) || !keys.length || keys.some(key => !HOSTED_KEYS.includes(key))
+      ) {
+        fail('hosted qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
+      }
+    }
+    /*
      * The other direction, which nothing checked here: a provider must not
      * advertise Provider-verified capabilities the contract never asks for
      * proof of. Without this, withdrawing a contract entry would silently
@@ -189,7 +205,7 @@ function qualificationCatalog(registry) {
       .filter(([, tuple]) => Array.isArray(tuple) && tuple[1] === 'Provider-verified')
       .map(([feature]) => feature)
       .sort();
-    if (advertised.join(',') !== required.join(',')) {
+    if (advertised.join(',') !== [...required, ...Object.keys(hostedBacked)].sort().join(',')) {
       fail('provider qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
     }
     if (required.length) providers[provider] = required;

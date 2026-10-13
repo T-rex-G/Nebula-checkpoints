@@ -127,14 +127,13 @@ for the frozen candidate; a version string alone is not deployment identity.
 
 ## 5. Connect GitHub live events
 
-Live events are Experimental until a hosted run proves them, so a production
-deployment refuses them. Only a qualification deployment serves them, and only
-when it is told to with `NV_QUALIFICATION_CAPABILITIES=live-events`. The server
-accepts no other value, refuses to start once live events are Supported and the
-variable is still set, and says what it serves ahead of its proof in
-`/api/config` (`qualification.capabilities`). The cohort readiness check
-(`scripts/check-deployment-readiness.js`) fails any deployment that says so, so
-the variable cannot reach a cohort unnoticed.
+Live events are Supported: the hosted gate proves GitHub delivers a push to a
+deployment and that the deployment verifies and streams it. Do not set
+`NV_QUALIFICATION_CAPABILITIES`. It once let a staging deployment serve live
+events ahead of their proof; no capability awaits hosted proof now, so the
+server refuses to start while it is set, and the cohort readiness check
+(`scripts/check-deployment-readiness.js`) fails any deployment that reports a
+capability served that way in `/api/config` (`qualification.capabilities`).
 
 1. Sign in to Nebulaverse-X.
 2. Open a GitHub repository.

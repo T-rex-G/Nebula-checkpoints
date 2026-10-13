@@ -121,33 +121,32 @@ assert.strictEqual(githubWrite.status, 'Supported');
 assert.strictEqual(githubWrite.evidenceState, 'Provider-verified');
 
 /*
- * The experimental opt-in, shown on whichever capability is still
- * experimental rather than on a named one.
- *
- * Naming one meant rewriting this test every time the live harness promoted
- * it -- rate.read, then pulls.read -- and a promoted capability cannot stand
- * for the unpromoted case. Reading the registry keeps the demonstration
- * honest as the set shrinks, and says so when it finally empties.
+ * What is Experimental is refused, shown on a registry with one capability
+ * held back. The real registry has none left -- the live harness and the
+ * hosted gate promoted the last four -- so the refusal is demonstrated on a
+ * copy rather than lost with them, and the copy says the real one is empty.
  */
-const experimentalFeature = Object.entries(registryDocument.providers.github['hosted-alpha'])
-  .find(([, tuple]) => tuple[0] === 'Experimental' && tuple[1] === 'Inferred');
-assert(
-  experimentalFeature,
-  'no GitHub capability is experimental any more; this demonstration needs rewriting'
+assert.deepStrictEqual(
+  Object.entries(registryDocument.providers.github['hosted-alpha']).filter(([, tuple]) => tuple[0] !== 'Supported'),
+  [],
+  'every GitHub capability in the hosted alpha is Supported'
 );
+const heldBack = structuredClone(registryDocument);
+heldBack.providers.github['hosted-alpha']['live-events'] = ['Experimental', 'Inferred', 'Held back for this demonstration.'];
+const experimentalDocument = validateCapabilityDocument(heldBack);
 const githubExperimentalContext = {
-  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: experimentalFeature[0]
+  provider: 'github', authority: 'github.com', deployment: 'hosted-alpha', feature: 'live-events'
 };
-const githubExperimental = resolveCapability(document, githubExperimentalContext);
+const githubExperimental = resolveCapability(experimentalDocument, githubExperimentalContext);
 assert.strictEqual(githubExperimental.status, 'Experimental');
 assert.strictEqual(githubExperimental.evidenceState, 'Inferred');
 assert.throws(
-  () => assertCapabilityAvailable(document, githubExperimentalContext),
+  () => assertCapabilityAvailable(experimentalDocument, githubExperimentalContext),
   error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
 );
 /* There is no opt-in any more: what is not Supported is refused, whatever the caller asks for. */
 assert.throws(
-  () => assertCapabilityAvailable(document, { ...githubExperimentalContext, allowExperimental: true }),
+  () => assertCapabilityAvailable(experimentalDocument, { ...githubExperimentalContext, allowExperimental: true }),
   error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL'
 );
 
@@ -217,26 +216,24 @@ for (const provider of ['gitlab', 'gitea', 'unknown']) {
       provider: 'github', deployment: 'hosted-alpha', feature: 'exposure.scan'
     });
 
-    /* What is still Experimental still refuses a route that did not opt in. */
+    /* Live events rest on the hosted gate's delivery check, and say so. */
     const liveEvents = resolveCapability(document, {
       provider: 'github', deployment: 'hosted-alpha', feature: 'live-events'
     });
-    assert.strictEqual(liveEvents.status, 'Experimental');
-    assert.match(liveEvents.reason, /Not provider-verified/, 'Experimental must say what evidence is missing');
-    assert.throws(
-      () => assertCapabilityAvailable(document, {
-        provider: 'github', deployment: 'hosted-alpha', feature: 'live-events', allowExperimental: true
-      }),
-      error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL',
-      'an experimental capability is refused even to a caller that asks to allow it'
-    );
-    assert.throws(
-      () => assertCapabilityAvailable(document, {
-        provider: 'github', deployment: 'hosted-alpha', feature: 'live-events'
-      }),
-      error => error instanceof CapabilityError,
-      'an experimental capability must refuse a route that did not opt in'
-    );
+    assert.deepStrictEqual([liveEvents.status, liveEvents.evidenceState], ['Supported', 'Provider-verified']);
+    assert.match(liveEvents.reason, /hosted staging deployment/, 'a hosted claim must say where it was proven');
+    assertCapabilityAvailable(document, { provider: 'github', deployment: 'hosted-alpha', feature: 'live-events' });
+
+    /* What is Experimental still refuses a route, whether or not it asks to be let in. */
+    for (const allowExperimental of [false, true]) {
+      assert.throws(
+        () => assertCapabilityAvailable(experimentalDocument, {
+          provider: 'github', deployment: 'hosted-alpha', feature: 'live-events', allowExperimental
+        }),
+        error => error instanceof CapabilityError && error.code === 'PROVIDER_CAPABILITY_EXPERIMENTAL',
+        `an experimental capability is refused (allowExperimental=${allowExperimental})`
+      );
+    }
   }
 
   for (const provider of ['gitlab', 'gitea']) {

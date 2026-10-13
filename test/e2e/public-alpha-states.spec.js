@@ -96,11 +96,11 @@ for (const [mutation, expectedText, verified] of [
 /*
  * A capability the account cannot use is not offered: its control is not
  * drawn, no Unavailable badge stands in for it, and the server still refuses
- * it with its typed error. Repository creation is promoted for this scenario
- * so the only reason it is missing is the account's limitation.
+ * it with its typed error. Repository creation is Supported, so the only
+ * reason it is missing here is the account's limitation.
  */
 test('unavailable GitHub account capability is not drawn and is refused by the server', async ({ page }) => {
-  await mockPublicAlphaApi(page, { access: 'active', capabilities: 'limited', promote: ['repository.create'] });
+  await mockPublicAlphaApi(page, { access: 'active', capabilities: 'limited' });
   await page.goto('/');
   await expect(page.locator('#newRepoBtnRepos')).toBeHidden();
   await expect(page.locator('#newRepoBtnRepos + .capability-state')).toHaveCount(0);

@@ -105,7 +105,31 @@ const HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
   }
 });
 const PROVIDER_CAPABILITY_REQUIREMENTS = deepFreeze({
-  github: HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS.github
+  github: {
+    ...HISTORICAL_PROVIDER_CAPABILITY_REQUIREMENTS.github,
+    /*
+     * Proven by the probes that walk them with the credentials the
+     * repository-confined harness credential must never have: one disposable
+     * repository created and deleted in a dedicated qualification account, and
+     * the inbox read through a classic notification credential. Artifacts made
+     * before these claims existed keep the historical contract above.
+     */
+    'repository.create': ['repository-create'],
+    'repository.delete': ['repository-delete'],
+    notifications: ['notifications-read']
+  }
+});
+
+/*
+ * Capabilities the provider can prove only to a deployment it can reach. Their
+ * proof is a hosted check, which every release record already requires, so a
+ * Provider-verified claim on one of these rests on that check rather than on a
+ * provider-live artifact. Live events: GitHub delivers a webhook to staging.
+ */
+const HOSTED_CAPABILITY_REQUIREMENTS = deepFreeze({
+  github: {
+    'live-events': ['live-events-delivery']
+  }
 });
 
 /*
@@ -911,6 +935,7 @@ function verifyHostedOperatorSignature(input, trustedOperatorKeys) {
 
 module.exports = Object.freeze({
   EVIDENCE_SCHEMA_VERSION,
+  HOSTED_CAPABILITY_REQUIREMENTS,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   providerCheckContract,
   providerProbeKeys,

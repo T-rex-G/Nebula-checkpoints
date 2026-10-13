@@ -113,9 +113,9 @@
           "Exercised by the alpha.17 live-provider harness: a synthetic object is uploaded to the LFS store and the provider withholds the upload action when asked again, without committing a pointer."
         ],
         "live-events": [
-          "Experimental",
-          "Inferred",
-          "Implemented and fixture-tested: webhook connect, signature verification and the event stream. Not provider-verified, because delivery needs a deployment the provider can reach and the live-provider harness has no receiving endpoint."
+          "Supported",
+          "Provider-verified",
+          "Exercised against the hosted staging deployment: a push to the sandbox repository is delivered by GitHub, its signature verified, streamed to a signed-in tester, and the webhook removed at the provider, in the operator-signed drill record the hosted gate requires."
         ],
         "native-push": [
           "Supported",
@@ -123,9 +123,9 @@
           "Qualified Git Data object upload: the identity the provider returns is the git object hash of the bytes sent, and the object reads back unchanged. The hosted size ceiling is a deployment bound, not a capability limit."
         ],
         "notifications": [
-          "Experimental",
-          "Deterministic",
-          "Scoped to invitation repositories and refused for connections GitHub will not serve: notifications are unavailable to fine-grained tokens and App installations. Not provider-verified, because the live-provider harness runs with a fine-grained credential by design."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the inbox is read through a classic credential and scoped to the invitation repositories, and a fine-grained credential is refused by the product and by GitHub. Unavailable to fine-grained tokens and App installations, which GitHub does not serve."
         ],
         "pulls.read": [
           "Supported",
@@ -158,14 +158,14 @@
           "Exercised by the alpha.17 live-provider harness: a prerelease is published with its tag at the branch head it was cut from, read back, and removed with its tag."
         ],
         "repository.create": [
-          "Experimental",
-          "Deterministic",
-          "Personal repository creation with identity checks and provider readback; existing invitation scopes still apply. Not provider-verified, because the live-provider harness credential is confined to one disposable repository by design and cannot create one."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness with an administration credential of a dedicated qualification account: a private disposable repository is created through the product after its identity check, and read back by name and by ID with its default branch."
         ],
         "repository.delete": [
-          "Experimental",
-          "Deterministic",
-          "Repository deletion with exact confirmation, fresh step-up and provider administrator permission. Not provider-verified, because the live-provider harness credential is confined to one disposable repository by design and must not be able to delete it."
+          "Supported",
+          "Provider-verified",
+          "Exercised by the alpha.17 live-provider harness: the same disposable repository is refused to an unprivileged credential, deleted with exact confirmation and the provider administrator permission, and read back as absent by name and by ID."
         ],
         "repository.read": [
           "Supported",

@@ -10,6 +10,7 @@ const {
 } = require('../src/public-alpha-qualification');
 const registry = require('../config/public-alpha-capabilities.json');
 const {
+  HOSTED_CAPABILITY_REQUIREMENTS,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   validateEvidenceEnvelope,
   validateHistoricalEvidenceEnvelope
@@ -61,9 +62,14 @@ for (const [provider, deployment] of Object.entries(registry.providers)) {
     .filter(([, tuple]) => tuple[1] === 'Provider-verified')
     .map(([capability]) => capability)
     .sort();
+  /* Every Provider-verified claim rests on a live probe or on a hosted check every release requires. */
+  const hostedBacked = HOSTED_CAPABILITY_REQUIREMENTS[provider] || {};
+  for (const keys of Object.values(hostedBacked)) {
+    assert(keys.length && keys.every(key => catalog.hosted.includes(key)), 'a hosted-backed claim names hosted checks the release record requires');
+  }
   assert.deepStrictEqual(
     providerVerified,
-    expected,
+    [...expected, ...Object.keys(hostedBacked)].sort(),
     `${provider} must not advertise Provider-verified capabilities outside the live proof contract`
   );
 }
@@ -149,10 +155,20 @@ rejects('PUBLIC_ALPHA_SECURITY_FINDINGS_OPEN', ({ record }) => { record.security
 rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
   delete record.providers.github['file.write'];
 });
-rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
-  /* Still Experimental: delivery needs a deployment the provider can reach. */
-  record.goldenPathCapabilities.push('github:live-events');
-});
+{
+  /*
+   * Nothing GitHub serves is Experimental any more, so the refusal is shown on
+   * a registry holding one back -- a capability whose evidence is
+   * deterministic, so the proof contract is otherwise unchanged.
+   */
+  const heldBack = structuredClone(registry);
+  const [feature] = Object.entries(heldBack.providers.github['hosted-alpha'])
+    .find(([, tuple]) => tuple[0] === 'Supported' && tuple[1] === 'Deterministic');
+  heldBack.providers.github['hosted-alpha'][feature] = ['Experimental', 'Deterministic', 'Held back for this demonstration.'];
+  rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
+    record.goldenPathCapabilities.push(`github:${feature}`);
+  }, { registry: heldBack });
+}
 for (const retired of ['gitlab', 'gitea']) {
   rejects('PUBLIC_ALPHA_CAPABILITY_INVALID', ({ record }) => {
     record.observedEnabledCapabilities.push(`${retired}:workflows.read`);

@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Repository creation and deletion, notifications and live events are Supported
+
+- **Four capabilities are promoted on evidence, not by a switch.** The live
+  provider harness proved `repository.create`, `repository.delete` and
+  `notifications` against a real GitHub sandbox, and the hosted gate proved
+  `live-events` on the staging deployment. Each is now `Supported` and
+  `Provider-verified` in `config/public-alpha-capabilities.json`, and the
+  registry is 39 Supported, 0 Experimental, 0 Unavailable.
+- **Hosted proof is its own requirement.** Live events cannot be proven by the
+  harness alone, so `HOSTED_CAPABILITY_REQUIREMENTS` names the hosted check
+  that backs them (`live-events-delivery`). The qualification catalog accepts
+  a hosted-backed capability only as `Supported`, `Provider-verified` and
+  outside the harness requirements, and the advertised set must equal both
+  lists together.
+- **The staging switch is retired.** `NV_QUALIFICATION_CAPABILITIES` served
+  capabilities ahead of their hosted proof. None awaits it now, so a server
+  that still sets it refuses to start and says to remove it, rather than
+  carrying a switch nothing should use. Staging drops the variable before this
+  build is deployed (`docs/operations/DEPLOY_RENDER_NEON.md` §5).
+- **The test-only promotion fixture is gone.** Browser and server tests served
+  the four as Supported through `test/fixtures/capability-promotion.js` and a
+  `promote` option; they now read the registry as it is. Tests that need an
+  Experimental capability hold one back on a cloned registry.
+
+### A phone message is solid
+
+- **The opaque rule for phone toasts now applies.** On a phone a toast lies
+  over content at the top of the screen, and was meant to be opaque there. Its
+  rule sat before the translucent panel at the same weight and lost, so every
+  phone toast stayed see-through: the Neural gesture hint showed the header's
+  text through its own. It now follows the panel and carries the light theme's
+  selector too, in both presets and both themes.
+- **It drops from the top it lives at**, rather than sliding in from a right
+  edge it no longer touches, and does not move at all for a reader who turned
+  motion off or asked the system for less.
+- Pinned in `test/e2e/shell-chrome.spec.js`: full opacity, no backdrop blur
+  and the drop animation in Nebula and Obsidian, dark and light; no animation
+  under reduced motion.
+
 ### A smoke wakes the service it measures
 
 - **A sleeping restore application is woken, not reported as aborted.** The

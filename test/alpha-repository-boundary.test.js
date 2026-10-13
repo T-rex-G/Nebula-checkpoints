@@ -604,10 +604,9 @@ fs.writeFileSync(fixture, fixtureSource, { mode: 0o600 });
 fs.writeFileSync(eventLog, '', { mode: 0o600 });
 fs.writeFileSync(alphaStateFile, JSON.stringify({ A: 'active' }), { mode: 0o600 });
 
-const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures', 'capability-promotion.js'), '-r', fixture, 'server.js'], {
+const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
   cwd: root,
   env: {
-    NV_TEST_PROMOTE_CAPABILITIES: 'repository.create,repository.delete,notifications,live-events',
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'production',

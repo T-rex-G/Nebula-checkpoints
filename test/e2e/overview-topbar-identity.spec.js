@@ -131,14 +131,12 @@ test('the overview reserves its new header height when the viewport changes', as
 });
 
 /*
- * The crowded case: six controls, the notifications bell among them. The bell
- * is drawn only once notifications are Supported, so the bar is measured as it
- * will stand then -- the narrowest it will ever have to fit -- rather than as
- * it stands while the bell is withheld.
+ * The crowded case: six controls, the notifications bell among them -- the
+ * narrowest the bar ever has to fit.
  */
 test('the repositories header fits after navigation and resizing', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
-  await overview(page, { promote: ['notifications'] });
+  await overview(page);
   await page.locator('#ovGoRepos').click();
   await expect(page.locator('#page-repos')).toHaveClass(/active/);
   for (const width of [320, 360, 380, 381, 390, 430, 320]) {

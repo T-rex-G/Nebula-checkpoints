@@ -21,8 +21,8 @@ const stepUpKey = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const port = 20000 + Math.floor(Math.random() * 1000);
 const account = { provider: 'github', authMethod: 'token', login: 'alice', providerAccountId: 7, token: 'fixture-admin' };
 let logs = '';
-const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures/capability-promotion.js'), '-r', path.join(__dirname, 'fixtures/github-account-operations-fetch.js'), 'server.js'], {
-  cwd: root, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret, NV_TEST_PROMOTE_CAPABILITIES: 'repository.create,repository.delete,notifications,live-events',
+const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures/github-account-operations-fetch.js'), 'server.js'], {
+  cwd: root, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,
     DATABASE_URL: '', GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-client-secret',
     NV_ALPHA_ACCESS_MODE: 'off', NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn', NV_ACCOUNT_OPERATIONS_LOG: log },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -92,9 +92,9 @@ async function main() {
     assert.strictEqual(new URL(deletionOAuth.headers.get('location')).searchParams.get('scope'), 'repo delete_repo');
     const projected = await check('/api/account/capabilities', { headers: session() }, 200);
     assert.match(projected.response.headers.get('cache-control'), /no-store/);
-    /* Promoted for this server only (test/fixtures/capability-promotion.js), so their routes can be exercised. */
+    /* Proven by the live-provider harness and promoted: served as any Supported capability is. */
     for (const feature of ['repository.create', 'repository.delete', 'notifications']) {
-      assert.deepStrictEqual([projected.body.features[feature].status, projected.body.features[feature].evidenceState], ['Supported', 'Deterministic']);
+      assert.deepStrictEqual([projected.body.features[feature].status, projected.body.features[feature].evidenceState], ['Supported', 'Provider-verified']);
     }
     assert(!JSON.stringify(projected.body).includes(account.token));
     const fine = await check('/api/account/capabilities', { headers: session({ ...account, token: 'github_pat_fixture' }) }, 200);

@@ -629,10 +629,12 @@ async function wake(deps, base) {
 }
 
 /*
- * A deployment that serves live events: one that names them as served ahead
- * of their proof (the staging qualification switch), or, once they are
- * promoted, one whose registry calls them Supported. Production answers
- * neither while they await proof, and deploys on its own regardless.
+ * A deployment that serves live events: one whose registry calls them
+ * Supported, as every deployment's has since the hosted gate proved them, or
+ * one that names them as served ahead of their proof (the staging
+ * qualification switch, which no capability awaits now). Serving them does
+ * not make a deployment a drill target: production serves them too, and is
+ * refused because it deploys on its own.
  */
 async function servesLiveEvents(deps, base, config) {
   const qualification = config && config.qualification;

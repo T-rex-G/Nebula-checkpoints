@@ -25,6 +25,13 @@
   the four as Supported through `test/fixtures/capability-promotion.js` and a
   `promote` option; they now read the registry as it is. Tests that need an
   Experimental capability hold one back on a cloned registry.
+- **"Only what is Supported is offered" is still proven, from both sides.**
+  `test/e2e/supported-only.spec.js` drew its proof from the registry's own
+  unproven capabilities, and there are none left. It now checks that the real
+  registry is all Supported and offers what was promoted (creation and
+  notifications on the repositories screen, deletion in the palette), and
+  that a projection holding those four back draws, names and reaches none of
+  them.
 
 ### A phone message is solid
 

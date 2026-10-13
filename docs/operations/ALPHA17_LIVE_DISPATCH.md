@@ -195,6 +195,27 @@ them; a person reads the report and signs it.
    `ALPHA17_CLEANUP_REQUEST` secrets are no longer read; delete them. Nor is
    a backup key: the restore draws its own for the run and never stores it.
 
+**Where the target variables live.** `authorize-live` binds the hosted target
+before any live job starts, and it runs outside the live environment, so it
+reads only **repository** variables: `ALPHA17_HOSTED_BASE_URL`,
+`ALPHA17_RENDER_SERVICE_ID`, `ALPHA17_NEON_PROJECT_ID`,
+`ALPHA17_COHORT_NEON_BRANCH_ID`, `ALPHA17_RESTORE_APP_BASE_URL`,
+`ALPHA17_RESTORE_APP_DEPLOY_ID`, `ALPHA17_RESTORE_NEON_PROJECT_ID`,
+`ALPHA17_RESTORE_NEON_BRANCH_ID` and `ALPHA17_RESTORE_TARGET_FINGERPRINT`.
+Set them there. The live jobs run inside `alpha17-live-qualification`, where a
+variable of the same name overrides the repository's; keep no copy there, or
+keep it identical. A copy that differs is refused as a target that does not
+match its binding, never silently used. A base URL is an origin; one trailing
+slash, as a browser copies it, reads as the same origin, and a path is refused.
+Every new candidate is a new restore deployment, so
+`ALPHA17_RESTORE_APP_DEPLOY_ID` changes with each one.
+
+**What the disconnect drill holds the product to.** After "Disconnect from
+Nebulaverse-X", a copy of the old session cookie is answered `401
+AUTH_REQUIRED`, the same as no session, and another tester presenting it is
+refused `403 ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. Neither is a server
+fault: a `500` fails the drill.
+
 The drills and the hosted gate read the staging service's `DATABASE_URL` and
 `NV_ALPHA_INVITE_PEPPER` from Render with `ALPHA17_RENDER_API_KEY`, so testers
 are issued by the deployment under test. `ALPHA17_NEON_API_KEY` suspends and

@@ -1368,6 +1368,17 @@ class AlphaPrivacyStore {
         && row.provider === options.provider
       ))
       : ownershipResult.rows.find(row => row.tester_id === testerId && !row.released_at);
+    /*
+     * No other tester holds it and this tester no longer does: a disconnect or
+     * sign-out ended it. A copy of its cookie is a session that has ended, not
+     * a dispute over who owns it.
+     */
+    if (!foreign && !options.identityKey && !matching) {
+      throw new AlphaPrivacyStoreError(
+        'Hosted provider session has ended',
+        'ALPHA_PROVIDER_SESSION_UNAVAILABLE'
+      );
+    }
     if (foreign || !matching || (!options.allowReleased && matching.released_at)) {
       throw new AlphaPrivacyStoreError(
         'Provider session ownership could not be verified',
@@ -1530,9 +1541,10 @@ class AlphaPrivacyStore {
         }
         const activeOwnership = ownershipResult.rows.filter(row => !row.released_at);
         if (ownershipResult.rows.length && !activeOwnership.length) {
+          /* This tester's own session, ended by a disconnect or sign-out. */
           throw new AlphaPrivacyStoreError(
-            'Provider session ownership could not be verified',
-            'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT'
+            'Hosted provider session has ended',
+            'ALPHA_PROVIDER_SESSION_UNAVAILABLE'
           );
         }
 

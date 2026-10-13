@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### A disconnected session stays disconnected, and says so
+
+- **A copy of the old cookie is signed out, not a server fault.** After
+  "Disconnect from Nebulaverse-X" the browser's cookie is cleared, but another
+  tab, a saved request or a stolen header can still send it. The store reported
+  that ended session as an ownership dispute, and every route answered `500`.
+  It now answers `401 AUTH_REQUIRED`, as for no session at all. The hosted
+  disconnect drill found it: its replay answered `500`.
+- **Another tester's copy is refused by name.** A provider session presented
+  under a different invitation answers `403
+  ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. A revoked or deleting tester's
+  session answers `401` and `409` with their own codes, rather than `500`.
+- **Signing in again says why it cannot, and what can.** A disconnected GitHub
+  account keeps its cleanup evidence under that invitation and is not bound to
+  it again. Signing in with it answered `500` and "Retry once"; it now answers
+  `409 ALPHA_PROVIDER_IDENTITY_RETIRED`, says nothing was connected, and names
+  the way forward: another GitHub account, or a new invitation. A sign-in from
+  a browser still holding the ended session's cookie starts a new session
+  instead of failing on the old one, and a session already holding its most
+  accounts answers `409` instead of `500`.
+- Pinned by `test/alpha-disconnect-replay-server.test.js`, against the real
+  server and a real PostgreSQL store, which failed first with `500
+  ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. It runs in `test:multi-instance`.
+
+### A drill that fails reads as failed
+
+- **Each drill's status is its claims.** Every check was written with `status:
+  "pass"` whatever it found, so the job log printed `pass` beside
+  `browserStatePurged: false`. The run's verdict was right; the line was not.
+  A check now passes only when every claim it makes holds.
+- **The staging origin reads as the target verifier reads it.** One trailing
+  slash on `NV_ALPHA_BASE_URL` stopped the drills and the tester provisioner
+  as "malformed" after the target had already been verified with it. Both now
+  read one trailing slash as the same origin; a path is still refused.
+- The dispatch guide now says the hosted target variables are **repository**
+  variables, since `authorize-live` binds the target outside the live
+  environment.
+
 ### A chart drawn while its card is hidden no longer jumps when it appears
 
 - **The activity charts wait for a real width.** A reading could land while

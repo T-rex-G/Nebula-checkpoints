@@ -1712,6 +1712,10 @@ async function setSession(req, res, data, { createNew = false } = {}) {
         mutate(current) {
           return recomputeHostedSessionMutation(base, data, current);
         }
+      }).catch(error => {
+        /* Ended between the read and this write: signed out, as on the read. */
+        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') throw Object.assign(error, { status: 401 });
+        throw ownedSessionRefusal(error);
       });
       req.session = result.session;
       req[HOSTED_SESSION_BASE] = structuredClone(result.session);
@@ -1769,6 +1773,48 @@ function githubSession(session) {
 function isGithubAccount(account) {
   try { assertGithubAccount(account); return true; } catch { return false; }
 }
+/*
+ * The store's refusals of an owned provider session, as answers rather than
+ * server faults. An ended session is handled by the caller (it is no session);
+ * these are the rest: a session another tester holds, and a tester whose
+ * access is gone or whose data is being deleted.
+ */
+function ownedSessionRefusal(error) {
+  const code = error && error.code;
+  if (code === 'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT') {
+    return Object.assign(new Error('This sign-in belongs to another alpha session'), { status: 403, code });
+  }
+  if (code === 'ALPHA_TESTER_REVOKED' || code === 'ALPHA_TESTER_UNAVAILABLE') {
+    return Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
+  }
+  if (code === 'ALPHA_TESTER_DELETING') {
+    return Object.assign(new Error('Alpha data deletion is in progress'), { status: 409, code });
+  }
+  return error;
+}
+/*
+ * An account this alpha access disconnected keeps its cleanup evidence, and is
+ * not bound to the access again. That is a refusal with a way forward, made
+ * before anything was connected -- not a fault to retry.
+ */
+function alphaConnectionRefusal(error) {
+  const code = error && error.code;
+  if (code === 'ALPHA_PROVIDER_LIFECYCLE_STARTED' || code === 'ALPHA_PROVIDER_BINDING_CONFLICT') {
+    return Object.assign(new Error('This GitHub account was disconnected from this alpha access and cannot be connected to it again.'), {
+      status: 409,
+      code: 'ALPHA_PROVIDER_IDENTITY_RETIRED',
+      providerChanged: false,
+      safeState: 'Nothing was connected. The disconnected account stays disconnected.',
+      nextAction: 'Sign in with another GitHub account, or end the alpha session and ask the operator for a new invitation to use this one.'
+    });
+  }
+  if (code === 'ALPHA_PROVIDER_ACCOUNT_CAPACITY') {
+    return Object.assign(new Error('This session already holds the most accounts it can. Remove one first.'), {
+      status: 409, code, providerChanged: false, safeState: 'Nothing was connected.'
+    });
+  }
+  return ownedSessionRefusal(error);
+}
 async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
   const supported = session => (retainRetiredAccounts && session && Array.isArray(session.accounts) && session.accounts.length
     ? session
@@ -1782,10 +1828,16 @@ async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
       if (!req.alpha || !req.alpha.testerId) {
         throw Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
       }
-      const owned = await alphaPrivacyStore.readHostedProviderSession({
-        testerId: req.alpha.testerId,
-        sessionId: s.sid
-      });
+      let owned;
+      try {
+        owned = await alphaPrivacyStore.readHostedProviderSession({
+          testerId: req.alpha.testerId,
+          sessionId: s.sid
+        });
+      } catch (error) {
+        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') return null;
+        throw ownedSessionRefusal(error);
+      }
       req[HOSTED_SESSION_BASE] = structuredClone(owned.session);
       req[HOSTED_SESSION_REVISION] = owned.revision;
       return supported(owned.session);
@@ -3760,16 +3812,26 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   s.accounts.push(account);
   if (ALPHA_CONFIG.enabled) {
     const current = unseal(getCookie(req, 'nv_session') || '');
-    const sid = current && typeof current.sid === 'string' && current.sid
-      ? current.sid
-      : crypto.randomBytes(24).toString('hex');
-    const connected = await alphaPrivacyStore.connectHostedProviderAccount({
+    const held = current && typeof current.sid === 'string' && current.sid ? current.sid : '';
+    const connect = sessionId => alphaPrivacyStore.connectHostedProviderAccount({
       testerId: req.alpha.testerId,
-      sessionId: sid,
+      sessionId,
       account,
       authority: providerAuthority(account),
       capacity: ACCOUNT_CAP()
     });
+    let sid = held || crypto.randomBytes(24).toString('hex');
+    let connected;
+    try {
+      connected = await connect(sid).catch(error => {
+        /* A cookie naming a session that ended: this sign-in starts a new one. */
+        if (!held || !error || error.code !== 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') throw error;
+        sid = crypto.randomBytes(24).toString('hex');
+        return connect(sid);
+      });
+    } catch (error) {
+      throw alphaConnectionRefusal(error);
+    }
     req.session = connected.session;
     req[HOSTED_SESSION_BASE] = structuredClone(connected.session);
     req[HOSTED_SESSION_REVISION] = connected.revision;
@@ -3808,7 +3870,7 @@ app.post('/api/login', async (req, res) => {
     await addAccount(req, res, token, user, 'github', '', { authMethod: 'token' });
     res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider: 'github', authMethod: 'token' });
   } catch (e) {
-    if (e.status === 401) return res.status(401).json({ error: 'Invalid token for that provider.' });
+    if (e.status === 401 && e.code !== 'ALPHA_ACCESS_REQUIRED') return res.status(401).json({ error: 'Invalid token for that provider.' });
     fail(res, e);
   }
 });

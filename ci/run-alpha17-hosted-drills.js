@@ -73,6 +73,16 @@ function requirePattern(env, key, pattern) {
   return value;
 }
 
+/*
+ * An HTTPS origin, read as the target verifier reads it: one trailing slash,
+ * as a browser's address bar copies it, names the same origin. A path does not.
+ */
+function requireOrigin(env, key) {
+  const value = requireEnv(env, key).replace(/\/$/, '');
+  if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(value)) fail(`${key} is malformed`, 'ALPHA17_DRILL_CONFIGURATION');
+  return value;
+}
+
 /* ---- Transport ------------------------------------------------------------ */
 
 async function request(deps, url, { method = 'GET', headers = {}, body, timeoutMs = LIMITS.requestMs } = {}) {
@@ -378,7 +388,6 @@ async function liveEventsDrill(context) {
   }
   return {
     check: {
-      status: 'pass',
       webhookRegistered: observation.hookObserved,
       signedDeliveryVerified: observation.deliveryStatus !== null,
       eventStreamed: observation.eventStreamed,
@@ -414,7 +423,7 @@ async function rateLimitDrill(context) {
   const slowest = Math.max(...answers.map(answer => answer.durationMs));
   const observation = { searches: answers.length, limitedStatus: limited.status, code, retryAfter: named ? retryAfter : null, slowestMs: slowest, recovered: Boolean(recovered.value) };
   return {
-    check: { status: 'pass', retryBounded: code === 'PROVIDER_RATE_LIMITED' && named && slowest < LIMITS.requestMs && Boolean(recovered.value) },
+    check: { retryBounded: code === 'PROVIDER_RATE_LIMITED' && named && slowest < LIMITS.requestMs && Boolean(recovered.value) },
     observation
   };
 }
@@ -427,7 +436,7 @@ async function revocationDrill(context) {
   const code = String(after.data && after.data.code || '');
   const observation = { signedInBefore: Boolean(before), statusAfter: after.status, codeAfter: code };
   return {
-    check: { status: 'pass', deniedAfterRevocation: Boolean(before) && [401, 403].includes(after.status) && /^ALPHA_/.test(code) },
+    check: { deniedAfterRevocation: Boolean(before) && [401, 403].includes(after.status) && /^ALPHA_/.test(code) },
     observation
   };
 }
@@ -441,7 +450,7 @@ async function disconnectDrill(context) {
   const replay = await tester.app.send('GET', '/api/me', { cookie: heldCookie });
   const observation = { signedInBefore: Boolean(before), disconnectStatus: disconnected.status, cookieCleared: cleared, replayStatus: replay.status };
   return {
-    check: { status: 'pass', browserStatePurged: Boolean(before) && disconnected.status === 200 && cleared && replay.status === 401 },
+    check: { browserStatePurged: Boolean(before) && disconnected.status === 200 && cleared && replay.status === 401 },
     observation
   };
 }
@@ -467,8 +476,8 @@ async function restartDrill(context) {
   const after = await signedIn(tester);
   const observation = { bootChanged: Boolean(restarted.value), probesUntilNewBoot: restarted.attempts, ready: Boolean(ready.value), sessionKept: Boolean(login) && after === login };
   return {
-    restart: { status: 'pass', restartObserved: Boolean(restarted.value) && Boolean(ready.value) },
-    filesystem: { status: 'pass', stateRecoveredFromDatabase: Boolean(restarted.value) && Boolean(login) && after === login },
+    restart: { restartObserved: Boolean(restarted.value) && Boolean(ready.value) },
+    filesystem: { stateRecoveredFromDatabase: Boolean(restarted.value) && Boolean(login) && after === login },
     tester,
     observation
   };
@@ -490,7 +499,7 @@ async function wakeDrill(context, tester) {
   }
   const sessionAfter = woke ? await signedIn(tester) : null;
   return {
-    check: { status: 'pass', wakeRetries: woke && sessionAfter ? attempts : 0 },
+    check: { wakeRetries: woke && sessionAfter ? attempts : 0 },
     observation: { suspended: true, readinessProbes: attempts, woke, sessionAfterWake: Boolean(sessionAfter) }
   };
 }
@@ -522,7 +531,6 @@ async function interruptionDrill(context, tester) {
   observation.sessionAfter = Boolean(await signedIn(tester));
   return {
     check: {
-      status: 'pass',
       failClosedDuringInterruption: observation.readyDuring === 503 && observation.sessionDuring === 503
         && observation.readyAfter && observation.sessionAfter
     },
@@ -561,7 +569,7 @@ async function rollbackDrill(context) {
     restored = Boolean(current.value);
     observation.candidateRestored = restored;
   }
-  return { check: { status: 'pass', candidateRestored: observation.parentServed && restored }, observation };
+  return { check: { candidateRestored: observation.parentServed && restored }, observation };
 }
 
 /*
@@ -587,7 +595,6 @@ async function purgeDrill(context) {
   };
   return {
     check: {
-      status: 'pass',
       tokenBearingStateRemoved: Boolean(login) && purged.status === 200 && report.status === 'complete'
         && report.providerCleanupVerified === true && sessions.rows[0].n === 0 && alphaSessions.rows[0].n === 0
     },
@@ -601,6 +608,18 @@ async function purgeDrill(context) {
  * A free-plan service spins down when idle and takes longer to answer its
  * first request than any drill bound allows, so the target is woken first.
  */
+/*
+ * A check passes when every claim it makes holds, and its status says so: a
+ * line in the log that reads "pass" beside a false claim is a line that lies.
+ */
+function claimHolds(key, value) {
+  return key === 'wakeRetries' ? Number.isSafeInteger(value) && value > 0 : value === true;
+}
+function judged(claims) {
+  const holds = Object.keys(claims).length > 0 && Object.entries(claims).every(([key, value]) => claimHolds(key, value));
+  return Object.freeze({ status: holds ? 'pass' : 'fail', ...claims });
+}
+
 async function wake(deps, base) {
   const awake = await poll(deps, { timeoutMs: 4 * 60 * 1000, intervalMs: 5000 }, async () => {
     const answer = await request(deps, `${base}/healthz`, { timeoutMs: 60000 });
@@ -625,7 +644,7 @@ async function servesLiveEvents(deps, base, config) {
 
 function readConfiguration(env) {
   return Object.freeze({
-    base: requirePattern(env, 'NV_ALPHA_BASE_URL', /^https:\/\/[a-z0-9.-]+(?::\d+)?$/i).replace(/\/$/, ''),
+    base: requireOrigin(env, 'NV_ALPHA_BASE_URL'),
     renderServiceId: requirePattern(env, 'NV_ALPHA17_RENDER_SERVICE_ID', /^srv-[a-z0-9]+$/),
     renderApiKey: requireEnv(env, 'RENDER_API_KEY'),
     neonProjectId: requirePattern(env, 'NV_ALPHA17_NEON_PROJECT_ID', /^[a-z0-9-]{1,60}$/),
@@ -687,18 +706,18 @@ async function runHostedDrills(options = {}) {
 
   const checks = {};
   const observations = {};
-  const record = (key, result) => { checks[key] = result.check; observations[key] = result.observation; deps.log(`drill ${key}: ${JSON.stringify(result.check)}`); };
+  const record = (key, result) => { checks[key] = judged(result.check); observations[key] = result.observation; deps.log(`drill ${key}: ${JSON.stringify(checks[key])}`); };
   try {
     record('live-events-delivery', await liveEventsDrill(context));
     record('provider-429-outage', await rateLimitDrill(context));
     record('active-session-revocation', await revocationDrill(context));
     record('provider-disconnect', await disconnectDrill(context));
     const restarted = await restartDrill(context);
-    checks['memory-restart-observation'] = restarted.restart;
-    checks['ephemeral-filesystem-restart'] = restarted.filesystem;
+    checks['memory-restart-observation'] = judged(restarted.restart);
+    checks['ephemeral-filesystem-restart'] = judged(restarted.filesystem);
     observations['memory-restart-observation'] = restarted.observation;
-    deps.log(`drill memory-restart-observation: ${JSON.stringify(restarted.restart)}`);
-    deps.log(`drill ephemeral-filesystem-restart: ${JSON.stringify(restarted.filesystem)}`);
+    deps.log(`drill memory-restart-observation: ${JSON.stringify(checks['memory-restart-observation'])}`);
+    deps.log(`drill ephemeral-filesystem-restart: ${JSON.stringify(checks['ephemeral-filesystem-restart'])}`);
     record('neon-scale-to-zero-wake', await wakeDrill(context, restarted.tester));
     record('database-interruption-recovery', await interruptionDrill(context, restarted.tester));
     record('application-rollback', await rollbackDrill(context));
@@ -722,8 +741,7 @@ async function runHostedDrills(options = {}) {
     testersActive: activeTesters.rows[0].n
   };
   const cleanupVerified = cleanup.computeEnabled && cleanup.webhooksLeft === 0 && cleanup.candidateServed && cleanup.testersActive === 0;
-  const passed = Object.values(checks).every(check => Object.entries(check).every(([key, value]) =>
-    key === 'status' || (key === 'wakeRetries' ? Number.isSafeInteger(value) && value > 0 : value === true)));
+  const passed = Object.values(checks).every(check => check.status === 'pass');
   const completedAt = new Date(deps.now()).toISOString();
   return Object.freeze({
     ok: passed && cleanupVerified,
@@ -756,5 +774,5 @@ if (require.main === module) {
 module.exports = Object.freeze({
   runHostedDrills, LIMITS, SCHEMA_VERSION, DrillError,
   /* Shared with ci/run-alpha17-hosted-testers.js, which signs testers in the same way. */
-  appClient, awaitFrame, renderClient, request, poll, wake, provisionTester, revoke, signedIn, fail, requireEnv, requirePattern
+  appClient, awaitFrame, renderClient, request, poll, wake, provisionTester, revoke, signedIn, fail, requireEnv, requirePattern, requireOrigin
 });

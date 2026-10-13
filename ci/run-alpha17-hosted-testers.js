@@ -33,7 +33,7 @@ const DELETION_CONFIRMATION = 'DELETE ALPHA DATA';
 
 function configuration(env) {
   return Object.freeze({
-    base: drills.requirePattern(env, 'NV_ALPHA_BASE_URL', /^https:\/\/[a-z0-9.-]+(?::\d+)?$/i).replace(/\/$/, ''),
+    base: drills.requireOrigin(env, 'NV_ALPHA_BASE_URL'),
     renderServiceId: drills.requirePattern(env, 'NV_ALPHA17_RENDER_SERVICE_ID', /^srv-[a-z0-9]+$/),
     renderApiKey: drills.requireEnv(env, 'RENDER_API_KEY'),
     repository: drills.requirePattern(env, 'NV_ALPHA17_REPOSITORY', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),

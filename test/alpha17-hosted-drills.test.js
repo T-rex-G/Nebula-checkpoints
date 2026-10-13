@@ -120,7 +120,7 @@ function world(faults = {}) {
       return json(200, { ok: true }, { 'set-cookie': `nv_session=${sid}; Path=/; HttpOnly` });
     }
     if (route === '/api/security/csrf') return json(200, { token: 'csrf' });
-    if (!session || !session.alive) return json(401, { code: 'SIGNED_OUT' });
+    if (!session || !session.alive) return json(session && faults.replayAnswers || 401, { code: 'SIGNED_OUT' });
     if (route === '/api/me') return json(200, { login: session.login });
     if (route === '/api/repo/acme/qualification') return json(200, { default_branch: 'main' });
     if (route === '/api/search') {
@@ -338,7 +338,7 @@ function world(faults = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-testers-'));
     const file = path.join(dir, 'testers.json');
     try {
-      const made = await hostedTesters.provision(file, { env: env(), ...load.options });
+      const made = await hostedTesters.provision(file, { env: env({ NV_ALPHA_BASE_URL: `${BASE}/` }), ...load.options });
       assert.deepStrictEqual(made, { testers: 5, branch: 'nvx-alpha17-4242-load' });
       assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, 'the plan holds live cookies and is readable by its owner only');
       const plan = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -370,6 +370,23 @@ function world(faults = {}) {
   }
   await assert.rejects(runHostedDrills({ env: env({ NV_ALPHA_BASE_URL: 'http://staging.example' }), ...world().options }),
     error => error.code === 'ALPHA17_DRILL_CONFIGURATION');
+  await assert.rejects(runHostedDrills({ env: env({ NV_ALPHA_BASE_URL: `${BASE}/path` }), ...world().options }),
+    error => error.code === 'ALPHA17_DRILL_CONFIGURATION', 'a base URL is an origin, not a page');
+
+  /* ---- The origin as a browser copies it, trailing slash and all ------- */
+  const slashed = await runHostedDrills({ env: env({ NV_ALPHA_BASE_URL: `${BASE}/` }), ...world().options });
+  assert.strictEqual(slashed.ok, true, 'one trailing slash is the same origin, as the target verifier already reads it');
+  assert(Object.values(slashed.record.checks).every(check => check.status === 'pass'));
+
+  /* ---- A replayed session the server faults on fails that drill, and says so --- */
+  const replayed = world({ replayAnswers: 500 });
+  const replayedResult = await runHostedDrills({ env: env(), ...replayed.options });
+  assert.strictEqual(replayedResult.ok, false);
+  assert.deepStrictEqual(replayedResult.record.checks['provider-disconnect'], { status: 'fail', browserStatePurged: false },
+    'a check whose claim is false is not reported as a pass');
+  assert.strictEqual(replayedResult.observations['provider-disconnect'].replayStatus, 500);
+  assert(Object.entries(replayedResult.record.checks).every(([key, check]) => key === 'provider-disconnect' || check.status === 'pass'),
+    'only the failing drill fails');
 
   /* ---- Once live events are promoted, the switch is gone and the drills still run --- */
   const promoted = world({ promoted: true });
@@ -381,6 +398,7 @@ function world(faults = {}) {
   const faultyResult = await runHostedDrills({ env: env(), ...faulty.options });
   assert.strictEqual(faultyResult.ok, false);
   assert.strictEqual(faultyResult.record.checks['database-interruption-recovery'].failClosedDuringInterruption, false);
+  assert.strictEqual(faultyResult.record.checks['database-interruption-recovery'].status, 'fail');
   assert.strictEqual(faultyResult.observations['database-interruption-recovery'].sessionDuring, 500);
   assert.strictEqual(faulty.state.endpoint.disabled, false, 'the compute is enabled again after a failed drill');
 

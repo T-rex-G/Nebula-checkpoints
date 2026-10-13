@@ -113,6 +113,11 @@ Settings exposes four separate actions with different consequences:
 
 - **Disconnect from Nebulaverse-X** removes token-bearing application state
   after verified resource cleanup. It does not claim provider-side revocation.
+  A copy of the disconnected session's cookie is answered as signed out. The
+  disconnected GitHub account keeps its cleanup evidence under this access and
+  is not connected to it again: signing in with it is refused with that reason
+  (`409 ALPHA_PROVIDER_IDENTITY_RETIRED`, nothing connected). Another GitHub
+  account can still sign in; using the same one again takes a new invitation.
 - **Revoke at provider** first disconnects safely, then presents the exact
   provider-owned revocation destination.
 - **End alpha session** clears the invitation-access cookie and all

@@ -1210,11 +1210,7 @@
       const liveCap = result.capped ? capNote(result.capReason, severityCounts(result.findings
         .filter(finding => verdictOf(finding) === 'confirmed' && !unweighed.has(finding.category))), false) : null;
       if (liveCap) notes.appendChild(element('p', 'audit-cap', liveCap));
-      if (view.diff) {
-        const since = view.diff.previousAt ? ` since the audit of ${new Date(view.diff.previousAt).toLocaleString()}` : '';
-        notes.appendChild(element('p', 'audit-diff',
-          `${plural(view.diff.newIds.size, 'new finding', 'new findings')}, ${view.diff.resolved} resolved${since}.`));
-      }
+      if (view.diff) notes.appendChild(element('p', 'audit-diff', diffSentence(view.diff)));
       const suppressed = result.suppressed || [];
       const triaged = suppressed.filter(finding => finding.suppression && finding.suppression.triage).length;
       const waived = suppressed.length - triaged;
@@ -2951,14 +2947,14 @@
     return wrap;
   }
 
-  /* Where the provider has no repository reader, the audit says so rather than showing an empty -- and therefore clean -- result. */
+  /* When repository audit is unavailable, the interface says so rather than showing an empty -- and therefore clean -- result. */
   function renderUnavailable(host, reason) {
     const card = element('section', 'card audit-summary audit-unavailable');
     card.setAttribute('aria-labelledby', 'auditSummaryHeading');
     const heading = element('h2', 'audit-kicker', 'Repository audit');
     heading.id = 'auditSummaryHeading';
     card.append(heading,
-      element('p', 'audit-verdict', 'Not available for this provider yet.'),
+      element('p', 'audit-verdict', 'Repository audit is unavailable.'),
       element('p', 'audit-coverage', reason),
       element('p', 'audit-coverage', 'The deployed-site check below does not read the repository and works here.'));
     host.appendChild(card);
@@ -4178,11 +4174,24 @@
     }] }, null, 2);
   }
 
+  /*
+   * What changed since the last audit of the branch. A resolved count the
+   * server could not establish (the audit lacked the evidence to prove a fix)
+   * is said to be unknown, never shown as zero.
+   */
+  function diffSentence(diff) {
+    const since = diff.previousAt ? ` since the audit of ${new Date(diff.previousAt).toLocaleString()}` : '';
+    const added = plural(diff.newIds.size, 'new finding', 'new findings');
+    return Number.isSafeInteger(diff.resolved)
+      ? `${added}, ${diff.resolved} resolved${since}.`
+      : `${added}${since}. Nothing is counted as resolved: this audit did not have the evidence to prove a fix.`;
+  }
+
   function allPrompts(result) {
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, readPrevious, remember, storageKey });
+  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, diffSentence, readPrevious, remember, storageKey });
 })(typeof globalThis === 'undefined' ? this : globalThis);
 
 if (typeof module === 'object' && module.exports) module.exports = globalThis.NebulaCodeAudit;

@@ -2,6 +2,549 @@
 
 ## Unreleased
 
+### The scale-to-zero drill reads Neon's record, not a moment
+
+- **A compute the deployment wakes again at once still counts as suspended.**
+  The drill suspended the staging database compute and then waited to read it
+  idle. Staging's own workers reconnect within seconds and wake it, so it can
+  be idle between two reads and never at one: the drills on `64bcb29` polled
+  for ninety seconds and stopped with "the cohort compute did not suspend",
+  after passing on `daeeaeb` by timing alone. The drill now also accepts Neon's
+  record that the suspend operation finished, and reports which proof it saw.
+  A suspend that never finishes still fails.
+- Pinned in `test/alpha17-hosted-drills.test.js`: a compute woken again at once,
+  and a suspend operation that never finishes.
+
+### Repository creation and deletion, notifications and live events are Supported
+
+- **Four capabilities are promoted on evidence, not by a switch.** The live
+  provider harness proved `repository.create`, `repository.delete` and
+  `notifications` against a real GitHub sandbox, and the hosted gate proved
+  `live-events` on the staging deployment. Each is now `Supported` and
+  `Provider-verified` in `config/public-alpha-capabilities.json`, and the
+  registry is 39 Supported, 0 Experimental, 0 Unavailable.
+- **Hosted proof is its own requirement.** Live events cannot be proven by the
+  harness alone, so `HOSTED_CAPABILITY_REQUIREMENTS` names the hosted check
+  that backs them (`live-events-delivery`). The qualification catalog accepts
+  a hosted-backed capability only as `Supported`, `Provider-verified` and
+  outside the harness requirements, and the advertised set must equal both
+  lists together.
+- **The staging switch is retired.** `NV_QUALIFICATION_CAPABILITIES` served
+  capabilities ahead of their hosted proof. None awaits it now, so a server
+  that still sets it refuses to start and says to remove it, rather than
+  carrying a switch nothing should use. Staging drops the variable before this
+  build is deployed (`docs/operations/DEPLOY_RENDER_NEON.md` §5).
+- **The test-only promotion fixture is gone.** Browser and server tests served
+  the four as Supported through `test/fixtures/capability-promotion.js` and a
+  `promote` option; they now read the registry as it is. Tests that need an
+  Experimental capability hold one back on a cloned registry.
+- **"Only what is Supported is offered" is still proven, from both sides.**
+  `test/e2e/supported-only.spec.js` drew its proof from the registry's own
+  unproven capabilities, and there are none left. It now checks that the real
+  registry is all Supported and offers what was promoted (creation and
+  notifications on the repositories screen, deletion in the palette), and
+  that a projection holding those four back draws, names and reaches none of
+  them.
+
+### A phone message is solid
+
+- **The opaque rule for phone toasts now applies.** On a phone a toast lies
+  over content at the top of the screen, and was meant to be opaque there. Its
+  rule sat before the translucent panel at the same weight and lost, so every
+  phone toast stayed see-through: the Neural gesture hint showed the header's
+  text through its own. It now follows the panel and carries the light theme's
+  selector too, in both presets and both themes.
+- **It drops from the top it lives at**, rather than sliding in from a right
+  edge it no longer touches, and does not move at all for a reader who turned
+  motion off or asked the system for less.
+- Pinned in `test/e2e/shell-chrome.spec.js`: full opacity, no backdrop blur
+  and the drop animation in Nebula and Obsidian, dark and light; no animation
+  under reduced motion.
+
+### A smoke wakes the service it measures
+
+- **A sleeping restore application is woken, not reported as aborted.** The
+  hosted gate restores the staging backup and then smoke-tests the
+  application serving the restored database. That service is on a free plan,
+  spins down when idle, and its first answer outlasts a smoke request's twenty
+  seconds; the gate stopped with `20: This operation was aborted`, a message
+  that named neither the request nor the cause. The smoke now asks
+  `/healthz` until it answers, each probe and the whole wait bounded (four
+  minutes), before it runs and times its plan; a service that never wakes is
+  refused as `ALPHA_SMOKE_UNREACHABLE` with its origin.
+- **A smoke request that runs out of time names itself**:
+  `ALPHA_SMOKE_TIMEOUT: GET /readyz did not answer within 20s`.
+- Pinned in `test/alpha-smoke.test.js`: a service asleep, starting and then
+  up; one that never wakes; a request that never answers; and the smoke's
+  order, one wake probe and then the plan.
+
+### The read-only refusal is proven by the credential, not the repository's visibility
+
+- **A public sandbox no longer fails `issue-write`.** The sandbox repository
+  was made public so its fixture workflow runs without paid minutes. GitHub
+  lets anyone who can read a public repository open an issue in it, so the
+  read-only credential's issue was accepted, and `issue-write` failed on
+  `readOnlyRefused` although the credential was still refused every write it
+  was scoped out of. That issue proved the repository's visibility, not the
+  credential's scope.
+- **The refusal it now requires holds on every target.** The read-only
+  credential must be refused creating a label, which no reader may do on any
+  repository; on a private target its issue must be refused as well. On a
+  public one that issue is opened by GitHub's design, closed, and counts for
+  nothing either way. The probe reads the target's visibility from GitHub
+  rather than assuming it.
+- Pinned in `test/capability-probes.test.js`: a public target that passes, a
+  read-only credential that can create a label, and a private target whose
+  read-only credential can open an issue, each against the fixture provider,
+  which now models visibility and labels.
+
+### A disconnected session stays disconnected, and says so
+
+- **A copy of the old cookie is signed out, not a server fault.** After
+  "Disconnect from Nebulaverse-X" the browser's cookie is cleared, but another
+  tab, a saved request or a stolen header can still send it. The store reported
+  that ended session as an ownership dispute, and every route answered `500`.
+  It now answers `401 AUTH_REQUIRED`, as for no session at all. The hosted
+  disconnect drill found it: its replay answered `500`.
+- **Another tester's copy is refused by name.** A provider session presented
+  under a different invitation answers `403
+  ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. A revoked or deleting tester's
+  session answers `401` and `409` with their own codes, rather than `500`.
+- **Signing in again says why it cannot, and what can.** A disconnected GitHub
+  account keeps its cleanup evidence under that invitation and is not bound to
+  it again. Signing in with it answered `500` and "Retry once"; it now answers
+  `409 ALPHA_PROVIDER_IDENTITY_RETIRED`, says nothing was connected, and names
+  the way forward: another GitHub account, or a new invitation. A sign-in from
+  a browser still holding the ended session's cookie starts a new session
+  instead of failing on the old one, and a session already holding its most
+  accounts answers `409` instead of `500`.
+- Pinned by `test/alpha-disconnect-replay-server.test.js`, against the real
+  server and a real PostgreSQL store, which failed first with `500
+  ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. It runs in `test:multi-instance`.
+
+### A drill that fails reads as failed
+
+- **Each drill's status is its claims.** Every check was written with `status:
+  "pass"` whatever it found, so the job log printed `pass` beside
+  `browserStatePurged: false`. The run's verdict was right; the line was not.
+  A check now passes only when every claim it makes holds.
+- **The staging origin reads as the target verifier reads it.** One trailing
+  slash on `NV_ALPHA_BASE_URL` stopped the drills and the tester provisioner
+  as "malformed" after the target had already been verified with it. Both now
+  read one trailing slash as the same origin; a path is still refused.
+- The dispatch guide now says the hosted target variables are **repository**
+  variables, since `authorize-live` binds the target outside the live
+  environment.
+
+### A chart drawn while its card is hidden no longer jumps when it appears
+
+- **The activity charts wait for a real width.** A reading could land while
+  the overview was still hidden behind the screen before it. The chart then
+  had no width to take, played its arrival at a 380-pixel guess, and was
+  replaced at its real width a frame after the card appeared, so the reader
+  saw the line arrive small and snap to size. It now keeps its place and is
+  drawn once, at the card's first real width; a card hidden later is no
+  longer redrawn at the guess either.
+- Found from a red `browser (2)` run in which the hover test held the chart
+  as it was replaced. A browser test that hides the card while the feed is
+  read failed first, drawing `[380, 891]` on desktop and `[380, 318]` on a
+  phone, and now draws once.
+
+### The sign-in field says what to grant before anything is typed
+
+- **The token guidance is the token field's description.** It sits after the
+  field and the "Enter orbit" button on screen, so a screen reader moving
+  forward reached the credential field, and could submit, before hearing which
+  permissions to grant. The field now names the guidance as its description,
+  read on arrival. Found while writing the manual pass script, and pinned by
+  the keyboard-only browser test, which failed first.
+- **The manual accessibility record says how to run its passes.** Step by
+  step for VoiceOver on an iPhone and for VoiceOver on a Mac or NVDA: the
+  gestures and keys, where each checked control lives, and what should be
+  heard. The record stays `Not executed` until a person runs it.
+
+### The hosted drills run themselves, and a person signs what they saw
+
+- **Nine operational drills, performed rather than described.** The hosted
+  gate has always trusted a signed operator record for the observations a
+  runner cannot make about itself, and nothing produced one. A `run_drills`
+  dispatch now performs each of them against staging: a push to the sandbox
+  repository arriving on the live-events stream, a GitHub rate limit, a
+  revoked session refused, a disconnected provider purged, a restart that
+  keeps the session, a scale-to-zero wake, a database interruption that fails
+  closed and recovers, a rollback to the parent deployment and back, and a
+  tester purge read back in the database.
+- **It refuses a target it should not touch.** A service that deploys on its
+  own, one that is not serving live events or one whose fingerprint is not the
+  candidate's is refused before any restart, suspension or redeploy. Every
+  disruptive step undoes itself in a `finally`, and the run fails unless its
+  cleanup reads back clean.
+- **Nothing in the job signs.** The report, free of invitations, cookies,
+  tokens, database addresses and peppers, goes to the job log;
+  `scripts/alpha17-operator-record.js` signs it on the operator's machine,
+  refuses a failed or uncleaned run and checks its own output with the gate's
+  validator.
+- **The backup key is drawn for the run, not stored.** The restore drill's
+  backup is written and restored inside one step, so the job now draws its
+  key there, masks it and drops it before the testers and the gate run.
+  `ALPHA17_BACKUP_KEY_BASE64` is no longer read, and a backup a cancelled job
+  left behind cannot be decrypted once the job ends.
+- **The hosted gate makes its own testers.** Its five load sessions and the
+  bounded mutation used to be secrets minted by hand from a browser. The job
+  now issues them by invitation through the deployment under test and
+  releases them on every exit, so no live cookie passes through a settings
+  page.
+
+### A database outage no longer signs a tester out for good
+
+- **The access cookie survives the database.** While the access store could
+  not be read, every tester's request answered 500 and the server cleared the
+  access cookie. An invitation is redeemed once, so a scale-to-zero wake that
+  failed, or a minute of database maintenance, locked every tester out until
+  someone issued them a new invitation. It now answers 503
+  `ALPHA_ACCESS_UNAVAILABLE` with a `Retry-After` and keeps the cookie; the
+  same cookie is the same session once the database answers. Only a session
+  that is genuinely over -- expired, revoked, never there -- is cleared.
+  `/api/alpha/status` behaves the same way.
+- **A redemption that could not be recorded is not spent.** It answers the
+  same 503, and the invitation redeems once the database is back.
+- **The landing asks again.** A page that met the waking store waits for
+  readiness and asks once more, rather than leaving the reader on
+  "Temporarily unavailable" until they reload.
+- Found by designing the hosted database-interruption drill, which expects
+  exactly this, and fixed from a real-PostgreSQL test that failed first.
+
+### A GitHub rate limit is a rate limit, and says how long
+
+- **GitHub answers most of its limits with 403, and the server read that as
+  "forbidden".** An exhausted primary limit and every secondary limit came back
+  to the reader as a refusal of their credential, the repository-deletion and
+  live-events routes offered permission advice for it, and nothing said when to
+  try again. A 403 that carries a `retry-after`, an exhausted
+  `x-ratelimit-remaining` or GitHub's own "rate limit" now answers 429
+  `PROVIDER_RATE_LIMITED`, and the response carries `Retry-After` with the wait
+  GitHub gave: its `retry-after`, else its reset, else a minute. A 403 without
+  any of those is still a refusal. The server asks GitHub once per request and
+  leaves the retrying to the client it has told when to retry.
+- **The pull-request board says it was limited, and for how long.** A
+  repository GitHub limited is no longer counted among those that "could not
+  be read just now": the board names them and says "Read again in 3 minutes",
+  the longest wait GitHub gave.
+
+### The browser suite fits its bounds on a slow runner
+
+- **The same tests, 40% slower, on a different runner.** Shard 2 ran 202
+  identical tests in 655 s on 8dec400 and 937 s on b1a61d9; locally the
+  slowest of them took the same time on both commits. The heaviest of four CI
+  slices reached its 20-minute bound on c9410a3 and b1a61d9, and the trusted
+  candidate suite, run whole on one worker, its 50-minute bound.
+- **Six slices in CI and in the checkout matrix**, so the heaviest has room
+  under its bound on the slow runners as well as the fast ones.
+- **The trusted candidate suite runs in four slices of its own**, one after
+  another from the same extracted bytes, each bounded at 25 minutes. Their
+  Playwright blob reports are merged into the one JSON report the gate has
+  always validated: every browser case still runs against the candidate, and
+  no single bound has to grow with the suite again.
+- **One test, one journey.** The phone-navigation test walked all six
+  primary destinations, each from a freshly loaded repository, inside one
+  30-second bound: 20 s on a fast runner, past 30 s on a runner 1.6 times
+  slower, with every destination arriving. Each destination is now its own
+  test with its own bound, and a failure names the one that did not arrive.
+
+### Live events can be qualified on staging, and nowhere else
+
+- **One exception to "only what is Supported is served", named and bounded.**
+  Live events need a deployment GitHub can deliver webhooks to, so they can
+  only be proven on one. `NV_QUALIFICATION_CAPABILITIES=live-events` lets a
+  qualification deployment serve them while they are still Experimental; they
+  are still described as Experimental, and every other capability's gate is
+  unchanged. The variable accepts no other name, and a server whose live
+  events are already Supported refuses to start while it is set, so it cannot
+  outlive the promotion it exists for.
+- **A deployment says when it is serving ahead of proof.** `/api/config`
+  reports `qualification.capabilities`, and the cohort readiness check fails a
+  deployment that reports any, so a staging setting cannot reach a cohort
+  unnoticed.
+- **`/healthz` names the process that answered.** A `bootId`, drawn once per
+  start, lets a restart drill tell a restarted server from one that was never
+  down.
+
+### Independent review of the hardening, fixed from tests that failed first
+
+- **Signing in with GitHub over a retired account is the choice it asked for.**
+  The "choose an account" flag that a session holding a retired provider
+  account computes on each read was saved with the session when a GitHub
+  sign-in selected the new account, so every provider route went on answering
+  409 until sign-out. The flag is never stored now, and a GitHub App callback
+  refuses a retired selection instead of acting as another account.
+- **Removing an account keeps the same identity acting.** Removing an account
+  listed before the selected one used to hand the session to whichever account
+  slid into its place. The selected identity stays selected; if it is the one
+  removed, a GitHub account is chosen, never a retired one.
+- **A session store that cannot be read is unavailable, not empty.** A failed
+  read during a sign-in was taken for "no session", and the existing session
+  row was deleted. It now answers 503 and keeps the session.
+- **The audit gate says what kind of incomplete an audit is.** An exact but
+  incomplete audit was shown as "the kept audits could not be read". The pull
+  request now says "Audit incomplete": an audit kept before audits recorded
+  their completeness asks to be run again (with "Audit this head"), and a
+  recorded gap says the merge waits on an approval. What an incomplete audit
+  did find still holds the merge, with a note that there may be more.
+- **The pull-request board says when a list is a page.** The list route
+  answers 30 per repository, most recently updated first. A repository that
+  fills the page now makes the count "at least", the longest wait "the longest
+  shown", and is named in the card's notes.
+- **The board no longer hangs on "Reading".** A reading overtaken by a change of
+  identity or interface epoch used to keep its in-flight flag; it now lets go
+  and reads again.
+- **A live verdict does not put a removed credential back in the tree.** A
+  credential that had left the tree, then been rejected, then verified live
+  again returned as open. It returns as removed-from-tree when the same
+  evidence that concluded the removal still holds, and open otherwise.
+- **The findings inbox has one order.** Two findings without a first-seen
+  date both claimed to be the older, so their order depended on the input;
+  they now tie and fall through to their key.
+- **One reading of the repository inventory.** The security posture card and
+  the pull-request board share `public/repo-inventory.js` instead of two copies
+  of the same parsing.
+
+### The landing's scene gives a slow device its page back
+
+- **The vortex's budget answers to the clock.** It used to count frames --
+  forty-five to settle, then thirty slow ones before it stepped down a tier --
+  so a renderer that needed a second a frame held the full scene for more than
+  a minute, and the page's own work queued behind every frame. "Get started"
+  was on screen and could not be pressed. Now a device that cannot hold the
+  frame for a second and a half drops a tier; one that is grossly behind goes
+  straight to the lightest.
+- **A scene that cannot keep moving rests.** When even the lightest tier draws
+  fewer than ten frames a second for two seconds, or two frames in a row each
+  take a second, the scene keeps the frame it has, still, for the rest of the
+  visit -- the same picture a reader who asked for less motion is given -- and
+  is not started again by scrolling back to it or by the motion switch. One
+  long frame among good ones is forgiven. The canvas reports its state
+  (`data-scene-state`: running, still or resting).
+- This was the WebKit real-server journey that intermittently could not press
+  "Get started" on CI: the passing runs took 45 s against Chromium's 13 s.
+- **It was not the whole answer, and the journey no longer depends on it.**
+  The pacer acts between frames, and on c9410a3 WebKit drew no frame at all
+  for the fifteen seconds the click waited, then hung its own teardown. A
+  runner without a GPU draws WebGL on the CPU; Chromium names its software
+  rasteriser and the scene goes lite, but WebKit reports a generic renderer
+  and the scene cannot tell. The real-server journey proves the server and
+  PostgreSQL, not the artwork, so in WebKit it is now handed no WebGL context
+  -- a browser the landing already serves completely, the vortex declining
+  and the stage keeping its ground -- and it records any late frame or held
+  main thread, printed with the failure if a stall ever returns.
+
+### Open pull requests across the workspace, on the Overview
+
+- **A board at the foot of the Overview.** Open pull requests from the
+  repositories most recently pushed to, in three columns: waiting on review
+  (longest wait first), open with nobody asked to review (oldest first), and
+  drafts (most recently updated first). The first line says how many are open,
+  in how many repositories, and how long the longest has waited; a pull
+  request untouched for two weeks is marked idle; labels are shown, three to a
+  card.
+- **A card opens its pull request** in its own repository, on the open list,
+  under its row -- where reviewing, the merge gate and merging already live.
+- **Read only when it is looked at.** Nothing is asked of the provider until
+  the card comes into view; then the twelve most recently pushed repositories
+  are read four at a time through the existing `pulls.read` list route, kept
+  for five minutes and shared with the workbench's own list, and "Read again"
+  bypasses that. The card says how many repositories it read when the
+  inventory is larger, and names any outside the session's scope or that
+  could not be read rather than drawing them as empty.
+- **Last on the page, so it moves nothing.** The board grows when its lists
+  arrive; placed after the activity feed, that growth no longer pushes the
+  feed out from under a reader who has scrolled to it.
+- The list route now also returns when a pull request was opened, how many
+  reviewers and teams it asked for (counted, not named) and its label names,
+  all from GitHub's list response; no further request is made for them.
+- **The Trust core names its authority whole.** On a narrow card its state now
+  moves under the title instead of cutting the provider's name short.
+
+### A findings inbox for the whole workspace
+
+- **Every open finding in one list.** A new Findings page, in the rail and
+  linked from the Overview's posture card, lists what the audits and exposure
+  scans have kept across your repositories, most severe and oldest first:
+  findings that came back after a fix ("Seen again", with when they were
+  fixed), what is new this week, what is open, and what a team decided.
+- **Filters in the address.** Open work, seen again, new, decided or
+  everything; severity, kind, repository and a search over titles, paths,
+  packages and CVEs. A filtered list survives a reload and can be sent to
+  someone.
+- **Owners from CODEOWNERS.** Each row names the owner the repository's own
+  CODEOWNERS file gives its path, matched as GitHub documents it -- last line
+  wins, anchored and unanchored patterns, shallow `docs/*` -- and read once
+  per repository, only for the repositories on screen.
+- **Decide in bulk, through the same door.** Select audit findings and accept
+  the risk or mark them false positives with one of the listed reasons; each
+  decision goes through that repository's own triage route with the audit
+  screen's permissions, the progress is announced, and the list reads itself
+  again. The decision bar stays in view while the selection grows down a long
+  list. A decision you made applies at once on the Overview and in the inbox.
+- **Each finding's record opens in place**: first seen, fixed and seen again,
+  the decision in force, the package and its fixed version, and the team's
+  decisions with who made them.
+- **The rail keeps its foot on a laptop.** With a third workspace entry the
+  rail ran past a 720- or 768-pixel frame; below 780 pixels its rhythm now
+  tightens again, each entry still a 44-pixel target, and the phone drawer
+  brings the new entry in on its own beat.
+- **An opened table stays open.** The Overview's "Show the numbers" tables,
+  and a finding's record in the inbox, kept the reader's choice only when the
+  toggle event landed, a task after the press; a reading that arrived in
+  between redrew them shut. The choice is now kept on the press itself.
+- `GET /api/workspace/findings` is gated by its own capability,
+  `findings.inbox` (Supported, Deterministic), fetches nothing from the
+  provider and masks credential-shaped paths on the server.
+  `GET /api/repo/:owner/:repo/codeowners` reads one file through the qualified
+  file read. The store reads are tested against PostgreSQL, the states, order,
+  filters and CODEOWNERS matching in isolation, and the page in the browser at
+  320px in both presets and both themes, with an axe pass.
+
+### The workspace's security posture on the Overview
+
+- **How the code stands, beside how the session stands.** A new card between
+  the trust cards and the recent-activity feed reads what the audit history,
+  the exposure scans and governance already hold for the signed-in identity:
+  open findings by severity, what teams decided (accepted risks and false
+  positives), median time to fix over 90 days, how many repositories in the
+  inventory have been read, a twelve-week chart of findings opened and fixed,
+  where the open findings are by repository and by kind, and one sentence for
+  the week -- new findings, fixes and the merges governance gated.
+- **Nothing is fetched to draw it.** `GET /api/workspace/security-posture` is
+  gated by its own capability, `workspace.posture` (Supported,
+  Deterministic), never reads the session's credential and calls no provider.
+  Each repository is its latest audit, on whichever branch that was; a team
+  decision counts where the audit itself recorded it or where you made it
+  yourself, a teammate's later decision waits for the next audit, and an
+  expired or reopened one leaves the finding open. A leaked credential is fixed only once
+  its provider rejected it -- removed from the tree is not fixed.
+- **Unmeasured is never clean.** A store that does not answer leaves its part
+  unmeasured and says so; no database says so; a deployment that does not
+  offer the posture draws none of it and never asks.
+- **Every repository it names leads to its audit**, and the repositories the
+  inventory holds that neither system has read are named as such.
+- The chart can be read by hover, by its legend and by a table; opened and
+  fixed are two validated lightness steps per preset and theme. The store
+  reads are tested against PostgreSQL, the figures in isolation, and the card
+  in the browser at 320px in both presets and both themes, with an axe pass.
+
+### Only what is Supported is offered
+
+- **No opt-in for anything less.** The 78 route opt-ins and every interface
+  opt-in for Experimental capabilities are gone. The server refuses whatever is
+  not Supported with its typed error, and once it has answered, the interface
+  draws no control, badge or palette entry for it. A capability projection that
+  could not be loaded is shown as an outage: its controls stay in place,
+  refused and explained, until it loads.
+- **Every route names what it uses.** Branch reads name `branches.read`, an
+  explicit Git LFS upload is checked before its body is read, and the evidence
+  and intelligence-event reads name `governance`. A contract fails if any
+  registry capability is named by no route, or if any route carries an opt-in.
+- **The beta profile cannot carry Experimental.** The registry rejects an
+  Experimental entry under `hosted-beta`.
+- **The workspace pulse describes only what is offered**, by the evidence
+  behind each capability, and the landing copy says that anything unbacked is
+  not offered. Governance has no view-only middle state any more.
+- **Until the live run qualifies them**, repository creation and deletion,
+  notifications and live events are not offered.
+
+### Live probes for the four capabilities awaiting qualification
+
+- **Repository create and delete** are proved through the product's own code
+  on one private disposable repository in a dedicated qualification account:
+  created after the identity check, read back by name and identity, refused to
+  the repository-confined credential, deleted only once proved to be that
+  repository, then absent by name and identity. A repository the run could not
+  prove it removed is named, never deleted on a guess.
+- **Notifications** are read through the product's reader with a classic
+  credential, inbox and target-scoped, and GitHub's refusal of the
+  fine-grained credential is checked against the product's own refusal.
+- **Live events** join the hosted run as a signed operational check, because
+  only a deployment GitHub can reach can prove them: the webhook registered
+  through the product, a signed push delivery verified, the event streamed,
+  and the webhook removed at GitHub on disconnect.
+- Every new condition is falsified on purpose in the probe tests. The live job
+  takes two new secrets, `ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL` and
+  `ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL`, described in the dispatch runbook
+  with the remedy for a denied credential. The registry promotes these
+  capabilities only after a live run passes.
+
+### Second review round on the six-system hardening
+
+- **The merge gate denies on what it already knows.** A critical, secret,
+  exploited or overdue finding still denies the merge when the audit's evidence
+  is incomplete; only a gate with nothing blocking becomes "unavailable".
+- **A fix is counted only where its detector looked.** Resolved findings and
+  time-to-fix are proved per detector family (files, code, dependencies,
+  licences), and a finding that was never storable no longer counts as missing.
+- **A retired account never acts in place of a GitHub one.** A selected GitLab
+  or Gitea account is refused with "choose an account" instead of being
+  silently swapped; it stays listed as retired so it can be removed. Removing
+  it records the operator's cleanup task and takes its stored credential out of
+  the session; removing the last GitHub account ends the session, retired
+  accounts included; signing in again deletes a session that held only retired
+  accounts. Sign-out tells the person to revoke the old provider tokens.
+- **A committed safety change keeps its evidence.** Safeguard changes and
+  Emergency Shield write their evidence as soon as the controls commit, and
+  containment finishes even if the session ends meanwhile. A database that
+  cannot be reached makes the controls "unavailable", never an unexplained
+  server error.
+- **A rendered audit's real failure is shown.** A failure the server reported
+  for the run is no longer retried into "no longer available"; only an
+  uncoded edge or network hiccup is retried. The page's own signed assets and
+  sign-in redirects are loaded as any visitor's browser would, and only the
+  address a person enters is refused for carrying credentials.
+- **Policy activation simulates before it locks.** The impact simulation runs
+  from an unlocked read, and under the locks the activation requires that the
+  documents it compared are still the proposed and active ones.
+
+### Review fixes on the six-system hardening
+
+- **Monorepos keep their locked versions.** A manifest below the root used the
+  root lock only when npm listed it as a workspace, so yarn, pnpm, poetry and
+  other monorepos fell back to the floor of each declared range and could raise
+  advisories the installed version does not have. A lock that does not record
+  its workspaces answers again for the manifests beneath it, unless a manifest
+  pins an exact version that lock did not install.
+- **One unnameable advisory id no longer hides the others.** The package stays
+  counted as not fully checked, so the merge gate still holds it, but the
+  well-formed advisories beside the odd id are reported, and the watch still
+  announces a new one.
+- **An unknown resolved count is said to be unknown.** When an audit lacked the
+  evidence to prove a fix, the screen read "N new findings, 0 resolved"; it now
+  says that nothing is counted as resolved and why.
+- **A finished Quasar report pages to the end** while newer scans move a
+  shared finding's last-seen time. A decision made between pages still asks
+  for a refresh.
+- **The Pulsar Map reads its topology without a selected branch**, and Refresh
+  reloads the map after event history has stopped retrying instead of retrying
+  it forever.
+- **Readable page slugs stay readable in site findings.** Long lowercase word
+  slugs are shown, so two pages are never merged into one finding; tokens,
+  identifiers, encoded segments and JWTs are still hidden.
+- **Smaller corrections:** a malformed DMARC record is reported as malformed
+  rather than as "p=invalid"; each crawled page is read for debug signatures
+  once; concurrent history reads share one access check, and none starts before
+  it passes.
+
+### GitHub-only product and golden qualification
+
+- Remove GitLab and Gitea repository connections, account selections, provider
+  API transports, capability entries and live-qualification jobs. GitHub PAT,
+  OAuth and optional configured App connections remain. Unsupported and legacy
+  provider inputs fail closed before credential use or outbound requests.
+- Existing retired-provider credentials must be revoked manually in their
+  original provider settings; local connection removal does not revoke them.
+  Historical audit records retain their existing retention and cleanup rules.
+- Align provider and operator documentation with the GitHub-only scope. Keep
+  historical qualification records separate from current support and retain
+  blocked gates until exact-candidate evidence exists. This PR is left open and
+  unmerged for another AI review; no launch or live dispatch is claimed.
+
 ### Security: proxy-addr 2.0.8
 
 - **A forwarded address can no longer pass as a trusted proxy by wearing an
@@ -12,20 +555,32 @@
   advisory reached it. Express 4.22.3 already accepts 2.0.8; the lockfile now
   pins it. The production and development audits pass again.
 
-### Plan: from public alpha to 1.0.0-beta.1
+### Plan: qualify the alpha as 0.0.1-beta.1
 
-- **One plan for what is still unqualified, and for what beta adds.**
-  `docs/superpowers/plans/2026-10-06-beta-1-0-0-qualification-and-platform.md`
-  lists every pending gate, every Experimental and Unavailable capability and
-  every recorded residue, and the task that closes each. Each claim was
-  checked against the running system rather than the documents alone: the
-  live service runs `main`, but it overrides `render.yaml` (invitations off;
-  95/95/100 MB limits against a published 16/16/25 MB), 108 route guards still
-  accept Experimental, and live-provider qualification last ran in September. It defines what
-  qualified means for `1.0.0-beta.1`, names the owner's decisions and actions,
-  and sequences the Clerk identity, Stripe billing and AI review layers. The
-  plan is not evidence: no gate changes until its task passes for the exact
-  candidate.
+- **One plan to take the product that exists today to a recorded GO.**
+  `docs/superpowers/plans/2026-10-06-beta-0-0-1-qualification.md` replaces the
+  broader 1.0.0 draft. It qualifies the current product as an open public beta,
+  `0.0.1-beta.1`, only after its gates and release blockers close, and
+  leaves Clerk, the AI layer, billing and the competitive comparison to later
+  plans. The original 6 October baseline recorded observations against the
+  running system, code, Actions history, Render and Neon. Those dated notes are
+  not a fresh qualification check of this GitHub-only PR. That baseline review
+  found drift the documents did not show: the live service overrides
+  `render.yaml` (invitations off; 95/95/100 MB limits against a published
+  16/16/25 MB), 108 route guards still accept Experimental, live-provider
+  qualification last ran in September and hosted qualification never has. An
+  existence audit traces every capability from registry to route, interface,
+  tests and live probe, and the owner's prototype architecture is mapped against
+  what exists. The plan is not evidence: no gate changes until its task passes
+  for the exact candidate.
+- **Three workspace views join the 0.0.1 scope (Phase P).** A security posture
+  on the Overview, one findings inbox across repositories (Uranus and Quasar,
+  with In progress, Accepted until, Fixed, Not a problem and Regressed states,
+  a suggested owner from `CODEOWNERS`, and a per-finding timeline), and a
+  read-only board of pull requests and their merge gates. They read only the
+  records the product already keeps and the GitHub readers already verified,
+  start Unavailable, and are shown only once Supported. Scheduled audits, email,
+  integrations, API tokens and posting checks to GitHub stay after the beta.
 
 ### Uranus 2.4: the grade never says less than the findings do
 

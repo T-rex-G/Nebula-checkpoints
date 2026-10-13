@@ -24,16 +24,16 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
 
 ## Provider and feature limits
 
-- GitHub is the complete intended golden path. GitLab and Gitea expose narrower,
-  registry-qualified supported subsets; complete provider parity is not claimed.
-- GitLab and Gitea installations with a provider URL path prefix are unavailable
-  for this cohort.
+- GitHub is the only supported repository provider and the only provider in
+  golden qualification. Retired-provider connections and live jobs are removed.
+- Existing retired-provider credentials must be revoked manually in the original
+  provider settings; removing a local connection does not revoke a remote token.
 - Verified live events are GitHub-only for this cohort.
 - Optional YARA scanning is unavailable unless it is explicitly configured and
   qualifies against the exact candidate. Its absence is not represented as a
   completed scan.
 - One short-lived signed activation authorizes one exact selected job set and
-  the hashed identities of its GitHub/GitLab/Gitea or Render/Neon targets. It
+  the hashed identities of its GitHub or Render/Neon targets. It
   cannot be reused for a different target or a different job selection, and it
   cannot be presented twice: the approval identifier is spent on first use.
 - The spend ledger is a CI cache rather than an external store. Deleting it, or
@@ -49,12 +49,13 @@ cannot conceal a failed gate, failed cleanup, or known critical/high defect.
 - Only one upload may run at a time.
 - At most 10 live clients and two clients per repository are allowed; hosted
   qualification may lower these limits.
-- GitHub creation/deletion, global search, and notifications are experimental
+- GitHub creation/deletion and notifications are experimental
   with deterministic coverage. Existing invitation repository scopes remain
   mandatory. Creation is personal-namespace only; deletion requires fresh
   authorization and provider administrator/deletion permissions. Notifications
   require a compatible personal connection and return up to 30 recent threads;
-  code search returns up to 25 matches. Other-provider availability is unchanged.
+  code search returns up to 25 matches. Search is Supported in the registry;
+  that label does not prove fresh live qualification for this candidate.
 
 Any critical/high defect, capability-label mismatch, unsafe or unverified
 mutation, credential/session exposure, cleanup failure, restore failure, or

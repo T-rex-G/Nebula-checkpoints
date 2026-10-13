@@ -88,20 +88,14 @@ const OAUTH = token(`gh${'o'}_`);
   assert.strictEqual(odd.rating, null);
   const gitea = posture.credentialPosture({ provider: 'gitea', now: NOW });
   assert.strictEqual(gitea.rating, null);
-  assert.match(gitea.detail, /Gitea/);
+  assert.match(gitea.detail, /unsupported/);
 }
 
-/* GitLab reports its own scopes and expiry. */
-{
-  const api = posture.credentialPosture({ provider: 'gitlab', gitlabSelf: { scopes: ['api'], expires_at: '2026-11-01', active: true }, now: NOW });
-  assert.strictEqual(api.rating, 0.55);
-  assert.match(api.detail, /api scope: full API access/);
-  const read = posture.credentialPosture({ provider: 'gitlab', gitlabSelf: { scopes: ['read_api', 'read_repository'], expires_at: '2026-11-01' }, now: NOW });
-  assert.strictEqual(read.rating, 0.85);
-  const revoked = posture.credentialPosture({ provider: 'gitlab', gitlabSelf: { scopes: ['read_api'], revoked: true, expires_at: '2026-11-01' }, now: NOW });
-  assert.strictEqual(revoked.rating, 0);
-  const silent = posture.credentialPosture({ provider: 'gitlab', gitlabSelf: null, now: NOW });
-  assert.strictEqual(silent.rating, null, 'an OAuth session that cannot read its own token is unmeasured');
+/* Retired credential scopes never contribute a score. */
+for (const provider of ['gitlab', 'gitea']) {
+  const retired = posture.credentialPosture({ provider, token: FINE, gitlabSelf: { scopes: ['read_api'], active: true }, now: NOW });
+  assert.strictEqual(retired.rating, null);
+  assert.deepStrictEqual(retired.scopes, []);
 }
 
 /* Nothing the browser receives carries any part of the credential. */
@@ -158,7 +152,6 @@ const OAUTH = token(`gh${'o'}_`);
       calls.push(['gh', apiPath, opts && opts.raw]);
       return { ok: true, headers: { get: name => headers.get(name) || null }, body: { cancel: async () => { calls.push(['cancel']); } } };
     },
-    glFetch: async () => { throw new Error('not used'); },
     dbReady: async () => true,
     pool: () => ({
       query: async (sql, params) => {
@@ -179,6 +172,11 @@ const OAUTH = token(`gh${'o'}_`);
     maintenance: false,
     hostedAlpha: true
   };
+  for (const provider of ['gitlab', 'gitea']) {
+    await assert.rejects(posture.createPostureReader(deps).read({ provider, token: CLASSIC }),
+      error => error.code === 'PROVIDER_ACCOUNT_INVALID');
+  }
+  assert.strictEqual(calls.length, 0, 'retired accounts cannot contact a provider or read stored workspace data');
   const read = await posture.createPostureReader(deps).read(account);
   assert.strictEqual(read.credential.kind, 'classic');
   assert.deepStrictEqual(read.credential.scopes, ['repo', 'workflow']);

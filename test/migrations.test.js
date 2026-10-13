@@ -6,7 +6,7 @@ const path = require('path');
 const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
 
 const projectMigrations = loadMigrations(path.join(__dirname, '..', 'db', 'migrations'));
-assert.strictEqual(projectMigrations.at(-1).id, '030_code_audit_triage');
+assert.strictEqual(projectMigrations.at(-1).id, '032_code_audit_analysis_coverage');
 assert.strictEqual(new Set(projectMigrations.map(item => item.id)).size, projectMigrations.length);
 
 

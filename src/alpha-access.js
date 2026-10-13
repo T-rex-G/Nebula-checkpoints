@@ -127,15 +127,9 @@ function readScopeFields(input) {
   }
 }
 
-function canonicalRepositoryScope(input) {
-  const fields = readScopeFields(input);
-  const provider = fields.provider.trim().toLowerCase();
-  if (!['github', 'gitlab', 'gitea'].includes(provider)) {
-    throw invalidScope('Repository provider is invalid');
-  }
-
-  const owner = fields.owner.trim().toLowerCase();
-  const repo = fields.repo.trim().toLowerCase();
+function normalizeRepositoryParts(ownerInput, repoInput) {
+  const owner = ownerInput.trim().toLowerCase();
+  const repo = repoInput.trim().toLowerCase();
   if (
     !REPO_PART_RX.test(owner)
     || !REPO_PART_RX.test(repo)
@@ -147,6 +141,18 @@ function canonicalRepositoryScope(input) {
     throw invalidScope('Repository owner or name is invalid');
   }
 
+  return { owner, repo };
+}
+
+function canonicalRepositoryScope(input) {
+  const fields = readScopeFields(input);
+  const provider = fields.provider.trim().toLowerCase();
+  if (!['github'].includes(provider)) {
+    throw invalidScope('Repository provider is invalid');
+  }
+
+  const { owner, repo } = normalizeRepositoryParts(fields.owner, fields.repo);
+
   return `${provider}:${normalizeAuthority(provider, fields.authority)}/${owner}/${repo}`;
 }
 
@@ -154,7 +160,7 @@ function parseRepositoryScope(scope) {
   if (typeof scope !== 'string') {
     throw invalidScope('Repository scope must be a string');
   }
-  const match = /^(github|gitlab|gitea):([^/]+)\/([^/]+)\/([^/]+)$/i
+  const match = /^(github):([^/]+)\/([^/]+)\/([^/]+)$/i
     .exec(scope.trim());
   if (!match) {
     throw invalidScope('Repository scope is invalid');
@@ -166,7 +172,7 @@ function parseRepositoryScope(scope) {
     owner: match[3],
     repo: match[4]
   });
-  const canonicalMatch = /^(github|gitlab|gitea):([^/]+)\/([^/]+)\/([^/]+)$/
+  const canonicalMatch = /^(github):([^/]+)\/([^/]+)\/([^/]+)$/
     .exec(canonical);
   return {
     provider: canonicalMatch[1],
@@ -175,6 +181,23 @@ function parseRepositoryScope(scope) {
     repo: canonicalMatch[4],
     canonical
   };
+}
+
+/*
+ * Read-only compatibility for grants stored before provider retirement. Validate
+ * every entry, but a retired grant can never match a live repository. This is
+ * deliberately separate from the parser used to create new invitations.
+ */
+function parseStoredRepositoryScope(scope) {
+  const retired = typeof scope === 'string'
+    ? /^(?:gitlab|gitea):([^/]+)\/([^/]+)\/([^/]+)$/i.exec(scope.trim())
+    : null;
+  if (retired) {
+    parseAuthority(retired[1]);
+    normalizeRepositoryParts(retired[2], retired[3]);
+    return null;
+  }
+  return parseRepositoryScope(scope);
 }
 
 /*
@@ -195,9 +218,11 @@ function repositoryAllowed(allowedScopes, target) {
   if (!Array.isArray(allowedScopes)) return false;
 
   try {
-    const canonicalScopes = new Set(
-      allowedScopes.map(scope => parseRepositoryScope(scope).canonical)
-    );
+    const canonicalScopes = new Set();
+    for (const scope of allowedScopes) {
+      const stored = parseStoredRepositoryScope(scope);
+      if (stored !== null) canonicalScopes.add(stored.canonical);
+    }
     return canonicalScopes.has(canonical);
   } catch (error) {
     if (error instanceof AlphaAccessError) return false;
@@ -211,6 +236,7 @@ module.exports = Object.freeze({
   digestInviteSecret,
   canonicalRepositoryScope,
   parseRepositoryScope,
+  parseStoredRepositoryScope,
   repositoryAllowed,
   inviteUnbound
 });

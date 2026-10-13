@@ -4,18 +4,23 @@ This change addresses the 2 October 2026 product review on top of PR #72.
 Its scope is source remediation and repeatable qualification. Merge, production
 deployment, cohort admission and independent release approval remain separate.
 
+**7 October scope update:** The current successor supports GitHub only in the
+product and golden qualification. Retired-provider implementation details below
+record the PR #72 remediation history; they do not advertise an active
+integration or require new retired-provider qualification.
+
 ## Findings and evidence
 
 | Finding | Change | Repeatable evidence / remaining requirement |
 | --- | --- | --- |
 | C1: idle PostgreSQL disconnect terminates the process | Pool and checked-out connection errors invalidate readiness without an unhandled event; reconnect generation guards prevent a stale healthy state | `npm run test:database-resilience`: actual backend termination, readiness drain/recovery, live HTTP process, checked-out and active-query failure |
 | C2: restore runner expects migration 015 | Runner and signed-record validation derive the latest migration from the candidate inventory | Restore contract regressions reject 015 for this candidate. `npm run test:restore-integration` runs real dump, encrypted backup, verify and restore on PostgreSQL 17, then verifies restored data |
-| C3: missing current live/manual qualification | Historical runs are labelled as history; current candidate evidence is kept separate | Fresh disposable GitHub, GitLab, Gitea, hosted restore, independent witness and manual accessibility evidence remain required |
+| C3: missing current live/manual qualification | Historical runs are labelled as history; current candidate evidence is kept separate | Fresh disposable GitHub, hosted restore, independent witness and manual accessibility evidence remain required |
 | W1: availability presented as verification | Workspace pulse separates Supported / Experimental / Unavailable from provider evidence; missing evidence earns no verification credit | Workspace pulse unit and browser tests cover unknown, partial and complete evidence |
 | W2: copied local cookie survives logout indefinitely | Signed absolute lifetime plus bounded revocation store; restarting the single-process local profile invalidates old cookies | Local session tests reproduce saved-cookie replay, expiry, restart, non-sliding lifetime and full revocation capacity |
 | W3: provider DNS validation is separated from connection | HTTPS provider transport pins each socket to validated public DNS answers and preserves hostname verification; redirects are refused | Real TLS transport tests cover binary writes, DNS rebinding, private/transition addresses, TLS failure, redirects, body limits and stalled bodies. Real HTTP route tests prove failed ZIP/raw streams and client cancellations leave the server alive |
 | W4: direct callers can choose forwarded rate-limit identity | Proxy trust defaults off; explicit verified IP/CIDR allowlist replaces hop-count trust | Real-server rotating-XFF flood plus trusted/untrusted proxy-chain tests |
-| W5: main lacks enforced review/check rules | Reviewable `config/github-main-ruleset.json` requires PR approval, last-push review, resolved threads and the verify/automated/integration checks, and blocks force push/deletion | **Proposed, not installed.** An administrator must apply and read back the ruleset after confirming actual check names and access. Protected settings returned HTTP 403 to the connected token |
+| W5: main lacks enforced review/check rules | Reviewable `config/github-main-ruleset.json` requires PR approval, last-push review, resolved threads and the configured required CI checks, and blocks force push/deletion | **Proposed, not installed.** An administrator must apply and read back the ruleset after confirming actual check names and access. Protected settings returned HTTP 403 to the connected token |
 | W6: New file writes before promised preview | Creation stages locally; commit review names repository, branch, expected head, message and actual diff. Changed scope or staged content invalidates review | Browser cancellation/confirmation, existing-file and unreadable-original refusal, and pending-preview invalidation; server concurrency checks remain authoritative |
 | W7: onboarding overstates limits and token safety | Show runtime upload limits before connection; selected-repository fine-grained token guidance and configured GitHub App path; accurate HttpOnly browser-cookie copy | Connection-screen browser test checks actual runtime ceilings and permission guidance |
 | W8: current documentation contradicts registry and workflow | Current capability counts are generated; availability and evidence use separate columns; dispatch instructions describe the run-minted envelope accurately | `npm run docs:check`, continuity generation and documentation contracts; historical archives remain historical |

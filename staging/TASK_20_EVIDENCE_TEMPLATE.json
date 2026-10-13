@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.2.0",
-  "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+  "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
   "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
   "generatedAt": "2026-07-23T00:00:00.000Z",
   "instructions": "INVALID PLACEHOLDER: the all-zero subject is rejected by the verifier. Regenerate this plan for the exact non-zero release-candidate SHA-256. Pass and fail records require verified non-secret artifact files under staging/evidence/. Never include credentials, cookies, secret URLs or provider response bodies.",
   "records": [
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "source.full-suite",
       "status": "blocked",
@@ -20,7 +20,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "runtime.npm-ci",
       "status": "blocked",
@@ -33,7 +33,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "runtime.audit",
       "status": "blocked",
@@ -46,7 +46,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "runtime.express-suite",
       "status": "blocked",
@@ -59,7 +59,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "runtime.package-release",
       "status": "blocked",
@@ -72,7 +72,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "browser.desktop",
       "status": "blocked",
@@ -85,7 +85,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "browser.mobile",
       "status": "blocked",
@@ -98,7 +98,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "browser.keyboard-a11y",
       "status": "blocked",
@@ -111,7 +111,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "browser.offline-boundary",
       "status": "blocked",
@@ -124,7 +124,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "neon.migration-rehearsal",
       "status": "blocked",
@@ -137,7 +137,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "neon.concurrent-governance",
       "status": "blocked",
@@ -150,7 +150,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "neon.outbox-workers",
       "status": "blocked",
@@ -163,7 +163,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "provider.github-pat-oauth",
       "status": "blocked",
@@ -176,33 +176,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
-      "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
-      "checkId": "provider.gitlab",
-      "status": "blocked",
-      "startedAt": "2026-07-23T00:00:00.000Z",
-      "completedAt": "2026-07-23T00:00:00.000Z",
-      "environmentFingerprint": "51ca735ca3e1fce17625749457fd2999cae1fcc716783f884273f48ce7a65974",
-      "commandHash": "c0ff42140e124bc48b7f9233f7459f55861dc812f2d657bb3525705257290d60",
-      "artifacts": [],
-      "reason": "Template placeholder only. Regenerate with NV_STAGING_SUBJECT_SHA256 set to the exact non-zero release-candidate SHA-256 before collecting evidence."
-    },
-    {
-      "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
-      "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
-      "checkId": "provider.gitea",
-      "status": "blocked",
-      "startedAt": "2026-07-23T00:00:00.000Z",
-      "completedAt": "2026-07-23T00:00:00.000Z",
-      "environmentFingerprint": "51ca735ca3e1fce17625749457fd2999cae1fcc716783f884273f48ce7a65974",
-      "commandHash": "87c03043dc8bc22b7e46e9cba385e88e8e2d7e6425ed83d9b2c6a74d3ec7f582",
-      "artifacts": [],
-      "reason": "Template placeholder only. Regenerate with NV_STAGING_SUBJECT_SHA256 set to the exact non-zero release-candidate SHA-256 before collecting evidence."
-    },
-    {
-      "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "provider.github-app",
       "status": "blocked",
@@ -215,7 +189,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "destructive.batch-and-recovery",
       "status": "blocked",
@@ -228,7 +202,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "destructive.receive-pack-lfs",
       "status": "blocked",
@@ -241,7 +215,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "delivery.ssrf-rebinding",
       "status": "blocked",
@@ -254,7 +228,7 @@
     },
     {
       "schemaVersion": "1.2.0",
-      "catalogHash": "c1e28f969ec7daec65c899cdf1a80def84e6d6041b832274db41c1c40f26dca4",
+      "catalogHash": "bdc00e6f0405b9c9ab90ccd85f940ef810e8c5b4ac74d84c97867bba51c0b136",
       "subjectHash": "0000000000000000000000000000000000000000000000000000000000000000",
       "checkId": "delivery.retry-restart-deadletter",
       "status": "blocked",

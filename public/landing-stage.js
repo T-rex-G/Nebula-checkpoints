@@ -499,7 +499,8 @@
   const deskShape = () => (desk && desk.matches && presetName === 'column' ? DESK_COLUMN : {});
   // The canvas owns an unobstructed box and handles pointer capture itself.
   const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, Object.assign({
-    preset: presetName
+    preset: presetName,
+    onRest: () => sync()
   }, deskShape()));
   if (scene && desk && desk.addEventListener) desk.addEventListener('change', () => scene.setShape(presetName, deskShape()));
   if (!scene) {
@@ -517,6 +518,12 @@
   let revealed = false;
 
   /*
+   * A device that could not keep the scene moving has had it rested for the
+   * visit (vortex.js says why), and the page does not ask it to start again.
+   */
+  const resting = () => Boolean(scene.budget().resting);
+
+  /*
    * The same eligibility the video honoured, for the same reasons: the
    * interface's own motion switch, the system preference, a metered
    * connection, a hidden tab, and whether this screen is even on.
@@ -524,7 +531,7 @@
   const eligible = () => root.dataset.motion !== 'off'
     && !(reducedMotion && reducedMotion.matches)
     && !(connection && connection.saveData)
-    && !document.hidden && intersecting
+    && !document.hidden && intersecting && !resting()
     && (!gate || (!gate.hidden && gate.classList.contains('active')));
 
   /*
@@ -539,8 +546,10 @@
   }
 
   function sync() {
-    if (art) art.classList.toggle('is-static', !eligible());
-    if (eligible()) {
+    const moving = eligible();
+    canvas.dataset.sceneState = moving ? 'running' : resting() ? 'resting' : 'still';
+    if (art) art.classList.toggle('is-static', !moving);
+    if (moving) {
       scene.start();
       reveal();
       return;
@@ -549,9 +558,10 @@
     /*
      * Still, not gone. A reader who asked for less motion gets the vortex as
      * a held frame -- the picture without the movement -- which is what the
-     * poster used to be, drawn rather than downloaded.
+     * poster used to be, drawn rather than downloaded. A rested scene already
+     * holds its last frame, and drawing it again is the cost it rested from.
      */
-    scene.renderStill();
+    if (!resting()) scene.renderStill();
     reveal();
   }
 

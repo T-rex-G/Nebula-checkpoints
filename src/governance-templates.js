@@ -303,7 +303,7 @@ const PUBLIC_TEMPLATES = DEFINITIONS.map(definition => {
     name: definition.name,
     description: definition.description,
     approvalPolicy: normalizeApprovalPolicy(definition.approvalPolicy),
-    compatibility: { policySchemaVersions: [1], providers: ['github', 'gitlab', 'gitea'], generatorVersion: 1 },
+    compatibility: { policySchemaVersions: [1], providers: ['github'], generatorVersion: 1 },
     templateHash
   });
 });

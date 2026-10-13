@@ -449,7 +449,7 @@ em{color:var(--teal);font-style:normal}
 [data-theme="light"] body:has(#page-repos.active) #lightWaves{display:none}
 [data-theme="light"] body:has(#page-alpha-access.active) #lightWaves{display:none}
 @media(min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #lightWaves{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active, #page-findings.active) #lightWaves{
     inset:23px;width:calc(100% - 46px);height:calc(100% - 46px);border-radius:23px}
 }
 /*
@@ -507,7 +507,7 @@ em{color:var(--teal);font-style:normal}
 
 /* ---------------- pages ---------------- */
 .page{display:none;min-height:100dvh}
-#page-overview, #page-repos, #page-work, #page-site{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
+#page-overview, #page-repos, #page-work, #page-site, #page-findings{padding-top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 16px)}
 .page.active{display:block;animation:pageIn .24s var(--ease) both}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 
@@ -1772,11 +1772,6 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 @media (max-width:900px){
   .toast-stack{top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 18px);bottom:auto;
     left:16px;right:16px;max-width:none;align-items:center}
-  /* Opaque, because it now sits over content rather than over the page's own
-     ground. A blurred panel is only legible while what passes under it is
-     quiet, and a message that cannot be read is not a message. */
-  .toast{width:100%;max-width:420px;background:var(--shellSolid);
-    backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 /* While the navigation drawer is out, a message waits under its scrim instead of lying across the drawer's entries. */
 @media (max-width:1139px){
@@ -1788,6 +1783,22 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
   animation:toastIn .3s var(--ease) both}
 [data-theme="light"] .toast{background:rgba(255,255,255,0.5)}
 @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@keyframes toastDrop{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:none}}
+/*
+ * Opaque on a phone, because there it sits over content rather than over the
+ * page's own ground. A blurred panel is only legible while what passes under
+ * it is quiet, and a message that cannot be read is not a message. This comes
+ * after the panel above and carries the theme selector too: placed before it,
+ * at the same weight, it lost to it, and every phone toast stayed see-through
+ * with the header showing behind its text. It drops from the top it now lives
+ * at instead of sliding in from a right edge it no longer touches.
+ */
+@media (max-width:900px){
+  .toast,[data-theme="light"] .toast{width:100%;max-width:420px;background:var(--shellSolid);
+    backdrop-filter:none;-webkit-backdrop-filter:none;animation-name:toastDrop}
+}
+[data-motion="off"] .toast{animation:none}
+@media (prefers-reduced-motion:reduce){:root .toast{animation:none}}
 .toast.ok{border-color:rgba(52,211,153,0.4)}
 .toast.err{border-color:rgba(244,63,110,0.45)}
 
@@ -1826,7 +1837,7 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
    * Only where the mark is what it holds: the workbench bar uses this class
    * for the repository name and still needs to be able to shrink.
    */
-  #page-overview .topbar-brand,#page-repos .topbar-brand,#page-site .topbar-brand{flex:0 0 auto;min-width:44px}
+  #page-overview .topbar-brand,#page-repos .topbar-brand,#page-site .topbar-brand,#page-findings .topbar-brand{flex:0 0 auto;min-width:44px}
   /* Four gaps between five controls is 28px of a 304px bar. */
   .topbar{gap:6px;padding:8px 8px}
   .topbar-actions{gap:4px}
@@ -2135,6 +2146,18 @@ html.vt-reveal::view-transition-new(root){z-index:2}
 .acct-meta{flex:1;min-width:0}
 .acct-login{font-weight:600;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acct-host{font-size:.68rem;color:var(--muted);display:flex;align-items:center;gap:5px;margin-top:2px}
+/* The login keeps its room: on a narrow sheet the actions move under it instead of squeezing it. */
+.acct-row{flex-wrap:wrap;row-gap:8px}
+.acct-meta{flex:1 1 150px}
+.acct-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.acct-actions [data-remove]{margin-left:0}
+.acct-avatar-empty{display:block;flex:0 0 auto;background:var(--glass-border)}
+/* A retired account: listed only to be removed, quieter than a live one, never loading its old avatar. */
+.acct-row.retired{border-style:dashed;background:transparent}
+.acct-row.retired .acct-login{color:var(--muted);font-weight:500}
+.acct-retired-mark{display:block;flex:0 0 auto;border-radius:50%;border:1px dashed var(--glass-border)}
+.acct-lead{margin:0 0 12px}
+.revocation-steps{margin:8px 0 12px;padding-left:18px}
 
 
 /* v4.1.1 — the account switcher can never be invisible again */
@@ -3295,12 +3318,13 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media (prefers-reduced-motion:reduce){.ov-core::after{transition:none}}
 [data-motion="off"] .ov-core::after{transition:none}
 
-.ov-core-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+/* The authority is named whole: on a narrow card the state moves under the title rather than losing its end. */
+.ov-core-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;
   font-family:var(--font-display);font-size:.64rem;font-weight:600;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted)}
-.ov-core-state{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.ov-core-state{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
 .ov-core-dot{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.5;flex:none}
-.ov-core-scope{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ov-core-scope{min-width:0;overflow-wrap:anywhere}
 .ov-live{display:inline-flex;align-items:center;gap:6px;color:var(--teal);letter-spacing:.1em}
 .ov-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
   box-shadow:0 0 0 0 currentColor;animation:ov-pulse 2.4s var(--ease) infinite}
@@ -3477,6 +3501,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
         animation-timeline:view();
         animation-range:entry 5% entry 40%;
         animation-range:entry 0px entry 200px;
+        /*
+         * And never more than the card's own entry. A card shorter than
+         * 200px that is also the last on the page -- the pull-request board
+         * when it is empty or could not read -- has less than 200px of
+         * scroll left under it, and stopped short at 0.94 opacity with its
+         * offset still applied. 100% of entry is reached by every card; an
+         * engine that rejects min() keeps the line above.
+         */
+        animation-range:entry 0px entry min(200px, 100%);
       }
       /* The hero is already on screen at rest, so it has no arrival to play --
          animating it would hide the first thing the reader came for. */
@@ -3740,7 +3773,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  */
 #shellPlate{display:none}
 @media (min-width:1140px){
-  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active) #shellPlate{
+  body:has(#page-overview.active, #page-repos.active, #page-work.active, #page-site.active, #page-findings.active) #shellPlate{
     display:block;position:fixed;inset:22px;z-index:-1;pointer-events:none;
     border-radius:24px;border:1px solid var(--sb);
     background:var(--shellArt),var(--shellSolid);
@@ -3791,7 +3824,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * The workbench is already built this way -- a full-height grid that scrolls
    * its own panes -- which is why it never showed this and the other two did.
    */
-  #page-overview .container,#page-repos .container,#page-site .container{
+  #page-overview .container,#page-repos .container,#page-site .container,#page-findings .container{
     position:fixed;top:calc(23px + var(--tbh, 62px));bottom:23px;
     left:var(--shell-inset);right:23px;
     max-width:none;margin:0;padding:24px 26px 44px;
@@ -3813,8 +3846,8 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
     background:var(--shellSolid);border-bottom:1px solid var(--sb)}
   /* The pages no longer reserve room for a bar that is now outside their
      scroll, and the document itself has nothing left to scroll. */
-  #page-overview,#page-repos,#page-site{padding-top:0}
-  body:has(#page-overview.active, #page-repos.active, #page-site.active){overflow:hidden}
+  #page-overview,#page-repos,#page-site,#page-findings{padding-top:0}
+  body:has(#page-overview.active, #page-repos.active, #page-site.active, #page-findings.active){overflow:hidden}
   /* The workbench is a full-height grid, so it keeps its own padding and takes
      the inset as a margin; the right margin is the plate's, not the page's. */
   /*
@@ -3839,7 +3872,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    * to see through it. Below this width the bar floats over scrolling content
    * and keeps its glass.
    */
-  #page-overview .topbar,#page-repos .topbar,#page-work .topbar,#page-site .topbar{
+  #page-overview .topbar,#page-repos .topbar,#page-work .topbar,#page-site .topbar,#page-findings .topbar{
     left:var(--shell-inset);right:23px;top:23px;border-radius:0 23px 0 0;
     background:transparent;border-top:0;border-left:0;border-right:0;
     border-bottom:1px solid var(--sb);
@@ -4019,6 +4052,15 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
   .nv-rail-group{margin-bottom:-8px}
   .nv-rail-foot{padding-top:10px;gap:8px}
 }
+/* A 720 or 768 frame holds the workspace's three entries and the six systems
+   only on a tighter rhythm still; each entry stays a 44-pixel target. */
+@media (min-width:1140px) and (max-height:780px){
+  .nv-rail{gap:10px;padding-top:16px;padding-bottom:14px}
+  .nv-rail-nav{gap:2px}
+  .nv-rail-item{padding-top:6px;padding-bottom:6px;min-height:44px}
+  .nv-rail-group{margin-top:2px;margin-bottom:-4px}
+  .nv-rail-foot{padding-top:8px;gap:6px}
+}
 .nv-rail-state,.nv-rail-user{display:flex;gap:9px;align-items:center;margin:0}
 .nv-rail-state-t{display:block;font-size:.76rem;font-weight:600;color:var(--fg2)}
 .nv-rail-dot{width:7px;height:7px;border-radius:50%;background:var(--mint);flex:none;
@@ -4044,7 +4086,7 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
    */
   #page-overview .topbar-brand .hide-sm,
   #page-repos .topbar-brand .hide-sm,
-  #page-site .topbar-brand .hide-sm{display:none}
+  #page-site .topbar-brand .hide-sm,#page-findings .topbar-brand .hide-sm{display:none}
   #page-repos .page-head-tools{flex-wrap:nowrap}
 }
 
@@ -4196,6 +4238,240 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
  * grid cell sized for a number. Commit subjects run long; in a 330px column
  * every row wraps to three lines and the card becomes a wall.
  */
+/* ---- security posture ---------------------------------------------------
+ * What the audits, exposure scans and governance hold across the workspace,
+ * between the trust cards and the feed. It takes the container's full width,
+ * like the feed, because a weekly chart and a ranked list side by side need
+ * more than a grid cell sized for one figure.
+ *
+ * Opened and fixed are two series of one hue at two lightness steps, run
+ * through the palette validator per preset and theme against the card
+ * surface. Obsidian stays achromatic, as every chart in that preset does, and
+ * separates them by lightness alone. Neither is ever the only cue: the legend
+ * names them, each week's tooltip states both, and the table beneath has them
+ * as numbers.
+ */
+:root, [data-theme="dark"]{ --pp-opened:#9A77F7; --pp-fixed:#6D28D9; }
+[data-theme="light"]{ --pp-opened:#5B21B6; --pp-fixed:#8B5CF6; }
+[data-design="obsidian"]{ --pp-opened:#EDEDEF; --pp-fixed:#72767E; }
+[data-design="obsidian"][data-theme="light"]{ --pp-opened:#1C1917; --pp-fixed:#A8A29E; }
+
+.wp-posture-section{margin-top:16px}
+.wp-card-posture{padding:18px 18px 12px}
+.pp-head{flex-wrap:wrap}
+.pp-scope{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.05em;color:var(--fg3)}
+.pp-week{margin:12px 0 0;font-family:var(--font-display);font-weight:700;font-size:1.05rem;
+  line-height:1.35;color:var(--fg);letter-spacing:-.01em;overflow-wrap:anywhere}
+
+.pp-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.pp-tile{min-width:0;padding:12px 12px 11px;border:1px solid var(--cb);border-radius:12px}
+.pp-tile-label{margin:0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg3)}
+.pp-tile-figure{margin:6px 0 0;font-family:var(--font-display);font-weight:700;font-size:1.55rem;
+  line-height:1.05;color:var(--fg);letter-spacing:-.02em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pp-tile-detail{margin:6px 0 0;font-size:12px;line-height:1.45;color:var(--fg2);overflow-wrap:anywhere}
+.pp-sevwords{display:block;margin-top:6px}
+
+/* A bar split by severity: 2px of surface between segments, 4px ends. */
+.pp-sevbar{display:flex;gap:2px;width:100%;height:6px;border-radius:4px;overflow:hidden;background:var(--wp-track)}
+.pp-sevbar-part{display:block;min-width:4px;height:100%;border-radius:2px}
+.pp-sev-critical{background:var(--sev-critical)}
+.pp-sev-serious{background:var(--sev-serious)}
+.pp-sev-warning{background:var(--sev-warning)}
+
+.pp-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:22px;margin-top:18px;
+  padding-top:16px;border-top:1px solid var(--hair)}
+@media (max-width:900px){ .pp-grid{grid-template-columns:minmax(0,1fr)} }
+.pp-panel{min-width:0}
+.pp-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pp-panel-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:.92rem;color:var(--fg);letter-spacing:-.01em}
+.pp-sub-title{margin:16px 0 0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--fg3);font-weight:500}
+
+.pp-legend{display:flex;gap:14px;font-size:12px;color:var(--fg2)}
+.pp-legend-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.pp-swatch{width:10px;height:10px;border-radius:3px}
+.pp-swatch-opened{background:var(--pp-opened)}
+.pp-swatch-fixed{background:var(--pp-fixed)}
+
+.pp-plot{position:relative;min-width:0;margin-top:10px}
+.pp-chart{position:relative}
+.pp-chart-svg{display:block;width:100%;height:auto;color:var(--wp-muted);overflow:visible}
+.pp-chart-svg .pp-gridline{stroke:currentColor;stroke-width:1;opacity:.16}
+.pp-chart-svg .pp-axis{stroke:currentColor;stroke-width:1;opacity:.4}
+.pp-chart-svg .pp-tick{fill:var(--fg3);font-family:var(--font-mono);font-size:10px}
+.pp-bar-opened{fill:var(--pp-opened)}
+.pp-bar-fixed{fill:var(--pp-fixed)}
+.pp-hit{fill:transparent;cursor:default}
+.pp-hit.is-hover{fill:currentColor;fill-opacity:.07}
+.pp-tip{position:absolute;top:0;transform:translateX(-50%);padding:5px 9px;border-radius:8px;
+  border:1px solid var(--hair);background:var(--shellSolid);color:var(--fg);font-size:12px;
+  white-space:nowrap;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+
+.pp-repos{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:9px}
+.pp-repo{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 10px}
+.pp-repo .pp-sevbar{grid-column:1 / -1}
+.pp-repo-name,.pp-chip{appearance:none;border:0;background:none;padding:0;color:var(--fg);font:inherit;
+  font-size:13px;text-align:left;cursor:pointer;min-width:0;overflow-wrap:anywhere}
+.pp-repo-name{min-height:28px}
+.pp-repo-name:hover,.pp-chip:hover{text-decoration:underline;text-underline-offset:3px}
+.pp-repo-name:focus-visible,.pp-chip:focus-visible{outline:2px solid var(--focus,var(--fg));outline-offset:2px;border-radius:4px}
+.pp-repo-count{font-family:var(--font-mono);font-size:12px;color:var(--fg2);font-variant-numeric:tabular-nums}
+
+.pp-cats{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:7px}
+.pp-cat{display:grid;grid-template-columns:minmax(0,9.5em) minmax(0,1fr) auto;align-items:center;gap:10px;font-size:12.5px}
+.pp-cat-name{color:var(--fg2);min-width:0;overflow-wrap:anywhere}
+.pp-cat-track{display:block;height:6px;border-radius:4px;background:var(--wp-track);overflow:hidden}
+.pp-cat-fill{display:block;height:100%;border-radius:4px;background:var(--pp-opened)}
+.pp-cat-count{font-family:var(--font-mono);font-size:12px;color:var(--fg2);font-variant-numeric:tabular-nums}
+
+.pp-unread{margin-top:16px;padding-top:12px;border-top:1px solid var(--hair)}
+.pp-unread-label{margin:0;font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--fg3)}
+.pp-unread-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pp-chip{max-width:100%;min-height:32px;padding:6px 12px;line-height:1.3;border:1px solid var(--cb);border-radius:16px;font-size:12.5px;color:var(--fg2)}
+.pp-chip:hover{color:var(--fg)}
+.pp-chip-more{display:inline-flex;align-items:center;min-height:32px;font-size:12.5px;color:var(--fg3)}
+
+.pp-empty{margin-top:12px}
+.pp-empty-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:.98rem;color:var(--fg)}
+.pp-empty-text{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--fg2);max-width:62ch}
+
+@media (max-width:560px){
+  .wp-card-posture{padding:16px 14px 10px}
+  .pp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pp-tile-figure{font-size:1.3rem}
+  /* On a phone the name keeps its own line rather than giving up letters to the bar. */
+  .pp-cat{grid-template-columns:minmax(0,1fr) auto;row-gap:5px}
+  .pp-cat-track{grid-column:1 / -1;grid-row:2}
+}
+
+/* ---- findings inbox ------------------------------------------------------
+ * One list to work through. Severity is a word with its colour beside it,
+ * never the colour alone; the state is a chip in ink; a row's record opens in
+ * place. The filter bar wraps rather than scrolls, and every row stays inside
+ * the page at 320px.
+ */
+.fi-shell{display:grid;gap:14px;min-width:0}
+.fi-filters{display:grid;gap:10px}
+.fi-views,.fi-severities{display:flex;flex-wrap:wrap;gap:8px}
+.fi-filter{appearance:none;min-height:34px;padding:0 13px;border:1px solid var(--cb);border-radius:999px;background:transparent;
+  color:var(--fg2);font:inherit;font-size:12.5px;cursor:pointer;font-variant-numeric:tabular-nums}
+.fi-filter:hover{color:var(--fg)}
+.fi-filter[aria-pressed="true"]{color:var(--fg);border-color:var(--fg2);background:var(--wp-track)}
+.fi-filter:focus-visible{outline:2px solid var(--focus,var(--fg));outline-offset:2px}
+.fi-selects{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+/* background-color, not the shorthand: the shared select chevron is a background image. */
+.fi-selects select,.fi-selects input,.fi-bulk select{min-width:0;min-height:38px;padding:0 10px;border:1px solid var(--cb);border-radius:10px;
+  background-color:var(--shellSolid);backdrop-filter:none;color:var(--fg);font:inherit;font-size:13px}
+.fi-selects select,.fi-bulk select{padding-right:32px}
+.fi-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.fi-count{margin:0;font-family:var(--font-mono);font-size:.7rem;letter-spacing:.06em;color:var(--fg3)}
+/* The decision bar stays in reach while the selection grows further down the list. */
+.fi-bulk{display:grid;gap:8px;padding:12px;border:1px solid var(--cb);border-radius:12px;
+  background:linear-gradient(var(--wp-track),var(--wp-track)),var(--shellSolid);
+  position:sticky;top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 12px);z-index:6;box-shadow:0 10px 24px -18px rgba(0,0,0,.6)}
+@media (min-width:1140px){.fi-bulk{top:8px}}
+.fi-bulk[hidden]{display:none}
+.fi-bulk{grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px}
+.fi-bulk-count{margin:0;font-weight:600;color:var(--fg);font-size:13px;white-space:nowrap}
+.fi-bulk-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
+.fi-bulk-form select{width:auto}
+.fi-bulk-disposition{flex:1 1 150px}
+.fi-bulk-reason{flex:2 1 220px}
+.fi-bulk-days{flex:0 1 120px}
+.fi-bulk-form .btn{flex:none}
+.fi-bulk-progress{grid-column:1 / -1;margin:0;font-size:12.5px;color:var(--fg2)}
+.fi-bulk-progress:empty{display:none}
+.fi-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.fi-item{min-width:0;border:1px solid var(--cb);border-radius:12px;padding:10px 12px;border-left:3px solid var(--sev-warning)}
+.fi-item.fi-sev-critical{border-left-color:var(--sev-critical)}
+.fi-item.fi-sev-serious{border-left-color:var(--sev-serious)}
+.fi-item-head{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:start;gap:10px}
+.fi-select,.fi-select-gap{display:block;width:18px;height:18px;margin:3px 0 0}
+.fi-sev{font-family:var(--font-mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fg2);padding-top:4px;white-space:nowrap;min-width:6em}
+.fi-main{min-width:0}
+.fi-title{margin:0;font-weight:600;color:var(--fg);font-size:13.5px;line-height:1.35;overflow-wrap:anywhere}
+.fi-where{margin:3px 0 0;font-family:var(--font-mono);font-size:11.5px;color:var(--fg2);overflow-wrap:anywhere}
+.fi-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.fi-chip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--cb);border-radius:999px;font-size:11.5px;color:var(--fg2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fi-state-regressed,.fi-exploited{color:var(--fg);border-color:var(--sev-critical)}
+.fi-state-new{color:var(--fg);border-color:var(--fg2)}
+.fi-open{min-height:34px}
+.fi-details{margin-top:8px}
+.fi-details>summary{cursor:pointer;font-size:12px;color:var(--fg2);width:max-content;padding:2px 0}
+.fi-details>summary:hover{color:var(--fg)}
+.fi-record{margin-top:6px;padding:8px 0 2px;border-top:1px solid var(--hair)}
+.fi-timeline{list-style:none;margin:0;padding:0;display:grid;gap:5px;font-size:12.5px;color:var(--fg2)}
+.fi-timeline li{display:flex;gap:10px;flex-wrap:wrap}
+.fi-when{font-family:var(--font-mono);font-size:11.5px;color:var(--fg3);min-width:7.5em}
+.fi-fact,.fi-decisions p{margin:6px 0 0;font-size:12.5px;color:var(--fg2);overflow-wrap:anywhere}
+.fi-more{justify-self:center}
+.fi-empty{padding:6px 0}
+.fi-empty-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:1rem;color:var(--fg)}
+.fi-empty-text{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--fg2);max-width:62ch}
+.pp-inbox-link{margin-top:12px}
+@media (max-width:720px){
+  .fi-selects{grid-template-columns:minmax(0,1fr)}
+  .fi-item-head{grid-template-columns:auto minmax(0,1fr) auto}
+  .fi-select,.fi-select-gap{grid-column:1;grid-row:1}
+  .fi-sev{grid-column:2;grid-row:1;padding-top:0}
+  .fi-main{grid-column:1 / -1}
+  .fi-open{grid-column:3;grid-row:1}
+  /* On a phone the form's controls join the bar's own grid: the count and its
+     undo share a row, each choice gets the full width it needs to be read. */
+  .fi-bulk{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:10px}
+  .fi-bulk-form{display:contents}
+  .fi-bulk-form select{width:100%;min-height:36px}
+  .fi-bulk-count{grid-column:1;grid-row:1;align-self:center}
+  .fi-bulk-clear{grid-column:2;grid-row:1;justify-self:end}
+  .fi-bulk-disposition{grid-column:1 / -1;grid-row:2}
+  .fi-bulk-reason{grid-column:1 / -1;grid-row:3}
+  .fi-bulk-days{grid-column:1;grid-row:4}
+  .fi-bulk-apply{grid-column:2;grid-row:4}
+  .fi-bulk-form:has(.fi-bulk-days[hidden]) .fi-bulk-apply{grid-column:1 / -1}
+  .fi-bulk-progress{grid-row:5}
+}
+
+/*
+ * Open pull requests across the workspace. Three columns on a desk, one on a
+ * phone; every card is one button that opens the pull request in its own
+ * repository. Names wrap rather than trail off.
+ */
+.wp-pulls-section{margin-top:16px}
+.wp-card-pulls{padding:18px 18px 14px}
+.pb-head{flex-wrap:wrap}
+.pb-refresh{min-height:32px}
+.pb-sentence{margin:12px 0 0;font-family:var(--font-display);font-weight:700;font-size:1.05rem;
+  line-height:1.35;color:var(--fg);letter-spacing:-.01em;overflow-wrap:anywhere}
+.pb-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.pb-col{min-width:0;display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--cb);border-radius:12px}
+.pb-col-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pb-col-title{margin:0;font-family:var(--font-display);font-weight:700;font-size:.92rem;color:var(--fg);letter-spacing:-.01em}
+.pb-col-count{flex:none;min-width:26px;padding:1px 8px;border:1px solid var(--cb);border-radius:999px;text-align:center;
+  font-family:var(--font-mono);font-size:.72rem;color:var(--fg2);font-variant-numeric:tabular-nums}
+.pb-col-hint{margin:0;font-size:12px;line-height:1.45;color:var(--fg2)}
+.pb-col-empty{margin:2px 0 0;font-size:12.5px;line-height:1.5;color:var(--fg2)}
+.pb-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.pb-item{min-width:0;border:1px solid var(--cb);border-radius:10px}
+.pb-idle{border-style:dashed}
+.pb-open{display:grid;gap:3px;width:100%;min-height:44px;margin:0;padding:10px 12px;border:0;border-radius:10px;
+  background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background .16s var(--ease)}
+.pb-open:hover{background:var(--wp-track)}
+.pb-open:focus-visible{outline:2px solid var(--focus,var(--fg));outline-offset:2px}
+.pb-title{font-weight:600;font-size:13.5px;line-height:1.35;color:var(--fg);overflow-wrap:anywhere}
+.pb-where{font-family:var(--font-mono);font-size:11.5px;color:var(--fg2);overflow-wrap:anywhere}
+.pb-meta{font-size:12px;line-height:1.45;color:var(--fg2);overflow-wrap:anywhere}
+.pb-branch{font-family:var(--font-mono);font-size:11px;color:var(--fg2);overflow-wrap:anywhere}
+.pb-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 10px}
+.pb-chip{display:inline-flex;align-items:center;min-height:22px;max-width:100%;padding:2px 8px;border:1px solid var(--cb);border-radius:999px;
+  font-size:11.5px;line-height:1.3;color:var(--fg2);overflow-wrap:anywhere}
+.pb-chip-idle{color:var(--fg);border-style:dashed;border-color:var(--fg2)}
+.pb-more{align-self:flex-start}
+.pb-notes{list-style:none;margin:12px 0 0;padding:10px 0 0;border-top:1px solid var(--hair);display:grid;gap:4px;
+  font-size:12px;line-height:1.5;color:var(--fg2)}
+@media (max-width:1180px){.pb-columns{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pb-col-draft{grid-column:1 / -1}}
+@media (max-width:720px){.pb-columns{grid-template-columns:minmax(0,1fr)}.pb-col-draft{grid-column:auto}}
+
 .wp-feed-section{margin-top:16px}
 .wp-card-feed{padding:18px 18px 8px}
 .wp-feed-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px}
@@ -6360,9 +6636,9 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-path-route svg{flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .lp-path-route span{min-width:0}
 
-/* The matrix: each provider's mark over its column, a tick only where a live run proved it. */
+/* The GitHub capability column: a tick only where a live run proved it. */
 .lp-art-matrix{display:grid;align-content:center;padding:14px 18px}
-.lp-mx-row{display:grid;grid-template-columns:minmax(58px,.9fr) repeat(3,minmax(0,1fr));align-items:center;justify-items:center;
+.lp-mx-row{display:grid;grid-template-columns:minmax(58px,.9fr) minmax(0,1fr);align-items:center;justify-items:center;
   padding:9px 0;border-top:1px solid var(--art-hair)}
 .lp-mx-head{border-top:0;padding-top:2px}
 .lp-mx-head b{display:grid;justify-items:center;gap:6px;font-weight:600;font-size:.62rem;color:var(--text2)}

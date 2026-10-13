@@ -44,6 +44,8 @@ async function checkDeployment({ baseUrl, expectedFingerprint, purpose = 'cohort
   await request('/readyz', body => body.ok === true && body.database === 'connected' && body.migration === migration);
   await request('/api/version', body => body.releaseTreeSha256 === expectedFingerprint);
   await request('/api/alpha/status', body => purpose === 'cohort' ? body.mode === 'invite' : ['off', 'invite'].includes(body.mode));
+  /* A deployment serving capabilities ahead of their proof is a qualification target, never a cohort's. */
+  await request('/api/config', body => purpose !== 'cohort' || !(body.qualification && Array.isArray(body.qualification.capabilities) && body.qualification.capabilities.length));
   return { ok: checks.every(check => check.ok), purpose, expectedFingerprint, migration,
     cohortAdmissionChecked: purpose === 'cohort', releaseQualification: 'requires separate live and manual evidence', checks };
 }

@@ -21,7 +21,7 @@ the generated [project state](../current/PROJECT_STATE.md), the approved
 
 ## Trust and event foundation
 
-- **Implemented** — Cross-provider GitHub, GitLab, and Gitea repository
+- **Implemented** — GitHub repository
   connectivity with one server-owned capability vocabulary and fail-closed
   unsupported operations.
 - **Implemented** — Verified event intake, normalized evidence, deduplication,
@@ -73,8 +73,8 @@ the generated [project state](../current/PROJECT_STATE.md), the approved
 - **Committed roadmap** — Organization-wide governance inheritance, portfolio
   visibility, prioritization, and remediation tracking after repository-level
   trust behavior is proven.
-- **Out of current scope** — Full provider feature parity or provider-agnostic
-  enforcement claims where GitHub, GitLab, and Gitea expose different controls.
+- **Out of current scope** — Additional repository providers and
+  provider-agnostic enforcement claims.
 
 ## Emergency Shield and containment
 
@@ -115,8 +115,8 @@ the generated [project state](../current/PROJECT_STATE.md), the approved
 - **Committed roadmap** — Customer-controlled evidence retention in
   S3-compatible storage under customer credentials, region, lifecycle, and
   retention policy after the signed export boundary remains stable.
-- **Committed roadmap** — Continued GitHub golden-path depth plus honest,
-  evidence-bound GitLab and Gitea expansion feature by feature.
+- **Committed roadmap** — Continued GitHub-only golden-path depth with
+  evidence for each advertised capability.
 - **Exploratory** — Additional providers only when concrete demand justifies
   their authorization, mutation, evidence, cleanup, and recovery contracts.
 - **Out of current scope** — Bitbucket, multi-tenancy, production-scale

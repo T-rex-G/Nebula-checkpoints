@@ -29,10 +29,6 @@ const targets = {
   github: {
     repository: 'fixture-owner/nvx-alpha17-github-qualification',
     apiUrl: 'https://api.github.com'
-  },
-  gitlab: {
-    repository: 'fixture-owner/nvx-alpha17-gitlab-qualification',
-    apiUrl: 'https://gitlab.com/api/v4'
   }
 };
 const targetHashes = Object.fromEntries(
@@ -50,7 +46,7 @@ const payload = {
   sourceParent: 'c'.repeat(40),
   sourceCommit: 'b'.repeat(40),
   subjectSha256: 'a'.repeat(64),
-  authorizedJobs: ['github', 'gitlab'],
+  authorizedJobs: ['github'],
   targetHashes,
   authorizationId: 'approval-2048',
   expiresAt: '2026-07-29T20:15:00.000Z'
@@ -87,7 +83,7 @@ function verifyOptions(overrides = {}) {
     expectedSourceParent: payload.sourceParent,
     expectedSourceCommit: payload.sourceCommit,
     expectedSubjectHash: payload.subjectSha256,
-    requestedJobs: ['github', 'gitlab'],
+    requestedJobs: ['github'],
     expectedTargets: targets,
     claims: memoryClaimLedger(),
     now,
@@ -97,10 +93,21 @@ function verifyOptions(overrides = {}) {
 
 const token = encodeAuthorizationEnvelope(payload, privateKey);
 const verified = verifyAuthorizationEnvelope(token, verifyOptions());
-assert.deepStrictEqual(verified.authorizedJobs, ['github', 'gitlab']);
+assert.deepStrictEqual(verified.authorizedJobs, ['github']);
 assert.deepStrictEqual(verified.targetHashes, targetHashes);
 assert.match(verified.envelopeHash, /^[0-9a-f]{64}$/);
 assert(!JSON.stringify(verified).includes(token));
+
+for (const apiUrl of ['https://gitlab.com', 'https://gitea.example', 'https://evil.invalid',
+  'http://api.github.com', 'https://user:password@api.github.com', 'https://api.github.com/path',
+  'https://api.github.com?redirect=evil', 'https://api.github.com#fragment', 'https://api.github.com:8443']) {
+  const target = { ...targets.github, apiUrl };
+  assert.throws(() => hashLiveTarget('github', target), error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  const signed = encodeAuthorizationEnvelope({ ...payload, targetHashes: { github: expectedTargetHash('github', target) } }, privateKey);
+  assert.throws(() => verifyAuthorizationEnvelope(signed, verifyOptions({ expectedTargets: { github: target } })),
+    error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+}
+assert.strictEqual(hashLiveTarget('github', { ...targets.github, apiUrl: 'https://api.github.com/' }), targetHashes.github);
 
 assert.deepStrictEqual(
   verifyLiveTargetBinding({
@@ -181,8 +188,8 @@ assert.throws(
 );
 assert.throws(
   () => verifyAuthorizationEnvelope(token, verifyOptions({
-    requestedJobs: ['github'],
-    expectedTargets: { github: targets.github }
+    requestedJobs: ['hosted'],
+    expectedTargets: { hosted: hostedTarget }
   })),
   error => error && error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID'
 );
@@ -196,7 +203,7 @@ assert.throws(
 );
 const duplicateJobsToken = encodeAuthorizationEnvelope({
   ...payload,
-  authorizedJobs: ['github', 'github', 'gitlab']
+  authorizedJobs: ['github', 'github']
 }, privateKey);
 assert.throws(
   () => verifyAuthorizationEnvelope(duplicateJobsToken, verifyOptions()),
@@ -407,11 +414,9 @@ function runVerifierCli(input, env = {}) {
         NV_ALPHA17_EXPECTED_SOURCE_PARENT: payload.sourceParent,
         NV_ALPHA17_EXPECTED_SOURCE_COMMIT: payload.sourceCommit,
         NV_ALPHA17_EXPECTED_SUBJECT_SHA256: payload.subjectSha256,
-        NV_ALPHA17_REQUESTED_JOBS: 'github,gitlab',
+        NV_ALPHA17_REQUESTED_JOBS: 'github',
         NV_ALPHA17_GITHUB_REPOSITORY: targets.github.repository,
         NV_ALPHA17_GITHUB_API_URL: targets.github.apiUrl,
-        NV_ALPHA17_GITLAB_REPOSITORY: targets.gitlab.repository,
-        NV_ALPHA17_GITLAB_API_URL: targets.gitlab.apiUrl,
         ...env
       }
     }
@@ -529,7 +534,7 @@ assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive q
  * the six for a different image while adding a seventh on ubuntu-24.04.
  */
 const runnerPins = workflow.match(/^\s*runs-on:\s*\S+/gm) || [];
-assert(runnerPins.length >= 6, `expected at least six jobs, found ${runnerPins.length}`);
+assert(runnerPins.length >= 5, `expected at least five jobs, found ${runnerPins.length}`);
 assert(
   runnerPins.every(line => /runs-on:\s*ubuntu-24\.04$/.test(line.trim())),
   `every job must pin ubuntu-24.04, found: ${runnerPins.map(l => l.trim()).join(', ')}`
@@ -546,9 +551,17 @@ for (const [action, commit] of Object.entries(actionPins)) {
   assert(workflow.includes(`uses: ${action}@${commit}`), `${action} must use its reviewed immutable commit`);
 }
 for (const input of [
-  'run_github', 'run_gitlab', 'run_gitea', 'run_hosted'
+  'run_github', 'run_hosted', 'run_drills'
 ]) {
   assert(new RegExp(`^      ${input}:`, 'm').test(workflow), `missing dispatch input ${input}`);
+}
+
+for (const retired of ['gitlab', 'gitea']) {
+  assert(!workflow.toLowerCase().includes(retired), `${retired} must have no live job, target, secret or dispatch input`);
+  assert.throws(() => verifyAuthorizationEnvelope(encodeAuthorizationEnvelope({
+    ...payload, authorizedJobs: [retired], targetHashes: { [retired]: 'f'.repeat(64) }
+  }, privateKey), verifyOptions({ requestedJobs: [retired] })),
+  error => error.code === 'ALPHA17_AUTHORIZATION_JOBS_INVALID');
 }
 
 function job(name) {
@@ -652,7 +665,7 @@ assert.strictEqual(
 );
 assert(Number(shardCommand[1]) >= 2, 'the browser suite must be split across more than one runner');
 assert(/fail-fast:\s*false/.test(browserMatrix),
-  'one failing shard must not cancel the other three, which is how you tell a local break from a general one');
+  'one failing shard must not cancel the others, which is how you tell a local break from a general one');
 assert(browserMatrix.includes('bash ci/install-browser.sh'),
   'the browser-matrix job provisions its own browser, having no cache to share');
 assert(
@@ -778,8 +791,7 @@ assert(
   'a minted envelope must still be put through the verifier'
 );
 for (const variable of [
-  'ALPHA17_GITHUB_REPOSITORY', 'ALPHA17_GITLAB_REPOSITORY',
-  'ALPHA17_GITEA_REPOSITORY', 'ALPHA17_GITEA_API_URL',
+  'ALPHA17_GITHUB_REPOSITORY',
   'ALPHA17_HOSTED_BASE_URL', 'ALPHA17_RENDER_SERVICE_ID',
   'ALPHA17_NEON_PROJECT_ID', 'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID', 'ALPHA17_RESTORE_NEON_BRANCH_ID',
@@ -859,7 +871,7 @@ assert(
   'the spent-approval ledger must be saved even when verification fails after recording a spend'
 );
 
-for (const name of ['github-live', 'gitlab-live', 'gitea-live', 'hosted-live']) {
+for (const name of ['github-live', 'hosted-live', 'hosted-drills']) {
   const block = job(name);
   assert(block.includes("github.event_name == 'workflow_dispatch'"), `${name} must be dispatch-only`);
   assert(block.includes('needs: [automated, authorize-live]'), `${name} must depend on automated and authorization gates`);
@@ -926,7 +938,6 @@ assert(
 for (const binding of [
   'ALPHA17_DATABASE_URL',
   'ALPHA17_RESTORE_DATABASE_URL',
-  'ALPHA17_BACKUP_KEY_BASE64',
   'ALPHA17_NEON_API_KEY',
   'ALPHA17_COHORT_NEON_BRANCH_ID',
   'ALPHA17_RESTORE_NEON_PROJECT_ID',
@@ -937,6 +948,26 @@ for (const binding of [
   'ALPHA17_OPERATOR_KEY_ID'
 ]) assert(hosted.includes(binding), `hosted restore execution must bind ${binding}`);
 assert(hosted.includes('ci/run-alpha17-restore-validation.js'));
+/*
+ * The backup is written and restored inside one step, so its key is drawn
+ * there and never stored: no environment secret holds it, it is masked, and it
+ * is gone before the testers and the gate run.
+ */
+assert(!/ALPHA17_BACKUP_KEY_BASE64/.test(workflow), 'the backup key must not be a stored secret');
+assert(
+  hosted.includes('NV_BACKUP_KEY_BASE64="$(openssl rand -base64 32)"') &&
+    hosted.includes('echo "::add-mask::${NV_BACKUP_KEY_BASE64}"'),
+  'the hosted job must draw and mask its own backup key'
+);
+assert(
+  hosted.indexOf('NV_BACKUP_KEY_BASE64="$(openssl rand') < hosted.indexOf('node ci/run-alpha17-restore-validation.js') &&
+    hosted.indexOf('unset NV_BACKUP_KEY_BASE64', hosted.indexOf('node ci/run-alpha17-restore-validation.js')) >
+      hosted.indexOf('node ci/run-alpha17-restore-validation.js') &&
+    hosted.indexOf('unset NV_BACKUP_KEY_BASE64', hosted.indexOf('node ci/run-alpha17-restore-validation.js')) <
+      hosted.indexOf('node ci/run-alpha17-hosted-testers.js provision'),
+  'the backup key must exist only for the restore, and be gone before the testers and the gate run'
+);
+assert(/trap '[^']*unset [^']*NV_BACKUP_KEY_BASE64/.test(hosted), 'a cancelled job must drop the backup key too');
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION_PATH'));
 assert(hosted.includes('NV_ALPHA17_RESTORE_ATTESTATION'));
 assert(hosted.includes('PGSSLROOTCERT: /etc/ssl/certs/ca-certificates.crt'),
@@ -946,11 +977,44 @@ assert(
   'the standalone runner restore attestation must not be uploaded outside the sanitized hosted envelope'
 );
 
+/*
+ * The drills act on the hosted target, so they are authorized as it and bound
+ * to its signed hash; they run from the trusted checkout with nothing
+ * installed by a lifecycle script; and they sign nothing and upload nothing.
+ */
+const drills = job('hosted-drills');
+assert(drills.includes('inputs.run_drills'), 'the drills run only when asked for by name');
+assert(drills.includes('NV_ALPHA17_TARGET_JOB: hosted') && drills.includes('needs.authorize-live.outputs.hosted_target_sha256'),
+  'the drills are bound to the signed hosted target');
+assert(/inputs\.run_hosted \}\}" = "true" \] \|\| \[ "\$\{\{ inputs\.run_drills \}\}" = "true" \]; \} && requested_jobs="\$\{requested_jobs\},hosted"/.test(authorization),
+  'a drills dispatch authorizes the hosted target');
+assert(/\(inputs\.run_github \|\| inputs\.run_hosted \|\| inputs\.run_drills\)/.test(authorization), 'the authorization job runs for a drills dispatch');
+assert(drills.includes('path: trusted-runner') && drills.includes('ci/run-alpha17-hosted-drills.js'), 'the drills run from the trusted checkout');
+assert(drills.includes('npm ci --ignore-scripts --no-audit --no-fund'), 'drill dependencies are installed without lifecycle scripts');
+assert(drills.indexOf('Install drill dependencies') < drills.indexOf('${{ secrets.'), 'no credential is in scope while dependencies install');
+for (const binding of ['ALPHA17_RENDER_API_KEY', 'ALPHA17_NEON_API_KEY', 'ALPHA17_GITHUB_MUTATION_CREDENTIAL', 'ALPHA17_GITHUB_READ_ONLY_CREDENTIAL',
+  'needs.automated.outputs.source_parent']) {
+  assert(drills.includes(binding), `the drills must bind ${binding}`);
+}
+assert(!/upload-artifact|OPERATOR_PRIVATE|alpha17-operator-record/.test(drills), 'the drills sign nothing and upload nothing; the operator signs the report');
+assert(/timeout-minutes:\s*\d+/.test(drills), 'the drills are bounded');
+
+/*
+ * The load's testers are made by the job that uses them, after the restore,
+ * and released on every exit; no session cookie or CSRF-bearing request is a
+ * standing secret any more.
+ */
+assert(!/ALPHA17_SESSION_COOKIES|ALPHA17_MUTATION_REQUEST|ALPHA17_CLEANUP_REQUEST/.test(hosted),
+  'hosted session cookies and requests are made in the job, not stored as secrets');
+const provisionAt = hosted.indexOf('ci/run-alpha17-hosted-testers.js provision');
+assert(provisionAt > hosted.indexOf('ci/run-alpha17-restore-validation.js') && provisionAt < hosted.indexOf('ci/run-hosted-alpha17-validation.js'),
+  'testers are made after the restore and before the gate that uses them');
+assert(/trap 'release_testers;/.test(hosted) && hosted.includes('ci/run-alpha17-hosted-testers.js release'),
+  'the testers are released on every exit');
+
 for (const artifact of [
   'alpha17-automated-evidence',
   'alpha17-github-evidence',
-  'alpha17-gitlab-evidence',
-  'alpha17-gitea-evidence',
   'alpha17-hosted-evidence'
 ]) assert(workflow.includes(`name: ${artifact}`), `missing sanitized artifact ${artifact}`);
 assert(workflow.includes('scripts/check-secrets.js'));

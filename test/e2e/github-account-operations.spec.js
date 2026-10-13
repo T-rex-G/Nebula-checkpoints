@@ -6,6 +6,19 @@ const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
+/*
+ * Proven live and promoted: repository creation and notifications are drawn as
+ * any Supported control is, enabled, with no maturity label beside them.
+ */
+test('repository creation and notifications are offered as Supported controls', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', login: 'sandbox' });
+  await page.goto('/');
+  const repos = await ui.enterRepositories(page);
+  await expect(ui.button(repos, 'Create repository')).toHaveAttribute('aria-disabled', 'false');
+  await expect(ui.button(repos, 'Notifications')).toHaveAttribute('aria-disabled', 'false');
+  await expect(repos).not.toContainText(/\b(?:Experimental|Unavailable)\b/);
+});
+
 test('personal accounts can create and open a repository through the ordinary interface', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', login: 'sandbox' });
   await page.goto('/');

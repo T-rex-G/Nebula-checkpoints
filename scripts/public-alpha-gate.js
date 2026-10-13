@@ -10,13 +10,7 @@ const { loadMigrations } = require('../src/migrations');
 const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const { validateEvidenceEnvelope, PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
 
-/*
- * The live targets a run has to bind, derived from the proof contract rather
- * than listed. A provider the contract asks nothing of has no leg to run and
- * therefore no signed target -- and a hardcoded list went stale the moment
- * Gitea's claims were withdrawn, demanding a digest for a target that no
- * longer exists.
- */
+// Signed targets follow the current proof contract and hosted operational evidence.
 const LIVE_TARGETS = Object.freeze([
   ...Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
     .filter(provider => Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).length > 0),

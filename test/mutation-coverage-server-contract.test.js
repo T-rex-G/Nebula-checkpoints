@@ -38,7 +38,7 @@ while ((match = routeRx.exec(server))) {
     assert(covered.has(key) || explicitNonRepositoryWrites.has(key), `repository mutating-method route is unclassified: ${key}`);
   }
 }
-for (const helper of ['async function gh(', 'async function glFetch(', 'async function uploadViaGitPush(', 'async function uploadViaLFS(']) {
+for (const helper of ['async function gh(', 'async function uploadViaGitPush(', 'async function uploadViaLFS(']) {
   const start = server.indexOf(helper);
   assert(start >= 0, `missing helper ${helper}`);
   const end = server.indexOf('\n}', start);

@@ -12,7 +12,7 @@ assert(server.includes('createAuthorizationResolver({'), 'server must create one
 assert(server.includes('async function resolveMutationAuthorization('), 'server must expose one mutation authorization boundary');
 assert(server.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
 assert(server.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
-assert(server.includes("provider === 'gitlab' ? glFetch(account, apiPath) : gh(account, apiPath)"), 'resolver requests must use server-side provider credentials');
+assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*gh\(account, apiPath\)/.test(server), 'resolver requests must use server-side GitHub credentials');
 assert(!server.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
 assert(!server.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
 

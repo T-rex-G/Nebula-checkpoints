@@ -9,7 +9,7 @@ for (const name of ['buildPolicyDigitalTwinReadModel', 'normalizeDigitalTwinOpti
 const { buildPolicyDigitalTwinReadModel, normalizeDigitalTwinOptions } = twin;
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
 
-assert.deepStrictEqual(normalizeDigitalTwinOptions({ historyLimit: '25', afterDecisionSeq: '4' }), { historyLimit: 25, afterDecisionSeq: 4 });
+assert.deepStrictEqual(normalizeDigitalTwinOptions({ historyLimit: '25', afterDecisionSeq: '4' }), { historyLimit: 25, afterDecisionSeq: 4, beforeDecisionSeq: null });
 assert.throws(() => normalizeDigitalTwinOptions({ historyLimit: '1.2' }), error => error.code === 'GOVERNANCE_DIGITAL_TWIN_INPUT_INVALID');
 
 const data = {

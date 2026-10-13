@@ -1,7 +1,6 @@
 'use strict';
 // Synthetic provider streams for exercising the real HTTP response boundary.
 // No request in this process reaches an external provider.
-require('dns').promises.lookup = async () => [{ address: '93.184.216.34', family: 4 }];
 function json(value) { return new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } }); }
 function stream(mode) {
   let timer;
@@ -17,6 +16,7 @@ function stream(mode) {
   }));
 }
 async function providerFetch(input) {
+  process.stdout.write('STREAM_FIXTURE_REQUEST\n');
   const url = new URL(input);
   const pathname = decodeURIComponent(url.pathname);
   if (pathname.endsWith('/user')) return json({ id: 41, login: 'tester', username: 'tester', name: 'Stream Tester', avatar_url: '' });
@@ -27,5 +27,3 @@ async function providerFetch(input) {
   throw new Error('Unexpected synthetic provider stream request');
 }
 global.fetch = providerFetch;
-const transport = require.resolve('../../src/provider-transport');
-require.cache[transport] = { id: transport, filename: transport, loaded: true, exports: { providerFetch } };

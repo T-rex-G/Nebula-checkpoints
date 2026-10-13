@@ -435,11 +435,12 @@ function blobEntry(entryPath, overrides = {}) {
     assert(readerFor('github'));
     for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null]) {
       assert.strictEqual(readerFor(provider), null, String(provider));
-      await assert.rejects(
-        readTree({ scope: { ...scope, provider }, commitSha: COMMIT, token: TOKEN, transport: transportReturning() }),
-        error => error.code === 'EXPOSURE_PROVIDER_UNSUPPORTED',
-        String(provider)
-      );
+      const transport = transportReturning();
+      const input = { scope: { ...scope, provider }, commitSha: COMMIT, sha: COMMIT, ref: 'main', path: 'app.js', paths: ['app.js'], token: TOKEN, transport };
+      for (const read of [readTree, readBlob, readBlobTexts, resolveCommit, listCommits, readCommitChanges]) {
+        await assert.rejects(read(input), error => error.code === 'EXPOSURE_PROVIDER_UNSUPPORTED', String(provider));
+      }
+      assert.strictEqual(transport.calls.length, 0, 'retired repositories never reach any reader transport');
     }
   }
 
@@ -576,12 +577,17 @@ function blobEntry(entryPath, overrides = {}) {
   assert.strictEqual(capped.commits.length, 10);
   assert.strictEqual(capped.truncated, true);
 
-  /* An earlier complete history scan's commit is where reading stops. */
+  /* A previous tip is not an ancestry boundary in a date-ordered listing. */
   const incremental = await listCommits({
-    scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning(page(full)), stopAt: sha(4)
+    scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning(page(full), page([])), stopAt: sha(4)
   });
-  assert.deepStrictEqual(incremental.commits.map(item => item.sha), [sha(1), sha(2), sha(3)]);
-  assert.strictEqual(incremental.reachedBase, true);
+  assert.deepStrictEqual(incremental.commits.map(item => item.sha), full.map(item => item.sha));
+  assert.strictEqual(incremental.truncated, false);
+
+  const repeated = transportReturning(page(full));
+  const looping = await listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: repeated, maxCommits: 100 });
+  assert.strictEqual(looping.truncated, true, 'repeated full pages must report incomplete coverage');
+  assert.strictEqual(repeated.calls.length, 2, 'pagination has a request ceiling even if every page repeats');
 
   /* An empty repository has no history rather than an unreadable one. */
   const empty = await listCommits({ scope, commitSha: COMMIT, token: TOKEN, transport: transportReturning({ statusCode: 409, body: '{}' }) });

@@ -1,27 +1,19 @@
 'use strict';
 
 /*
- * A refused capability is refused in two different ways, and which one a
- * reader gets depends on nothing but the element the action happens to be
- * drawn as.
+ * Only what is Supported is offered.
  *
- * The palette and the floating menu draw their entries as divs. capability-ui
- * cannot set a `disabled` property on a div, so the click arrives and
- * runCapabilityAction says, out loud, why the action is refused. The
- * repositories top bar draws the same class of action as a <button>, so
- * capability-ui sets `disabled` -- and the browser then stops the press before
- * any of this code runs. The reason is on the control, but only as an
- * accessible description pointing at a note that is clipped out of the layout;
- * and `disabled` also takes the control out of the tab order, so the keyboard
- * reader the description was written for cannot reach it either.
+ * Once the server has said what this connection can do, a control for
+ * anything it cannot -- an installation connection cannot create a personal
+ * repository -- is not drawn at all: no dimmed button, no Experimental or
+ * Unavailable badge, nothing in the accessibility tree. The server refuses
+ * the request regardless.
  *
- * What is left is a dimmed + that does nothing, forever, with no way to find
- * out why. Reported from the hosted alpha as "the + button to create a repo
- * not working".
- *
- * A personal repository cannot be created through an installation connection.
- * The unavailable-connection fixture preserves this refusal coverage while
- * ordinary personal accounts can now use experimental creation.
+ * Before that answer, or when asking for it failed, nothing is hidden. That
+ * is an outage, not a verdict, and the controls stay where they are, refused
+ * out loud from pointer and keyboard alike -- a dimmed control that does
+ * nothing, with no way to find out why, is what this file was first written
+ * to prevent.
  */
 
 const { test, expect } = require('@playwright/test');
@@ -69,38 +61,42 @@ async function pressWithPointer(page, locator) {
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 
-test('a refused primary action says why when it is pressed', async ({ page }) => {
+test('a capability this connection does not have is not drawn at all', async ({ page }) => {
   const repos = await repositoriesScreen(page);
-  const create = ui.button(repos, 'Create repository');
+  await expect(ui.button(repos, 'Settings')).toBeVisible();
+  await expect(repos.getByRole('button', { name: 'Create repository' })).toHaveCount(0);
+  await expect(page.locator('#newRepoBtnRepos')).toBeHidden();
+  /* No badge stands in for it either. */
+  await expect(page.locator('.capability-state', { hasText: /Experimental|Unavailable/ })).toHaveCount(0);
+  await expect(repos).not.toContainText(/\b(?:Experimental|Unavailable)\b/);
+});
 
-  /* The precondition is the point: if the deployment allowed creation there
-   * would be no refusal to voice, and this would pass for the wrong reason. */
+async function repositoriesDuringOutage(page) {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', authMethod: 'github-app' });
+  await page.route('**/api/account/capabilities**', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
+  await page.goto('/');
+  return ui.enterRepositories(page);
+}
+
+test('during a capability outage a refused action stays in place and says why when pressed', async ({ page }) => {
+  const repos = await repositoriesDuringOutage(page);
+  const create = ui.button(repos, 'Create repository');
   await expect(create).toBeVisible();
   await expect(create).toHaveAttribute('aria-disabled', 'true');
-
   await pressWithPointer(page, create);
-
-  await expect(
-    ui.status(page, 'Notifications'),
-    'the press was swallowed with no reason given'
-  ).toContainText(/personal GitHub connection/i);
-
+  await expect(ui.status(page, 'Notifications'), 'the press was swallowed with no reason given')
+    .toContainText(/could not be loaded/i);
   /* Voicing the refusal is not permission to perform it. */
   await expect(ui.dialog(page, /New repository/i)).toHaveCount(0);
 });
 
-test('a refused primary action can be reached and refused from the keyboard', async ({ page }) => {
-  const repos = await repositoriesScreen(page);
+test('during a capability outage a refused action can be reached and refused from the keyboard', async ({ page }) => {
+  const repos = await repositoriesDuringOutage(page);
   const create = ui.button(repos, 'Create repository');
-
-  /* `disabled` removes a control from the tab order, so the description
-   * written for a screen reader was attached to something a screen reader
-   * could never land on. */
   await create.focus();
   await expect(create).toBeFocused();
-
   await page.keyboard.press('Enter');
-  await expect(ui.status(page, 'Notifications')).toContainText(/personal GitHub connection/i);
+  await expect(ui.status(page, 'Notifications')).toContainText(/could not be loaded/i);
   await expect(ui.dialog(page, /New repository/i)).toHaveCount(0);
 });
 

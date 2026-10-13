@@ -10,8 +10,10 @@ const {
 } = require('../src/public-alpha-qualification');
 const registry = require('../config/public-alpha-capabilities.json');
 const {
+  HOSTED_CAPABILITY_REQUIREMENTS,
   PROVIDER_CAPABILITY_REQUIREMENTS,
-  validateEvidenceEnvelope
+  validateEvidenceEnvelope,
+  validateHistoricalEvidenceEnvelope
 } = require('../src/qualification-evidence');
 const {
   SUBJECT,
@@ -50,7 +52,7 @@ assert.strictEqual(normalized.product, 'Nebulaverse-X');
 
 const catalog = qualificationCatalog(registry);
 assert.strictEqual(catalog.automated.length, 22);
-assert.strictEqual(catalog.hosted.length, 13);
+assert.strictEqual(catalog.hosted.length, 14);
 assert.strictEqual(catalog.manual.length, 5);
 for (const [provider, deployment] of Object.entries(registry.providers)) {
   assert(deployment['hosted-alpha']);
@@ -60,11 +62,39 @@ for (const [provider, deployment] of Object.entries(registry.providers)) {
     .filter(([, tuple]) => tuple[1] === 'Provider-verified')
     .map(([capability]) => capability)
     .sort();
+  /* Every Provider-verified claim rests on a live probe or on a hosted check every release requires. */
+  const hostedBacked = HOSTED_CAPABILITY_REQUIREMENTS[provider] || {};
+  for (const keys of Object.values(hostedBacked)) {
+    assert(keys.length && keys.every(key => catalog.hosted.includes(key)), 'a hosted-backed claim names hosted checks the release record requires');
+  }
   assert.deepStrictEqual(
     providerVerified,
-    expected,
+    [...expected, ...Object.keys(hostedBacked)].sort(),
     `${provider} must not advertise Provider-verified capabilities outside the live proof contract`
   );
+}
+
+// Historical envelopes remain auditable, but cannot enter the current candidate gate.
+{
+  const historical = structuredClone(passFixture.envelopes['github-artifact']);
+  historical.provider = 'gitea';
+  historical.originId = 'workflow-2048-gitea';
+  historical.capabilities = ['branches.read', 'file.delete', 'file.read', 'file.write', 'repository.read'];
+  historical.claims = Object.fromEntries(historical.capabilities.map(feature => [
+    `providers.gitea.${feature}`, structuredClone(historical.claims[`providers.github.${feature}`])
+  ]));
+  const shared = new Set(['repository-read', 'default-branch-read', 'disposable-branch-create',
+    'expected-head-write', 'utf8-readback', 'conditional-update', 'stale-head', 'permission-denial',
+    'stale-head-delete', 'expected-head-delete', 'cleanup-absence']);
+  historical.checks = historical.checks.filter(check => shared.has(check.key));
+  assert.strictEqual(validateHistoricalEvidenceEnvelope(historical).provider, 'gitea');
+  assert.throws(() => validateEvidenceEnvelope(historical), /provider artifact context is invalid/);
+  const corrupted = structuredClone(historical);
+  corrupted.checks[0].status = 'fail';
+  assert.throws(() => validateHistoricalEvidenceEnvelope(corrupted), /invalid proof/);
+  rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISMATCH', ({ envelopes }) => {
+    envelopes['github-artifact'] = historical;
+  });
 }
 
 rejects('PUBLIC_ALPHA_SCHEMA_MISMATCH', ({ record }) => { record.schemaVersion = '0.9.0'; });
@@ -123,15 +153,33 @@ rejects('PUBLIC_ALPHA_EVIDENCE_ARTIFACT_MISSING', ({ record }) => {
 }
 rejects('PUBLIC_ALPHA_SECURITY_FINDINGS_OPEN', ({ record }) => { record.security.highUnresolved = 1; });
 rejects('PUBLIC_ALPHA_PROVIDER_EVIDENCE_MISSING', ({ record }) => {
-  delete record.providers.gitea['file.write'];
+  delete record.providers.github['file.write'];
 });
-rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
-  /* Still Experimental: delivery needs a deployment the provider can reach. */
-  record.goldenPathCapabilities.push('github:live-events');
-});
-rejects('PUBLIC_ALPHA_UNAVAILABLE_ENABLED', ({ record }) => {
-  record.observedEnabledCapabilities.push('gitea:workflows.read');
-});
+{
+  /*
+   * Nothing GitHub serves is Experimental any more, so the refusal is shown on
+   * a registry holding one back -- a capability whose evidence is
+   * deterministic, so the proof contract is otherwise unchanged.
+   */
+  const heldBack = structuredClone(registry);
+  const [feature] = Object.entries(heldBack.providers.github['hosted-alpha'])
+    .find(([, tuple]) => tuple[0] === 'Supported' && tuple[1] === 'Deterministic');
+  heldBack.providers.github['hosted-alpha'][feature] = ['Experimental', 'Deterministic', 'Held back for this demonstration.'];
+  rejects('PUBLIC_ALPHA_EXPERIMENTAL_IN_GOLDEN_PATH', ({ record }) => {
+    record.goldenPathCapabilities.push(`github:${feature}`);
+  }, { registry: heldBack });
+}
+for (const retired of ['gitlab', 'gitea']) {
+  rejects('PUBLIC_ALPHA_CAPABILITY_INVALID', ({ record }) => {
+    record.observedEnabledCapabilities.push(`${retired}:workflows.read`);
+  });
+  rejects('PUBLIC_ALPHA_EVIDENCE_UNEXPECTED', ({ record }) => {
+    record.providers[retired] = {};
+  });
+  rejects('PUBLIC_ALPHA_CAPABILITY_INVALID', ({ record }) => {
+    record.goldenPathCapabilities.push(`${retired}:file.write`);
+  });
+}
 rejects('PUBLIC_ALPHA_SECRET_MATERIAL', ({ record }) => { record.operatorToken = 'not-allowed'; });
 rejects('PUBLIC_ALPHA_SECRET_MATERIAL', ({ record }) => {
   record.notes = 'Authorization: Bearer opaque-credential-material';

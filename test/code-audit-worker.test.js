@@ -10,7 +10,7 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const { analyse } = require('../src/code-audit');
-const { analyseOffThread, BUDGET } = require('../src/code-audit-worker');
+const { analyseOffThread, scanOffThread, BUDGET } = require('../src/code-audit-worker');
 
 const I = '$';
 const files = [
@@ -36,6 +36,55 @@ function fakeWorker(behaviour) {
 (async () => {
   assert(BUDGET.heapMb <= 256, 'the worker heap leaves room for the server under a 512 MB instance');
   assert(BUDGET.traceMs < BUDGET.hardMs, 'tracing stops starting files well before the worker is stopped');
+
+  /* Cancellation must release both queue capacity and the actual worker. */
+  {
+    const controller = new AbortController();
+    controller.abort(new Error('private cancellation reason'));
+    let spawned = 0;
+    const cancelled = await analyseOffThread(input, { signal: controller.signal,
+      spawn: fakeWorker(worker => { spawned += 1; worker.emit('message', { result: {} }); }) }).catch(error => error);
+    assert.strictEqual(cancelled.code, 'AUDIT_CANCELLED', 'an already abandoned audit must never start analysis');
+    assert.strictEqual(spawned, 0);
+    assert(!cancelled.message.includes('private cancellation reason'));
+    await assert.rejects(scanOffThread(input, { signal: controller.signal }), error => error.code === 'AUDIT_CANCELLED');
+  }
+  {
+    let releaseFirst;
+    let cancelledSpawns = 0;
+    let ready;
+    const started = new Promise(resolve => { ready = resolve; });
+    const first = analyseOffThread(input, { spawn: fakeWorker(worker => { releaseFirst = () => worker.emit('message', { result: { first: true } }); ready(); }) });
+    await started;
+    const controller = new AbortController();
+    const queued = analyseOffThread(input, { signal: controller.signal, budget: { ...BUDGET, queue: 1 },
+      spawn: fakeWorker(worker => { cancelledSpawns += 1; worker.emit('message', { result: {} }); }) }).catch(error => error);
+    controller.abort();
+    const third = analyseOffThread(input, { budget: { ...BUDGET, queue: 1 },
+      spawn: fakeWorker(worker => worker.emit('message', { result: { third: true } })) });
+    assert.strictEqual((await queued).code, 'AUDIT_CANCELLED');
+    assert.strictEqual(cancelledSpawns, 0, 'a cancelled waiter must never spawn a worker');
+    releaseFirst();
+    assert.deepStrictEqual(await first, { first: true });
+    assert.deepStrictEqual(await third, { third: true }, 'cancellation immediately frees a queue slot');
+  }
+  {
+    const controller = new AbortController();
+    let terminations = 0;
+    let spawns = 0;
+    const stages = [];
+    class HoldingWorker extends EventEmitter {
+      constructor() { super(); spawns += 1; }
+      terminate() { terminations += 1; return Promise.resolve(0); }
+    }
+    const running = analyseOffThread(input, { signal: controller.signal, spawn: HoldingWorker, onStage: stage => stages.push(stage) }).catch(error => error);
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    assert.strictEqual((await running).code, 'AUDIT_CANCELLED');
+    assert.strictEqual(terminations, 1, 'abort terminates the running worker');
+    assert.strictEqual(spawns, 1, 'abort must not start a rules-only fallback');
+    assert.deepStrictEqual(stages, ['analysing']);
+  }
 
   /* ---- The same answer, off the main thread ---------------------------------------------------- */
   {

@@ -611,6 +611,35 @@ function fakeRequestImpl(behaviour) {
     );
   }
 
+  /* Cancellation must release a pooled request even while its DNS resolver is
+     stuck. A late DNS answer must not revive the request or open a socket. */
+  for (const cancel of ['request', 'session']) {
+    let releaseLookup;
+    let lookupStarted;
+    const started = new Promise(resolve => { lookupStarted = resolve; });
+    const requestImpl = fakeRequestImpl(({ onResponse }) => onResponse(fakeResponse({ statusCode: 200 })));
+    const session = createGuardedSession({ profile: PROFILES.PROVIDER_READ, requestImpl,
+      resolveAddresses: () => { lookupStarted(); return new Promise(resolve => { releaseLookup = resolve; }); }
+    });
+    const controller = new AbortController();
+    const pending = session.request({ url: 'https://api.github.com/repos/a/b', profile: PROFILES.PROVIDER_READ,
+      method: 'GET', signal: controller.signal }).then(value => ({ value }), error => ({ error }));
+    await started;
+    if (cancel === 'session') session.close(); else controller.abort();
+    let timer;
+    let outcome;
+    try {
+      outcome = await Promise.race([pending, new Promise(resolve => { timer = setTimeout(() => resolve({ pending: true }), 100); })]);
+    } finally {
+      clearTimeout(timer);
+      releaseLookup([{ address: '140.82.121.6', family: 4 }]);
+      await pending;
+      session.close();
+    }
+    assert.strictEqual(outcome.error?.code, 'GUARDED_FETCH_DEADLINE', `${cancel} cancellation must interrupt pooled DNS`);
+    assert.strictEqual(requestImpl.calls.length, 0, 'late resolution cannot start cancelled network work');
+  }
+
   /* An address change gets a new pool, validated again -- never a pooled
      socket carried across to a different address for the same name. */
   {

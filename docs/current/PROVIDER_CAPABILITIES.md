@@ -20,13 +20,22 @@ release gates have passed; **experimental** means safe but limitation-labelled;
 **planned** means not yet implemented; and **unsupported** is represented by the
 registry status `Unavailable`.
 
+## Provider boundary
+
+GitHub is the only supported repository provider and the only provider accepted
+by golden qualification. GitLab and Gitea connection routes, capability entries
+and live jobs are removed. An old connection is filtered or invalidated locally;
+its credential must not be reused as a GitHub credential or sent to its former
+provider. Revoke the old credential manually in that provider's settings.
+Historical provider artifacts do not qualify the current candidate.
+
 ## Vocabulary
 
 | Status | Meaning |
 | --- | --- |
 | `Supported` | Intended alpha-supported surface after exact-candidate release gates pass. |
-| `Experimental` | Safe to try outside the golden path with the recorded limitation. |
-| `Unavailable` | Hidden or disabled for this provider/deployment with a reason. |
+| `Experimental` | Implemented and tested, not yet qualified. Not offered: hidden in the interface and refused by the server until it is `Supported`. |
+| `Unavailable` | Not offered for this provider, deployment or connection: hidden in the interface and refused by the server. |
 
 | Evidence state | Meaning |
 | --- | --- |
@@ -38,30 +47,37 @@ registry status `Unavailable`.
 
 `Supported` is not a synonym for `Provider-verified`.
 
-Every `Experimental` path requires an explicit UI and server-route opt-in.
-Provider-specific `Unavailable` entries still fail closed. GitLab and Gitea
-recovery opt-ins are limited to read-only comparison/preview routes, and their
-governance opt-ins are limited to view routes; recovery and governance
-mutations remain blocked.
+Only `Supported` capabilities are offered. There is no opt-in for anything
+less: once the server has answered, the interface draws no control, badge or
+palette entry for an `Experimental` or `Unavailable` capability, and every
+route refuses it with a typed error. A capability projection that could not be
+loaded is an outage, not a verdict, so its controls stay in place, refused and
+explained, until it loads. Unsupported provider selections are
+rejected before credential resolution or transport.
 
 ## GitHub — evidence-bounded alpha subset
 
-Counted from the capability registry: 33 Supported, 4 Experimental, 0 Unavailable. Of those, 26 carry
+Counted from the capability registry: 39 Supported, 0 Experimental, 0 Unavailable. Of those, 30 carry
 `Provider-verified` evidence.
 
 | Status | Capabilities |
 | --- | --- |
-| Supported | repository reads; branch reads and controlled writes; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security |
-| Experimental | repository create/delete; notifications; live events |
+| Supported | repository reads; branch reads and controlled writes; repository create/delete; bounded file read/write/delete; file rename; folder move; single-commit batch; native push; Git LFS; provider rate-limit and tree reads; pull-request, issue, workflow and release reads; pull-request and issue writes; release write; workflow rerun; bounded and global search; star read/write; notifications; live events; exposure scanning; repository audit; site check; access-surface analysis; dependency audit; recovery; governance; upload security; workspace security posture; findings inbox |
+| Experimental | none |
 | Unavailable | none at the provider level; connection permissions and invitation scopes still apply |
 
-Repository creation/deletion and notifications are usable experimental
-operations with deterministic coverage, not live-provider qualification claims,
-and each says why: the harness credential is confined to one disposable
-repository, so it can neither create nor delete one, and GitHub does not serve
-notifications to the fine-grained credential the harness uses. Live events need
-a deployment the provider can deliver webhooks to, which the harness does not
-have. Creation verifies the personal account identity and reads
+Repository creation/deletion and notifications are proven by the GitHub live
+harness: one disposable repository created and deleted in a dedicated
+qualification account, and the inbox read through a classic notification
+credential, with credentials the repository-confined harness credential never
+needs (see `docs/operations/ALPHA17_LIVE_DISPATCH.md`). Live events need a
+deployment GitHub can deliver webhooks to, which no runner has, so they are
+proven by the hosted gate instead: GitHub delivers a push to the staging
+deployment, which verifies its signature and streams it to a signed-in tester.
+That proof is the `live-events-delivery` check every release record requires.
+Until it passed, staging alone served live events ahead of their proof through
+`NV_QUALIFICATION_CAPABILITIES`; no capability awaits hosted proof now, and a
+server still carrying the variable refuses to start. Creation verifies the personal account identity and reads
 the resulting repository back by name and ID. An existing restricted invitation
 must already authorize the exact new repository name; creation never expands
 its scope. With invitations off, the normal connected account can create in its
@@ -121,6 +137,29 @@ storage and verification are deterministic.
 
 Access-surface, dependency-audit, recovery, governance, and upload-security
 decisions use `Deterministic` evidence.
+
+The workspace security posture on the Overview is `Deterministic` as well. It
+reads only what the audit history, the exposure scans and the governance
+decisions already hold for the signed-in identity -- open findings by severity
+and category, what each repository's latest audit counted, findings opened and
+fixed per week, median time to fix, and the merges governance gated this week --
+and fetches nothing from the provider. A store that cannot answer leaves its
+part unmeasured rather than zero.
+
+The findings inbox is `Deterministic` on the same terms: every open finding
+across the workspace, from the same audits and scans, with its state -- new,
+seen again after a fix, open, or covered by a decision -- and the owner the
+repository's CODEOWNERS file names for its path. Decisions taken from the inbox
+go through each repository's own triage routes, with the same permissions as
+the audit screen.
+
+The Overview's pull-request board adds no capability of its own: it is the
+Provider-verified `pulls.read` list, asked for the twelve repositories most
+recently pushed to, four at a time, and only once the card is in view. It
+counts the reviewers a pull request asked for, which the list carries, and
+claims nothing about what a reviewer decided, which the list does not. A
+repository outside the session's scope, or one that could not be read, is
+named on the card rather than counted as having nothing open.
 
 The repository audit and the site check are `Deterministic` too, and every
 rule is fixture-tested firing and staying quiet. The audit reads the branch
@@ -259,9 +298,8 @@ control that would change it, and everything its collaborators share, is put
 away, and the provider refuses them regardless. GitHub answers the
 collaborator-permission question only to people who can push; for anyone else
 the resolver asks the repository itself, and a public one grants the reader
-level everyone has on it, recorded with the source `github.repository.public`
-(`gitlab.project.public` for a public GitLab project the account is not a
-member of). Only the routes whose data is the reader's own accept it -- their
+level everyone has on it, recorded with the source `github.repository.public`.
+Only the routes whose data is the reader's own accept it -- their
 audits, kept audits and watch, and their exposure scans, all keyed by identity
 -- and everything a repository's collaborators share, its governance above
 all, refuses it. Checking a credential, probing readability and accepting an
@@ -296,57 +334,8 @@ reached is an error, not a clean report. One check per identity at a time, a
 new one at most every fifteen seconds, and any one site at most every thirty
 seconds, whoever asks.
 
-## GitLab — registry-qualified subset
+## Unsupported selections
 
-Counted from the capability registry: 13 Supported, 3 Experimental, 21 Unavailable. Of those, 11 carry
-`Provider-verified` evidence.
-
-| Status | Capabilities |
-| --- | --- |
-| Supported | repository and branch reads; controlled branch writes; bounded file read/write/delete; recursive tree read; merge-request and issue reads; merge-request and issue writes; site check; upload security |
-| Experimental | dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; file rename/batch; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
-
-Repository read, branch read/write, bounded file read/write/delete, the recursive
-tree read, and the merge-request and issue list/detail reads use
-`Provider-verified` evidence. Upload security, dependency audit, recovery, and
-governance use `Deterministic` evidence; the latter three remain experimental,
-because their provider coverage is genuinely narrower: recovery here compares
-and previews but does not restore, and governance shows policy without enforcing
-it on provider mutations.
-
-Merge-request and issue writes use `Provider-verified` evidence, through the
-product's own GitLab requests: an issue is created, noted and closed by state
-event, each read back, and the `read_api` credential is refused; a merge request
-between two disposable branches is reviewed by note, refused a merge against a
-head it no longer has, and merged against the head it reported, after GitLab
-has finished checking that it can be. GitLab has no review object, so a comment
-review is a note and an approval is its approval; "request changes" has no
-counterpart in its API and is refused by name.
-
-The site check is `Deterministic` and the same as GitHub's, since it reads the
-deployed site rather than the repository; the repository audit is unavailable
-until a GitLab reader exists, and the screen says so rather than showing an
-empty result.
-
-## Gitea — registry-qualified subset
-
-Counted from the capability registry: 7 Supported, 4 Experimental, 26 Unavailable. Of those, 5 carry
-`Provider-verified` evidence.
-
-| Status | Capabilities |
-| --- | --- |
-| Supported | repository and branch reads; bounded file read/write/delete; site check; upload security |
-| Experimental | tree read; dependency audit; read-only recovery comparison; governance views |
-| Unavailable | repository create/delete; provider rate-limit read; branch write; file rename/batch; pulls; issues; workflows; releases; search; notifications; stars; native push; Git LFS; folder move; live events; access-surface analysis; exposure scanning and repository audit, which have no repository reader for this provider |
-
-Repository read, branch read, and bounded file read/write/delete use
-`Provider-verified` evidence. Upload security, dependency audit, recovery, and
-governance use `Deterministic` evidence; the latter three remain experimental.
-The site check is `Deterministic` and the same as GitHub's, since it reads the
-deployed site rather than the repository. Tree read remains `Experimental` +
-`Inferred`. Gitea batch mutation remains
-unavailable because only single-file Contents API write and delete received
-provider qualification.
-
-Unknown providers, deployments, and capabilities default to `Unavailable`.
+Unknown or retired providers, unknown deployments, and unknown capabilities
+fail closed. They cannot supply a live-provider qualification artifact or gain
+support through a legacy session, scope or browser selection.

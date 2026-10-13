@@ -651,6 +651,13 @@ function makeStore(pool, currentTime = NOW) {
     authority: 'github.com'
   };
 
+  for (const provider of ['gitlab', 'gitea']) {
+    await assert.rejects(store.bindProviderIdentity({ ...input, provider }), /Only GitHub/);
+    await assert.rejects(store.claimProviderWebhookOwnership({ ...input, provider, resourceKeyHash: 'b'.repeat(64) }), /Only GitHub/);
+    await assert.rejects(store.claimProviderSessionOwnership({ ...input, provider, sessionKeyHash: 'b'.repeat(64) }), /Only GitHub/);
+  }
+  assert.strictEqual(pool.calls.length, 0, 'retired identities must be refused before persistence');
+
   const created = await store.bindProviderIdentity(input);
   assert.deepStrictEqual(created, {
     created: true,

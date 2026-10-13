@@ -39,7 +39,7 @@ const {
 } = require('../ci/verify-alpha17-authorization');
 
 const WORKFLOW = '.github/workflows/public-alpha-alpha17.yml';
-const ALLOWED_JOBS = Object.freeze(['github', 'gitlab', 'gitea', 'hosted']);
+const ALLOWED_JOBS = Object.freeze(['github', 'hosted']);
 const DEFAULT_LIFETIME_MINUTES = 20;
 /* The verifier refuses anything longer; minting one it would reject helps nobody. */
 const MAX_LIFETIME_MINUTES = 30;
@@ -55,6 +55,7 @@ function parseArguments(argv) {
     const token = argv[index];
     if (!token.startsWith('--')) fail(`unexpected argument: ${token}`);
     const name = token.slice(2);
+    if (/^(?:gitlab|gitea)(?:-|$)/.test(name)) fail(`unsupported provider option: --${name}`);
     const value = argv[index + 1];
     /* One valueless flag; everything else names a value. */
     if (name === 'ephemeral-key') {
@@ -108,14 +109,10 @@ function keygen(options) {
 function targetsFor(jobs, options) {
   const targets = {};
   for (const job of jobs) {
-    if (job === 'github' || job === 'gitlab' || job === 'gitea') {
+    if (job === 'github') {
       targets[job] = {
         repository: required(options, `${job}-repository`),
-        apiUrl: options[`${job}-api-url`] || {
-          github: 'https://api.github.com',
-          gitlab: 'https://gitlab.com/api/v4',
-          gitea: ''
-        }[job]
+        apiUrl: options[`${job}-api-url`] || 'https://api.github.com'
       };
       if (!targets[job].apiUrl) fail(`--${job}-api-url is required for ${job}`);
       continue;

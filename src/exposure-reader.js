@@ -762,11 +762,11 @@ function commitDate(item) {
 }
 
 /*
- * The commits reachable from a commit, newest first, up to a ceiling -- and
- * stopping early at `stopAt`, the commit an earlier complete history scan
- * already read through, so a repository is not re-read from the beginning
- * every time. Only a commit id is kept for each, with its date and how many
- * parents it has: no author, no message.
+ * The commits reachable from a commit, newest first, up to a ceiling. A prior
+ * scan's tip is not a safe stopping point: newly merged branches can contain
+ * older commits after that tip in the provider's date-ordered listing. Read
+ * the bounded reachable history again until ancestry coverage can be proven.
+ * Only ids, dates and parent counts are retained, never authors or messages.
  */
 async function listCommits(input = {}) {
   const reader = requireReader(input.scope);
@@ -774,15 +774,15 @@ async function listCommits(input = {}) {
   const commitSha = requireCommit(input.commitSha);
   const token = requireToken(input.token);
   const maxCommits = Number.isInteger(input.maxCommits) && input.maxCommits > 0 ? input.maxCommits : 1000;
-  const stopAt = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(text(input.stopAt).toLowerCase())
-    ? text(input.stopAt).toLowerCase()
-    : '';
 
   const commits = [];
   const seen = new Set();
   let truncated = false;
-  let reachedBase = false;
-  for (let page = 1; ; page += 1) {
+  /* A repeated or malformed full page must not create an endless listing.
+     One lookahead page distinguishes an exact ceiling from a longer history. */
+  const maxPages = Math.ceil(maxCommits / COMMIT_PAGE_SIZE) + 1;
+  for (let page = 1; page <= maxPages; page += 1) {
+    if (typeof input.beforePage === 'function') await input.beforePage();
     const response = await request({
       scope, reader, apiPath: reader.commitListPath(scope, commitSha, page), token,
       transport: input.transport, maxResponseBytes: MAX_COMMIT_LIST_RESPONSE_BYTES
@@ -803,7 +803,6 @@ async function listCommits(input = {}) {
     for (const item of items) {
       const sha = text(item && item.sha).toLowerCase();
       if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha) || seen.has(sha)) continue;
-      if (stopAt && sha === stopAt) { reachedBase = true; break; }
       if (commits.length >= maxCommits) { truncated = true; break; }
       seen.add(sha);
       commits.push(Object.freeze({
@@ -812,9 +811,10 @@ async function listCommits(input = {}) {
         parents: Array.isArray(item && item.parents) ? item.parents.length : 0
       }));
     }
-    if (reachedBase || truncated || items.length < COMMIT_PAGE_SIZE) break;
+    if (truncated || items.length < COMMIT_PAGE_SIZE) break;
+    if (page === maxPages) truncated = true;
   }
-  return Object.freeze({ commits: Object.freeze(commits), truncated, reachedBase });
+  return Object.freeze({ commits: Object.freeze(commits), truncated });
 }
 
 /*
@@ -874,6 +874,8 @@ async function readCommitChanges(input = {}) {
   let committedAt = null;
   let parents = 0;
   for (let page = 1; page <= MAX_COMMIT_FILE_PAGES; page += 1) {
+    /* Outside the transport catch: losing access is not an unreadable commit. */
+    if (typeof input.beforePage === 'function') await input.beforePage();
     let response;
     try {
       response = await request({

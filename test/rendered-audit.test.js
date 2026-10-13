@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const express = require('express');
-const { renderedUrl, auditRenderedSite } = require('../src/rendered-site-audit');
+const { renderedUrl, displayUrl, auditRenderedSite } = require('../src/rendered-site-audit');
 const { registerRenderedAudit } = require('../src/routes/rendered-audit');
 const { runRenderedSite, killProcessTree } = require('../src/rendered-site-runner');
 const { spawn } = require('node:child_process');
@@ -27,6 +27,15 @@ const fs = require('node:fs');
   for (const url of ['http://example.com', 'https://user:password@example.com', 'https://example.com:444', 'https://example.com/#x', 'file:///tmp/a', 'invalid']) {
     assert.throws(() => renderedUrl(url), error => error.code === 'RENDERED_URL_INVALID');
   }
+  for (const key of ['access_token', 'TOKEN', 'password', 'api-key', 'client_secret', 'X-Amz-Signature', 'X-Goog-Credential', 'code']) {
+    assert.throws(() => renderedUrl(`https://example.com/?${key}=synthetic-only`), error => error.code === 'RENDERED_URL_SENSITIVE' && !error.message.includes('synthetic-only'));
+  }
+  assert.equal(displayUrl('https://example.com/reset/abcdefghijklmnopqrstuvwxyzabcdef?q=synthetic-only#fragment'), 'https://example.com/reset/[redacted]');
+  for (const segment of ['%41'.repeat(30), '%2541'.repeat(30), 'eyJmb28iOiJiYXIifQ.eyJzdWIiOiJmaXh0dXJlIn0.c3ludGhldGljLW9ubHk']) {
+    assert.equal(displayUrl(`https://example.com/reset/${segment}`), 'https://example.com/reset/[redacted]');
+  }
+  assert.equal(displayUrl('https://example.com/caf%C3%A9'), 'https://example.com/caf%C3%A9');
+  assert.equal(displayUrl('javascript:synthetic-only'), null);
   assert.equal(renderedUrl('https://example.com/path?q=1'), 'https://example.com/path?q=1');
   await assert.rejects(auditRenderedSite({ url: 'https://example.com', launch: async options => {
     assert.equal(options.chromiumSandbox, true);
@@ -73,16 +82,19 @@ const fs = require('node:fs');
     assert.equal(readiness.headers.get('cache-control'), 'no-store');
     assert.equal((await readiness.json()).available, true);
     assert.equal((await call('GET', '/api/site-rendered?url=https://example.com', 'a')).status, 400);
+    assert.equal((await call('POST', '/api/site-rendered', 'a', { url: 'https://example.com/?access_token=synthetic-only' })).status, 400);
     assert.equal(launches, 0, 'polls and denied calls cannot launch a browser');
     const start = await call('POST', '/api/site-rendered', 'a', { url: 'https://example.com/slow' });
     assert.equal(start.status, 202);
     const { run } = await start.json();
     assert(run);
+    assert.equal((await call('GET', `/api/site-rendered?run=${run}`, 'a')).status, 202);
+    assert.equal((await call('GET', `/api/site-rendered?run=${run}`, 'b')).status, 404);
     assert.equal((await call('GET', query('https://example.com/slow', run), 'b')).status, 404);
     assert.equal((await call('GET', query('https://example.com/other', run), 'a')).status, 404);
     assert.equal((await call('DELETE', query('https://example.com/slow', run), 'b')).status, 404);
     assert.equal((await call('POST', '/api/site-rendered', 'b', { url: 'https://elsewhere.example/slow' })).status, 503);
-    assert.equal((await call('DELETE', query('https://example.com/slow', run), 'a')).status, 200);
+    assert.equal((await call('DELETE', `/api/site-rendered?run=${run}`, 'a')).status, 200);
     assert(aborted, 'cancelling aborts the worker');
     assert.equal((await call('GET', query('https://example.com/slow', run), 'a')).status, 404);
     assert.equal((await call('POST', '/api/site-rendered', 'a', { url: 'https://example.com/fast' })).status, 429);

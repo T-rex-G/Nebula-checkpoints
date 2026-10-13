@@ -35,8 +35,6 @@ const CHECKS = deepFreeze([
   { id: 'neon.concurrent-governance', tier: 'neon', required: true, destructive: false, title: 'Concurrent review, activation and exception races', command: 'task20://neon/concurrent-governance/v1' },
   { id: 'neon.outbox-workers', tier: 'neon', required: true, destructive: false, title: 'Concurrent outbox worker leasing', command: 'task20://neon/outbox-workers/v1' },
   { id: 'provider.github-pat-oauth', tier: 'provider', required: true, destructive: false, title: 'GitHub PAT or OAuth compatibility', command: 'task20://provider/github-pat-oauth/v1' },
-  { id: 'provider.gitlab', tier: 'provider', required: true, destructive: false, title: 'GitLab compatibility', command: 'task20://provider/gitlab/v1' },
-  { id: 'provider.gitea', tier: 'provider', required: true, destructive: false, title: 'Gitea compatibility', command: 'task20://provider/gitea/v1' },
   { id: 'provider.github-app', tier: 'provider', required: false, destructive: false, title: 'Optional GitHub App execution', command: 'task20://provider/github-app/v1' },
   { id: 'destructive.batch-and-recovery', tier: 'destructive', required: true, destructive: true, title: 'Sandbox batch mutation and recovery', command: 'task20://destructive/batch-and-recovery/v1' },
   { id: 'destructive.receive-pack-lfs', tier: 'destructive', required: true, destructive: true, title: 'Sandbox Git receive-pack and Git LFS ladders', command: 'task20://destructive/receive-pack-lfs/v1' },

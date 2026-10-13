@@ -1,319 +1,285 @@
-# Dispatching the alpha.17 live-provider qualification
+# Dispatching the GitHub golden qualification
 
-Historical evidence is candidate-specific. Run 65 on 3 September 2026 passed
-GitHub and GitLab on that run's candidate; run 68 later exercised Gitea.
-Neither run qualifies PR #72 or later archives. All providers and the
-hosted/manual gates require fresh evidence for the current candidate.
-See [the remediation report](../qualification/PRODUCT_REVIEW_REMEDIATION.md).
+GitHub is the only supported repository provider and the only live-provider
+job in `.github/workflows/public-alpha-alpha17.yml`. Hosted Render/Neon,
+independent review, manual accessibility and final release gates remain
+separate requirements. Removing other providers does not close any of them.
+
+This guide is an operator procedure, not authorization to dispatch. The current
+PR must remain open and unmerged for another AI review. A later live run needs
+an explicit instruction covering the reviewed candidate and disposable targets.
+
+Historical runs, including the September provider runs, qualify only their own
+candidate bytes. They do not qualify this PR. See the
+[evidence index](../release/EVIDENCE_INDEX.md) and
+[remediation report](../qualification/PRODUCT_REVIEW_REMEDIATION.md).
+
+## Preflight before a separately authorized run
 
 The workflow executes candidate code with live credentials. Review the source
-commit and exact disposable targets before dispatch. The run signs its own
-activation envelope; repository write access currently authorizes dispatch,
-not an independent human signature. The envelope's limits are explained below.
+commit and exact disposable GitHub repository before dispatch. Its `automated`
+job builds and freezes an archive from the selected commit; every subsequent
+artifact must bind that archive digest and source commit. A source change
+requires a new candidate and new evidence.
 
-Each provider needs its own target, its own two credentials and its own
-fixtures. The sections below are per-provider for that reason: a GitLab target
-set up from the GitHub instructions will fail, and it will fail late.
+The prior review could not read protected settings or workflow target variables
+with its connected token (HTTP 403). The target descriptions below are setup
+requirements, not a current readback. Confirm reachability, permissions,
+fixtures and environment protection before supplying credentials.
 
-## What the gate needs, and what already exists
-
-Target names and fixture descriptions below record the historical setup.
-They are not a current readback: the connected token received HTTP 403 when
-reading workflow target variables. Confirm the configured disposable targets,
-their reachability and credential scope before any live dispatch.
-
-Shared by every provider:
-
-| Requirement | State |
+| Requirement | Required state |
 | --- | --- |
-| `alpha17-live-qualification` environment holding every live secret | Confirm — scopes them to the live jobs; see below on approval |
-| Independent review of the exact candidate bytes | Required before dispatch |
+| Independent review | Exact candidate bytes reviewed before live credentials are exposed |
+| Live environment | `alpha17-live-qualification`, holding only the secrets needed by the selected live jobs |
+| Disposable GitHub target | Pre-created `owner/nvx-alpha17-…` repository with a real default-branch commit. Private or public: on a public one GitHub lets any reader open an issue, so the read-only refusal is proven by a label it may not create |
+| API authority | `https://api.github.com`, fixed by the workflow |
+| Mutation credential | Repository Metadata read; Contents, Actions, Issues and Pull requests read/write; account Starring read/write |
+| Read-only credential | Metadata read and Contents read, with no write permission |
+| Repository administration credential | A fine-grained token of a **dedicated qualification account** that owns nothing else: Administration read/write and Metadata read on all of that account's repositories. It creates one private `nvx-alpha17-<run>-repository` and deletes only that one |
+| Notification credential | A **classic** token (prefix `ghp_`) of a bot account that is a collaborator on the disposable target only, with the `notifications` and `repo` scopes. GitHub serves notifications to no fine-grained token |
+| Repository variable | `ALPHA17_GITHUB_REPOSITORY`, the exact `owner/name` |
+| Live secrets | `ALPHA17_GITHUB_MUTATION_CREDENTIAL`, `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL`, `ALPHA17_GITHUB_REPOSITORY_ADMIN_CREDENTIAL` and `ALPHA17_GITHUB_NOTIFICATIONS_CREDENTIAL` |
 
-### GitHub
+Every credential must be disposable and scoped to the dedicated sandbox or the
+dedicated qualification account, never a production repository, a personal
+account that owns real work, or a broad organization. The mutation credential
+must be fine-grained: the notification proof checks that GitHub refuses it. The read-only credential exists
+to prove `permission-denial`. If it can mutate the branch, the run must fail
+with `ALPHA17_PERMISSION_SCOPE_INVALID`; granting it write permission cannot
+be treated as a passing denial test.
 
-| Requirement | State |
-| --- | --- |
-| Disposable target repository, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-github-qualification`, private, `main` at a real commit |
-| Actions, pulls, issues and releases reachable on that target | All four answer, and all four carry a permanent fixture — see below |
-| Code search fixture on the default branch | `NVX_SEARCH_FIXTURE.md` containing the word `nvx-alpha17-search-fixture` — see below |
-| Mutation credential permissions | Repository: Metadata read, Contents read and write, Actions read and write, Issues read and write, Pull requests read and write. Account: Starring read and write |
-| Read-only credential permissions | Metadata read, Contents read. **No write of any kind** |
-| `ALPHA17_GITHUB_REPOSITORY` variable | Confirm — set to the target's `owner/name` |
-| `ALPHA17_GITHUB_MUTATION_CREDENTIAL` secret | Confirm |
-| `ALPHA17_GITHUB_READ_ONLY_CREDENTIAL` secret | Confirm |
+### When the run says a credential was denied
 
-The API URL is fixed in the workflow at `https://api.github.com` and is not an
-operator setting.
+`ALPHA17_PERMISSION_DENIED: provider denied the <name> credential on <METHOD>
+<path>` means GitHub answered 401 or 403 to that credential on that request.
+On the first request it has expired or been revoked; later in the run it is
+short of one permission. Where GitHub names the permission it would have
+accepted, the line ends `(the provider accepts: <permission>=<level>)`. Fine-grained
+tokens expire on the date chosen at creation. Issue a new token with the
+permissions above, replace the secret of the same name in the
+`alpha17-live-qualification` environment, and dispatch again. Nothing else
+needs to change.
 
-### GitLab
+`ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE` names a repository in the
+qualification account that the run could not prove it removed. Inspect it, and
+delete it by hand only once it is confirmed to be that run's disposable
+repository.
 
-| Requirement | State |
-| --- | --- |
-| Disposable target project, `nvx-alpha17-` prefix | `T-rex-G/nvx-alpha17-gitlab-qualification`, private, `main` at a real commit |
-| Merge requests and issues reachable on that project | Both answer, and both carry a permanent fixture — see below |
-| Mutation credential scope | `api` — already covers the issue and merge-request writes the leg now proves |
-| Read-only credential scope | `read_api`. **No `api` scope of any kind** |
-| `ALPHA17_GITLAB_REPOSITORY` variable | Confirm — set to the project's `namespace/name`, not its numeric id |
-| `ALPHA17_GITLAB_MUTATION_CREDENTIAL` secret | Confirm |
-| `ALPHA17_GITLAB_READ_ONLY_CREDENTIAL` secret | Confirm |
+Retired-provider variables, credentials, jobs and harnesses are not inputs to
+current qualification. Revoke any credentials that were issued for former
+integrations in their original provider settings. Local removal of an account
+or a workflow reference does not revoke a remote credential.
 
-The API URL is fixed in the workflow at `https://gitlab.com/api/v4`. A
-self-managed instance would need that line changed, not a variable set.
+## Permanent fixtures
 
-GitLab's token scopes are coarse where GitHub's are per-permission: `api` is
-read and write across the whole API surface, and there is no way to grant
-Contents-write without also granting issues, merge requests and everything
-else. That has two consequences worth knowing before you create the token.
-
-Extending the GitLab leg later — releases, pipelines, search — needs no new
-credential, because `api` already covers them. And the mutation token is
-broader than the GitHub one by construction: what confines it is the project it
-can reach, not the operations it can perform. Create it as a **project** access
-token on the disposable project, never a personal or group token.
-
-### Gitea
-
-Historical run 68 exercised Gitea. The current values and reachability of
-`ALPHA17_GITEA_REPOSITORY` and `ALPHA17_GITEA_API_URL` remain unverified.
-Registry availability and evidence state are separate axes: `Supported`
-does not establish `Provider-verified` evidence for a new candidate.
-See `WORK_CONTINUITY.json` for the remaining evidence requirements.
-
-### Both credentials, every provider
-
-They must reach only the disposable target: no organization or group scope, no
-production repository, disposable after the run. The read-only one exists to be
-refused — the `permission-denial` proof depends on it failing to write.
-
-Granting the read-only credential write access does not break the run in a way
-anyone would notice by reading a pass: the write it is supposed to be refused
-would succeed, and `permission-denial` would have proved nothing. The gate
-catches it — a read-only credential that mutates the branch fails the run with
-`ALPHA17_PERMISSION_SCOPE_INVALID` — and that refusal is covered by a test that
-was watched to fail before it was trusted. Keep the token read-only anyway; the
-guard is the backstop, not the plan.
-
-## The fixtures on the targets, and why deleting them is not free
-
-GitHub's target carries four permanent objects, each labelled in its own body:
+The GitHub target must contain these inert fixtures before dispatch:
 
 | Fixture | Proves |
 | --- | --- |
-| Issue, open | `issues.read` detail agreement |
-| Pull request, open, from `nvx-alpha17-fixture-pull` | `pulls.read` detail agreement |
-| Release, published — not a draft, `GET /releases` does not list drafts | `releases.read` detail agreement |
-| One dispatched run of the fixture workflow | `workflows.read` detail agreement; `workflows.rerun` dispatches the same workflow again and re-runs that new run |
-| `NVX_SEARCH_FIXTURE.md` on the default branch, containing `nvx-alpha17-search-fixture` | `search` and `global-search`: GitHub indexes only the default branch, so the probe cannot search for anything the run itself writes |
+| Open issue, labelled in its body as a qualification fixture | `issues.read` list/detail agreement |
+| Open pull request from a fixture branch | `pulls.read` list/detail agreement |
+| Published release, not a draft | `releases.read` list/detail agreement |
+| A completed run of a short `workflow_dispatch`-only workflow | `workflows.read`; the re-run probe dispatches a fresh run and re-runs that one |
+| `NVX_SEARCH_FIXTURE.md` on the default branch containing `nvx-alpha17-search-fixture` | `search` and `global-search`, because GitHub indexes the default branch |
 
-GitLab's target carries two:
+A fixture pull request needs a real difference from its base. Keep the workflow
+short and disabled on `push`, so disposable proof branches do not start
+unbounded CI. The re-run probe waits for its newly dispatched run to finish;
+an unfinished run fails the probe rather than counting as success.
 
-| Fixture | Proves |
-| --- | --- |
-| Issue, open | `issues.read` detail agreement |
-| Merge request, open, from `nvx-alpha17-fixture-merge` into `main` | `pulls.read` detail agreement |
+Each collection probe lists, fetches the listed object's detail and asks for a
+nonexistent identifier. An empty collection fails: a successful empty listing
+does not prove detail agreement. GitHub's issues endpoint also lists pull
+requests, so one issue and one pull request may produce `listed: 2`.
 
-The merge request needs a real difference between the two branches or GitLab
-will refuse to open it, so `nvx-alpha17-fixture-merge` carries one committed
-file that `main` does not. GitLab also requires a description on some project
-configurations and silently keeps the form open without one; give both objects
-a body saying what they are for.
+## Activation envelope and approval boundary
 
-Two things GitLab does *not* have, and no fixture can supply: there is no
-release or workflow-run probe on its leg, because `releases.read` and
-`workflows.read` are `Unavailable` for GitLab in the registry. GitLab's
-pipelines are the analogue of GitHub Actions and nothing is wired to them.
+The `authorize-live` job mints its own short-lived activation envelope after
+`automated` freezes the candidate. It generates an ephemeral signing key,
+binds the workflow, repository, dispatch ref, event, source parent and commit,
+archive digest, selected jobs and exact target hashes, then discards the key.
+The authorization contract uses schema `1.3.0`. The accepted job set is GitHub
+and/or hosted; unsupported selections must fail before a live request.
 
-One asymmetry in the recorded numbers is worth expecting rather than
-investigating. GitHub's issues endpoint returns pull requests as issues, so its
-`issues-read` probe records `listed: 2` against one issue and one pull request.
-GitLab keeps them separate, so both of its probes record `listed: 1`.
+This run-minted envelope binds **what ran**, not **who independently approved
+it**. Repository write access permits workflow dispatch unless separately
+configured protection prevents it. The live environment scopes secrets to
+jobs but is not proof of independent approval. Inspect its actual protection
+rules; do not assume a required reviewer is configured or available.
 
-Each collection probe lists, then fetches every listed object on its own, then
-asks for an identifier that cannot exist and requires a refusal. Against an
-empty target the middle step never runs: the probe passes on an empty listing
-having proved the endpoint answers and discriminates, which is *not* the
-capability being claimed. `listed` in the artifact is how you tell the two
-apart — run 65 recorded 1, 2, 1 and 1 for GitHub and 1 and 1 for GitLab, not 0.
+The release process still needs an independent reviewer or operator-held
+approval where separation of duties is required. The operator-signing CLI
+`node scripts/alpha17-authorize.js` remains available for reviewed authorization
+workflows, but the current dispatch form does not accept an operator token.
+Changing the workflow to require that token would be a separate reviewed change.
 
-Deleting a fixture used to fail nothing: the probe listed zero objects, never
-ran the detail comparison, and passed having proved only that the endpoint
-answers. That was written here as a hazard for a human to remember, which is
-the wrong place for it — a gate that can enforce a rule should not be asking
-someone to hold it in their head. An empty listing now fails the run outright.
-
-So the fixtures are permanent, and GitHub's workflow one is
-`workflow_dispatch` only — on `push` it would fire on every proof branch the
-qualification creates and deletes, and the targets are meant to be inert
-between runs. Keep it short: the re-run probe dispatches it, waits about three
-minutes for that run to finish, and fails naming `dispatchedRunCompleted` if it
-has not. A run can only be re-run for thirty days, which is why the probe never
-re-runs the permanent one.
-
-### What a GitHub run leaves behind, on purpose
-
-GitHub offers no way to delete an issue or a pull request over REST, so each
-run leaves one closed issue and one merged pull request, both titled with the
-run they came from. The pull request was merged between two disposable branches
-cut for it — one from the run's branch, one from the default head — and both are
-deleted before the probe reports, with `refsRemoved` recording that they are
-gone; the default branch is never touched. The release and its tag are deleted
-and read back as absent. The account's star is put back the way it was found.
-The dispatched workflow run stays, with two attempts.
-
-GitLab leaves the same two: a closed issue and a merged merge request, both
-titled with their run, the merge request's two disposable branches deleted. A
-project access token cannot delete an issue; only an owner can. GitLab has no equivalent fixture because it has no workflow
-probe, but the same rule applies to its project: if you add CI there, keep it
-off `push`.
-
-## The activation envelope
-
-The run mints its own. There is no key to generate, no digest to compute in
-advance, and no candidate to freeze: the `automated` job builds the candidate
-from the commit you dispatch, then hands its digest, source commit and parent
-to the authorize job, which signs an envelope over exactly those facts with a
-keypair it generates and discards.
-
-That envelope goes through the same verifier it always did, so every binding
-still holds — workflow, repository, dispatch ref, event, source parent and
-commit, candidate digest, authorized jobs, and a hash of each target's exact
-shape. A target changed mid-run no longer matches, and the run stops.
-
-What a run-minted envelope cannot carry is **who** approved, and on this
-repository nothing else carries it either.
-
-The environment scopes live credentials to the jobs that name it. That does
-not prove independent approval. Check its actual protection rules and the
-account's available GitHub features before treating it as an approval gate.
-The connected audit token could not inspect protected settings or target
-variables (HTTP 403), so no new protection is claimed here.
-
-The observed dispatch boundary remains repository write access. Require an
-independent reviewer or operator-held authorization in the release process
-where separation of duties is required. A self-signed execution record binds
-what ran; it cannot establish who independently approved it.
-
-Two things restore a genuine second factor, neither of them required to run:
-adding a required reviewer once the repository is on a plan that allows it, or
-returning to the operator-signed flow below.
-
-An operator who holds a key can return to the stronger flow at any time by
-minting the envelope themselves:
-
-```
-node scripts/alpha17-authorize.js keygen --out-dir ~/.nvx-alpha17
-node scripts/alpha17-authorize.js sign --key ~/.nvx-alpha17/alpha17-authorization-key.pem …
-```
-
-The nonce ledger is kept for that reason. Against a run-minted envelope it can
-never fire, because each run draws a fresh identifier no earlier run can have
-spent.
+The nonce ledger rejects reuse of a spent approval identifier. A run-minted
+envelope uses a fresh identifier for each run. The ledger currently lives in a
+CI cache; losing that cache can reopen the replay window for an otherwise valid
+unexpired approval. This limitation remains an operational release concern,
+not evidence of a stronger approval boundary.
 
 ## Dispatch
 
-Actions → **Nebulaverse-X alpha.17 qualification** → Run workflow.
+After candidate review, target verification and explicit live-run authorization:
 
-Pick the branch you want qualified, set `run_github` and `run_gitlab` true,
-leave `run_gitea` and `run_hosted` false, and run it. There are no other
-inputs. Approve the `alpha17-live-qualification` environment when it asks.
+1. Open Actions → **Nebulaverse-X alpha.17 qualification** → Run workflow.
+2. Select the reviewed branch/commit and set `run_github` to true.
+3. Leave `run_hosted` false unless that separate target and destructive restore
+   procedure were also reviewed and authorized. A GitHub-only dispatch does
+   not pass the hosted gate.
+4. Complete any configured environment review and record the actor/run link.
+5. Inspect the candidate digest, source commit, target binding, probe outcomes
+   and cleanup before accepting the artifact.
 
-The two provider legs run in parallel against separate targets and produce
-separate evidence artifacts. They are independent: one can fail while the other
-passes, and run 64 did exactly that. Both artifacts bind to the same
-`subjectSha256` and `sourceCommit`, so a GO needs them from the same run.
+The hosted run's `live-events-delivery` check needs a deployment that serves
+live events. They are Supported now, so every deployment does, staging
+included; before their promotion only staging did, through
+`NV_QUALIFICATION_CAPABILITIES=live-events`. That variable names no capability
+any more: a server still carrying it refuses to start, so remove it from the
+staging service before deploying a candidate that carries the promotion.
 
-## What the run proves
+The workflow exposes `run_github`, `run_hosted` and `run_drills`. A retired
+provider must not be reintroduced through an old input, target map or artifact.
+Independent hosted and manual evidence must bind the same candidate before a
+final GO.
 
-Every provider runs the same mutation sequence on a disposable branch it creates
-and removes, then whatever probes its own contract adds. GitHub records
-twenty-nine checks for twenty-six capabilities, GitLab sixteen for eleven.
-Run 65's seventeen GitHub and fourteen GitLab checks predate the write probes
-below.
+## Hosted drills and the operator record
 
-Shared by both:
+The hosted gate trusts one Ed25519-signed operator record for the observations
+no runner can make on its own behalf: a live event delivered by GitHub, a
+provider rate limit, session revocation, provider disconnect, a restart, a
+scale-to-zero wake, a database interruption, a rollback and a tester purge.
+`run_drills` performs every one of them against the staging target and reports
+them; a person reads the report and signs it.
 
-- repository and default-branch reads
-- disposable branch create, then absence after cleanup
-- expected-head write and UTF-8 readback
-- conditional update, stale-head refusal, permission denial, stale-head delete
-  refusal, expected-head delete
-- recursive tree listing bound to the file the run wrote
+1. **Dispatch `run_drills` alone.** The `hosted-drills` job verifies the same
+   signed hosted target the gate does, then runs `ci/run-alpha17-hosted-drills.js`
+   from the trusted checkout. Before it touches anything it refuses
+   (`ALPHA17_DRILL_TARGET_REFUSED`) a service that deploys on its own, one
+   that is not serving live events, or one whose deployment fingerprint is not
+   the candidate's. It restarts, suspends, interrupts and redeploys that
+   service and its cohort compute, so it never runs unless named.
+2. **Read the report.** It is the one line between
+   `ALPHA17_DRILL_REPORT_BEGIN` and `ALPHA17_DRILL_REPORT_END` in the job log:
+   each check with its observations (latencies, statuses, counts) and the
+   cleanup readback: compute enabled, no webhook left on the sandbox, the
+   candidate served again, no active drill tester. It carries no invitation,
+   cookie, token, database address or pepper. A run that did not pass or did
+   not clean up prints `"ok": false` and the job fails.
+3. **Sign it.** The operator holds the private key; it never enters the
+   repository, the environment or a job.
 
-GitHub only:
+   ```bash
+   node scripts/alpha17-operator-record.js keygen --out ~/.nvx-operator   # once
+   node scripts/alpha17-operator-record.js sign \
+     --report job.log --key ~/.nvx-operator/operator.pem --key-id <keyId>
+   ```
 
-- provider rate-limit ceiling and remaining budget
-- release and workflow-run list/detail agreement
-- the push chain (object identity, single-commit batch) and the LFS store
-- the capability probes, each through the product's own requests: the
-  exposure reader against the run's branch; a rename and a folder move that
-  keep object identity on the observed head; an issue created, commented on,
-  closed and refused to the read-only credential; a pull request reviewed,
-  refused a merge against a stale head and merged against the reported one; a
-  prerelease and its tag published and removed; the account's star set and
-  restored; the scoped code search against its fixture; a workflow re-run
+   `keygen` prints the key ID and the public key and never overwrites a key.
+   `sign` takes the report JSON or the whole job log, refuses a failed or
+   uncleaned run, signs exactly the fields the gate validates and checks the
+   result with the gate's own validator before printing it.
+4. **Set three variables** in the `alpha17-live-qualification` environment:
+   `ALPHA17_OPERATOR_KEY_ID`, `ALPHA17_OPERATOR_PUBLIC_KEY_BASE64` and
+   `ALPHA17_OPERATIONAL_RECORD_BASE64`. None is secret. The record binds the
+   candidate archive digest and source commit and is accepted for 72 hours
+   from `completedAt`; a new candidate needs a new drill run and a new
+   signature.
+5. **Dispatch `run_hosted`.** It needs no session material: the job makes its
+   own five testers by invitation for the sandbox repository, the first signed
+   in with the mutation credential and the rest read-only, after the restore,
+   and releases them on every exit -- revoked, and the last one's data deleted,
+   which removes every session that still carries the shared GitHub identity.
+   The `ALPHA17_SESSION_COOKIES`, `ALPHA17_MUTATION_REQUEST` and
+   `ALPHA17_CLEANUP_REQUEST` secrets are no longer read; delete them. Nor is
+   a backup key: the restore draws its own for the run and never stores it.
 
-Both, over their own objects:
+**Where the target variables live.** `authorize-live` binds the hosted target
+before any live job starts, and it runs outside the live environment, so it
+reads only **repository** variables: `ALPHA17_HOSTED_BASE_URL`,
+`ALPHA17_RENDER_SERVICE_ID`, `ALPHA17_NEON_PROJECT_ID`,
+`ALPHA17_COHORT_NEON_BRANCH_ID`, `ALPHA17_RESTORE_APP_BASE_URL`,
+`ALPHA17_RESTORE_APP_DEPLOY_ID`, `ALPHA17_RESTORE_NEON_PROJECT_ID`,
+`ALPHA17_RESTORE_NEON_BRANCH_ID` and `ALPHA17_RESTORE_TARGET_FINGERPRINT`.
+Set them there. The live jobs run inside `alpha17-live-qualification`, where a
+variable of the same name overrides the repository's; keep no copy there, or
+keep it identical. A copy that differs is refused as a target that does not
+match its binding, never silently used. A base URL is an origin; one trailing
+slash, as a browser copies it, reads as the same origin, and a path is refused.
+Every new candidate is a new restore deployment, so
+`ALPHA17_RESTORE_APP_DEPLOY_ID` changes with each one.
 
-- pull-request (merge-request) and issue list/detail agreement with
-  absent-identifier discrimination
-- an issue created, commented on (a note on GitLab) and closed, each read back,
-  and refused to the read-only credential
-- a pull request (merge request) between two disposable branches, reviewed,
-  refused a merge against a stale head and merged against the reported one;
-  both branches are deleted and read back as gone. On GitLab the probe waits
-  for the mergeability check to finish first, so the project must not require a
-  pipeline to merge
+**What the disconnect drill holds the product to.** After "Disconnect from
+Nebulaverse-X", a copy of the old session cookie is answered `401
+AUTH_REQUIRED`, the same as no session, and another tester presenting it is
+refused `403 ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT`. Neither is a server
+fault: a `500` fails the drill.
 
-### The concurrency proof, and why it is two checks
+The drills and the hosted gate read the staging service's `DATABASE_URL` and
+`NV_ALPHA_INVITE_PEPPER` from Render with `ALPHA17_RENDER_API_KEY`, so testers
+are issued by the deployment under test. `ALPHA17_NEON_API_KEY` suspends and
+interrupts only the cohort branch's compute and re-enables it in a `finally`;
+the cleanup readback fails the run if it did not.
 
-`conditional-update` and `stale-head` are one proof in two halves, and reading
-either alone will mislead you. The run holds the concurrency token for the
-file it wrote — the blob sha on GitHub, the last-touching commit on GitLab —
-and sends the same token twice: once while it is current, which the provider
-must accept, and once after a write has landed under it, which the provider
-must refuse. The accepted half is the control. A refusal on its own proves only
-that the provider disliked something about the request.
+## What the GitHub run proves
 
-This is the third shape this proof has had, and the first two both passed
-while proving less than they claimed. It refused the write in the client
-before the provider was called. Then it sent a synthetic token, which GitHub
-refused and GitLab accepted — runs 63 and 64 died there, because GitLab's
-conflict check resolves the file's last commit at both refs and reads "no
-commit there" as no information rather than as a conflict, so a token from
-before the file existed is not stale to it. Do not simplify this back into one
-call.
+The probe catalog and `src/qualification-evidence.js` define the exact current
+claim set. The run creates a disposable branch from the observed default head
+and exercises the product's own provider boundary:
 
-### Reading the collection probes
+- Repository/default-branch reads, branch creation and absence after cleanup.
+- Expected-head write and UTF-8 readback; conditional update, stale-head write
+  and delete refusal, insufficient-permission denial, and a valid delete.
+- Recursive tree listing bound to the written file and provider rate limits.
+- Pull-request, issue, release and workflow list/detail agreement with
+  nonexistent-identifier discrimination.
+- Git object identity and single-commit batch, native push and LFS storage.
+- The exposure reader, rename and folder move preserving object identity.
+- Issue creation/comment/close; pull-request review, stale-head merge refusal
+  and merge against the reported head on disposable branches.
+- Prerelease/tag publication and removal, star-state restoration, scoped search
+  against its permanent fixture and workflow rerun.
 
-Each records what it actually verified. Run 65 recorded, for GitHub, `listed`
-of 1 for pull requests, 2 for issues, 1 for releases and 1 for workflow runs;
-for GitLab, 1 for merge requests and 1 for issues. Every one carried
-`detailAgreed` and `absentDiscriminated` true.
+Provider-verified registry labels record claim history. They do not prove that
+the current candidate ran these probes: each release record binds the
+candidate's own run. Repository create/delete and notifications are claimed
+from their probes in the GitHub run, and verified live events from the hosted
+gate's `live-events-delivery` check; a standard sandbox run must not claim
+unexecuted probes.
 
-A `listed: 0` cannot reach an artifact any more — an empty listing fails the
-run outright — but a listing that dropped from 2 to 1 would still pass while
-proving less. The counts above are what to compare against.
+### Concurrency proof
 
-## If it fails
+`conditional-update` and `stale-head` are two halves of one proof. The same
+concurrency token must be accepted while current and refused after a real
+write makes it stale. The accepted half is the control: a refusal alone may
+only show malformed input or a different request failure. Refusal must come
+from the provider with no unintended commit, not only from a client precheck.
 
-No artifact is published on a failure, so the job log is what you have. The
-failure line carries the error code, the unmet conditions by name, and — for
-the checks that build one — the check object as JSON on the next line. Runs 63
-and 64 both failed with only `stale-head attempt changed the branch or file`,
-which covered a provider that accepted the write, a read that lagged behind one
-that refused it, and a file whose identity moved. Two runs went by without
-telling those apart. If you get a failure that names no condition, that is a
-defect in the proof, not a hard diagnosis.
+### Intentional residue and cleanup
 
-Nothing here is retried blind: a probe failure is a finding about the provider
-path, not a flake. The method that has found every defect so far is to read the
-provider's published specification — and, where the docs are silent, its source
-— before changing client code. GitLab's docs do not say what a mismatched
-`last_commit_id` returns; its `Files::BaseService` does, and it was not what
-the client assumed.
+A run can leave a closed issue, a merged pull request and a dispatched workflow
+run with two attempts. The merge is between disposable branches; the default
+branch is never the mutation target. Both branches must be deleted and read
+back as absent. The prerelease and tag are removed and read back; the account's
+star is restored to its original state. Record intentional retained objects by
+run identity so they cannot be confused with cleanup failures.
 
-The disposable branch is removed on the failure path as well, and
-`cleanup-absence` reports whether that succeeded, with `reasonCode` naming what
-refused if it did not. A run that leaves a branch behind needs it deleted by
-hand before the next dispatch — `nvx-alpha17-33658675617-proof` from run 57 is
-still on the GitHub target and still needs removing.
+Unexpected branch/file/tag residue blocks acceptance. `cleanup-absence` must
+prove cleanup, including on failed runs where possible. Before another dispatch,
+inspect any residue, confirm ownership and remove only the disposable objects
+covered by the run's authorization. Never infer that an old named branch still
+exists without a fresh readback.
+
+## If a check fails
+
+Inspect sanitized job logs, the named unmet condition and any available failure
+artifact. A failed run is not passing qualification evidence, even if a previous
+run was green. Do not retry a mutation blindly: determine whether it executed,
+read back its result and reconcile cleanup before a new authorized run.
+
+A failure that does not distinguish transport, assertion and cleanup outcomes
+is a diagnostics defect to fix. Compare the provider contract with the actual
+request and response behavior, preserve the failed result and requalify the
+changed candidate. Do not weaken evidence or permission assertions to obtain a
+pass.

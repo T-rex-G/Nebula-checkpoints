@@ -197,19 +197,19 @@ function validateSemanticRepositorySurfaces(source) {
     ]],
     ['POST', '/api/repos', [
       'providerSessionAccess',
-      "capabilityAccess('repository.create', { allowExperimental: true })",
+      "capabilityAccess('repository.create')",
       'repositoryCreationAccess',
       'auth'
     ]],
     ['GET', '/api/search', [
       'providerSessionAccess',
-      "capabilityAccess('global-search', { allowExperimental: true })",
+      "capabilityAccess('global-search')",
       'githubSearchAccess',
       'auth'
     ]],
     ['GET', '/api/notifications', [
       'providerSessionAccess',
-      "capabilityAccess('notifications', { allowExperimental: true })",
+      "capabilityAccess('notifications')",
       'auth'
     ]],
     ['POST', '/api/security/step-up', [
@@ -300,14 +300,20 @@ assert.deepStrictEqual(
   'repository listing must validate the full provider base URL before capability and credential resolution'
 );
 
-for (const provider of ['github', 'gitlab', 'gitea']) {
+assert.deepStrictEqual(Object.keys(capabilityDocument.providers), ['github']);
+for (const provider of ['github']) {
   const features = capabilityDocument.providers[provider]['hosted-alpha'];
   for (const feature of ['repository.create', 'repository.delete', 'global-search', 'notifications']) {
-    /* GitHub's global search is the scoped query the live harness proves; the rest it cannot reach. */
-    const github = feature === 'global-search' ? ['Supported', 'Provider-verified'] : ['Experimental', 'Deterministic'];
+    /*
+     * Global search is the scoped query the live harness proves; creation,
+     * deletion and the inbox are proven by its probes with the credentials the
+     * repository-confined harness credential must never hold. Each claim is
+     * exactly as strong as its proof.
+     */
+    const github = ['Supported', 'Provider-verified'];
     assert.deepStrictEqual(
       features[feature].slice(0, 2),
-      provider === 'github' ? github : ['Unavailable', 'Unavailable'],
+      github,
       `${provider} ${feature} must preserve its evidenced capability level without false provider parity`
     );
   }

@@ -127,7 +127,8 @@ function deferred() {
     let ids = 0;
     const jobs = createAuditJobs({ randomId: () => `run-${++ids}`, limits: { ...JOBS, maxRunning: 2 } });
     const signals = [];
-    const launch = ({ signal }) => { signals.push(signal); return new Promise(() => {}); };
+    const pending = [];
+    const launch = ({ signal }) => { signals.push(signal); const work = deferred(); pending.push(work); return work.promise; };
     jobs.request({ identity: 'a', owner: 'o', repo: 'r', ref: 'main', launch });
     jobs.request({ identity: 'b', owner: 'o', repo: 'r', ref: 'main', launch });
     const busy = jobs.request({ identity: 'c', owner: 'o', repo: 'r', ref: 'main', launch });
@@ -136,8 +137,69 @@ function deferred() {
     jobs.forget('a');
     assert.strictEqual(signals[0].aborted, true);
     assert.strictEqual(jobs.size(), 1);
+    assert.strictEqual(jobs.request({ identity: 'c', owner: 'o', repo: 'r', ref: 'main', launch }).error?.code, 'AUDIT_BUSY',
+      'forgetting a result must not free execution capacity while its work still runs');
+    pending[0].resolve({ grade: 'A' });
+    await settle();
     assert.strictEqual(jobs.request({ identity: 'c', owner: 'o', repo: 'r', ref: 'main', launch }).status, 202);
     jobs.forget('nobody');
+    pending.slice(1).forEach(work => work.resolve({}));
+    await settle();
+    jobs.close();
+  }
+
+  /* Timeout and cancellation cannot create unlimited background work. This
+     holds for repository audits, classic site checks, and rendered browsers. */
+  for (const kind of ['audit', 'site', 'rendered']) {
+    const prefix = { audit: 'AUDIT', site: 'SITE_CHECK', rendered: 'RENDERED_AUDIT' }[kind];
+    const jobs = createAuditJobs({ kind, limits: { ...JOBS, maxRunning: 1, maxRunMs: 15 } });
+    const work = deferred();
+    const aborted = deferred();
+    const args = { identity: 'first', owner: 'o', repo: 'r', ref: 'main' };
+    const first = jobs.request({ ...args, launch: ({ signal }) => {
+      signal.addEventListener('abort', aborted.resolve, { once: true });
+      return work.promise;
+    } });
+    let watchdog;
+    try {
+      await Promise.race([aborted.promise, new Promise((_, reject) => {
+        watchdog = setTimeout(() => reject(new Error('job timeout did not abort its work')), 1000);
+      })]);
+    } finally { clearTimeout(watchdog); }
+    assert.strictEqual(jobs.request({ ...args, run: first.body.run }).error.code, `${prefix}_TIMEOUT`);
+    let launched = 0;
+    const next = { ...args, identity: 'second', launch: () => { launched += 1; return Promise.resolve({ ok: true }); } };
+    assert.strictEqual(jobs.request(next).error?.code, `${prefix}_BUSY`);
+    assert.strictEqual(launched, 0, 'timeout must not admit work above the physical execution limit');
+    work.resolve({ stale: true });
+    await settle();
+    assert.strictEqual(jobs.request(next).status, 202);
+    await settle();
+    assert.strictEqual(launched, 1);
+    assert.strictEqual(jobs.request({ ...args, run: first.body.run }).error.code, `${prefix}_RUN_GONE`,
+      'late completion cannot restore an expired result');
+    jobs.close();
+  }
+
+  /* ---- Opaque run polling never reveals another identity's or an expired target -------------- */
+  {
+    let clock = 0;
+    const jobs = createAuditJobs({ now: () => clock, limits: { ...JOBS, keepMs: 20 } });
+    const input = { identity: 'owner', owner: 'site', repo: 'https://public.example/search?q=private-search', ref: '' };
+    const first = jobs.request({ ...input, launch: () => Promise.resolve({ ok: true }) });
+    assert.strictEqual(typeof jobs.target, 'function', 'run-only polling needs a private identity-bound target lookup');
+    assert.strictEqual(jobs.target({ identity: 'other', run: first.body.run }), null);
+    assert.strictEqual(jobs.target({ identity: 'owner', run: 'unknown' }), null);
+    assert.deepStrictEqual(jobs.target({ identity: 'owner', run: first.body.run }), { owner: input.owner, repo: input.repo, ref: input.ref });
+    assert(Object.isFrozen(jobs.target({ identity: 'owner', run: first.body.run })));
+    await settle();
+    clock = 21;
+    assert.strictEqual(jobs.target({ identity: 'owner', run: first.body.run }), null, 'expired targets cannot be recovered');
+    const next = jobs.request({ ...input, launch: () => Promise.resolve({ ok: true }) });
+    assert.strictEqual(jobs.cancel({ ...input, run: next.body.run }), true);
+    assert.strictEqual(jobs.target({ identity: 'owner', run: next.body.run }), null, 'cancelled targets cannot be recovered');
+    await settle();
+    jobs.close();
   }
 
   /* ---- A site check is the same kind of job, in its own words and stages ----------------------- */

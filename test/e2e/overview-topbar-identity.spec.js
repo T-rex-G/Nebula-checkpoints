@@ -30,8 +30,8 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
 test.use({ serviceWorkers: 'block' });
 
-async function overview(page) {
-  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+async function overview(page, options = {}) {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', ...options });
   await page.goto('/#/overview');
   await expect(page.locator('#page-overview')).toHaveClass(/active/);
 }
@@ -130,6 +130,10 @@ test('the overview reserves its new header height when the viewport changes', as
   }
 });
 
+/*
+ * The crowded case: six controls, the notifications bell among them -- the
+ * narrowest the bar ever has to fit.
+ */
 test('the repositories header fits after navigation and resizing', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await overview(page);

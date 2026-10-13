@@ -23,9 +23,14 @@ function registerRenderedAudit(app, { providerSessionAccess, capabilityAccess, a
     res.setHeader('Cache-Control', 'no-store');
     try {
       const who = identityKey(req.gh);
-      const url = renderedUrl(req.method === 'POST' ? req.body && req.body.url : req.query.url);
       const run = req.method === 'POST' ? '' : String(req.query.run || '');
       if (req.method !== 'POST' && !run) return res.status(400).json({ code: 'RENDERED_RUN_REQUIRED', error: 'A run identifier is required.' });
+      const target = req.method === 'POST' ? null : jobs.target({ identity: who, run });
+      if (req.method !== 'POST' && !target) return res.status(404).json({ code: 'RENDERED_RUN_GONE', error: 'This audit is no longer available.' });
+      const url = req.method === 'POST' ? renderedUrl(req.body && req.body.url) : target.repo;
+      if (req.method !== 'POST' && req.query.url !== undefined && renderedUrl(req.query.url) !== url) {
+        return res.status(404).json({ code: 'RENDERED_RUN_GONE', error: 'This audit is no longer available.' });
+      }
       if (req.method === 'DELETE') {
         if (!jobs.cancel({ identity: who, owner: 'site', repo: url, ref: '', run })) return res.status(404).json({ code: 'RENDERED_RUN_GONE', error: 'This audit is no longer available.' });
         return res.json({ state: 'cancelled' });

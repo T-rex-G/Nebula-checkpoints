@@ -389,7 +389,7 @@ function renderProjectState(state) {
   const baseline = state.recordedBaseline;
   const automated = state.gates.automated;
   const registry = loadCapabilityDocument(path.join(__dirname, '..', 'config/public-alpha-capabilities.json'));
-  const capabilityRows = ['github', 'gitlab', 'gitea'].map(provider => {
+  const capabilityRows = Object.keys(registry.providers).sort().map(provider => {
     const features = Object.values(projectCapabilities(registry, { provider, deployment: 'hosted-alpha' }).features);
     const count = (field, value) => features.filter(feature => feature[field] === value).length;
     return `| ${provider} | ${count('status', 'Supported')} | ${count('status', 'Experimental')} | ${count('status', 'Unavailable')} | ${count('evidenceState', 'Provider-verified')} |`;

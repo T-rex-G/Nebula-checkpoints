@@ -288,6 +288,21 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
       '/admin': { body: '<title>Werkzeug Debugger</title>' }
     } }).transport });
     assert.strictEqual(werkzeug.findings.find(finding => finding.rule === 'WEB-021').where, 'Werkzeug debugger on /admin');
+    /* Each page's markup goes through the debug signatures once, not once while crawling and again afterwards. */
+    {
+      const original = RegExp.prototype.test;
+      const bodies = [];
+      RegExp.prototype.test = function counted(value) {
+        if (this.source.startsWith('Werkzeug Debugger')) bodies.push(String(value));
+        return original.call(this, value);
+      };
+      try {
+        await check({ url: 'https://w2.example.com', transport: site({ files: withContact({}), page: '<a href="/admin">Admin</a>', pages: {
+          '/admin': { body: '<title>Werkzeug Debugger</title>' }
+        } }).transport });
+      } finally { RegExp.prototype.test = original; }
+      assert.strictEqual(bodies.filter(body => body === '<title>Werkzeug Debugger</title>').length, 1, 'the crawled page is scanned once');
+    }
     const listing = await check({ url: 'https://l.example.com', transport: site({ files: withContact({}), page: '<html><head><title>Index of /</title></head><body><a href="backup.zip">backup.zip</a></body></html>' }).transport });
     assert(rules(listing).includes('WEB-022'));
   }
@@ -493,6 +508,16 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
 
   /* A place is shown without the identifiers a path can carry. */
   assert.strictEqual(displayPath('/reset/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z?x=1'), '/reset/…');
+  assert.strictEqual(displayPath('/reset/abcdefghijklmnopqrstuvwxyzabcdef'), '/reset/…');
+  assert.strictEqual(displayPath('/reset/' + '%41'.repeat(30)), '/reset/…');
+  assert.strictEqual(displayPath('/reset/eyJmb28iOiJiYXIifQ.eyJzdWIiOiJmaXh0dXJlIn0.c3ludGhldGljLW9ubHk'), '/reset/…');
+  /* A readable slug says which page it was; only what looks like a token or an identifier is hidden. */
+  assert.strictEqual(displayPath('/blog/how-to-configure-your-application'), '/blog/how-to-configure-your-application');
+  assert.strictEqual(displayPath('/docs/getting-started-with-the-platform'), '/docs/getting-started-with-the-platform');
+  assert.strictEqual(displayPath('/orders/123e4567-e89b-12d3-a456-426614174000'), '/orders/…', 'an identifier with digits stays hidden');
+  assert.strictEqual(displayPath('/invite/kTqzXyPoLmnBwVrQ-ZaYbXcWdVe'), '/invite/…', 'mixed case is a token, not a slug');
+  assert.strictEqual(displayPath('/x/averyveryveryverylongwordwithoutbreaks-and-more'), '/x/…', 'a slug is made of words');
+  assert.strictEqual(displayPath('/caf%C3%A9'), '/caf%C3%A9');
   assert.strictEqual(displayPath('/assets/index-4f3a2b.js'), '/assets/index-4f3a2b.js');
 
   console.log('site check tests passed');

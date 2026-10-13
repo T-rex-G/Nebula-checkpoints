@@ -46,6 +46,7 @@ const APP_SHELL_GLOBALS = Object.freeze({
   EXPOSURE_DISPOSITION_WORDS: 'readonly',
   exportActivityFlow: 'readonly',
   exposureRuleLabel: 'readonly',
+  loadActivityFeed: 'readonly',
   modal: 'readonly',
   openFile: 'readonly',
   openSafeguards: 'readonly',
@@ -79,6 +80,11 @@ const DUAL_TARGET_MODULES = Object.freeze([
   'public/overlay-motion.js',
   'public/repo-sigil.js',
   'public/upload-planning.js',
+  'public/codeowners.js',
+  'public/findings-inbox-ui.js',
+  'public/pull-board.js',
+  'public/repo-inventory.js',
+  'public/security-posture.js',
   'public/workspace-pulse.js'
 ]);
 
@@ -118,7 +124,7 @@ module.exports = [
       'ci/**/*.js',
       'test/**/*.js'
     ],
-    ignores: ['test/e2e/**', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
+    ignores: ['test/e2e/**', 'test/integration/app-fixture.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'commonjs',
@@ -129,7 +135,7 @@ module.exports = [
   {
     /* Node programs whose page callbacks are serialized into the browser. */
     name: 'nebulaverse/browser-test-programs',
-    files: ['test/e2e/**/*.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
+    files: ['test/e2e/**/*.js', 'test/integration/app-fixture.js', 'scripts/design-review.js', 'scripts/accessibility-audit.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'commonjs',

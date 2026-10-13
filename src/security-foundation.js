@@ -118,7 +118,7 @@ function verifyCsrfToken(secret, token, context, options = {}) {
 
 function cleanProvider(value) {
   const provider = String(value || 'github').toLowerCase();
-  if (!['github', 'gitlab', 'gitea'].includes(provider)) throw new SecurityTokenError('Unsupported provider for step-up authorization', 'STEP_UP_SCOPE_INVALID', 400);
+  if (!['github'].includes(provider)) throw new SecurityTokenError('Unsupported provider for step-up authorization', 'STEP_UP_SCOPE_INVALID', 400);
   return provider;
 }
 

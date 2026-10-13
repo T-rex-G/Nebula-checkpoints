@@ -111,10 +111,11 @@ for (const line of serverSource.split('\n')) {
 }
 assert(claimRestoreAuthorizationCalls > 0, 'no claimRestoreAuthorization call was found to check: this guard has gone vacuous');
 
-const restoreRoute = serverSource.slice(serverSource.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"));
+const restoreRoute = serverSource.slice(serverSource.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"), serverSource.indexOf("app.get('/api/repo/:owner/:repo/activity'"));
 const preflightAt = restoreRoute.indexOf('await preflightRestoreActions(');
 const claimAt = restoreRoute.indexOf('await claimRestoreAuthorization(');
-const writeAt = restoreRoute.indexOf("method: 'PATCH'");
+const writeAt = restoreRoute.indexOf("method: 'POST'");
+assert(!restoreRoute.includes("force: true"), 'reference recovery must never force-update an existing branch');
 assert(preflightAt > -1 && claimAt > -1 && writeAt > -1, 'the restore route must still preflight, claim and write');
 assert(
   claimAt > preflightAt,

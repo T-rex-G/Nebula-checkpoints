@@ -22,7 +22,7 @@
  */
 
 const crypto = require('crypto');
-const { RULES, ENGINE } = require('./code-audit');
+const { RULES, ENGINE, assertAuditActive } = require('./code-audit');
 const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('./code-audit-policy');
 const { TIERS } = require('./uranus-reach');
 const { standardsFor } = require('./security-standards');
@@ -204,12 +204,13 @@ function compactAudit(result) {
   const ranked = rows => rows
     .filter(Boolean)
     .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (b.risk_score || 0) - (a.risk_score || 0));
-  const compact = ranked(findings.map(finding => compactFinding(finding))).slice(0, LIMITS.maxFindings);
+  const storableFindings = ranked(findings.map(finding => compactFinding(finding)));
+  const compact = storableFindings.slice(0, LIMITS.maxFindings);
   /* An id appears once: a finding is open or waived, never both. */
   const openIds = new Set(compact.map(row => row.finding_id));
-  const waivedRows = ranked((Array.isArray(result.suppressed) ? result.suppressed : []).map(finding => compactFinding(finding, waivedBy(finding))))
-    .filter(row => !openIds.has(row.finding_id))
-    .slice(0, LIMITS.maxWaived);
+  const storableWaived = ranked((Array.isArray(result.suppressed) ? result.suppressed : []).map(finding => compactFinding(finding, waivedBy(finding))))
+    .filter(row => !openIds.has(row.finding_id));
+  const waivedRows = storableWaived.slice(0, LIMITS.maxWaived);
   const categories = (Array.isArray(result.categories) ? result.categories : [])
     .filter(category => category && fits(SHAPE.category, category.id) && bounded(category.score, 0, 100) !== null)
     .slice(0, 16);
@@ -238,7 +239,8 @@ function compactAudit(result) {
   const advisories = coverage.advisories && typeof coverage.advisories === 'object' ? coverage.advisories : {};
   const answered = Math.max(0, count(advisories.checked) - count(advisories.unknown));
   const exploit = coverage.exploit && typeof coverage.exploit === 'object' ? coverage.exploit : {};
-  const advisoryState = !count(advisories.versions) ? 'ok'
+  const advisoryState = advisories.inventoryComplete === false ? (answered ? 'partial' : 'unavailable')
+    : !count(advisories.versions) ? 'ok'
     : answered === 0 ? 'unavailable'
       : count(advisories.unknown) || count(advisories.notChecked) ? 'partial' : 'ok';
   const needsKev = components.some(component => component.cve_ids.length) || count(exploit.cves) > 0;
@@ -251,7 +253,7 @@ function compactAudit(result) {
   const sla = policy && policy.sla && typeof policy.sla === 'object' ? policy.sla : {};
   const policySource = policy ? oneOf(POLICY_SOURCES, policy.source) : null;
   const slaKept = policySource && days(sla.critical) && days(sla.serious) && days(sla.warning);
-  return {
+  const compacted = {
     audit: {
       ref_name: requireRef(result.ref),
       commit_sha: result.commitSha,
@@ -292,6 +294,45 @@ function compactAudit(result) {
     waived: waivedRows,
     components
   };
+  /* Rows the storage caps cut off, not rows that could never be stored or an id kept once. */
+  const truncated = storableFindings.length > compact.length || storableWaived.length > waivedRows.length;
+  const evidence = resolutionEvidence(result, compacted, truncated);
+  compacted.audit.analysis_complete = Object.values(evidence).every(Boolean);
+  /* Kept in memory for resolutions; only the all-detector verdict is stored. */
+  Object.defineProperty(compacted, 'evidence', { value: Object.freeze(evidence), enumerable: false });
+  return compacted;
+}
+
+/*
+ * A missing observation proves a fix only when the detector that made it could
+ * still observe it. Each family of findings has its own detectors: the file
+ * rules, the tracer on top of them for code, the registry and advisory lookups
+ * for dependencies, the licence answers for licences. The merge gate and the
+ * stored `analysis_complete` still ask for every family at once.
+ */
+function resolutionEvidence(result, compact, truncated) {
+  const coverage = result.coverage || {};
+  const audit = compact.audit;
+  const files = Boolean(audit.coverage_complete) && audit.files_read >= audit.files_eligible && !truncated;
+  const traced = result.engine && result.engine.traced || {};
+  const code = files && !traced.limit && !['cut', 'failed', 'deep', 'rulesOnly'].some(key => count(traced[key]) > 0) && !count(coverage.rulesOnly);
+  const lookedUp = ['packages', 'advisories'].every(name => {
+    const checked = coverage[name];
+    const total = name === 'packages' ? 'declared' : 'versions';
+    return !checked || !(checked.inventoryComplete === false || count(checked.unknown) || count(checked.notChecked) || count(checked.checked) < count(checked[total]));
+  });
+  const dependencies = files && lookedUp;
+  const licences = coverage.licences;
+  const licenceStatus = result.licences && result.licences.status;
+  const licencesAnswered = !(licences && count(licences.fromLock) + count(licences.answered) < count(licences.versions))
+    && !(licenceStatus && (count(licenceStatus.unknown) || count(licenceStatus.notAsked)));
+  return { files, code, dependencies, licences: dependencies && licencesAnswered };
+}
+
+/* Which detectors a stored finding depends on, read from its rule. */
+function evidenceFamily(rule) {
+  const prefix = String(rule || '').split('-')[0];
+  return prefix === 'DEP' ? 'dependencies' : prefix === 'LIC' ? 'licences' : prefix === 'SEC' ? 'code' : 'files';
 }
 
 function alertKey(alert) {
@@ -366,9 +407,10 @@ function auditFromRow(row) {
     exploited: Number(row.exploited_count),
     risk: { urgent: Number(row.risk_urgent), high: Number(row.risk_high), moderate: Number(row.risk_moderate), low: Number(row.risk_low) },
     files: { read: Number(row.files_read), eligible: Number(row.files_eligible), complete: row.coverage_complete === true },
+    analysisComplete: typeof row.analysis_complete === 'boolean' ? row.analysis_complete : null,
     components: Number(row.components_total),
     findings: { total: Number(row.findings_total), stored: Number(row.findings_stored) },
-    diff: row.new_count === null || row.new_count === undefined ? null : { new: Number(row.new_count), resolved: Number(row.resolved_count) },
+    diff: row.new_count === null || row.new_count === undefined ? null : { new: Number(row.new_count), resolved: row.resolved_count === null || row.resolved_count === undefined ? null : Number(row.resolved_count) },
     watch: row.watch_checked_at ? {
       checkedAt: iso(row.watch_checked_at),
       state: row.watch_state,
@@ -486,7 +528,7 @@ const AUDIT_COLUMNS = `audit_id, ref_name, commit_sha, engine_version, audited_a
   exploited_count, risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
   components_total, findings_total, findings_stored, new_count, resolved_count,
   watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
-  sla_critical, sla_serious, sla_warning, policy_source`;
+  sla_critical, sla_serious, sla_warning, policy_source, analysis_complete`;
 const FINDING_COLUMNS = `finding_id, rule, category, severity, verdict, file_path, line_number, ecosystem, package_name,
   package_version, fixed_version, advisory_ids, cve_ids, cvss, risk_score, risk_band, reach_tier, exploited, ransomware, epss,
   first_seen_at, waived`;
@@ -504,6 +546,20 @@ const ALERT_RECORD = `alert_key text, kind text, ecosystem text, package_name te
   ransomware boolean, kev_added date, kev_due date, epss numeric`;
 const SEVERITY_ORDER_SQL = `CASE f.severity WHEN 'critical' THEN 0 WHEN 'serious' THEN 1 ELSE 2 END`;
 const SCOPE_SQL = 'provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4 AND identity_key=$5';
+/*
+ * Each repository's latest audit by one identity, across a workspace: $1 the
+ * provider, $2 the authority, $3 the identity, $4 how many repositories. Every
+ * workspace statement starts from it, so none reaches a row another identity
+ * recorded.
+ */
+const WORKSPACE_SQL = `WITH latest AS (
+    SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
+           audit_id, owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete
+      FROM nv_code_audits
+     WHERE provider=$1 AND authority=$2 AND identity_key=$3
+     ORDER BY lower(owner_login), lower(repo_name), audited_at DESC, recorded_at DESC, audit_id DESC),
+  picked AS (SELECT audit_id, owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete
+               FROM latest ORDER BY audited_at DESC, audit_id LIMIT $4)`;
 
 class CodeAuditHistory {
   constructor(options) {
@@ -515,11 +571,20 @@ class CodeAuditHistory {
     this.limits = Object.freeze({ ...LIMITS, ...(options.limits || {}) });
   }
 
-  async #transaction(run) {
+  async #transaction(run, { signal } = {}) {
+    assertAuditActive(signal);
     const client = await this.pool.connect();
     try {
+      assertAuditActive(signal);
       await client.query('BEGIN');
-      const value = await run(client);
+      const activeClient = { query: async (...args) => {
+        assertAuditActive(signal);
+        const answer = await client.query(...args);
+        assertAuditActive(signal);
+        return answer;
+      } };
+      const value = await run(activeClient);
+      assertAuditActive(signal);
       await client.query('COMMIT');
       return value;
     } catch (error) {
@@ -547,18 +612,28 @@ class CodeAuditHistory {
    * because a finding that went unread, or that a newer engine stopped
    * reporting, was not fixed.
    */
-  async record({ scope, identityKey, result, now = Date.now() }) {
+  async record({ scope, identityKey, result, now = Date.now(), signal }) {
+    assertAuditActive(signal);
     const where = requireScope(scope);
     const identity = requireIdentity(identityKey);
     const compact = compactAudit(result);
+    const evidence = compact.evidence;
+    /* A finding that went away counts as fixed only where its own detectors were complete. */
+    const provable = row => evidence[evidenceFamily(row.rule)] === true;
+    const canResolve = Object.values(evidence).some(Boolean);
     const auditId = crypto.randomUUID();
     const base = [where.provider, where.authority, where.owner, where.repo, identity];
     const { limits } = this;
     return this.#transaction(async client => {
+      // Jobs are process-local. Serialize repository history across instances,
+      // including cross-branch first-seen clocks and component retention.
+      const lockKey = crypto.createHash('sha256').update(JSON.stringify(['code-audit-history-v1', ...base]))
+        .digest().readBigInt64BE(0).toString();
+      await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [lockKey]);
       const latest = (await client.query(
         `SELECT audit_id, audited_at, engine_version FROM nv_code_audits
           WHERE ${SCOPE_SQL} AND ref_name=$6
-          ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
+          ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC LIMIT 1`,
         [...base, compact.audit.ref_name]
       )).rows[0] || null;
       /*
@@ -568,7 +643,9 @@ class CodeAuditHistory {
        * reports by the same identity is as old as it was -- so the branch's
        * latest audit is read either way, and compared only on the same engine.
        */
-      const previous = latest && latest.engine_version === compact.audit.engine_version ? latest : null;
+      // A delayed observation cannot prove that a finding seen later was fixed.
+      const previous = latest && latest.engine_version === compact.audit.engine_version
+        && ms(latest.audited_at) <= Date.parse(compact.audit.audited_at) ? latest : null;
       const audit = compact.audit;
       const rows = [...compact.findings, ...compact.waived];
       const ids = rows.map(row => row.finding_id);
@@ -588,7 +665,7 @@ class CodeAuditHistory {
         const open = new Set(compact.findings.map(row => row.finding_id));
         diff = {
           newIds: [...open].filter(id => !before.has(id)),
-          resolved: [...before.values()].filter(row => !row.waived && !current.has(row.finding_id)).length
+          resolved: canResolve ? [...before.values()].filter(row => !row.waived && !current.has(row.finding_id) && provable(row)).length : null
         };
       }
       /* The latest audit of every other branch, for what this branch has not shown before. */
@@ -596,7 +673,7 @@ class CodeAuditHistory {
         `WITH latest AS (
            SELECT DISTINCT ON (ref_name) audit_id, audited_at FROM nv_code_audits
             WHERE ${SCOPE_SQL} AND ref_name<>$6
-            ORDER BY ref_name, audited_at DESC, recorded_at DESC)
+            ORDER BY ref_name, audited_at DESC, recorded_at DESC, audit_id DESC)
          SELECT f.finding_id, min(COALESCE(f.first_seen_at, l.audited_at)) AS first_seen
            FROM latest l
            JOIN nv_code_audit_findings f ON f.audit_id=l.audit_id
@@ -623,18 +700,18 @@ class CodeAuditHistory {
            risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
            components_total, findings_total, findings_stored, new_count, resolved_count,
            watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
-           sla_critical, sla_serious, sla_warning, policy_source)
+           sla_critical, sla_serious, sla_warning, policy_source, analysis_complete)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text[],$16::smallint[],
-           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43)`,
+           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44)`,
         [auditId, where.provider, where.authority, where.owner, where.repo, identity, audit.ref_name, audit.commit_sha,
           audit.engine_version, audit.audited_at, new Date(now).toISOString(), audit.score, audit.grade, audit.cap_reason,
           audit.category_ids, audit.category_scores, audit.critical_count, audit.serious_count, audit.warning_count,
           audit.to_confirm_count, audit.waived_count, audit.exploited_count, audit.risk_urgent, audit.risk_high,
           audit.risk_moderate, audit.risk_low, audit.files_read, audit.files_eligible, audit.coverage_complete,
           audit.components_total, audit.findings_total, audit.findings_stored,
-          diff ? diff.newIds.length : null, diff ? diff.resolved : null,
+          diff && diff.resolved !== null ? diff.newIds.length : null, diff ? diff.resolved : null,
           audit.watch_checked_at, audit.watch_state, audit.watch_checked, audit.watch_total, audit.watch_kev,
-          audit.sla_critical, audit.sla_serious, audit.sla_warning, audit.policy_source]
+          audit.sla_critical, audit.sla_serious, audit.sla_warning, audit.policy_source, audit.analysis_complete]
       );
       for (let start = 0; start < rows.length; start += limits.insertBatch) {
         await client.query(
@@ -654,10 +731,9 @@ class CodeAuditHistory {
       }
       /* What went away, when it can be trusted to have been fixed. */
       let resolutions = 0;
-      if (previous && previous.engine_version === audit.engine_version && audit.coverage_complete
-        && audit.files_read >= audit.files_eligible) {
+      if (previous && previous.engine_version === audit.engine_version && canResolve) {
         const current = new Set(ids);
-        const gone = [...before.values()].filter(row => !current.has(row.finding_id) && SEVERITIES.includes(row.severity))
+        const gone = [...before.values()].filter(row => !current.has(row.finding_id) && SEVERITIES.includes(row.severity) && provable(row))
           .slice(0, limits.maxResolutions)
           .map(row => ({
             finding_id: row.finding_id,
@@ -680,14 +756,16 @@ class CodeAuditHistory {
       /* Only the latest audit of a branch is watched; the ones before it keep their history, not their components. */
       await client.query(
         `DELETE FROM nv_code_audit_components
-          WHERE audit_id IN (SELECT audit_id FROM nv_code_audits WHERE ${SCOPE_SQL} AND ref_name=$6 AND audit_id<>$7)`,
-        [...base, audit.ref_name, auditId]
+          WHERE audit_id IN (
+            SELECT audit_id FROM nv_code_audits WHERE ${SCOPE_SQL} AND ref_name=$6
+             ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC OFFSET 1)`,
+        [...base, audit.ref_name]
       );
       await client.query(
         `DELETE FROM nv_code_audits
           WHERE audit_id IN (
             SELECT audit_id FROM nv_code_audits WHERE ${SCOPE_SQL} AND ref_name=$6
-             ORDER BY audited_at DESC, recorded_at DESC OFFSET $7)`,
+             ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC OFFSET $7)`,
         [...base, audit.ref_name, limits.keepPerBranch]
       );
       await client.query(
@@ -716,7 +794,7 @@ class CodeAuditHistory {
         resolutions,
         stored: { findings: compact.findings.length, waived: compact.waived.length, components: compact.components.length }
       };
-    });
+    }, { signal });
   }
 
   /* One branch's audits, newest first, and the other branches this identity has audited. */
@@ -728,7 +806,7 @@ class CodeAuditHistory {
       this.pool.query(
         `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits
           WHERE ${SCOPE_SQL} AND ref_name=$6
-          ORDER BY audited_at DESC, recorded_at DESC LIMIT $7`,
+          ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC LIMIT $7`,
         [...base, requireRef(ref), Math.max(1, Math.min(this.limits.listLimit, Number(limit) || this.limits.listLimit))]
       ),
       this.pool.query(
@@ -774,7 +852,7 @@ class CodeAuditHistory {
     const row = (await this.pool.query(
       `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits
         WHERE ${SCOPE_SQL} AND ref_name=$6
-        ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
+        ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC LIMIT 1`,
       [...base, requireRef(ref)]
     )).rows[0];
     if (!row) return null;
@@ -904,7 +982,7 @@ class CodeAuditHistory {
     const row = (await this.pool.query(
       `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits
         WHERE ${SCOPE_SQL} AND ref_name=$6
-        ORDER BY audited_at DESC, recorded_at DESC LIMIT 1`,
+        ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC LIMIT 1`,
       [where.provider, where.authority, where.owner, where.repo, identity, requireRef(ref)]
     )).rows[0];
     if (!row) return null;
@@ -976,6 +1054,194 @@ class CodeAuditHistory {
       open,
       oldest,
       mttr
+    };
+  }
+
+  /*
+   * Every repository this identity has audited, read together for the
+   * Overview. Each repository is represented by its latest audit, on whichever
+   * branch that was, and everything else is measured on that same branch so a
+   * repository is never counted twice.
+   *
+   * What the latest audit counted is what is open, with two corrections. A
+   * finding the audit recorded as covered by a team decision is open again
+   * when that decision has since been reopened or has expired. And a decision
+   * this identity made itself applies at once. A teammate's decision made
+   * after the audit is not applied -- this reads the decisions the auditor saw
+   * or made, never ones they could not see -- so the next audit is what moves
+   * it. Waivers in the code or in the licence policy are not findings.
+   *
+   * The weekly series are rolling seven-day windows ending now, `weeks` of
+   * them, newest first: a finding opened when an audit first saw it, and was
+   * fixed when an audit that read every file stopped seeing it.
+   */
+  async workspace({ provider, authority, identityKey, now = Date.now(), weeks = 12, repositoryLimit = 200 }) {
+    const where = requireScope({ provider, authority, owner: 'workspace', repo: 'workspace' });
+    const identity = requireIdentity(identityKey);
+    const span = Number.isSafeInteger(weeks) && weeks >= 1 && weeks <= 52 ? weeks : 12;
+    const limit = Number.isSafeInteger(repositoryLimit) && repositoryLimit >= 1 && repositoryLimit <= 500 ? repositoryLimit : 200;
+    const at = new Date(now).toISOString();
+    const mttrSince = new Date(now - this.limits.mttrWindowDays * 24 * 60 * 60 * 1000).toISOString();
+    const base = [where.provider, where.authority, identity, limit];
+    const audits = await this.pool.query(
+      `${WORKSPACE_SQL} SELECT owner_login, repo_name, ref_name, audited_at, score, grade, coverage_complete FROM picked
+        ORDER BY audited_at DESC, owner_login, repo_name`,
+      base
+    );
+    const findings = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT p.owner_login, p.repo_name, f.severity, f.category,
+              CASE
+                WHEN f.waived IN ('code', 'policy') THEN 'waived'
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule AND t.disposition = 'false-positive' THEN 'false-positive'
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule AND t.disposition = 'accepted-risk'
+                     AND t.expires_at > $5::timestamptz THEN 'accepted-risk'
+                ELSE 'open'
+              END AS state,
+              count(*)::integer AS n
+         FROM picked p
+         JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         LEFT JOIN nv_code_audit_triage t
+           ON t.provider=$1 AND t.authority=$2 AND t.owner_login=p.owner_login AND t.repo_name=p.repo_name AND t.finding_id=f.finding_id
+        GROUP BY 1, 2, 3, 4, 5`,
+      [...base, at]
+    );
+    const opened = await this.pool.query(
+      `${WORKSPACE_SQL},
+      seen AS (
+        SELECT f.first_seen_at AS at
+          FROM picked p JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         WHERE f.first_seen_at IS NOT NULL AND (f.waived IS NULL OR f.waived = 'triage')
+        UNION ALL
+        SELECT r.first_seen_at
+          FROM picked p JOIN nv_code_audit_resolutions r
+            ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+           AND r.identity_key=$3 AND r.ref_name=p.ref_name)
+       SELECT floor(extract(epoch FROM $5::timestamptz - at) / 604800)::integer AS weeks_ago, count(*)::integer AS n
+         FROM seen
+        WHERE at <= $5::timestamptz AND at > $5::timestamptz - make_interval(days => $6 * 7)
+        GROUP BY 1`,
+      [...base, at, span]
+    );
+    const fixed = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT floor(extract(epoch FROM $5::timestamptz - r.resolved_at) / 604800)::integer AS weeks_ago, count(*)::integer AS n
+         FROM picked p JOIN nv_code_audit_resolutions r
+           ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+          AND r.identity_key=$3 AND r.ref_name=p.ref_name
+        WHERE r.resolved_at <= $5::timestamptz AND r.resolved_at > $5::timestamptz - make_interval(days => $6 * 7)
+        GROUP BY 1`,
+      [...base, at, span]
+    );
+    const timing = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT r.severity, count(*)::integer AS n,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM r.resolved_at - r.first_seen_at)) AS median_s
+         FROM picked p JOIN nv_code_audit_resolutions r
+           ON r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+          AND r.identity_key=$3 AND r.ref_name=p.ref_name
+        WHERE r.resolved_at <= $5::timestamptz AND r.resolved_at >= $6::timestamptz
+        GROUP BY ROLLUP (r.severity)`,
+      [...base, at, mttrSince]
+    );
+    const days = seconds => (seconds === null || seconds === undefined ? null : Math.round((Number(seconds) / 86400) * 10) / 10);
+    const timeToFix = { windowDays: this.limits.mttrWindowDays, all: { count: 0, medianDays: null } };
+    for (const severity of SEVERITIES) timeToFix[severity] = { count: 0, medianDays: null };
+    for (const row of timing.rows) {
+      const entry = { count: Number(row.n), medianDays: days(row.median_s) };
+      if (row.severity === null) timeToFix.all = entry;
+      else if (SEVERITIES.includes(row.severity)) timeToFix[row.severity] = entry;
+    }
+    const weekly = rows => rows.rows
+      .map(row => ({ weeksAgo: Number(row.weeks_ago), count: Number(row.n) }))
+      .filter(row => Number.isSafeInteger(row.weeksAgo) && row.weeksAgo >= 0 && row.weeksAgo < span);
+    return {
+      weeks: span,
+      audits: audits.rows.map(row => ({
+        owner: row.owner_login,
+        repo: row.repo_name,
+        ref: row.ref_name,
+        auditedAt: new Date(row.audited_at).toISOString(),
+        score: Number(row.score),
+        grade: row.grade,
+        coverageComplete: row.coverage_complete === true
+      })),
+      findings: findings.rows.map(row => ({
+        owner: row.owner_login,
+        repo: row.repo_name,
+        severity: row.severity,
+        category: row.category,
+        state: row.state,
+        count: Number(row.n)
+      })),
+      opened: weekly(opened),
+      fixed: weekly(fixed),
+      timeToFix
+    };
+  }
+
+  /*
+   * The findings inbox: every finding the workspace's latest audits hold,
+   * one row each, on the same terms as the workspace read above -- the same
+   * latest audit per repository, and the same rule for which decisions apply.
+   * Each row says when it was first seen, whether it was fixed once before
+   * and came back (the last fix earlier than this sighting), and how many
+   * times it has been fixed on that branch. Waivers in the code or in the
+   * licence policy are not findings and are not listed.
+   *
+   * Bounded: `limit` rows, most severe and oldest first, and `truncated`
+   * says when there were more.
+   */
+  async workspaceFindings({ provider, authority, identityKey, now = Date.now(), limit = 1000, repositoryLimit = 200 }) {
+    const where = requireScope({ provider, authority, owner: 'workspace', repo: 'workspace' });
+    const identity = requireIdentity(identityKey);
+    const bound = Number.isSafeInteger(limit) && limit >= 1 && limit <= 2000 ? limit : 1000;
+    const repositories = Number.isSafeInteger(repositoryLimit) && repositoryLimit >= 1 && repositoryLimit <= 500 ? repositoryLimit : 200;
+    const found = await this.pool.query(
+      `${WORKSPACE_SQL}
+       SELECT p.owner_login, p.repo_name, p.ref_name, p.audited_at,
+              ${FINDING_COLUMNS.split(',').map(column => `f.${column.trim()}`).join(', ')},
+              CASE
+                WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule
+                     AND (t.disposition = 'false-positive' OR t.expires_at > $5::timestamptz) THEN t.disposition
+                ELSE NULL
+              END AS decision,
+              CASE WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule THEN t.reason END AS decision_reason,
+              CASE WHEN (f.waived = 'triage' OR t.decided_by_key = $3) AND t.rule = f.rule THEN t.expires_at END AS decision_expires_at,
+              fixes.times_fixed, fixes.last_fixed_at
+         FROM picked p
+         JOIN nv_code_audit_findings f ON f.audit_id = p.audit_id
+         LEFT JOIN nv_code_audit_triage t
+           ON t.provider=$1 AND t.authority=$2 AND t.owner_login=p.owner_login AND t.repo_name=p.repo_name AND t.finding_id=f.finding_id
+         LEFT JOIN LATERAL (
+           SELECT count(*)::integer AS times_fixed,
+                  max(r.resolved_at) FILTER (WHERE f.first_seen_at IS NOT NULL AND r.resolved_at <= f.first_seen_at) AS last_fixed_at
+             FROM nv_code_audit_resolutions r
+            WHERE r.provider=$1 AND r.authority=$2 AND r.owner_login=p.owner_login AND r.repo_name=p.repo_name
+              AND r.identity_key=$3 AND r.ref_name=p.ref_name AND r.finding_id=f.finding_id
+         ) fixes ON true
+        WHERE f.waived IS NULL OR f.waived = 'triage'
+        ORDER BY ${SEVERITY_ORDER_SQL}, f.first_seen_at ASC NULLS LAST, p.owner_login, p.repo_name, f.finding_id
+        LIMIT $6`,
+      [where.provider, where.authority, identity, repositories, new Date(now).toISOString(), bound + 1]
+    );
+    const rows = found.rows.slice(0, bound);
+    return {
+      truncated: found.rows.length > bound,
+      findings: rows.map(row => ({
+        ...findingFromRow(row),
+        owner: row.owner_login,
+        repo: row.repo_name,
+        ref: row.ref_name,
+        auditedAt: iso(row.audited_at),
+        decision: row.decision ? {
+          disposition: row.decision,
+          reason: row.decision_reason || null,
+          expiresAt: iso(row.decision_expires_at)
+        } : null,
+        timesFixed: Number(row.times_fixed) || 0,
+        regressedAfter: iso(row.last_fixed_at)
+      }))
     };
   }
 }

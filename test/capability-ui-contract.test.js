@@ -76,8 +76,13 @@ assert.deepStrictEqual(commandObjects('Synthetic command that is absent'), []);
 assert.throws(() => uniqueMatch(['first', 'second'], 'synthetic duplicate'), /match exactly once/);
 
 assert(ui.includes('/api/capabilities'));
-assert(ui.includes("status === 'Unavailable'"));
-assert(ui.includes("status === 'Experimental'"));
+/* Only what is Supported is offered; once the server has answered, the rest is not rendered. */
+assert(ui.includes("resolved.status !== 'Supported'"));
+assert(ui.includes('projection.answered === true'));
+assert(ui.includes('element.hidden = true'));
+for (const [name, source] of [['capability-ui.js', ui], ['app.js', app], ['index.html', html]]) {
+  assert(!/allowExperimental|allow-experimental/.test(source), `${name} must not carry an experimental opt-in`);
+}
 assert(ui.includes('aria-disabled'));
 assert(ui.includes('data-capability-reason'));
 assert(ui.includes('Object.freeze'));
@@ -131,14 +136,6 @@ for (const [id, feature] of Object.entries({
   const tag = htmlTagWith(`id="${id}"`, `data-feature="${feature}"`);
   assert(tag, `#${id} must map to ${feature}`);
 }
-assert(
-  htmlTagWith('id="neuralLiveBtn"', 'data-allow-experimental="true"'),
-  'verified live events must remain an explicitly labelled experimental opt-in'
-);
-assert(
-  htmlTagWith('id="codeSearch"', 'data-allow-experimental="true"'),
-  'bounded repository search must remain an explicitly labelled experimental opt-in'
-);
 for (const [id, feature] of Object.entries({
   renameFileBtn: 'file.rename',
   uploadMode: 'file.batch',
@@ -146,21 +143,11 @@ for (const [id, feature] of Object.entries({
   newIssueBtn: 'issues.write',
   newReleaseBtn: 'releases.write'
 })) {
-  const tag = htmlTagWith(
-    `id="${id}"`,
-    `data-feature="${feature}"`,
-    'data-allow-experimental="true"'
-  );
-  assert(tag,
-    `#${id} must remain an explicitly labelled ${feature} experimental opt-in`);
+  assert(htmlTagWith(`id="${id}"`, `data-feature="${feature}"`), `#${id} must map to ${feature}`);
 }
 for (const feature of ['pulls.read', 'issues.read', 'releases.read', 'workflows.read']) {
-  const tag = htmlTagWith('<button', `data-feature="${feature}"`, 'data-tab=');
-  assert(tag && tag.includes('data-allow-experimental="true"'),
-    `${feature} desktop navigation must remain an explicit experimental opt-in`);
-  const mobile = htmlTagWith('<button', `data-feature="${feature}"`, 'data-act=');
-  assert(mobile && mobile.includes('data-allow-experimental="true"'),
-    `${feature} mobile navigation must remain an explicit experimental opt-in`);
+  assert(htmlTagWith('<button', `data-feature="${feature}"`, 'data-tab='), `${feature} desktop navigation must name its capability`);
+  assert(htmlTagWith('<button', `data-feature="${feature}"`, 'data-act='), `${feature} mobile navigation must name its capability`);
 }
 for (const [label, feature] of [
   ['Push files (upload)', 'native-push'],
@@ -190,8 +177,7 @@ for (const [label, feature] of [
 ]) {
   const command = commandObject(label);
   assert(command, `command ${label} is missing`);
-  assert(command.includes(`feature: '${feature}'`) && command.includes('allowExperimental: true'),
-    `command ${label} must remain an explicit experimental opt-in`);
+  assert(command.includes(`feature: '${feature}'`), `command ${label} must name ${feature}`);
 }
 
 for (const [id, feature] of Object.entries({
@@ -204,8 +190,8 @@ for (const [id, feature] of Object.entries({
   assert(app.includes(`id="${id}" data-feature="${feature}"`) || app.includes(`{ id: '${id}', feature: '${feature}',`),
     `dynamic safeguard #${id} must map to ${feature}`);
 }
-assert(app.includes('data-rerun data-feature="workflows.rerun" data-allow-experimental="true"'),
-  'dynamic workflow rerun must declare its experimental capability');
+assert(app.includes('data-rerun data-feature="workflows.rerun"'),
+  'dynamic workflow rerun must declare its capability');
 assert(app.includes("NebulaCapabilityUI.apply(root)"),
   'dynamic safeguard controls must receive capability state');
 assert(app.includes('NebulaCapabilityUI.apply(acts)'),

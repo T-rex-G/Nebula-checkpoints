@@ -62,10 +62,8 @@ that migrations match and refuses rather than applying them itself. Both are set
 by the Blueprint; they are listed here because a hand-built service will not
 have them.
 
-`NV_GIT_HOST_ALLOWLIST` is intentionally absent. It is checked when a server URL
-is connected, not at startup, and only for self-hosted Git servers — gitlab.com
-is allowed as a canonical hosted provider. Leave it empty unless this deployment
-connects a self-hosted Git server, in which case list that host.
+Repository connections are GitHub-only. Self-hosted Git-server connection
+settings are no longer supported and do not enable additional providers.
 
 ### Check the configuration before deploying
 
@@ -129,6 +127,14 @@ for the frozen candidate; a version string alone is not deployment identity.
 
 ## 5. Connect GitHub live events
 
+Live events are Supported: the hosted gate proves GitHub delivers a push to a
+deployment and that the deployment verifies and streams it. Do not set
+`NV_QUALIFICATION_CAPABILITIES`. It once let a staging deployment serve live
+events ahead of their proof; no capability awaits hosted proof now, so the
+server refuses to start while it is set, and the cohort readiness check
+(`scripts/check-deployment-readiness.js`) fails any deployment that reports a
+capability served that way in `/api/config` (`qualification.capabilities`).
+
 1. Sign in to Nebulaverse-X.
 2. Open a GitHub repository.
 3. Open **Neural**.
@@ -191,7 +197,7 @@ The defaults are intentionally conservative for one Render Free Node process. Na
 
 ## Optional GitHub App configuration
 
-The GitHub App path is optional. If every `GITHUB_APP_*` value is absent, Nebulaverse-X starts normally and PAT/OAuth/GitLab/Gitea connectivity is unchanged. A partial configuration fails startup instead of silently running with broken authentication.
+The GitHub App path is optional. If every `GITHUB_APP_*` value is absent, Nebulaverse-X starts normally and GitHub PAT/OAuth connectivity is unchanged. A partial configuration fails startup instead of silently running with broken authentication.
 
 Create a GitHub App with these callback URLs:
 

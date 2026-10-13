@@ -32,7 +32,9 @@ function pass(check) {
   };
 }
 
-assert.ok(CHECKS.length >= 20, 'Task 20 catalog must cover every staging domain');
+assert.deepStrictEqual([...new Set(CHECKS.map(check => check.tier))].sort(),
+  ['source', 'runtime', 'browser', 'neon', 'provider', 'destructive', 'delivery'].sort(),
+  'Task 20 catalog must cover every staging domain');
 assert.strictEqual(new Set(CHECKS.map(check => check.id)).size, CHECKS.length, 'check IDs must be unique');
 assert.match(CATALOG_HASH, /^[a-f0-9]{64}$/);
 assert.ok(CHECKS.every(check => typeof check.command === 'string' && check.command.length > 0), 'every check must prescribe one command contract');
@@ -48,6 +50,11 @@ assert.strictEqual(blocked.gate, 'closed');
 assert.ok(blocked.blockingCheckIds.length > 0);
 assert.strictEqual(blocked.catalogHash, CATALOG_HASH);
 assert.strictEqual(blocked.subjectHash, SUBJECT_HASH);
+
+for (const retired of ['gitlab', 'gitea']) {
+  assert(!CHECKS.some(check => check.id === `provider.${retired}`));
+  assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), checkId: `provider.${retired}` }, options), /Unknown/);
+}
 
 const allPassing = evaluateStagingGate(CHECKS.map(pass), options);
 assert.strictEqual(allPassing.gate, 'open');

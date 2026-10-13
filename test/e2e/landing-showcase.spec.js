@@ -54,7 +54,7 @@ test('the product is framed, named and described for a reader who cannot see it'
   expect(clipped, 'a group panel runs off the edge of the picture').toBe(0);
   /* And words for anyone who cannot see it. */
   await expect(page.locator('.lp-frame-cap')).toHaveText(/identities, branches, workflows/);
-  await expect(page.getByRole('list', { name: 'Supported providers' }).getByRole('listitem')).toHaveText(['GitHub', 'GitLab', 'Gitea']);
+  await expect(page.getByRole('list', { name: 'Supported providers' }).getByRole('listitem')).toHaveText(['GitHub']);
 });
 
 test('the numbers are the build\'s own, and arrive whole', async ({ page }) => {

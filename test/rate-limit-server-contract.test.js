@@ -33,7 +33,7 @@ function seal(value) {
 
 function session(sessionNonce, login = 'rate-fixture-user') {
   return {
-    accounts: [{ provider: 'gitea', authMethod: 'token', login, token: 'fixture-token', baseUrl: 'https://gitea.example' }],
+    accounts: [{ provider: 'github', authMethod: 'token', login, token: 'fixture-token' }],
     active: 0,
     security: { sessionNonce, stepUp: null }
   };
@@ -47,7 +47,6 @@ const child = spawn(process.execPath, ['server.js'], {
     NODE_ENV: 'test',
     SESSION_SECRET: secret,
     DATABASE_URL: '',
-    NV_GIT_HOST_ALLOWLIST: 'gitea.example',
     NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
   },
   stdio: ['ignore', 'pipe', 'pipe']
@@ -56,10 +55,10 @@ let logs = '';
 child.stdout.on('data', chunk => { logs += chunk.toString(); });
 child.stderr.on('data', chunk => { logs += chunk.toString(); });
 
-/* /api/rate needs no provider call to be counted: the limiter runs before the route. */
+/* CSRF issuance exercises authenticated rate limits without an upstream request. */
 async function call(cookie) {
   const headers = cookie ? { cookie } : {};
-  const response = await fetch(`http://127.0.0.1:${port}/api/rate`, { headers });
+  const response = await fetch(`http://127.0.0.1:${port}/api/security/csrf`, { headers });
   if (response.body) await response.body.cancel();
   return response.status;
 }
@@ -175,9 +174,7 @@ async function exhaust(cookieFor) {
 
   /*
    * Distinct sessions stay independent: the limit is per session, not global.
-   * What the route itself answers is beside the point — the fixture session
-   * carries no capability grant, so /api/rate refuses it with a 409. Anything
-   * other than 429 means the request reached the route with its own bucket.
+   * A distinct session must reach CSRF issuance with its own bucket.
    */
   const otherSession = await call(`nv_session=${seal(session('b'.repeat(48)))}`);
   assert.notStrictEqual(

@@ -5,7 +5,8 @@ const { providerRevocationGuidance } = require('./alpha-privacy');
 
 const HASH_RX = /^[0-9a-f]{64}$/;
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
+// Historical identifiers are needed to hash retained cleanup evidence.
+const HISTORICAL_PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
 
 function hashDomain(domain, parts) {
   const hash = crypto.createHash('sha256');
@@ -29,7 +30,7 @@ function providerResourceKeyHash(input) {
   const authority = String(input.authority || '').toLowerCase();
   const resourceType = String(input.resourceType || '');
   const resourceReference = String(input.resourceReference == null ? '' : input.resourceReference);
-  if (!PROVIDERS.has(provider) || !authority || resourceType !== 'provider-webhook') {
+  if (!HISTORICAL_PROVIDERS.has(provider) || !authority || resourceType !== 'provider-webhook') {
     throw new TypeError('provider resource hash context is invalid');
   }
   if (!resourceReference || resourceReference.length > 1024) {
@@ -120,8 +121,8 @@ function safeBinding(input, testerId) {
   if (
     String(binding.testerId || '').toLowerCase() !== testerId
     || !HASH_RX.test(identityKey)
-    || !PROVIDERS.has(provider)
-    || !authority
+    || provider !== 'github'
+    || authority !== 'github.com'
   ) return null;
   return { testerId, identityKey, provider, authority };
 }
@@ -134,6 +135,20 @@ async function disconnectProviderAccount(options) {
   const testerId = String(options.tester && options.tester.testerId || '').toLowerCase();
   if (!account || typeof account !== 'object' || !UUID_RX.test(testerId)) {
     throw new TypeError('disconnect account and tester context are required');
+  }
+  const provider = String(account.provider || 'github').toLowerCase();
+  if (provider !== 'github') {
+    if (!HISTORICAL_PROVIDERS.has(provider)) throw new TypeError('provider is unsupported');
+    // Local deletion remains an operator privacy action; external resources must
+    // never be claimed absent now that their adapters have been retired.
+    if (typeof options.recordPendingEvidence === 'function') {
+      await options.recordPendingEvidence({
+        testerId,
+        resourceKeyHash: hashDomain('nv-alpha-provider-context-v1', [testerId, provider]),
+        reasonCode: 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED'
+      });
+    }
+    return Object.freeze({ ...pendingResult(account, []), reasonCode: 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED' });
   }
   const binding = safeBinding(options, testerId);
   if (!binding || typeof options.sessionId !== 'string' || !options.sessionId) {

@@ -129,7 +129,7 @@
       ['Active policies', count(current.activePolicyCount), `${count(current.policyCount)} total`],
       ['Proposed versions', count(proposed.versionCount), `${count(proposed.draftCount)} drafts`],
       ['Active exceptions', count(effective.activeExceptionCount), 'actor + target bound'],
-      ['Recent decisions', asArray(history.decisions).length, history.nextDecisionSeq == null ? 'latest page' : 'more available']
+      ['Recent decisions', asArray(history.decisions).length, (history.nextBeforeDecisionSeq ?? history.nextDecisionSeq) == null ? 'latest page' : 'more available']
     ];
     return `<div class="gov-summary-grid" aria-label="Governance summary">${items.map(([label, value, sub]) => `
       <article class="card gov-metric"><span>${escapeHtml(label)}</span><strong>${value}</strong><small>${escapeHtml(sub)}</small></article>`).join('')}</div>`;
@@ -301,7 +301,7 @@
     const keyOf = id => { const policy = policies.find(item => item.policyId === id); return policy ? policy.policyKey : String(id || '').slice(0, 8); };
     const activeOf = id => { const policy = policies.find(item => item.policyId === id); return policy ? asObject(policy.active).versionId : null; };
 
-    const tabs = [['decisions', 'Runtime decisions', decisions.length, history.nextDecisionSeq != null], ['activations', 'Activations', activations.length, false]]
+    const tabs = [['decisions', 'Runtime decisions', decisions.length, (history.nextBeforeDecisionSeq ?? history.nextDecisionSeq) != null], ['activations', 'Activations', activations.length, false]]
       .map(([id, label, n, more]) => ledgerControl('ledger-tab', `${escapeHtml(label)} <span class="gov-ledger-count">${n}${more ? '+' : ''}</span>`, { tab: id, 'focus-key': `ledger-tab:${id}` },
         ` role="tab" id="govLedgerTab-${id}" aria-controls="govLedgerPanel" aria-selected="${id === tab}" class="gov-ledger-tab" tabindex="${id === tab ? 0 : -1}"`)).join('');
     const chips = [['all', 'All', pool.length], ...Object.entries(words).map(([id, word]) => [id, word, pool.filter(item => kindOf(item) === id).length])]
@@ -336,7 +336,7 @@
     const foot = [
       `<span class="gov-ledger-shown">${shown.length ? `Showing ${shown.length} of ${filtered.length}` : 'Nothing to show'}</span>`,
       filtered.length > shown.length ? actionButton('ledger-more', `Show ${Math.min(LEDGER_PAGE, filtered.length - shown.length)} more`, { 'focus-key': 'ledger-more' }) : '',
-      tab === 'decisions' && history.nextDecisionSeq != null ? actionButton('load-more-decisions', 'Load older decisions', { 'after-seq': history.nextDecisionSeq }) : '',
+      tab === 'decisions' && (history.nextBeforeDecisionSeq ?? history.nextDecisionSeq) != null ? actionButton('load-more-decisions', 'Load older decisions', history.nextBeforeDecisionSeq != null ? { 'before-seq': history.nextBeforeDecisionSeq } : { 'after-seq': history.nextDecisionSeq }) : '',
       live.length ? actionButton('ledger-clear', 'Clear from view', { through: Math.max(...live.map(item => count(item.seq))), 'focus-key': 'ledger-clear' }) : '',
       all.length - live.length ? actionButton('ledger-show-cleared', showCleared ? 'Hide cleared' : `Show ${all.length - live.length} cleared`, { 'focus-key': 'ledger-show-cleared' }) : ''
     ].join('');

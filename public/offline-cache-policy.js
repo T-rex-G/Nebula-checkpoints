@@ -11,7 +11,7 @@
   const MAX_RESPONSE_BYTES = 1024 * 1024;
   const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
   const SCOPE_RX = /^[A-Za-z0-9_-]{16,64}$/;
-  const REPO_KEY_RX = /^(?:account|(?:github|gitlab|gitea):[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100})$/i;
+  const REPO_KEY_RX = /^(?:account|github:[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100})$/i;
 
   const SENSITIVE = [
     /^\/api\/(?:login|logout|me|accounts|session|security|oauth|notifications|config)(?:\/|$)/,

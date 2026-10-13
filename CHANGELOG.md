@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The scale-to-zero drill reads Neon's record, not a moment
+
+- **A compute the deployment wakes again at once still counts as suspended.**
+  The drill suspended the staging database compute and then waited to read it
+  idle. Staging's own workers reconnect within seconds and wake it, so it can
+  be idle between two reads and never at one: the drills on `64bcb29` polled
+  for ninety seconds and stopped with "the cohort compute did not suspend",
+  after passing on `daeeaeb` by timing alone. The drill now also accepts Neon's
+  record that the suspend operation finished, and reports which proof it saw.
+  A suspend that never finishes still fails.
+- Pinned in `test/alpha17-hosted-drills.test.js`: a compute woken again at once,
+  and a suspend operation that never finishes.
+
 ### Repository creation and deletion, notifications and live events are Supported
 
 - **Four capabilities are promoted on evidence, not by a switch.** The live

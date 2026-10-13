@@ -163,7 +163,16 @@ function neonClient(deps, apiKey, projectId, branchId) {
       if (!endpoint) fail('the cohort branch has no read-write compute');
       return endpoint;
     },
-    async suspend(id) { await change(url(`/endpoints/${encodeURIComponent(id)}/suspend`), { method: 'POST' }); },
+    /* The suspend operations Neon started, so the drill can read whether they finished. */
+    async suspend(id) {
+      const answer = await change(url(`/endpoints/${encodeURIComponent(id)}/suspend`), { method: 'POST' });
+      const operations = answer.data && Array.isArray(answer.data.operations) ? answer.data.operations : [];
+      return operations.filter(item => item && item.action === 'suspend_compute' && typeof item.id === 'string').map(item => item.id);
+    },
+    async operationFinished(id) {
+      const answer = await expectStatus(deps, url(`/operations/${encodeURIComponent(id)}`), { headers: auth }, [200]);
+      return Boolean(answer.data && answer.data.operation && answer.data.operation.status === 'finished');
+    },
     async setDisabled(id, disabled) {
       await change(url(`/endpoints/${encodeURIComponent(id)}`), { method: 'PATCH', body: { endpoint: { disabled } } });
     }
@@ -486,8 +495,20 @@ async function restartDrill(context) {
 async function wakeDrill(context, tester) {
   const { deps, neon, base } = context;
   const endpoint = await neon.endpoint();
-  await neon.suspend(endpoint.id);
-  const idle = await poll(deps, { timeoutMs: LIMITS.suspendMs }, async () => (await neon.endpoint()).current_state === 'idle');
+  const operations = await neon.suspend(endpoint.id);
+  /*
+   * Suspended is what Neon records, not a state a poll has to catch. The
+   * deployment's own workers reconnect within seconds and wake the compute,
+   * so it can be idle between two reads and never at one: the drills on
+   * 64bcb29 polled for ninety seconds and failed here. A finished suspend
+   * operation is the record that the compute went to zero; reading it idle
+   * is the same proof by another route.
+   */
+  const idle = await poll(deps, { timeoutMs: LIMITS.suspendMs }, async () => {
+    if ((await neon.endpoint()).current_state === 'idle') return 'idle';
+    for (const id of operations) if (await neon.operationFinished(id)) return 'operation';
+    return null;
+  });
   if (!idle.value) fail('the cohort compute did not suspend');
   let attempts = 0;
   let woke = false;
@@ -500,7 +521,7 @@ async function wakeDrill(context, tester) {
   const sessionAfter = woke ? await signedIn(tester) : null;
   return {
     check: { wakeRetries: woke && sessionAfter ? attempts : 0 },
-    observation: { suspended: true, readinessProbes: attempts, woke, sessionAfterWake: Boolean(sessionAfter) }
+    observation: { suspended: true, suspendedBy: idle.value, readinessProbes: attempts, woke, sessionAfterWake: Boolean(sessionAfter) }
   };
 }
 

@@ -213,7 +213,14 @@ function world(faults = {}) {
     const method = (init && init.method) || 'GET';
     const route = url.pathname;
     if (route === '/api/v2/projects/dark-lake-1/endpoints') return json(200, { endpoints: [{ ...state.endpoint }] });
-    if (route === '/api/v2/projects/dark-lake-1/endpoints/ep-cohort/suspend' && method === 'POST') { state.endpoint.current_state = 'idle'; return json(200, {}); }
+    if (route === '/api/v2/projects/dark-lake-1/endpoints/ep-cohort/suspend' && method === 'POST') {
+      /* A deployment whose workers reconnect at once wakes the compute before anyone reads it idle. */
+      if (!faults.rewakes && !faults.suspendStalls) state.endpoint.current_state = 'idle';
+      return json(200, { endpoint: { ...state.endpoint }, operations: [{ id: 'op-suspend', action: 'suspend_compute', status: 'running' }] });
+    }
+    if (route === '/api/v2/projects/dark-lake-1/operations/op-suspend') {
+      return json(200, { operation: { id: 'op-suspend', action: 'suspend_compute', status: faults.suspendStalls ? 'running' : 'finished' } });
+    }
     if (route === '/api/v2/projects/dark-lake-1/endpoints/ep-cohort' && method === 'PATCH') {
       state.endpoint.disabled = JSON.parse(init.body).endpoint.disabled;
       state.endpoint.current_state = state.endpoint.disabled ? 'idle' : 'active';
@@ -392,6 +399,20 @@ function world(faults = {}) {
   const promoted = world({ promoted: true });
   assert.strictEqual((await runHostedDrills({ env: env(), ...promoted.options })).ok, true,
     'a staging deployment whose registry calls live events Supported is still a target');
+
+  /*
+   * ---- A compute the deployment wakes again at once was still suspended ----
+   * Staging's workers reconnect within seconds, so the compute can be idle
+   * between two reads and never at one: the drills on 64bcb29 polled for 90 s
+   * and stopped with "did not suspend". Neon's record that the suspend
+   * operation finished is the proof; a suspend that never finishes still fails.
+   */
+  const rewoken = world({ rewakes: true });
+  const rewokenResult = await runHostedDrills({ env: env(), ...rewoken.options });
+  assert.strictEqual(rewokenResult.ok, true, 'a finished suspend proves the compute went to zero');
+  assert.strictEqual(rewokenResult.observations['neon-scale-to-zero-wake'].suspendedBy, 'operation');
+  assert.strictEqual(result.observations['neon-scale-to-zero-wake'].suspendedBy, 'idle');
+  await assert.rejects(runHostedDrills({ env: env(), ...world({ suspendStalls: true }).options }), /the cohort compute did not suspend/);
 
   /* ---- A server fault during the interruption fails that drill --------- */
   const faulty = world({ outageAnswers: 500 });

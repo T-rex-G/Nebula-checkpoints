@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### A smoke wakes the service it measures
+
+- **A sleeping restore application is woken, not reported as aborted.** The
+  hosted gate restores the staging backup and then smoke-tests the
+  application serving the restored database. That service is on a free plan,
+  spins down when idle, and its first answer outlasts a smoke request's twenty
+  seconds; the gate stopped with `20: This operation was aborted`, a message
+  that named neither the request nor the cause. The smoke now asks
+  `/healthz` until it answers, each probe and the whole wait bounded (four
+  minutes), before it runs and times its plan; a service that never wakes is
+  refused as `ALPHA_SMOKE_UNREACHABLE` with its origin.
+- **A smoke request that runs out of time names itself**:
+  `ALPHA_SMOKE_TIMEOUT: GET /readyz did not answer within 20s`.
+- Pinned in `test/alpha-smoke.test.js`: a service asleep, starting and then
+  up; one that never wakes; a request that never answers; and the smoke's
+  order, one wake probe and then the plan.
+
 ### The read-only refusal is proven by the credential, not the repository's visibility
 
 - **A public sandbox no longer fails `issue-write`.** The sandbox repository

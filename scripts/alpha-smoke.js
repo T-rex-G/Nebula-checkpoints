@@ -56,6 +56,12 @@ async function timedRequest(baseUrl, pathname, options = {}) {
         redirect: 'manual',
         signal: controller.signal
       });
+    } catch (error) {
+      /* "This operation was aborted" says nothing; the request that ran out of time does. */
+      if (!controller.signal.aborted) throw error;
+      throw Object.assign(new Error(`${options.method || 'GET'} ${current.pathname} did not answer within ${timeoutMs / 1000}s`), {
+        code: 'ALPHA_SMOKE_TIMEOUT'
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -81,8 +87,45 @@ async function timedRequest(baseUrl, pathname, options = {}) {
   throw new Error('Too many same-origin redirects');
 }
 
-async function runSmoke(baseUrl) {
+/*
+ * A free-plan service spins down when idle, and its first answer outlasts a
+ * smoke request's bound: a restored application asked straight away was
+ * reported as aborted rather than as asleep. So the service is woken first --
+ * /healthz asked until it answers 200, each probe and the whole wait bounded --
+ * and only then is the plan run and timed. A service that never wakes is
+ * refused by name.
+ */
+async function awaitReachable(baseUrl, options = {}) {
+  const base = validateBaseUrl(baseUrl.toString());
+  const fetchImpl = options.fetchImpl || fetch;
+  const now = options.now || Date.now;
+  const sleep = options.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  const deadlineMs = options.deadlineMs || 4 * 60 * 1000;
+  const probeTimeoutMs = options.probeTimeoutMs || 60 * 1000;
+  const intervalMs = options.intervalMs || 5000;
+  const deadline = now() + deadlineMs;
+  for (let probes = 1; ; probes += 1) {
+    try {
+      const response = await fetchImpl(new URL('/healthz', base), {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(Math.max(1000, Math.min(probeTimeoutMs, deadline - now())))
+      });
+      await response.body?.cancel().catch(() => {});
+      if (response.status === 200) return Object.freeze({ probes });
+    } catch { /* Still asleep, or still starting. */ }
+    if (now() + intervalMs >= deadline) {
+      throw Object.assign(new Error(`${base.origin} did not answer its health check within ${Math.round(deadlineMs / 1000)}s`), {
+        code: 'ALPHA_SMOKE_UNREACHABLE'
+      });
+    }
+    await sleep(intervalMs);
+  }
+}
+
+async function runSmoke(baseUrl, options = {}) {
   const base = validateBaseUrl(baseUrl);
+  await awaitReachable(base, options);
   const results = [];
   for (const [method, pathname, expectedStatus] of buildSmokePlan()) {
     const result = await timedRequest(base, pathname, { method, timeoutMs: 20000 });
@@ -114,6 +157,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  awaitReachable,
   buildSmokePlan,
   validateBaseUrl,
   timedRequest,

@@ -86,6 +86,13 @@ function createProviderFetchFixture(options = {}) {
      */
     clock: Date.parse('2026-09-26T12:00:00.000Z'),
     nextNumber: 100,
+    /*
+     * The target's visibility. GitHub lets anyone who can read a public
+     * repository open an issue in it, a read-only credential included; no
+     * reader may manage its labels on any visibility.
+     */
+    public: options.publicRepository === true,
+    labels: new Map(),
     issues: new Map([[11, { number: 11, title: 'fixture', body: 'Permanent issues.read fixture.', state: 'open', comments: [] }]]),
     pulls: new Map([[7, {
       number: 7, title: 'fixture', body: 'Permanent pulls.read fixture.', state: 'open', merged: false,
@@ -456,9 +463,25 @@ function createProviderFetchFixture(options = {}) {
       return json({ total_count: items.length, incomplete_results: false, items });
     }
     if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
-    if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
+    const readerOpensIssue = state.public && method === 'POST' && parsed.pathname === `${base}/issues`
+      && credential(new Headers(init.headers || {})) === readOnlyCredential;
+    if (method !== 'GET' && !canMutate(init) && !readerOpensIssue) return json({ message: 'forbidden' }, 403);
     if (parsed.pathname === base && method === 'GET') {
-      return json({ full_name: repository, default_branch: defaultBranch });
+      return json({ full_name: repository, default_branch: defaultBranch, private: !state.public, visibility: state.public ? 'public' : 'private' });
+    }
+    /* Labels, made and removed only by a credential that may write issues. */
+    if (parsed.pathname === `${base}/labels` && method === 'POST') {
+      const body = bodyOf(init);
+      const name = String(body.name || '');
+      if (!name || state.labels.has(name)) return json({ message: 'Validation Failed' }, 422);
+      state.labels.set(name, { name, color: String(body.color || '') });
+      return json({ name, color: String(body.color || '') }, 201);
+    }
+    const labelPrefix = `${base}/labels/`;
+    if (parsed.pathname.startsWith(labelPrefix) && method === 'DELETE') {
+      const name = decodeURIComponent(parsed.pathname.slice(labelPrefix.length));
+      if (!state.labels.delete(name)) return json({ message: 'Not Found' }, 404);
+      return new Response(null, { status: 204 });
     }
     /* GET /repos/:owner/:repo/branches/:branch, the branch with its head commit. */
     const branchesPrefix = `${base}/branches/`;
@@ -890,6 +913,7 @@ function createProviderFetchFixture(options = {}) {
 
   return Object.freeze({
     state,
+    setPublic(value) { state.public = value === true; },
     fetch: async (url, init = {}) => {
       state.requests.push({ method: String(init.method || 'GET').toUpperCase(), url: String(url) });
       return githubFetch(url, init);

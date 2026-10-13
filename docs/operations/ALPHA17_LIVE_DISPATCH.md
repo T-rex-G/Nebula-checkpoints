@@ -31,7 +31,7 @@ fixtures and environment protection before supplying credentials.
 | --- | --- |
 | Independent review | Exact candidate bytes reviewed before live credentials are exposed |
 | Live environment | `alpha17-live-qualification`, holding only the secrets needed by the selected live jobs |
-| Disposable GitHub target | Pre-created `owner/nvx-alpha17-…` repository, private, with a real default-branch commit |
+| Disposable GitHub target | Pre-created `owner/nvx-alpha17-…` repository with a real default-branch commit. Private or public: on a public one GitHub lets any reader open an issue, so the read-only refusal is proven by a label it may not create |
 | API authority | `https://api.github.com`, fixed by the workflow |
 | Mutation credential | Repository Metadata read; Contents, Actions, Issues and Pull requests read/write; account Starring read/write |
 | Read-only credential | Metadata read and Contents read, with no write permission |

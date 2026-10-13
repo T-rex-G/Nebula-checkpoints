@@ -1028,6 +1028,13 @@ function createGithubClient({ env, fetchImpl }) {
    * provider rather than trusted from its own acknowledgement, and the
    * read-only credential refused. GitHub offers no way to delete an issue
    * over REST, so the issue stays -- closed, titled for the run that made it.
+   *
+   * The refusal is one the credential's scope decides, not the repository's
+   * visibility. GitHub lets anyone who can read a public repository open an
+   * issue in it, so there the read-only credential's issue is opened, closed
+   * and proves nothing either way. No reader may create a label on any
+   * repository, so that refusal is required on every target, and on a private
+   * one the issue must be refused as well.
    */
   async function issueWriteCheck({ prefix }) {
     const title = `Nebulaverse-X alpha.17 issue ${prefix}`;
@@ -1045,11 +1052,18 @@ function createGithubClient({ env, fetchImpl }) {
     await sendJson('PATCH', `repos/${repositoryPath}/issues/${number}`, { state: 'closed' }, [200]);
     const closed = await observe(() => getJson(`repos/${repositoryPath}/issues/${number}`), response => response.data.state === 'closed');
     const closedReadBack = closed.data.state === 'closed';
+    const target = await getJson(`repos/${repositoryPath}`);
+    const publicTarget = target.data && target.data.private === false;
+    const label = `${prefix}-read-only`;
+    const labelAttempt = await sendJson('POST', `repos/${repositoryPath}/labels`, { name: label, color: 'ededed' }, [201, 403, 404], 'readOnly');
+    const labelRefused = labelAttempt.status === 403 || labelAttempt.status === 404;
+    if (!labelRefused) await sendJson('DELETE', `repos/${repositoryPath}/labels/${encodeURIComponent(label)}`, undefined, [204]);
     const refused = await sendJson('POST', `repos/${repositoryPath}/issues`, { title: `${title} (read-only)`, body: '' }, [201, 403, 404], 'readOnly');
-    const readOnlyRefused = refused.status === 403 || refused.status === 404;
-    if (!readOnlyRefused && Number(refused.data && refused.data.number) > 0) {
+    const issueRefused = refused.status === 403 || refused.status === 404;
+    if (!issueRefused && Number(refused.data && refused.data.number) > 0) {
       await sendJson('PATCH', `repos/${repositoryPath}/issues/${Number(refused.data.number)}`, { state: 'closed' }, [200]);
     }
+    const readOnlyRefused = labelRefused && (issueRefused || publicTarget);
     return {
       key: 'issue-write',
       status: createdReadBack && commentReadBack && closedReadBack && readOnlyRefused ? 'pass' : 'fail',

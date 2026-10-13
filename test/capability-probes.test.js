@@ -161,6 +161,25 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.strictEqual(reruns.length, 1);
     assert.strictEqual(reruns[0].run_attempt, 2);
     assert.strictEqual(fixture.state.runs.get(31).run_attempt, 1, 'the permanent fixture run is never the one re-run');
+    assert.strictEqual(fixture.state.labels.size, 0, 'no label is made');
+  }
+
+  /*
+   * ---- A public target --------------------------------------------------
+   * GitHub lets anyone who can read a public repository open an issue in it,
+   * the read-only credential included. That is the repository's visibility,
+   * not the credential's scope, so it neither passes nor fails issue-write;
+   * the label the credential may not create still does. Its issue is closed.
+   */
+  {
+    const { result, fixture } = await run(async () => null, target => target.setPublic(true));
+    assert.strictEqual(result.status, 'pass', 'a public target qualifies as a private one does');
+    const issueWrite = result.checks.find(check => check.key === 'issue-write');
+    assert.strictEqual(issueWrite.readOnlyRefused, true);
+    const made = [...fixture.state.issues.values()].filter(issue => issue.number !== 11);
+    assert.strictEqual(made.length, 2, 'the probe issue and the one any reader may open');
+    assert(made.every(issue => issue.state === 'closed'), 'both are closed');
+    assert.strictEqual(fixture.state.labels.size, 0, 'no label is made');
   }
 
   /* ---- exposure-read ----------------------------------------------------- */
@@ -271,6 +290,19 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
     return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
   });
+  /*
+   * A public target opens issues to anyone who can read it, so there a
+   * read-only credential's issue proves nothing about its scope. What it may
+   * never do on any target is manage the repository's labels.
+   */
+  expectUnmet('a read-only credential that can create a label', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'POST' || !request.pathname.endsWith('/labels') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
+  }, fixture => fixture.setPublic(true));
+  expectUnmet('a private target whose read-only credential can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
+  }, fixture => fixture.setPublic(false));
 
   /* ---- pull-write -------------------------------------------------------- */
   expectUnmet('a pull request that reads back against another base', 'pull-write', 'createdReadBack', async (request, pass) => {

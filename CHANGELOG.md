@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### The read-only refusal is proven by the credential, not the repository's visibility
+
+- **A public sandbox no longer fails `issue-write`.** The sandbox repository
+  was made public so its fixture workflow runs without paid minutes. GitHub
+  lets anyone who can read a public repository open an issue in it, so the
+  read-only credential's issue was accepted, and `issue-write` failed on
+  `readOnlyRefused` although the credential was still refused every write it
+  was scoped out of. That issue proved the repository's visibility, not the
+  credential's scope.
+- **The refusal it now requires holds on every target.** The read-only
+  credential must be refused creating a label, which no reader may do on any
+  repository; on a private target its issue must be refused as well. On a
+  public one that issue is opened by GitHub's design, closed, and counts for
+  nothing either way. The probe reads the target's visibility from GitHub
+  rather than assuming it.
+- Pinned in `test/capability-probes.test.js`: a public target that passes, a
+  read-only credential that can create a label, and a private target whose
+  read-only credential can open an issue, each against the fixture provider,
+  which now models visibility and labels.
+
 ### A disconnected session stays disconnected, and says so
 
 - **A copy of the old cookie is signed out, not a server fault.** After

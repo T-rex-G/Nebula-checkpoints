@@ -849,3 +849,115 @@ cleanup policies. Secret-detection coverage remains separate from repository
 provider support. GitHub, hosted, manual accessibility and independent review
 gates still require evidence for the exact candidate. No gate is waived, and
 this PR must stay open and unmerged for another AI review.
+
+## ADR-087 — One modular monolith: React and strict TypeScript in the browser, Express and strict TypeScript on the server
+
+**Status:** Accepted owner decision, 18 October 2026 (architecture foundation mission, Revision 2).
+
+**Decision:** Nebulaverse-X stays one Node.js service with one PostgreSQL database. The browser application is React 19 with strict TypeScript, built by Vite. The server is Express 4 with strict TypeScript. The six systems (Pulsar, Kepler, Quasar, Uranus, Parallax, Corona) and the shared platform are modules of that one service, each reached only through its public index.
+
+**Reason:** The interface's cost was one mutable state object shared by four hundred functions, more than a hundred HTML string sinks and thirty order-dependent classic scripts. The server's cost was one 8,900-line file that registered every route and owned two of the six systems outright. Both are problems of structure, not of runtime: a component model with typed props, one typed store and typed module boundaries address them, while a framework change (NestJS, Fastify, Next.js) would re-prove an ordered fourteen-step security pipeline, a raw-body webhook, hand-managed SSE back-pressure and process isolation for no gain.
+
+**Consequence:** Express, CodeMirror 5 and the hosting (Render free plan with Neon) are unchanged. React owns the application chrome; the WebGL and canvas engines keep their imperative internals behind typed adapters.
+
+## ADR-088 — Server TypeScript runs natively in scoped ES-module folders, with a compiled runtime proven continuously
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** Server TypeScript runs on Node 22.23.1's built-in type stripping. The root `package.json` stays `"type": "commonjs"`. `apps/package.json` and `packages/package.json` each contain only `{"type":"module"}`, so everything under them is an ES module while every test, script, CI tool and configuration keeps running as CommonJS. Rules:
+
+- Erasable syntax only (`erasableSyntaxOnly`).
+- No top-level `await` in `apps/` or `packages/`, because a CommonJS caller cannot `require()` a graph that has one.
+- Worker and child-process entry files are named only through `apps/api/src/entrypoint.ts`.
+- A `tsc`-compiled build of the same source runs the same server checks in CI on every commit and must give the same results. `/api/version` reports which runtime is serving.
+
+**Reason:** The release fingerprint keeps meaning "the tracked tree", and tests run exactly the code production runs. A root module-type change would have broken about 373 CommonJS files at once. The compiled fallback was found broken on first trial: worker paths written as strings are not rewritten by `tsc`. So the fallback is proven, not documented.
+
+**Consequence:** Native type stripping costs 0.1–0.17 s per process start. Switching to the compiled runtime is triggered by a Node upgrade, any loader regression or a cold-start budget breach.
+
+## ADR-089 — One package: apps/api, apps/web and packages/contracts; tests, tooling, migrations and documents stay where they are
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** One `package.json`, one lockfile, one `npm ci`; no npm workspaces.
+
+- **`apps/api`:** the server.
+- **`apps/web`:** the browser application. Its static files live in `apps/web/public`.
+- **`packages/contracts`:** what the server, the page and the service worker share — identifiers, error codes, guards, the offline cache policy, upload planning and CODEOWNERS matching.
+- **`test/`, `scripts/`, `ci/`, `db/` and `docs/`** keep their locations.
+
+**Reason:** Isolation between the parts comes from project references, lint boundaries and an import-graph test, which workspaces would not add to. Moving 499 test files and the tooling would break dozens of source-reading tests, 238 hard-coded verification paths, the documentation manifest and the workflows for no runtime value.
+
+**Consequence:** A browser file used by the server moves to `packages/contracts`, never into `apps/api`.
+
+## ADR-090 — Contracts are the qualified validators, ported as typed guards
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** Every trust-boundary shape is a TypeScript type in `packages/contracts` with a hand-written guard ported from the existing validator, behaviour unchanged, plus an explicit schema version. No schema library is added.
+
+**Reason:** The existing validators carry precise error codes that tests and clients assert. Re-expressing them in a library risks moving those semantics silently.
+
+**Consequence:** A schema library may be adopted for a new boundary later; it does not replace a qualified one in passing.
+
+## ADR-091 — The served bytes are built and attested beside the source fingerprint
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** `npm run build` writes the browser application to `dist/web`. The build:
+
+- names every script, stylesheet, font and chunk by its content;
+- removes source commentary but keeps bundled libraries' licence notices, and writes `licenses.txt`;
+- writes the service worker's shell list and cache version from what it produced.
+
+`dist/` is never committed and never part of `releaseTreeSha256`. The server refuses to start without the build. It reports `servedAssetsSha256`, a digest of every built file, in `/api/version` beside the release fingerprint. CI builds twice and requires the same digest.
+
+The run-time comment stripper, the `?v=` asset stamp derived from the version, the hand-kept precache list and the vendored copies of npm packages are retired by this decision.
+
+**Reason:** A visitor's browser runs built bytes. Attesting only the source left what was served unnamed, and every hand-kept mechanism (stamps, lists, copies) was a place for the page and the shell to disagree.
+
+**Consequence:** The hosting build command becomes `npm ci && npm run build && npm prune --omit=dev`. That is a deployment change the owner applies, ahead of the merge, in a form that works for the code being replaced. Qualification compares both digests with the candidate's.
+
+## ADR-092 — The interface keeps today's URLs and publishes nothing on window
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:**
+
+- **Navigation:** a small typed hash router keeps every `#/owner/repo@branch/tab` address byte for byte.
+- **State:** one typed external store (`useSyncExternalStore`) replaces the shared state object. No router, state or data library is added.
+- **No globals:** in production the application defines no globals of its own. An end-to-end test compares the page's own `window` properties after boot with a blank page's.
+- **Test probe:** tests read non-secret interface state through a read-only probe. It is defined only when the test harness sets a marker before the page's first script runs, the application deletes the marker at boot, and the probe returns frozen copies of an allowlist.
+- **Transitional names:** until the probe lands, the workbench publishes thirteen functions the browser suite calls by name. They are listed in one place, `apps/web/src/legacy/app.js`.
+
+**Reason:** As classic scripts, all 418 of the workbench's functions and 22 library objects (including mutators) were reachable by any script on the page, beside a live CSRF token and step-up credentials held in plain variables. ES modules end that by construction; the probe gives tests what they need and nothing an injected script could use.
+
+**Consequence:** Tests and production run the same bundle with the same `servedAssetsSha256`. No test-only build or server switch exists.
+
+## ADR-093 — The DOM contract is held while the interface is rebuilt
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** React components render the same element IDs, classes, ARIA roles, `data-*` attributes and accessible labels as the interface they replace. The contract was recorded from the baseline for 19 views on desktop and mobile (`test/oracles/dom-contract/`). It is compared on every run of the browser suite. A deviation passes only when it is listed with its reason in `test/oracles/dom-contract-deviations.json`.
+
+**Reason:** That contract is what the 9,342-line stylesheet, both visual presets and the browser tests are written against. Holding it keeps all three valid oracles while every line of the interface changes beneath them.
+
+**Consequence:** Restyling or restructuring the markup is a separate, later decision; this mission changes how the page is built, not what it is.
+
+## ADR-094 — Module boundaries, cycles and the route surface are enforced, not described
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** The following are tests that fail the build:
+
+- modules import each other only through their index;
+- domain code imports no transport or persistence package;
+- no dependency cycle;
+- the browser application imports only `packages/contracts` from shared code;
+- the route policy (every middleware and route in order, each route's guard chain) and the negative-request matrix (1,011 answers across 8 caller contexts) equal their recorded baseline, except for changes listed with their reasons.
+
+They are enforced through ESLint, an import-graph test built on the TypeScript compiler, and `test/architecture-oracles.test.js`.
+
+**Reason:** An extraction that moves a protected route ahead of the alpha access boundary, or a guard below a handler, parses, type-checks and passes every functional test written for the happy path. Only a recorded surface compared mechanically catches it.
+
+**Consequence:** Every intended change to the security surface is written down beside the oracle that would otherwise refuse it.

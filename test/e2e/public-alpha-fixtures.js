@@ -27,9 +27,7 @@ const HEAD_SHA = 'a'.repeat(40);
  * The read model is produced by the production builder from the same seed the
  * unit test uses, and the access projection by the production projector, so
  * this fixture cannot be shaped differently from what the server sends. A
- * hand-written twin would have been a fourth invented payload this release,
- * after GitLab's create response, Gitea's branch ref and the three providers'
- * concurrency tokens.
+ * hand-written twin could drift from the server's actual payload contract.
  */
 const GOVERNANCE_SCOPE = Object.freeze({
   provider: 'github', authority: 'github.com', owner: 'sandbox', repo: 'demo',
@@ -131,7 +129,8 @@ const SCOPE = 'alphaFixtureScope_0123456789abcdef';
 const VALID = Object.freeze({
   access: new Set(['required', 'active', 'expired', 'revoked']),
   ready: new Set(['waking', 'ready', 'database-unavailable']),
-  provider: new Set(['github', 'gitlab', 'gitea']),
+  provider: new Set(['github']),
+  capabilities: new Set(['available', 'limited']),
   authMethod: new Set(['token', 'oauth', 'github-app']),
   repositoryState: new Set(['empty', 'current', 'stale', 'partial', 'degraded', 'error']),
   mutation: new Set(['verified', 'blocked', 'failed-unchanged', 'unknown']),
@@ -157,6 +156,8 @@ const VALID = Object.freeze({
    * so the critical and serious ones are past their deadline.
    */
   triage: new Set(['reviewer', 'reader']),
+  /* The pull-request list: open pull requests, none, a repository outside the scope, or a provider that did not answer. */
+  pullBoard: new Set(['ready', 'empty', 'refused', 'error']),
   auditClock: new Set(['fresh', 'aged']),
   /*
    * The gate's own setting, in the words the server uses for it: 'off' or
@@ -198,6 +199,11 @@ function normalizedScenario(input = {}) {
     mode: input.mode || 'invite',
     ready: input.ready || 'ready',
     provider: input.provider || 'github',
+    capabilities: input.capabilities || 'available',
+    demote: Array.isArray(input.demote) ? input.demote : [],
+    securityPosture: input.securityPosture || 'ready',
+    findingsInbox: input.findingsInbox || 'ready',
+    pullBoard: input.pullBoard || 'ready',
     authMethod: input.authMethod || 'token',
     login: input.login || 'alpha-tester',
     repositoryState: input.repositoryState || 'current',
@@ -230,13 +236,119 @@ function sanitized(payload) {
   return payload;
 }
 
-function capabilityProjection(provider, authMethod = 'token') {
-  return sanitized(projectCapabilities(capabilityDocument, {
+/* A twelve-week reading of the one sandbox repository, the shape the route answers with. */
+function securityPostureFixture(kind) {
+  const now = Date.now();
+  const measured = { audit: 'measured', exposure: 'measured', governance: kind === 'partial' ? 'unavailable' : 'measured' };
+  if (kind === 'empty') {
+    return {
+      available: true, generatedAt: new Date(now).toISOString(), weeks: 12, sources: measured,
+      open: { critical: 0, serious: 0, warning: 0, total: 0 }, triaged: { acceptedRisk: 0, falsePositive: 0 },
+      week: { opened: 0, fixed: 0, gated: 0, warned: 0 }, window: { opened: 0, fixed: 0 },
+      trend: Array.from({ length: 12 }, (_, index) => ({ weeksAgo: 11 - index, opened: 0, fixed: 0 })),
+      timeToFix: null, categories: [], top: [], repositories: []
+    };
+  }
+  const weekly = { 0: [3, 1], 2: [4, 2], 5: [2, 2] };
+  const open = { critical: 1, serious: 3, warning: 2, total: 6 };
+  return {
+    available: true,
+    generatedAt: new Date(now).toISOString(),
+    weeks: 12,
+    sources: measured,
+    open,
+    triaged: { acceptedRisk: 2, falsePositive: 1 },
+    week: { opened: 3, fixed: 1, gated: kind === 'partial' ? null : 2, warned: kind === 'partial' ? null : 0 },
+    window: { opened: 9, fixed: 5 },
+    trend: Array.from({ length: 12 }, (_, index) => {
+      const weeksAgo = 11 - index;
+      const [opened, fixed] = weekly[weeksAgo] || [0, 0];
+      return { weeksAgo, opened, fixed };
+    }),
+    timeToFix: { windowDays: 90, all: { count: 5, medianDays: 4.5 }, critical: { count: 1, medianDays: 2 }, serious: { count: 3, medianDays: 5 }, warning: { count: 1, medianDays: 9 } },
+    categories: [
+      { category: 'dependencies', critical: 0, serious: 3, warning: 0, total: 3 },
+      { category: 'leaked-credentials', critical: 1, serious: 0, warning: 1, total: 2 },
+      { category: 'code', critical: 0, serious: 0, warning: 1, total: 1 }
+    ],
+    top: [{ owner: 'sandbox', repo: 'demo', open, audit: { at: new Date(now - 86400000).toISOString(), ref: 'main', grade: 'C', score: 71, complete: true }, exposure: { at: new Date(now - 3600000).toISOString(), partial: false } }],
+    repositories: [{ owner: 'sandbox', repo: 'demo', open, audit: { at: new Date(now - 86400000).toISOString(), ref: 'main', grade: 'C', score: 71, complete: true }, exposure: { at: new Date(now - 3600000).toISOString(), partial: false } }]
+  };
+}
+
+/* What the inbox route answers: audit findings of the sandbox, one leaked credential, one decision. */
+function findingsInboxFixture(kind, decided) {
+  const now = Date.now();
+  const at = days => new Date(now - days * 86400000).toISOString();
+  const vocabulary = require('../../src/code-audit-triage').VOCABULARY;
+  if (kind === 'empty') {
+    return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: 0, counts: {}, findings: [] };
+  }
+  const audit = (id, overrides) => {
+    const recorded = decided.get(id);
+    const decision = recorded && recorded.rule === (overrides.rule || 'SEC-011') ? recorded : null;
+    return {
+      key: `audit:sandbox/demo:${id}`, source: 'audit', id, owner: 'sandbox', repo: 'demo', ref: 'main', rule: 'SEC-011',
+      title: 'A shell command is built by string interpolation', kind: 'code', severity: 'serious', state: 'open',
+      path: 'src/run.js', line: 12, package: null, cves: [], exploited: false, verdict: 'needs-validation',
+      firstSeenAt: at(40), ageDays: 40, timesFixed: 0, regressedAfter: null, decision: null, historyOnly: false,
+      ...overrides,
+      ...(decision ? { state: decision.disposition, decision: { disposition: decision.disposition, reason: decision.reason, expiresAt: decision.expiresAt } } : {})
+    };
+  };
+  const findings = [
+    audit('a'.repeat(24), { severity: 'critical', state: 'new', firstSeenAt: at(2), ageDays: 2, title: 'Request input is executed as code', rule: 'SEC-010', path: 'src/eval.js' }),
+    audit('b'.repeat(24), { state: 'regressed', timesFixed: 1, regressedAfter: at(20), firstSeenAt: at(9), ageDays: 9 }),
+    audit('c'.repeat(24), { kind: 'dependencies', rule: 'DEP-003', title: 'A dependency has a published vulnerability', path: 'package-lock.json', line: 40,
+      package: { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0' }, cves: ['CVE-2020-11023'], exploited: true }),
+    { key: 'exposure:sandbox/demo:f1', source: 'exposure', id: 'f1', owner: 'sandbox', repo: 'demo', ref: null, rule: 'github-token', title: null,
+      kind: 'leaked-credentials', severity: 'critical', state: 'open', path: 'scripts/release.sh', line: null, package: null, cves: [], exploited: false,
+      verdict: null, firstSeenAt: at(30), ageDays: 30, timesFixed: 0, regressedAfter: null, decision: null, historyOnly: true },
+    audit('d'.repeat(24), { severity: 'warning', state: 'accepted-risk', decision: { disposition: 'accepted-risk', reason: 'low-impact', expiresAt: at(-60) }, rule: 'SEC-004', title: 'A cookie is set without HttpOnly or Secure', path: 'docs/cookie.md' })
+  ];
+  return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: findings.length, counts: {}, findings };
+}
+
+/*
+ * What the pull-request list route answers for the sandbox: one waiting on
+ * two reviewers, one with nobody asked, a draft left alone for weeks with
+ * more labels than a card shows, and one opened two days ago.
+ */
+function pullListFixture() {
+  const now = Date.now();
+  const at = days => new Date(now - days * 86400000).toISOString();
+  const pull = (number, fields) => ({
+    number, state: 'open', draft: false, merged: false, user: 'maya', avatar: null, head: `feature/${number}`, base: 'main',
+    created_at: at(1), updated_at: at(0), reviewers: 0, labels: [], ...fields
+  });
+  return [
+    pull(42, { title: 'Pin the release workflow\'s actions to commits', created_at: at(9), updated_at: at(1), reviewers: 2, labels: ['security', 'ci'] }),
+    pull(41, { title: 'Read the inventory in pages', user: 'jon', created_at: at(4), updated_at: at(0.1) }),
+    pull(39, { title: 'Move the audit store to its own schema', draft: true, created_at: at(20), updated_at: at(18), labels: ['database', 'migration', 'needs-design', 'blocked'] }),
+    pull(38, { title: 'Fix the posture chart\'s axis on narrow screens', user: 'jon', created_at: at(2), updated_at: at(0.1), reviewers: 1, labels: ['ui'] })
+  ];
+}
+
+function capabilityProjection(provider, authMethod = 'token', availability = 'available', demote = []) {
+  const projected = sanitized(projectCapabilities(capabilityDocument, {
     provider,
-    authority: provider === 'github' ? 'github.com' : `${provider}.example.test`,
+    authority: 'github.com',
     deployment: 'hosted-alpha',
     authMethod
   }));
+  const projection = { ...projected, features: { ...projected.features } };
+  if (availability === 'limited') for (const feature of ['repository.create', 'code-audit']) {
+    projection.features[feature] = {
+      ...projection.features[feature], status: 'Unavailable', evidenceState: 'Unavailable',
+      reason: 'This capability is unavailable for this GitHub account.'
+    };
+  }
+  /* And the reverse: a capability a scenario treats as not yet offered, to see that nothing of it is drawn. */
+  for (const feature of demote) {
+    if (!projection.features[feature]) throw new Error(`cannot demote unknown capability ${feature}`);
+    projection.features[feature] = { ...projection.features[feature], status: 'Experimental', evidenceState: 'Inferred' };
+  }
+  return projection;
 }
 
 function publicError(code, message, overrides = {}) {
@@ -260,6 +372,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     providerConnected: scenario.access === 'active',
     mutationRequests: [],
     visitRequests: [],
+    /* Decisions recorded through the triage route, by finding, so the inbox reads them back. */
     disconnected: false,
     alphaEnded: false
   };
@@ -416,7 +529,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
       });
     }
-    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod));
+    if (pathname === '/api/capabilities' || pathname === '/api/account/capabilities') return fulfill(capabilityProjection(scenario.provider, scenario.authMethod, scenario.capabilities, scenario.demote));
     /*
      * The safety state as the hosted alpha answers it: repository-scoped
      * locks that change, global switches that belong to the deployment.
@@ -470,6 +583,53 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         },
         boundary: { state: 'online', database: 'ready', maintenance: false }
       });
+    }
+    /*
+     * The Overview's security posture: what the audits, scans and governance
+     * hold for this identity. `securityPosture` selects a workspace with
+     * findings (`ready`), one nothing has read yet (`empty`), a database that
+     * did not answer (`unavailable`), governance that could not be read
+     * (`partial`) and a failed request (`error`).
+     */
+    if (pathname === '/api/workspace/security-posture') {
+      if (scenario.securityPosture === 'error') return fulfill({ error: 'Service unavailable', code: 'SERVICE_UNAVAILABLE' }, 503);
+      if (scenario.securityPosture === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
+      return fulfill(securityPostureFixture(scenario.securityPosture));
+    }
+    /*
+     * The findings inbox and what it reaches: `findingsInbox` selects a list
+     * of findings (`ready`), an empty one (`empty`) or a database that did
+     * not answer (`unavailable`). A decision is the one the audit triage
+     * route below records, so the inbox reads what the Audit tab decided.
+     */
+    if (pathname === '/api/workspace/findings') {
+      if (scenario.findingsInbox === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
+      return fulfill(findingsInboxFixture(scenario.findingsInbox, state.triage));
+    }
+    /*
+     * The pull-request list: `pullBoard` selects the sandbox's open pull
+     * requests (`ready`), none (`empty`), a repository outside the session's
+     * scope (`refused`) or a provider that did not answer (`error`).
+     */
+    if (pathname === '/api/repo/sandbox/demo/pulls' && method === 'GET') {
+      if (scenario.pullBoard === 'refused') return fulfill(publicError('ALPHA_REPOSITORY_NOT_ALLOWED', 'This repository is outside the alpha scope'), 403);
+      if (scenario.pullBoard === 'error') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'GitHub did not answer'), 502);
+      if (scenario.pullBoard === 'empty') return fulfill([]);
+      return fulfill(url.searchParams.get('state') === 'closed' ? [] : pullListFixture());
+    }
+    const pullDetail = /^\/api\/repo\/sandbox\/demo\/pulls\/(\d+)$/.exec(pathname);
+    if (pullDetail && method === 'GET') {
+      const listed = pullListFixture().find(pull => pull.number === Number(pullDetail[1]));
+      if (!listed) return fulfill(publicError('NOT_FOUND', 'Not found'), 404);
+      return fulfill({
+        number: listed.number, title: listed.title, body: '', state: 'open', draft: listed.draft, merged: false,
+        mergeable: true, mergeable_state: 'clean', user: listed.user, head: listed.head, base: listed.base,
+        headSha: 'c'.repeat(40), additions: 12, deletions: 3, changed_files: 1,
+        files: [{ filename: 'README.md', status: 'modified', additions: 12, deletions: 3, patch: '@@ -1 +1 @@\n-old\n+new' }]
+      });
+    }
+    if (pathname === '/api/repo/sandbox/demo/codeowners') {
+      return fulfill({ path: '.github/CODEOWNERS', rules: [{ pattern: '*', owners: ['@sandbox/everyone'] }, { pattern: 'src/', owners: ['@sandbox/web'] }], tooLarge: false });
     }
     if (pathname === '/api/github-app/status') return fulfill({ enabled: true, webhookConfigured: true, connections: [] });
     if (pathname === '/api/repos') {

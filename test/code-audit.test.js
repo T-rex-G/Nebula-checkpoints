@@ -333,6 +333,43 @@ const paths = files => [...BASE, ...files].map(file => file.path);
 
 /* ---- Published vulnerabilities and look-alike names ------------------------------ */
 {
+  const files = [
+    { path: 'package.json', text: '{"dependencies":{"jquery":"3.5.0"}}' },
+    { path: 'package-lock.json', text: JSON.stringify({ lockfileVersion: 3, packages: {
+      '': { dependencies: { jquery: '3.5.0' } }, 'node_modules/jquery': { version: '3.5.0' }
+    } }) },
+    { path: 'isolated-app/package.json', text: '{"dependencies":{"jquery":"3.4.1"}}' }
+  ];
+  const nested = audit.dependencyInventory(files).find(entry => entry.path === 'isolated-app/package.json');
+  assert.strictEqual(nested.version, '3.4.1', 'an unrelated root lock cannot replace a nested exact dependency');
+  assert.strictEqual(nested.source, 'pin');
+  const workspaceLock = JSON.parse(files[1].text);
+  workspaceLock.packages['node_modules/workspace-app'] = { resolved: 'isolated-app', link: true };
+  workspaceLock.packages['isolated-app'] = { name: 'workspace-app', version: '1.0.0', dependencies: { jquery: '3.4.1' } };
+  workspaceLock.packages['isolated-app/node_modules/jquery'] = { version: '3.4.1' };
+  const workspaceFiles = [files[0], { ...files[1], text: JSON.stringify(workspaceLock) }, files[2]];
+  const workspace = audit.dependencyInventory(workspaceFiles).find(entry => entry.path === 'isolated-app/package.json');
+  assert.strictEqual(workspace.version, '3.4.1', 'linked workspace dependencies resolve relative to the workspace');
+  assert.strictEqual(workspace.source, 'lock');
+  assert.strictEqual(workspace.lock, 'package-lock.json');
+}
+{
+  /* yarn.lock, pnpm-lock.yaml, poetry.lock and the rest do not record their workspaces: the nearest lock above still answers. */
+  const yarn = '# yarn lockfile v1\n\nlodash@^4.17.0:\n  version "4.17.21"\n\njquery@3.5.0:\n  version "3.5.0"\n';
+  const files = [
+    { path: 'package.json', text: '{"private":true,"workspaces":["packages/*"]}' },
+    { path: 'yarn.lock', text: yarn },
+    { path: 'packages/web/package.json', text: '{"dependencies":{"lodash":"^4.17.0","jquery":"3.4.1"}}' }
+  ];
+  const nested = audit.dependencyInventory(files).filter(entry => entry.path === 'packages/web/package.json');
+  const lodash = nested.find(entry => entry.name === 'lodash');
+  assert.deepStrictEqual([lodash.version, lodash.source, lodash.lock], ['4.17.21', 'lock', 'yarn.lock'],
+    'a workspace range resolves to the version the root lock installed, not to the floor of its range');
+  const jquery = nested.find(entry => entry.name === 'jquery');
+  assert.deepStrictEqual([jquery.version, jquery.source], ['3.4.1', 'pin'],
+    'an exact pin the root lock did not install is not replaced by the root version');
+}
+{
   const manifest = { path: 'package.json', text: JSON.stringify({
     dependencies: { lodash: '^4.17.0', axios: '^1.6.0', crossenv: '^1.0.0', 'left-pad': '1.3.0', 'event-stream': '3.3.6' },
     devDependencies: { minimist: '^1.2.0' }
@@ -530,6 +567,16 @@ const paths = files => [...BASE, ...files].map(file => file.path);
 
   const down = await audit.lookupAdvisories(entries, async () => { throw new Error('offline'); });
   assert.strictEqual(down.answers.get('npm:lodash@4.17.15'), 'unknown', 'an unreachable database leaves the version unknown');
+  for (const result of [null, [], { vulns: null }, { vulns: [{ id: 'invalid id' }] }, { next_page_token: 'more' }]) {
+    const incomplete = await audit.lookupAdvisories(entries.slice(0, 1), async () => ({ statusCode: 200, body: JSON.stringify({ results: [result] }) }));
+    assert.strictEqual(incomplete.answers.get('npm:lodash@4.17.15'), 'unknown', 'malformed or unfinished advisory evidence is not clean');
+  }
+  /* One id the engine cannot name leaves the answer incomplete, but never hides the advisories it can name. */
+  const mixed = await audit.lookupAdvisories(entries.slice(0, 1), async request => ({ statusCode: 200,
+    body: request.url.endsWith('/querybatch') ? JSON.stringify({ results: [{ vulns: [{ id: 'GHSA-35jh-r3h4-6jhm' }, { id: 'invalid id' }] }] }) : '{}' }));
+  const partial = mixed.answers.get('npm:lodash@4.17.15');
+  assert.notStrictEqual(partial, 'unknown', 'a well-formed advisory is reported even beside a malformed id');
+  assert.deepStrictEqual([partial.partial, partial.advisories.map(advisory => advisory.id)], [true, ['GHSA-35jh-r3h4-6jhm']]);
 })().catch(error => {
   console.error(error && error.stack || error);
   process.exitCode = 1;
@@ -793,7 +840,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const express = advised.findings.find(item => item.detail && item.detail.package === 'express');
   assert.strictEqual(express.rule, 'DEP-005', 'the lowest version ^4.19.0 accepts is affected; 4.20.0 is inside the range');
   assert.strictEqual(express.detail.range, '^4.19.0');
-  assert.deepStrictEqual(advised.coverage.advisories, { versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1, setAside: 0 });
+  assert.deepStrictEqual(advised.coverage.advisories, { inventoryComplete: true, versions: 2, checked: 2, unknown: 0, notChecked: 0, vulnerable: 1, malicious: 0, lockfiles: 1, lockfilesRead: 1, setAside: 0 });
   assert.strictEqual(advised.coverage.exploit, null, 'without an exploit source, nothing is claimed about exploitation');
 
   /* With exploit intelligence: only the advisory's CVE leaves, after the advisories, as its own stage. */

@@ -11,7 +11,7 @@ const {
   GOVERNANCE_ROLE_NAMES,
   normalizeAuthorizationSnapshot
 } = require('./authorization-resolver');
-const { simulatePolicyImpact } = require('./governance-simulation');
+const { simulatePolicyImpact, normalizeSimulationRequest } = require('./governance-simulation');
 const { listPolicyTemplates, getPolicyTemplate, generateRepositoryBaseline } = require('./governance-templates');
 const { buildPolicyDigitalTwinReadModel, normalizeDigitalTwinOptions } = require('./governance-digital-twin');
 const {
@@ -168,7 +168,7 @@ function assertActivationInput(input) {
   if (!simulation.request || typeof simulation.request !== 'object' || Array.isArray(simulation.request)) {
     fail('Simulation request is required', 'GOVERNANCE_SIMULATION_INPUT_INVALID', 400);
   }
-  return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: simulation.request });
+  return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: normalizeSimulationRequest(simulation.request) });
 }
 
 function assertRequiredIdempotencyKey(value, label = 'Activation and rollback') {
@@ -466,7 +466,7 @@ function createGovernanceApiService(options = {}) {
       if (typeof store.getDigitalTwinReadModelData !== 'function') {
         fail('Digital Twin read model storage is unavailable', 'GOVERNANCE_DIGITAL_TWIN_UNAVAILABLE', 503);
       }
-      const pagination = normalizeDigitalTwinOptions({ historyLimit: input.historyLimit, afterDecisionSeq: input.afterDecisionSeq });
+      const pagination = normalizeDigitalTwinOptions({ historyLimit: input.historyLimit, afterDecisionSeq: input.afterDecisionSeq, beforeDecisionSeq: input.beforeDecisionSeq });
       const data = await store.getDigitalTwinReadModelData({ scope: context.scope, ...pagination });
       return buildPolicyDigitalTwinReadModel({ scope: context.scope, data, options: pagination });
     },
@@ -477,7 +477,7 @@ function createGovernanceApiService(options = {}) {
 
     async listPolicyDecisions(input = {}) {
       const context = authorize(input, 'reader');
-      return store.listPolicyDecisionsInScope({ scope: context.scope, limit: input.limit, afterSeq: input.afterSeq });
+      return store.listPolicyDecisionsInScope({ scope: context.scope, limit: input.limit, afterSeq: input.afterSeq, beforeSeq: input.beforeSeq });
     },
 
     async verifyPolicyDecisionChain(input = {}) {
@@ -721,20 +721,6 @@ function createGovernanceApiService(options = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
-      const policy = await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
-      const proposedVersion = await store.getVersionInScope({ policyId: input.policyId, versionId: input.versionId, scope: context.scope });
-      const baselineVersion = policy.activeVersionId
-        ? (policy.activeVersionId === proposedVersion.versionId ? proposedVersion : await store.getVersionInScope({ policyId: input.policyId, versionId: policy.activeVersionId, scope: context.scope }))
-        : null;
-      const simulationEvidence = simulatePolicyImpact({ scope: context.scope, proposedVersion, baselineVersion, request: body.simulationRequest });
-      if (simulationEvidence.simulationHash !== body.simulationHash) {
-        fail('Simulation evidence does not match the current policy state', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
-      }
-      if (!simulationEvidence.activationReadiness.eligible) {
-        const error = new GovernanceApiError('Simulation evidence contains activation blockers', 'GOVERNANCE_SIMULATION_BLOCKED', 409);
-        error.details = { blockers: simulationEvidence.activationReadiness.blockers };
-        throw error;
-      }
       return store.activateVersion({
         policyId: input.policyId,
         versionId: input.versionId,
@@ -744,7 +730,7 @@ function createGovernanceApiService(options = {}) {
         expectedRevision: body.expectedRevision,
         reason: body.reason,
         expectedSimulationHash: body.simulationHash,
-        simulationEvidence,
+        simulationRequest: body.simulationRequest,
         idempotencyKey
       });
     },
@@ -753,20 +739,6 @@ function createGovernanceApiService(options = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
-      const policy = await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
-      const proposedVersion = await store.getVersionInScope({ policyId: input.policyId, versionId: input.versionId, scope: context.scope });
-      const baselineVersion = policy.activeVersionId
-        ? (policy.activeVersionId === proposedVersion.versionId ? proposedVersion : await store.getVersionInScope({ policyId: input.policyId, versionId: policy.activeVersionId, scope: context.scope }))
-        : null;
-      const simulationEvidence = simulatePolicyImpact({ scope: context.scope, proposedVersion, baselineVersion, request: body.simulationRequest });
-      if (simulationEvidence.simulationHash !== body.simulationHash) {
-        fail('Simulation evidence does not match the current policy state', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
-      }
-      if (!simulationEvidence.activationReadiness.eligible) {
-        const error = new GovernanceApiError('Simulation evidence contains activation blockers', 'GOVERNANCE_SIMULATION_BLOCKED', 409);
-        error.details = { blockers: simulationEvidence.activationReadiness.blockers };
-        throw error;
-      }
       return store.rollbackVersion({
         policyId: input.policyId,
         versionId: input.versionId,
@@ -776,7 +748,7 @@ function createGovernanceApiService(options = {}) {
         expectedRevision: body.expectedRevision,
         reason: body.reason,
         expectedSimulationHash: body.simulationHash,
-        simulationEvidence,
+        simulationRequest: body.simulationRequest,
         idempotencyKey
       });
     },

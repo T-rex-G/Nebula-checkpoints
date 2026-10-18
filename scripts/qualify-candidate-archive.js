@@ -26,14 +26,20 @@ const COMMAND_TIMEOUTS_MS = Object.freeze({
   install: 10 * 60 * 1000,
   gate: 5 * 60 * 1000,
   matrix: 10 * 60 * 1000,
-  // The full unsharded candidate suite can exceed 15 minutes. Keep every
-  // browser case and its individual timeout, with a bounded total. It ran to
-  // just under 30 minutes on one worker once the suite passed 700 cases, and a
-  // bound the honest suite outgrows fails every candidate for its size rather
-  // than for a defect; the checkout's sharded matrix still holds each quarter
-  // to 20 minutes, which is where a slow test is caught.
-  browser: 50 * 60 * 1000
+  // The full candidate suite, every browser case with its individual timeout,
+  // runs on one worker. One bound over the whole of it was outgrown twice --
+  // 15 minutes, then 30, then 50 -- and the third time on a runner that ran
+  // the identical tests 40% slower than the one before it: c9410a3 and
+  // b1a61d9 timed out at 50 minutes on a suite 8dec400 had passed in under
+  // 45. A single bound the honest suite outgrows fails every candidate for its
+  // size rather than for a defect, so the suite runs in fixed slices, each
+  // with its own bound, from the same extracted bytes, and the slices' reports
+  // are merged into the one report this gate validates.
+  browser: 50 * 60 * 1000,
+  browserSlice: 25 * 60 * 1000
 });
+/* Slices of the trusted candidate suite, run one after another on this runner. */
+const CANDIDATE_BROWSER_SLICES = 4;
 /* No single candidate command may run longer than this, whatever it is given. */
 const MAX_COMMAND_TIMEOUT_MS = 60 * 60 * 1000;
 /*
@@ -996,17 +1002,39 @@ function qualifyCandidateArchive(options) {
       timeoutMs: COMMAND_TIMEOUTS_MS.browser
     });
   } else {
-    runCommand(process.execPath, [
-      path.join(candidateRoot, 'node_modules', '@playwright', 'test', 'cli.js'),
-      'test',
-      '--config', path.join(candidateRoot, 'playwright.config.js'),
-      '--reporter=json'
-    ], {
+    /*
+     * Each slice is the command a CI shard runs (playwright.config.js reads
+     * NV_E2E_SHARD), writing Playwright's own blob report. The blob reporter
+     * clears its directory when it starts, so each slice writes into its own
+     * and its report is moved into the merge directory before the next one
+     * runs. A failing slice stops the gate there, as the single run did.
+     */
+    const playwrightCli = path.join(candidateRoot, 'node_modules', '@playwright', 'test', 'cli.js');
+    const blobRoot = path.join(path.dirname(parsed.browserReportPath), 'browser-slices');
+    const mergeDir = path.join(blobRoot, 'merge');
+    fs.rmSync(blobRoot, { recursive: true, force: true });
+    fs.mkdirSync(mergeDir, { recursive: true, mode: 0o700 });
+    for (let slice = 1; slice <= CANDIDATE_BROWSER_SLICES; slice += 1) {
+      const sliceDir = path.join(blobRoot, `slice-${slice}`);
+      runCommand(process.execPath, [
+        playwrightCli, 'test', '--config', path.join(candidateRoot, 'playwright.config.js'), '--reporter=blob'
+      ], {
+        cwd: candidateRoot,
+        env: { ...browserEnvironment, NV_E2E_SHARD: `${slice}/${CANDIDATE_BROWSER_SLICES}`, PLAYWRIGHT_BLOB_OUTPUT_DIR: sliceDir },
+        label: `trusted browser matrix slice ${slice}/${CANDIDATE_BROWSER_SLICES}`,
+        timeoutMs: COMMAND_TIMEOUTS_MS.browserSlice
+      });
+      const reports = fs.readdirSync(sliceDir).filter(name => name.endsWith('.zip'));
+      if (reports.length !== 1) fail(`trusted browser matrix slice ${slice} did not write exactly one report`);
+      fs.renameSync(path.join(sliceDir, reports[0]), path.join(mergeDir, `slice-${slice}.zip`));
+    }
+    runCommand(process.execPath, [playwrightCli, 'merge-reports', '--reporter=json', mergeDir], {
       cwd: candidateRoot,
       env: browserEnvironment,
-      label: 'trusted browser matrix',
-      timeoutMs: COMMAND_TIMEOUTS_MS.browser
+      label: 'trusted browser matrix report',
+      timeoutMs: COMMAND_TIMEOUTS_MS.gate
     });
+    fs.rmSync(blobRoot, { recursive: true, force: true });
   }
   const browserReport = validateBrowserReport(
     parsed.browserReportPath,

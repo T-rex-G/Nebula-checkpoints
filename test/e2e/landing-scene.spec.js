@@ -252,6 +252,54 @@ test('resizing a stopped scene redraws its held frame without starting a loop', 
   expect(await draws(page, 500)).toBe(0);
 });
 
+/*
+ * A renderer that cannot keep up. Every frame is handed over a third of a
+ * second late -- the shape of a software rasteriser on a busy machine -- while
+ * the page's own thread stays free, so what is measured is the scene's
+ * answer, not the browser's. The old budget counted frames and needed
+ * seventy-five of them to step down one tier; at this pace that is half a
+ * minute at full detail per tier, and it never rested at all.
+ */
+test('a device that cannot keep the scene moving gets it held still, and its page back', async ({ page }) => {
+  await instrument(page);
+  await page.addInitScript(() => {
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => raf(() => setTimeout(() => raf(callback), 320));
+  });
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await sceneOrSkip(page);
+  const portal = page.locator('#lpPortal');
+  /* A phone puts the scene below the card; it only runs where it can be seen. */
+  await portal.scrollIntoViewIfNeeded();
+  await expect(portal).toHaveAttribute('data-scene-state', 'resting', { timeout: 12000 });
+  await expect(page.locator('.lp-art')).toHaveClass(/is-static/);
+  await expect(portal).toHaveClass(/is-live/);
+  expect(await litPixels(page)).toBeGreaterThan(500);
+  expect(await draws(page, 1200)).toBe(0);
+
+  /* Held for the visit: switching motion off and on does not start it again. */
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'off'; });
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'on'; });
+  await expect(portal).toHaveAttribute('data-scene-state', 'resting');
+  expect(await draws(page, 900)).toBe(0);
+
+  await page.getByLabel('Request entry').getByRole('button', { name: 'Get started', exact: true }).click({ timeout: 5000 });
+});
+
+test('a device that keeps up keeps the scene moving', async ({ page }) => {
+  await instrument(page);
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'required', ready: 'ready' });
+  await page.goto('/');
+  await sceneOrSkip(page);
+  const portal = page.locator('#lpPortal');
+  await portal.scrollIntoViewIfNeeded();
+  await expect(portal).toHaveAttribute('data-scene-state', 'running');
+  await page.waitForTimeout(3500);
+  await expect(portal).toHaveAttribute('data-scene-state', 'running');
+  expect(await running(page)).toBe(true);
+});
+
 test('the motion switch stands the scene down without taking the state away', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'required', ready: 'ready' });
   await page.goto('/');

@@ -59,11 +59,16 @@ async function waitForServer() {
     assert.strictEqual(health.status, 200);
     /* maintenance is always reported, not only when it is on, so a monitor can
        read one field rather than infer the state from its absence. */
-    assert.deepStrictEqual(await health.json(), {
+    const healthBody = await health.json();
+    assert.match(String(healthBody.bootId), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      'each process names its start, so a restart can be observed');
+    assert.deepStrictEqual(healthBody, {
       ok: true,
       service: 'alive',
-      maintenance: false
+      maintenance: false,
+      bootId: healthBody.bootId
     });
+    assert.strictEqual((await (await request('/healthz')).json()).bootId, healthBody.bootId, 'and keeps it for the life of the process');
     assert.match(health.headers.get('strict-transport-security') || '', /max-age=/);
     const csp = health.headers.get('content-security-policy') || '';
     assert.match(csp, /object-src 'none'/);

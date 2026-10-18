@@ -33,21 +33,21 @@ function control(feature, options = {}) {
 }
 
 const body = {
-  provider: 'gitlab',
-  authority: 'gitlab.com',
+  provider: 'github',
+  authority: 'github.com',
   deployment: 'hosted-alpha',
   features: {
     'file.batch': {
-      feature: 'file.batch', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
-      status: 'Unavailable', evidenceState: 'Unavailable', reason: 'Atomic batch is not qualified for GitLab.'
+      feature: 'file.batch', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
+      status: 'Unavailable', evidenceState: 'Unavailable', reason: 'Atomic batch is unavailable for this GitHub account.'
     },
     governance: {
-      feature: 'governance', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
+      feature: 'governance', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
       status: 'Experimental', evidenceState: 'Deterministic', reason: 'Policy views have narrower mutation coverage.'
     },
     'file.read': {
-      feature: 'file.read', provider: 'gitlab', authority: 'gitlab.com', deployment: 'hosted-alpha',
-      status: 'Supported', evidenceState: 'Provider-verified', reason: 'Qualified GitLab file reads.'
+      feature: 'file.read', provider: 'github', authority: 'github.com', deployment: 'hosted-alpha',
+      status: 'Supported', evidenceState: 'Provider-verified', reason: 'Qualified GitHub file reads.'
     }
   }
 };
@@ -82,82 +82,74 @@ const sandbox = {
 vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
 
 (async () => {
-  await window.NebulaCapabilityUI.load('gitlab', 'gitlab.com');
+  await window.NebulaCapabilityUI.load('github', 'github.com');
   const nestedButton = control('file.batch');
   const batchContainer = control('file.batch', { native: false, children: [nestedButton] });
-  const experimentalBlocked = control('governance');
-  const experimentalAllowed = control('governance', { allowExperimental: true });
+  const experimental = control('governance');
   const supported = control('file.read');
-  const refusedButton = control('file.batch', { tagName: 'BUTTON' });
-  const refusedField = control('file.batch', { tagName: 'INPUT' });
-  const root = {
-    querySelectorAll: () => [
-      batchContainer, experimentalBlocked, experimentalAllowed, supported,
-      refusedButton, refusedField
-    ]
-  };
+  const unavailableButton = control('file.batch', { tagName: 'BUTTON' });
+  let controls = [batchContainer, experimental, supported, unavailableButton];
+  const root = { querySelectorAll: () => controls };
 
   window.NebulaCapabilityUI.apply(root);
 
-  assert.strictEqual(batchContainer.getAttribute('aria-disabled'), 'true');
-  assert.strictEqual(nestedButton.disabled, true,
-    'blocking a capability container must disable its direct interactive descendants');
-  assert.strictEqual(experimentalBlocked.disabled, true);
-  assert.strictEqual(experimentalAllowed.disabled, false);
+  /*
+   * Only what is Supported is rendered. A control for anything else is taken
+   * out of the page and the accessibility tree -- not dimmed, not labelled
+   * Experimental or Unavailable -- and the server refuses it regardless.
+   */
+  for (const blocked of [batchContainer, experimental, unavailableButton]) {
+    assert.strictEqual(blocked.hidden, true, `${blocked.dataset.feature} must not be rendered`);
+    assert.strictEqual(blocked.getAttribute('data-capability-blocked'), 'true');
+    assert.strictEqual(blocked.dataset.capabilityNoteId, undefined, 'a control that is not rendered carries no status note');
+  }
+  assert.strictEqual(nestedButton.getAttribute('data-capability-blocked'), 'true', 'what is inside a removed control is refused too');
+  assert.notStrictEqual(supported.hidden, true);
+  assert.strictEqual(supported.getAttribute('data-capability-blocked'), 'false');
   assert.strictEqual(supported.disabled, false);
-  assert.strictEqual(
-    batchContainer.dataset.capabilityReason,
-    'Atomic batch is not qualified for GitLab.'
-  );
-  /*
-   * A refused button is not handed to the browser to silence. `disabled` stops
-   * the press before any handler runs, so nothing is left to say why the
-   * action was refused, and it takes the control out of the tab order, which
-   * takes the reason's own accessible description with it. It stays pressable
-   * and is answered out loud instead -- which is what the same action drawn as
-   * a palette entry has always done, for no better reason than that a div has
-   * no property to set.
-   */
-  assert.strictEqual(refusedButton.disabled, false,
-    'a refused button must stay pressable so that the refusal can be voiced');
-  assert.strictEqual(refusedButton.getAttribute('aria-disabled'), 'true');
-  assert.strictEqual(refusedButton.getAttribute('data-capability-blocked'), 'true',
-    'the press has to be interceptable from outside the control');
-  /*
-   * A field is the other case. Accepting typing it will discard is a worse
-   * answer than refusing the keystroke.
-   */
-  assert.strictEqual(refusedField.disabled, true,
-    'a refused field must not accept input it will discard');
-  assert.strictEqual(supported.getAttribute('data-capability-blocked'), 'false',
-    'an allowed control must not be marked as refused');
-  /*
-   * The reason must reach the reader; where it lives is the note's business.
-   * It used to be printed inline, which put a sentence beside every control
-   * carrying the feature -- six of them for one capability. The status is
-   * shown and the reason travels in the accessible name and the tooltip, so
-   * this asserts that it is reachable rather than that it is rendered as prose.
-   */
-  const note = notes.get(batchContainer.dataset.capabilityNoteId);
-  assert(note, 'an unavailable control must carry a note');
-  assert.strictEqual(note.textContent, 'Unavailable', 'the note shows the status');
-  const reason = 'Atomic batch is not qualified for GitLab.';
-  assert(
-    String(note.getAttribute('aria-label') || '').includes(reason),
-    'the reason must reach a screen reader through the note'
-  );
-  assert(String(note.title || '').includes(reason), 'the reason must be reachable by pointer');
   assert.strictEqual(
     window.NebulaCapabilityUI.decision('unknown.feature').status,
     'Unavailable',
     'unknown features must fail closed'
   );
+  assert(![...notes.values()].some(note => /Experimental|Unavailable/.test(note.textContent)),
+    'no Experimental or Unavailable label is drawn anywhere');
+
+  /* A capability that becomes Supported comes back, exactly as it was. */
+  sandbox.fetch = async () => ({ ok: true, json: async () => ({ ...body, features: { ...body.features,
+    governance: { ...body.features.governance, status: 'Supported', evidenceState: 'Deterministic' } } }) });
+  await window.NebulaCapabilityUI.load('github', 'github.com');
+  window.NebulaCapabilityUI.apply(root);
+  assert.strictEqual(experimental.hidden, false, 'a control hidden for its capability is shown again once Supported');
+  assert.strictEqual(experimental.getAttribute('data-capability-blocked'), 'false');
+  assert.strictEqual(batchContainer.hidden, true);
+
+  /*
+   * A projection that could not be loaded is an outage, not a verdict. Nothing
+   * is hidden for it: the controls stay where they are, refused and saying why,
+   * so the person can see that something is wrong and retry.
+   */
+  sandbox.fetch = async () => ({ ok: false, json: async () => ({}) });
+  await window.NebulaCapabilityUI.load('github', 'github.com');
+  const field = control('file.batch', { tagName: 'INPUT' });
+  const pressable = control('file.batch', { tagName: 'BUTTON' });
+  controls = [field, pressable];
+  window.NebulaCapabilityUI.apply(root);
+  assert.notStrictEqual(field.hidden, true);
+  assert.notStrictEqual(pressable.hidden, true);
+  assert.strictEqual(field.disabled, true, 'a refused field must not accept input it will discard');
+  assert.strictEqual(pressable.disabled, false, 'a refused button stays pressable so that the refusal can be voiced');
+  assert.strictEqual(pressable.getAttribute('data-capability-blocked'), 'true');
+  const outage = notes.get(field.dataset.capabilityNoteId);
+  assert(outage && String(outage.getAttribute('aria-label') || '').includes('could not be loaded'), 'the outage is explained');
+  sandbox.fetch = async () => ({ ok: true, json: async () => body });
+  await window.NebulaCapabilityUI.load('github', 'github.com');
 
   // An older account response must never overwrite the latest projection.
   const pending = [];
   sandbox.fetch = (url, options) => new Promise(resolve => pending.push({ url, options, resolve }));
-  const firstAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
-  const secondAccount = window.NebulaCapabilityUI.load('gitlab', 'gitlab.com', { connected: true });
+  const firstAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
+  const secondAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
   assert(pending.every(call => call.url.startsWith('/api/account/capabilities?')));
   assert(pending.every(call => call.options.cache === 'no-store' && call.options.credentials === 'same-origin'));
   pending[1].resolve({ ok: true, json: async () => body });
@@ -165,6 +157,18 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   pending[0].resolve({ ok: false, json: async () => ({}) });
   await firstAccount;
   assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Supported');
+  for (const retiredProvider of ['gitlab', 'gitea', 'unknown']) {
+    let fetched = false;
+    sandbox.fetch = async () => { fetched = true; return { ok: true, json: async () => body }; };
+    await window.NebulaCapabilityUI.load(retiredProvider, 'github.com', { connected: true });
+    assert.strictEqual(fetched, false, 'unsupported identities must not request GitHub capabilities');
+    assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
+  }
+  let fetchedCustomHost = false;
+  sandbox.fetch = async () => { fetchedCustomHost = true; return { ok: true, json: async () => body }; };
+  await window.NebulaCapabilityUI.load('github', 'git.example.org', { connected: true });
+  assert.strictEqual(fetchedCustomHost, false, 'custom hosts are not supported GitHub identities');
+  assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
   console.log('capability UI behavior tests passed');
 })().catch(error => {
   console.error(error.stack || error);

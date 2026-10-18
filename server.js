@@ -12,7 +12,6 @@
 const express = require('express');
 const crypto = require('crypto');
 const zlib = require('zlib');
-const dns = require('dns').promises;
 async function fetchT(url, opts = {}, ms = 20000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Upstream timeout after ${ms / 1000}s`)), ms);
@@ -72,6 +71,9 @@ const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
 );
 const DEPLOYMENT_PROFILE = 'hosted-alpha';
+/* A staging deployment's capabilities awaiting the proof only it can give; empty everywhere else. */
+const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
+  .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
   stableJson, hashJson, evidenceRecordHash,
   verifyEvidenceRecord, evidenceKeyrings, verifyGithubSignature, normalizeGithubWebhook,
@@ -90,9 +92,9 @@ const {
   databaseReadiness,
   hostedConfigProjection
 } = require('./src/hosted-readiness');
-const { AlphaAccessStore } = require('./src/alpha-access-store');
+const { AlphaAccessStore, AlphaAccessOperationalError } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
-const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback } = require('./src/alpha-privacy');
+const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance } = require('./src/alpha-privacy');
 const {
   disconnectProviderAccount,
   providerResourceKeyHash
@@ -131,7 +133,6 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation'
 const { rateLimitIdentity } = require('./src/rate-limit-identity');
 const { createLocalSessionPolicy } = require('./src/local-session-policy');
 const { createDatabasePool } = require('./src/database-pool');
-const { providerFetch } = require('./src/provider-transport');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
 const { writeLiveClient } = require('./src/live-stream');
@@ -140,7 +141,6 @@ const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
 const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
-const { createGiteaFileMutationAdapter } = require('./src/provider-file-mutations');
 const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
 const { pathFactsForAction } = require('./src/protected-paths');
 const { offerSafePassage } = require('./src/safe-passage');
@@ -154,7 +154,7 @@ const { assertGovernanceAuthorization, createGovernanceApiService } = require('.
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./src/guarded-fetch');
-const { auditRepository } = require('./src/code-audit');
+const { auditRepository, assertAuditActive } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch, describeKeptAudit } = require('./src/code-audit-history');
@@ -186,7 +186,11 @@ const {
 } = require('./src/anonymous-readability-probe');
 const exposureReader = require('./src/exposure-reader');
 const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
-const { createPostureReader } = require('./src/workspace-posture');
+const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
+const { summarizePosture } = require('./src/posture-summary');
+const { pullListItem } = require('./src/pull-list');
+const { buildInbox } = require('./src/findings-inbox');
+const codeowners = require('./public/codeowners');
 const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
@@ -332,8 +336,7 @@ const mutationGateway = createMutationGateway({
   }
 });
 const authorizationResolver = createAuthorizationResolver({
-  request: async ({ account, provider, apiPath }) =>
-    provider === 'gitlab' ? glFetch(account, apiPath) : gh(account, apiPath)
+  request: async ({ account, apiPath }) => gh(account, apiPath)
 });
 const GH_API = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
@@ -526,7 +529,7 @@ app.use((req, res, next) => {
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data: https://*.githubusercontent.com https://*.gravatar.com https://gitlab.com",
+    "img-src 'self' data: https://*.githubusercontent.com https://*.gravatar.com",
     "media-src 'self'",
     "connect-src 'self'",
     "worker-src 'self'",
@@ -703,10 +706,17 @@ const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTEN
  * which release is alive, and the operator checklist verifies that this route
  * answers, not what it says about the release.
  */
+/*
+ * Opaque and fresh each time the process starts: a restart is something an
+ * operator has to be able to see happen, without the process saying how long
+ * it has been up.
+ */
+const BOOT_ID = crypto.randomUUID();
 app.get('/healthz', (req, res) => res.json({
   ok: true,
   service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
-  maintenance: MAINTENANCE_MODE
+  maintenance: MAINTENANCE_MODE,
+  bootId: BOOT_ID
 }));
 app.get('/readyz', async (req, res) => {
   /*
@@ -1048,6 +1058,24 @@ function alphaOperationalFailure(res) {
   });
 }
 
+/*
+ * The access store could not be read or written. That is the database, not
+ * the tester: it answers 503 and leaves the access cookie alone. It used to
+ * answer 500 and clear the cookie, and an invitation is redeemed once, so a
+ * scale-to-zero wake that failed or a minute of database maintenance signed
+ * every tester out for good.
+ */
+function alphaStoreUnavailable(error) {
+  return error instanceof AlphaAccessOperationalError;
+}
+function alphaUnavailableFailure(res) {
+  res.setHeader('Retry-After', '5');
+  return res.status(503).json({
+    error: 'Alpha access is temporarily unavailable. Try again in a few seconds.',
+    code: 'ALPHA_ACCESS_UNAVAILABLE'
+  });
+}
+
 function alphaSessionFailure(res, error) {
   const code = String(error && error.code || '');
   if (!ALPHA_SESSION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
@@ -1069,6 +1097,8 @@ function alphaSessionFailure(res, error) {
 }
 
 function alphaRedemptionFailure(res, error) {
+  /* Nothing was spent: the redemption is one transaction, and it did not commit. */
+  if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
   const code = String(error && error.code || '');
   if (!ALPHA_REDEMPTION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
   return res.status(code === 'ALPHA_REDEMPTION_LOCKED' ? 429 : 403).json({
@@ -1158,6 +1188,7 @@ async function alphaAccessBoundary(req, res, next) {
       req.alpha = recovery;
       return next();
     }
+    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
     setAlphaCookie(res, '', 0);
     return alphaSessionFailure(res, error);
   }
@@ -1185,6 +1216,7 @@ app.get('/api/alpha/status', async (req, res) => {
     const access = await readAlphaRequestSession(req);
     return res.json(alphaStatusBody(access.session));
   } catch (error) {
+    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
     setAlphaCookie(res, '', 0);
     if (!ALPHA_SESSION_HTTP_CODES.has(String(error && error.code || ''))) {
       return alphaOperationalFailure(res);
@@ -1648,12 +1680,24 @@ function recomputeHostedSessionMutation(base, desired, current) {
   next.active = Math.max(0, mergedOrder.indexOf(desiredActiveKey));
   return next;
 }
-async function setSession(req, res, data) {
+/*
+ * retiredSelection is computed by githubSession() on each read, from the
+ * accounts the session holds. Stored, it would outlive the choice that cleared
+ * it, and every provider route would keep asking for an account.
+ */
+function persistedSession(data) {
+  if (!data || typeof data !== 'object' || !('retiredSelection' in data)) return data;
+  const { retiredSelection, ...stored } = data;
+  return stored;
+}
+async function setSession(req, res, data, { createNew = false } = {}) {
+  data = persistedSession(data);
   if (DB_URL) {
     if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
     let sid = null;
     const cur = unseal(getCookie(req, 'nv_session') || '');
-    if (cur && cur.sid) sid = cur.sid;
+    if (!createNew && cur && cur.sid) sid = cur.sid;
+    const existingSid = Boolean(sid);
     if (!sid) sid = crypto.randomBytes(24).toString('hex');
     if (ALPHA_CONFIG.enabled) {
       if (!req.alpha || !req.alpha.testerId || !cur || !cur.sid) {
@@ -1668,6 +1712,10 @@ async function setSession(req, res, data) {
         mutate(current) {
           return recomputeHostedSessionMutation(base, data, current);
         }
+      }).catch(error => {
+        /* Ended between the read and this write: signed out, as on the read. */
+        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') throw Object.assign(error, { status: 401 });
+        throw ownedSessionRefusal(error);
       });
       req.session = result.session;
       req[HOSTED_SESSION_BASE] = structuredClone(result.session);
@@ -1676,12 +1724,15 @@ async function setSession(req, res, data) {
       return;
     }
     const identityKeys = [...new Set((Array.isArray(data.accounts) ? data.accounts : []).map(identityKey))];
-    await pool().query(
-      `INSERT INTO nv_sessions (sid, data, identity_keys, updated) VALUES ($1,$2,$3::text[],now())
-       ON CONFLICT (sid) DO UPDATE SET data=EXCLUDED.data, identity_keys=EXCLUDED.identity_keys,
-         revision=nv_sessions.revision+1,updated=now()`,
-      [sid, seal(data), identityKeys]
-    );
+    if (existingSid) {
+      const saved = await pool().query(
+        `UPDATE nv_sessions SET data=$2,identity_keys=$3::text[],revision=revision+1,updated=now() WHERE sid=$1`,
+        [sid, seal(data), identityKeys]
+      );
+      if (!saved.rowCount) throw Object.assign(new Error('This session ended. Sign in again.'), { status: 401, code: 'SESSION_REVOKED' });
+    } else {
+      await pool().query('INSERT INTO nv_sessions (sid,data,identity_keys,updated) VALUES ($1,$2,$3::text[],now())', [sid, seal(data), identityKeys]);
+    }
     setCookieRaw(res, seal({ sid }));
     return;
   }
@@ -1704,7 +1755,70 @@ async function destroySession(req, res) {
   if (sid) closeLiveSessions([sid], 'session-ended');
   setCookieRaw(res, '', 0);
 }
-async function sessionOf(req) {
+function githubSession(session) {
+  if (!session || !Array.isArray(session.accounts)) return null;
+  const selected = session.accounts[Math.min(Math.max(Number(session.active) || 0, 0), session.accounts.length - 1)];
+  const accounts = session.accounts.filter(account => {
+    try { assertGithubAccount(account); return true; } catch { return false; }
+  });
+  if (!accounts.length) return null;
+  if (accounts.length === session.accounts.length) return session;
+  const index = accounts.indexOf(selected);
+  // Keep historical bindings for retention/privacy cleanup. Session writes
+  // persist only the supported accounts; an old cookie cannot dispatch them.
+  // A retired account that is still the selected one is not quietly replaced
+  // by a GitHub account: the person chooses which identity acts.
+  return { ...session, accounts, active: Math.max(0, index), retiredSelection: index < 0, security: { ...session.security, stepUp: null } };
+}
+function isGithubAccount(account) {
+  try { assertGithubAccount(account); return true; } catch { return false; }
+}
+/*
+ * The store's refusals of an owned provider session, as answers rather than
+ * server faults. An ended session is handled by the caller (it is no session);
+ * these are the rest: a session another tester holds, and a tester whose
+ * access is gone or whose data is being deleted.
+ */
+function ownedSessionRefusal(error) {
+  const code = error && error.code;
+  if (code === 'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT') {
+    return Object.assign(new Error('This sign-in belongs to another alpha session'), { status: 403, code });
+  }
+  if (code === 'ALPHA_TESTER_REVOKED' || code === 'ALPHA_TESTER_UNAVAILABLE') {
+    return Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
+  }
+  if (code === 'ALPHA_TESTER_DELETING') {
+    return Object.assign(new Error('Alpha data deletion is in progress'), { status: 409, code });
+  }
+  return error;
+}
+/*
+ * An account this alpha access disconnected keeps its cleanup evidence, and is
+ * not bound to the access again. That is a refusal with a way forward, made
+ * before anything was connected -- not a fault to retry.
+ */
+function alphaConnectionRefusal(error) {
+  const code = error && error.code;
+  if (code === 'ALPHA_PROVIDER_LIFECYCLE_STARTED' || code === 'ALPHA_PROVIDER_BINDING_CONFLICT') {
+    return Object.assign(new Error('This GitHub account was disconnected from this alpha access and cannot be connected to it again.'), {
+      status: 409,
+      code: 'ALPHA_PROVIDER_IDENTITY_RETIRED',
+      providerChanged: false,
+      safeState: 'Nothing was connected. The disconnected account stays disconnected.',
+      nextAction: 'Sign in with another GitHub account, or end the alpha session and ask the operator for a new invitation to use this one.'
+    });
+  }
+  if (code === 'ALPHA_PROVIDER_ACCOUNT_CAPACITY') {
+    return Object.assign(new Error('This session already holds the most accounts it can. Remove one first.'), {
+      status: 409, code, providerChanged: false, safeState: 'Nothing was connected.'
+    });
+  }
+  return ownedSessionRefusal(error);
+}
+async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
+  const supported = session => (retainRetiredAccounts && session && Array.isArray(session.accounts) && session.accounts.length
+    ? session
+    : githubSession(session));
   const s = unseal(getCookie(req, 'nv_session') || '');
   if (!s) return null;
   if (DB_URL && !s.sid) return null;
@@ -1714,21 +1828,33 @@ async function sessionOf(req) {
       if (!req.alpha || !req.alpha.testerId) {
         throw Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
       }
-      const owned = await alphaPrivacyStore.readHostedProviderSession({
-        testerId: req.alpha.testerId,
-        sessionId: s.sid
-      });
+      let owned;
+      try {
+        owned = await alphaPrivacyStore.readHostedProviderSession({
+          testerId: req.alpha.testerId,
+          sessionId: s.sid
+        });
+      } catch (error) {
+        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') return null;
+        throw ownedSessionRefusal(error);
+      }
       req[HOSTED_SESSION_BASE] = structuredClone(owned.session);
       req[HOSTED_SESSION_REVISION] = owned.revision;
-      return owned.session;
+      return supported(owned.session);
     }
-    const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => null);
-    if (!r || !r.rows.length) return null;
+    /*
+     * A store that cannot answer is unavailable, not empty. Read as "no
+     * session", a fault here let a sign-in delete the row it could not read.
+     */
+    const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => {
+      throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
+    });
+    if (!r.rows.length) return null;
     const d = unseal(r.rows[0].data);
-    return (d && Array.isArray(d.accounts) && d.accounts.length) ? d : null;
+    return (d && Array.isArray(d.accounts) && d.accounts.length) ? supported(d) : null;
   }
   if (!localSessionPolicy.valid(s)) return null;
-  if (Array.isArray(s.accounts) && s.accounts.length) return s;
+  if (Array.isArray(s.accounts) && s.accounts.length) return supported(s);
   return null;
 }
 
@@ -1991,25 +2117,83 @@ function defaultSafety(value) {
   const sf = value && typeof value === 'object' ? value : {};
   return { readOnly: !!sf.readOnly, freezeSync: !!sf.freezeSync, protected: sf.protected && typeof sf.protected === 'object' ? sf.protected : {} };
 }
+function safetyUnavailable() {
+  return Object.assign(new Error('Safety controls could not be loaded or saved. Try again when the database is available.'), {
+    status: 503, code: 'SAFETY_STATE_UNAVAILABLE', providerChanged: false
+  });
+}
 async function loadPersistentSafety(req) {
   const fallback = defaultSafety(req.session && req.session.safety);
-  if (!(await dbReady())) return fallback;
-  const key = identityKey(req.gh);
-  const r = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [key]).catch(() => null);
-  if (!r || !r.rows.length) return fallback;
-  return defaultSafety(r.rows[0].state);
+  if (!DB_URL) return fallback;
+  if (!(await dbReady())) throw safetyUnavailable();
+  try {
+    const r = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey(req.gh)]);
+    return r.rows.length ? defaultSafety(r.rows[0].state) : fallback;
+  } catch { throw safetyUnavailable(); }
 }
-async function savePersistentSafety(req, state) {
-  const clean = defaultSafety(state);
-  if (await dbReady()) {
-    await pool().query(
-      `INSERT INTO nv_security_state(identity_key,state,updated) VALUES($1,$2::jsonb,now())
-       ON CONFLICT(identity_key) DO UPDATE SET state=EXCLUDED.state, updated=now()`,
-      [identityKey(req.gh), JSON.stringify(clean)]
-    );
+function applySafetyPatch(state, patch) {
+  const cur = defaultSafety(state);
+  cur.protected = { ...cur.protected };
+  const b = patch || {};
+  if (typeof b.readOnly === 'boolean') cur.readOnly = b.readOnly;
+  if (typeof b.freezeSync === 'boolean') cur.freezeSync = b.freezeSync;
+  if (b.protect && b.protect.repo && b.protect.path) {
+    const key = String(b.protect.repo).trim();
+    if (!/^[^/\s]+\/[^/\s]+$/.test(key)) throw Object.assign(new Error('Invalid repository key'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    const list = new Set(cur.protected[key] || []);
+    const protectedPath = String(b.protect.path).replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
+    if (!protectedPath || protectedPath.length > 512 || protectedPath.includes('..')) throw Object.assign(new Error('Invalid protected path or pattern'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    if (b.protect.on === false) list.delete(protectedPath); else list.add(protectedPath);
+    if (list.size > 100) throw Object.assign(new Error('Up to 100 protected paths or patterns per repository'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
+    if (list.size) cur.protected[key] = [...list].sort(); else delete cur.protected[key];
+    if (Object.keys(cur.protected).length > 30) throw Object.assign(new Error('Up to 30 repositories with protected paths'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
   }
+  return cur;
+}
+async function savePersistentSafety(req, patch) {
+  let clean;
+  if (DB_URL && !(await dbReady())) throw safetyUnavailable();
+  if (DB_URL) {
+    let client;
+    try { client = await pool().connect(); } catch { throw safetyUnavailable(); }
+    try {
+      await client.query('BEGIN');
+      const key = identityKey(req.gh);
+      // Serialize absent rows too. Apply only the requested changes to the
+      // latest controls, never the snapshot captured by request middleware.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`safety:${key}`]);
+      const current = await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1 FOR UPDATE', [key]);
+      clean = applySafetyPatch(current.rows.length ? current.rows[0].state : req.session.safety, patch);
+      await client.query(
+        `INSERT INTO nv_security_state(identity_key,state,updated) VALUES($1,$2::jsonb,now())
+         ON CONFLICT(identity_key) DO UPDATE SET state=EXCLUDED.state, updated=now()`,
+        [key, JSON.stringify(clean)]
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      /* A refused change says why; whatever the database did instead is "unavailable", never an unexplained failure. */
+      if (error && Number(error.status) >= 400 && Number(error.status) < 500) throw error;
+      throw safetyUnavailable();
+    } finally { client.release(); }
+  } else clean = applySafetyPatch(req.session.safety, patch);
   req.session.safety = clean;
   return clean;
+}
+/*
+ * With a database the identity's controls live in nv_security_state and the
+ * session holds a copy. A copy that cannot be written because the session
+ * ended meanwhile does not undo a change that has already committed.
+ */
+async function saveSessionSafetyCopy(req, res) {
+  if (!DB_URL) { await setSession(req, res, req.session); return true; }
+  try { await setSession(req, res, req.session); return true; }
+  catch (error) {
+    const ended = error && (Number(error.status) === 401 || Number(error.status) === 503
+      || ['SESSION_REVOKED', 'ALPHA_PROVIDER_SESSION_UNAVAILABLE', 'ALPHA_SESSION_REVISION_CONFLICT'].includes(error.code));
+    if (!ended) throw error;
+    return false;
+  }
 }
 async function appendEvidence(repoK, kind, recordId, payload) {
   if (!(await dbReady())) return null;
@@ -2264,13 +2448,24 @@ function guardSafety(req) {
   }
   return null;
 }
-async function attachProviderSession(req) {
-  const s = req.session || await sessionOf(req);
+/*
+ * Provider routes see only GitHub accounts. Account management (the list,
+ * switching, removal, sign-out, the CSRF token) sees retired accounts too, so
+ * they can be replaced, and their cleanup evidence recorded, rather than lost.
+ */
+async function attachProviderSession(req, { retainRetired = false } = {}) {
+  const s = req.session || await sessionOf(req, { retainRetiredAccounts: retainRetired });
   if (!s) {
     throw Object.assign(new Error('Not signed in'), { status: 401, code: 'AUTH_REQUIRED' });
   }
+  if (!retainRetired && s.retiredSelection) {
+    throw Object.assign(new Error('The selected account is no longer supported. Choose a GitHub account.'), {
+      status: 409, code: 'ACCOUNT_SELECTION_REQUIRED'
+    });
+  }
   req.session = s;
   req.sessionAccount = s.accounts[Math.min(s.active || 0, s.accounts.length - 1)];
+  if (!retainRetired) assertGithubAccount(req.sessionAccount);
   req.gh = { ...req.sessionAccount };
 }
 
@@ -2312,9 +2507,19 @@ async function auth(req, res, next) {
     });
   }
 }
+/*
+ * A session with no GitHub account left is signed out for every product read:
+ * there is nothing to choose. Sign-out and account removal still accept it, so
+ * its stored credentials can be cleaned up.
+ */
+function signedOutWithoutGithub(req, res) {
+  if (req.session && Array.isArray(req.session.accounts) && req.session.accounts.some(isGithubAccount)) return false;
+  res.status(401).json({ error: 'Not signed in', code: 'AUTH_REQUIRED' });
+  return true;
+}
 async function accountAuth(req, res, next) {
   try {
-    await attachProviderSession(req);
+    await attachProviderSession(req, { retainRetired: true });
     await ensureSessionSecurity(req, res);
     verifyRequestCsrf(req);
     req.effectiveSafety = await loadPersistentSafety(req);
@@ -2333,8 +2538,8 @@ const _etags = new Map(); // key → { etag, body } (LRU-ish, capped)
  *
  * publicErrorBody only passes an error's message through when the error
  * carries a recognised code; anything else becomes "Operation could not be
- * completed". Neither provider helper attached one, so every refusal GitHub or
- * GitLab explained -- a workflow file rejected for want of scope, a conflict,
+ * completed". The GitHub helper attached no code, so every refusal GitHub
+ * explained -- a workflow file rejected for want of scope, a conflict,
  * a rate limit -- reached the operator as that one sentence, and the reason
  * they had actually been given was thrown away at the last step.
  *
@@ -2353,18 +2558,38 @@ function providerFailureCode(status) {
   return 'PROVIDER_REQUEST_FAILED';
 }
 
+/*
+ * GitHub answers an exhausted primary rate limit, and every secondary limit,
+ * with 403 as often as with 429. Read as a 403 it told the reader their
+ * credential could not do what it had just been doing, sent the deletion and
+ * webhook routes into permission advice, and gave no time to try again. A
+ * limit is recognised by what GitHub documents for it -- a retry-after, an
+ * exhausted x-ratelimit-remaining, or its own words -- and the wait is the one
+ * GitHub gives: retry-after, else the reset, else a minute. The server does not
+ * retry on the reader's behalf; it says when, and the client decides.
+ */
+function providerRateLimit(status, headers, body, now = Date.now()) {
+  const retryAfter = headers.get('retry-after');
+  const limited = status === 429 || (status === 403 && (
+    retryAfter != null || headers.get('x-ratelimit-remaining') === '0'
+    || /\brate limit\b/i.test(String(body && body.message || ''))));
+  if (!limited) return null;
+  let seconds = /^\d+$/.test(String(retryAfter || '').trim()) ? Number(retryAfter) : NaN;
+  if (!Number.isFinite(seconds) && headers.get('x-ratelimit-remaining') === '0') {
+    const reset = Number(headers.get('x-ratelimit-reset'));
+    if (Number.isFinite(reset) && reset > 0) seconds = Math.ceil(reset - now / 1000);
+  }
+  if (!Number.isFinite(seconds)) seconds = 60;
+  return Object.freeze({ retryAfterSeconds: Math.min(Math.max(Math.trunc(seconds), 1), 3600) });
+}
+
 async function gh(acct, apiPath, opts = {}) {
   if (typeof acct === 'string') acct = { provider: 'github', token: acct };
-  const provider = acct.provider || 'github';
-  if (provider === 'gitlab') {
-    const err = new Error('This feature is not yet supported for GitLab accounts');
-    err.status = 501; throw err;
-  }
+  assertGithubAccount(acct);
+  const provider = 'github';
   const token = acct.token;
-  const API_BASE = provider === 'gitea'
-    ? (await assertPublicBaseCached(acct.baseUrl)) + '/api/v1'
-    : GH_API;
-  const AUTH = provider === 'gitea' ? `token ${token}` : `Bearer ${token}`;
+  const API_BASE = GH_API;
+  const AUTH = `Bearer ${token}`;
   const method = opts.method || 'GET';
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     mutationGateway.assertProviderMutation({ provider, baseUrl: acct.baseUrl, method, apiPath, body: opts.body });
@@ -2372,7 +2597,7 @@ async function gh(acct, apiPath, opts = {}) {
   const cacheable = method === 'GET' && !opts.raw && !opts.accept;
   const ck = cacheable ? crypto.createHash('sha1').update(`${provider}|${acct.baseUrl || ''}|${token}|${apiPath}`).digest('hex') : null;
   const cached = ck ? _etags.get(ck) : null;
-  const r = await (provider === 'gitea' ? providerFetch : fetchT)(API_BASE + apiPath, {
+  const r = await fetchT(API_BASE + apiPath, {
     method,
     headers: {
       Authorization: AUTH,
@@ -2396,8 +2621,10 @@ async function gh(acct, apiPath, opts = {}) {
       githubAppBroker.invalidate(acct.installationId);
     }
     const err = new Error((data && data.message) || `GitHub error ${r.status}`);
-    err.status = r.status; err.body = data;
-    err.code = providerFailureCode(r.status);
+    const limit = providerRateLimit(r.status, r.headers, data);
+    err.status = limit ? 429 : r.status; err.body = data;
+    err.code = providerFailureCode(err.status);
+    if (limit) err.retryAfterSeconds = limit.retryAfterSeconds;
     throw err;
   }
   if (ck && r.headers.get('etag')) {
@@ -2458,6 +2685,10 @@ const fail = (res, error) => {
   }
   const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
   const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
+  /* A limit that named its own wait passes it on, so a client waits that long and no longer. */
+  if (status === 429 && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+    res.setHeader('Retry-After', String(error.retryAfterSeconds));
+  }
   /* A refusal that has a compliant route carries it alongside the refusal. The
    * public error body itself is left exactly as it was. */
   const passage = error && error.safePassage;
@@ -2944,64 +3175,21 @@ const encodePath = p => (p || '').split('/').map(encodeURIComponent).join('/');
 const R = (req) => `/repos/${req.params.owner}/${req.params.repo}`;
 
 /* ================= AUTH ================= */
-/* ================= PROVIDERS ================= */
-const PRIVATE_HOST_RX = /^(localhost|.*\.local|.*\.internal|.*\.lan)$/i;
-const IP_RX = /^\d{1,3}(\.\d{1,3}){3}$|^\[?[0-9a-f:]+\]?$/i;
-function privateIp(ip) {
-  const value = String(ip || '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (value.includes(':')) {
-    const mapped = value.match(/(?:^|:)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-    if (mapped) return privateIp(mapped[1]);
-    return value === '::' || value === '::1' || /^f[cd]/.test(value) || /^fe[89ab]/.test(value) ||
-      /^ff/.test(value) || /^2001:db8(?::|$)/.test(value);
+/* ================= GITHUB IDENTITY ================= */
+function assertGithubAccount(account) {
+  if (!account || typeof account !== 'object' || Array.isArray(account) ||
+      (account.provider !== undefined && account.provider !== 'github')) {
+    throw Object.assign(new Error('Only GitHub accounts are supported. Sign in with GitHub.'), {
+      status: 401, code: 'PROVIDER_UNSUPPORTED'
+    });
   }
-  const o = value.split('.').map(Number);
-  if (o.length !== 4 || o.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return true;
-  return o[0] === 0 || o[0] === 10 || o[0] === 127 || o[0] >= 224 ||
-    (o[0] === 100 && o[1] >= 64 && o[1] <= 127) ||
-    (o[0] === 169 && o[1] === 254) ||
-    (o[0] === 172 && o[1] >= 16 && o[1] <= 31) ||
-    (o[0] === 192 && (o[1] === 0 || o[1] === 168)) ||
-    (o[0] === 198 && (o[1] === 18 || o[1] === 19 || o[1] === 51 && o[2] === 100)) ||
-    (o[0] === 203 && o[1] === 0 && o[2] === 113);
+  if (account.baseUrl && account.baseUrl !== 'https://github.com') {
+    throw Object.assign(new Error('Custom Git server URLs are not supported'), {
+      status: 401, code: 'PROVIDER_AUTHORITY_UNSUPPORTED'
+    });
+  }
 }
-const PUBLIC_BASE_CACHE = new Map();
-async function assertPublicBaseCached(raw) {
-  const key = String(raw || '').replace(/\/+$/, '');
-  const cached = PUBLIC_BASE_CACHE.get(key);
-  if (cached && Date.now() - cached.checkedAt < 60000) return cached.value;
-  const value = await assertPublicBase(key);
-  PUBLIC_BASE_CACHE.set(key, { value, checkedAt: Date.now() });
-  if (PUBLIC_BASE_CACHE.size > 100) PUBLIC_BASE_CACHE.delete(PUBLIC_BASE_CACHE.keys().next().value);
-  return value;
-}
-async function assertPublicBase(raw) {
-  let u;
-  try { u = new URL(raw); } catch { throw Object.assign(new Error('Invalid server URL'), { status: 400 }); }
-  if (u.protocol !== 'https:') throw Object.assign(new Error('Server URL must use https'), { status: 400 });
-  if (u.username || u.password) throw Object.assign(new Error('Server URL must not embed credentials'), { status: 400 });
-  const host = u.hostname;
-  const allow = String(process.env.NV_GIT_HOST_ALLOWLIST || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-  const canonicalHostedProvider = host.toLowerCase() === 'gitlab.com';
-  if (process.env.NODE_ENV === 'production' && !canonicalHostedProvider && !allow.length) {
-    throw Object.assign(new Error('Self-hosted Git servers require NV_GIT_HOST_ALLOWLIST in production'), { status: 403 });
-  }
-  if (allow.length && !allow.includes(host.toLowerCase())) throw Object.assign(new Error('That Git server is not in NV_GIT_HOST_ALLOWLIST'), { status: 403 });
-  if (PRIVATE_HOST_RX.test(host)) throw Object.assign(new Error('Private or local server addresses are not allowed'), { status: 400 });
-  if (IP_RX.test(host)) {
-    if (privateIp(host.replace(/[[\]]/g, ''))) throw Object.assign(new Error('Private or local server addresses are not allowed'), { status: 400 });
-    throw Object.assign(new Error('Use a hostname, not a raw IP address'), { status: 400 });
-  }
-  try {
-    const addrs = await dns.lookup(host, { all: true });
-    if (addrs.some(a => privateIp(a.address)))
-      throw Object.assign(new Error('That hostname resolves to a private address'), { status: 400 });
-  } catch (e) {
-    if (e.status) throw e;
-    throw Object.assign(new Error('Git server hostname could not be resolved'), { status: 400 });
-  }
-  return raw.replace(/\/+$/, '');
-}
+
 function providerAuthority(account) {
   if ((account && account.provider || 'github') === 'github') return 'github.com';
   try { return new URL(account && account.baseUrl || '').host.toLowerCase(); }
@@ -3230,10 +3418,10 @@ function providerCapabilities(account) {
   return { ...legacy, notif: resolveCapability(CAPABILITY_DOCUMENT, { ...context, feature: 'notifications' }).status !== 'Unavailable' };
 }
 
-function capabilityAccess(feature, options = {}) {
+function capabilityAccess(feature) {
   return function enforceCapability(req, res, next) {
     try {
-      req.capability = assertProviderCapability(req.gh, feature, options);
+      req.capability = assertProviderCapability(req.gh, feature);
       next();
     } catch (error) {
       res.status(error.status || 409).json({
@@ -3244,21 +3432,33 @@ function capabilityAccess(feature, options = {}) {
     }
   };
 }
-function providerCapabilityContext(account, feature, options = {}) {
+/*
+ * A capability only some of a route's requests use, checked before the body
+ * is read whenever the request asks for it; the handler still asserts it at
+ * the point of use for the requests that come to need it on their own.
+ */
+function capabilityAccessWhen(feature, applies) {
+  const check = capabilityAccess(feature);
+  return function enforceCapabilityWhen(req, res, next) {
+    if (!applies(req)) return next();
+    return check(req, res, next);
+  };
+}
+function providerCapabilityContext(account, feature) {
   return {
     provider: account && account.provider || 'github',
     authority: providerAuthority(account),
     deployment: DEPLOYMENT_PROFILE,
     feature,
     authMethod: account && account.authMethod,
-    tokenKind: githubTokenKind(account || {}),
-    allowExperimental: options.allowExperimental === true
+    tokenKind: githubTokenKind(account || {})
   };
 }
-function assertProviderCapability(account, feature, options = {}) {
+function assertProviderCapability(account, feature) {
   return assertCapabilityAvailable(
     CAPABILITY_DOCUMENT,
-    providerCapabilityContext(account, feature, options)
+    providerCapabilityContext(account, feature),
+    { qualification: QUALIFICATION_CAPABILITIES }
   );
 }
 function requestSupportsCapability(req, feature) {
@@ -3268,7 +3468,7 @@ function requestSupportsCapability(req, feature) {
   ).status === 'Supported';
 }
 function assertProviderBoundLfs(account) {
-  const context = providerCapabilityContext(account, 'lfs', { allowExperimental: true });
+  const context = providerCapabilityContext(account, 'lfs');
   if (context.provider !== 'github' || context.authority !== 'github.com') {
     throw new CapabilityError(
       'LFS is not qualified for this provider and deployment.',
@@ -3277,45 +3477,19 @@ function assertProviderBoundLfs(account) {
   }
   return assertCapabilityAvailable(CAPABILITY_DOCUMENT, context);
 }
-async function glFetch(acct, apiPath, opts = {}) {
-  const method = opts.method || 'GET';
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    mutationGateway.assertProviderMutation({ provider: 'gitlab', baseUrl: acct.baseUrl || 'https://gitlab.com', method, apiPath, body: opts.body });
-  }
-  const base = (await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com')) + '/api/v4';
-  const r = await providerFetch(base + apiPath, {
-    method,
-    headers: {
-      'PRIVATE-TOKEN': acct.token, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`,
-      ...(opts.body ? { 'Content-Type': 'application/json' } : {})
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    redirect: 'error'
-  }, opts.timeoutMs || (opts.raw ? UPLOAD_TIMEOUT_MS : 20000));
-  if (opts.raw) return r;
-  const text = await r.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
-  if (!r.ok) {
-    const err = new Error((data && (data.message || data.error)) || `GitLab error ${r.status}`);
-    err.status = r.status; err.code = providerFailureCode(r.status); throw err;
-  }
-  return data;
-}
-const glId = req => encodeURIComponent(`${req.params.owner}/${req.params.repo}`);
-async function glLastCommit(acct, id, branch) {
-  try { const c = await glFetch(acct, `/projects/${id}/repository/commits?ref_name=${encodeURIComponent(branch)}&per_page=1`); return c[0] && c[0].id; }
-  catch { return null; }
-}
+
 async function providerIdentity(acct) {
-  if ((acct.provider || 'github') === 'gitlab') {
-    const user = await glFetch(acct, '/user');
-    return { login: user.username, name: user.name, avatar_url: user.avatar_url, id: user.id };
-  }
   if (acct && acct.authMethod === 'github-app') {
     return { login: acct.login, name: acct.login, avatar_url: acct.avatar, id: acct.installationAccountId };
   }
   return gh(acct, '/user');
+}
+const RETIRED_CLEANUP = 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED';
+/* One instruction per distinct step, in the same {label, url} shape with or without alpha. */
+function uniqueGuidance(items) {
+  const seen = new Map();
+  for (const item of items) if (item && item.label) seen.set(`${item.label}\0${item.url || ''}`, { label: item.label, url: item.url || null, automatic: false });
+  return [...seen.values()];
 }
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
@@ -3338,12 +3512,21 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
         { actor: retainedActor(req), status: 'disconnected' }
       );
     }
-    req.session.accounts = req.session.accounts.filter(account => !targetKeys.has(hostedAccountKey(account)));
-    req.session.active = req.session.accounts.length
-      ? Math.min(Math.max(Number(req.session.active) || 0, 0), req.session.accounts.length - 1)
-      : 0;
+    /*
+     * The selected identity stays selected when an account before it leaves;
+     * an index that merely clamps hands the session to whichever account slid
+     * into its place. If the selected one is the account leaving, a GitHub
+     * account is chosen, never a retired one -- the same rule the hosted path
+     * follows.
+     */
+    const before = req.session.accounts;
+    const selected = before[Math.min(Math.max(Number(req.session.active) || 0, 0), Math.max(before.length - 1, 0))];
+    req.session.accounts = before.filter(account => !targetKeys.has(hostedAccountKey(account)));
+    const kept = req.session.accounts.indexOf(selected);
+    req.session.active = kept >= 0 ? kept : Math.max(0, req.session.accounts.findIndex(isGithubAccount));
     clearStepUpAuthorization(req.session);
-    return Object.freeze({ complete: true, legacy: true, results: Object.freeze([]) });
+    const manualCleanup = accounts.filter(account => !isGithubAccount(account)).map(account => providerRevocationGuidance(account));
+    return Object.freeze({ complete: true, supportedComplete: true, legacy: true, results: Object.freeze([]), manualCleanup: Object.freeze(manualCleanup) });
   }
 
   const sid = sessionSidFromRequest(req);
@@ -3420,9 +3603,20 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
           githubAppBroker.invalidate(account.installationId);
         }
       },
-      finalizeDisconnect: input => alphaPrivacyStore.finalizeProviderDisconnect(input)
+      finalizeDisconnect: input => alphaPrivacyStore.finalizeProviderDisconnect(input),
+      /* What cannot be cleaned up through a provider any more is recorded for the operator's privacy cleanup. */
+      recordPendingEvidence: input => alphaPrivacyStore.createCleanupTask({
+        testerId: input.testerId,
+        identityKey: bindingIdentityKey,
+        provider: String(account.provider || 'github'),
+        resourceType: 'provider-session',
+        resourceKeyHash: input.resourceKeyHash,
+        reasonCode: input.reasonCode
+      })
     });
     results.push(result);
+    /* A retired account's local state waits for the operator; the accounts after it are still disconnected. */
+    if (result.reasonCode === RETIRED_CLEANUP) continue;
     if (!result.providerStateRemoved) break;
     if (account.authMethod === 'github-app') {
       await recordGithubAppAudit(
@@ -3433,11 +3627,34 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
       );
     }
   }
+  const retiredKeys = new Set(accounts
+    .filter((account, index) => results[index] && results[index].reasonCode === RETIRED_CLEANUP)
+    .map(hostedAccountKey));
+  if (retiredKeys.size) {
+    /* The operator's cleanup task is recorded; the retired credential itself leaves the session now. */
+    const dropped = await alphaPrivacyStore.mutateHostedProviderSession({
+      testerId: req.alpha.testerId,
+      sessionId: sid,
+      mutate(current) {
+        const before = Array.isArray(current.accounts) ? current.accounts : [];
+        const selected = before[Number(current.active) || 0];
+        const kept = before.filter(account => !retiredKeys.has(hostedAccountKey(account)));
+        const index = kept.indexOf(selected);
+        return { ...current, accounts: kept, active: index >= 0 ? index : Math.max(0, kept.findIndex(isGithubAccount)) };
+      }
+    });
+    req.session = dropped.session;
+    req[HOSTED_SESSION_BASE] = structuredClone(dropped.session);
+    req[HOSTED_SESSION_REVISION] = dropped.revision;
+  }
   return Object.freeze({
     complete: results.length === accounts.length
       && results.every(result => result.providerStateRemoved),
+    supportedComplete: results.length === accounts.length
+      && results.every(result => result.providerStateRemoved || result.reasonCode === RETIRED_CLEANUP),
     legacy: false,
-    results: Object.freeze(results)
+    results: Object.freeze(results),
+    manualCleanup: Object.freeze(results.filter(result => result.reasonCode === RETIRED_CLEANUP).map(result => result.revocationGuidance))
   });
 }
 
@@ -3548,7 +3765,8 @@ async function revokeContainedSessions(req, sessionIds) {
 
 async function addAccount(req, res, token, user, provider = 'github', baseUrl = '', options = { authMethod: 'token' }) {
   const authMethod = ['token', 'oauth', 'github-app'].includes(options && options.authMethod) ? options.authMethod : 'token';
-  const s = (await sessionOf(req)) || { accounts: [], active: 0 };
+  const existingSession = await sessionOf(req);
+  const s = existingSession || { accounts: [], active: 0 };
   const account = {
     login: String(user && user.login || '').trim(),
     avatar: String(user && user.avatar_url || ''),
@@ -3594,16 +3812,26 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   s.accounts.push(account);
   if (ALPHA_CONFIG.enabled) {
     const current = unseal(getCookie(req, 'nv_session') || '');
-    const sid = current && typeof current.sid === 'string' && current.sid
-      ? current.sid
-      : crypto.randomBytes(24).toString('hex');
-    const connected = await alphaPrivacyStore.connectHostedProviderAccount({
+    const held = current && typeof current.sid === 'string' && current.sid ? current.sid : '';
+    const connect = sessionId => alphaPrivacyStore.connectHostedProviderAccount({
       testerId: req.alpha.testerId,
-      sessionId: sid,
+      sessionId,
       account,
       authority: providerAuthority(account),
       capacity: ACCOUNT_CAP()
     });
+    let sid = held || crypto.randomBytes(24).toString('hex');
+    let connected;
+    try {
+      connected = await connect(sid).catch(error => {
+        /* A cookie naming a session that ended: this sign-in starts a new one. */
+        if (!held || !error || error.code !== 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') throw error;
+        sid = crypto.randomBytes(24).toString('hex');
+        return connect(sid);
+      });
+    } catch (error) {
+      throw alphaConnectionRefusal(error);
+    }
     req.session = connected.session;
     req[HOSTED_SESSION_BASE] = structuredClone(connected.session);
     req[HOSTED_SESSION_REVISION] = connected.revision;
@@ -3612,28 +3840,42 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   }
   while (s.accounts.length > ACCOUNT_CAP()) s.accounts.shift();
   s.active = s.accounts.length - 1;
+  /* Signing in with GitHub is the choice a retired selection asked for. */
+  delete s.retiredSelection;
   clearStepUpAuthorization(s);
-  await setSession(req, res, s);
+  if (!existingSession && DB_URL) {
+    /* The cookie may still name a row this sign-in replaces, such as one that
+       holds only retired provider accounts; its credentials go with it. */
+    const replaced = sessionSidFromRequest(req);
+    if (replaced) {
+      await pool().query('DELETE FROM nv_sessions WHERE sid=$1', [replaced]);
+      closeLiveSessions([replaced], 'session-ended');
+    }
+  }
+  await setSession(req, res, s, { createNew: !existingSession });
 }
 app.post('/api/login', async (req, res) => {
   try {
-    const token = ((req.body && req.body.token) || '').trim();
-    const provider = ['github', 'gitlab', 'gitea'].includes(req.body && req.body.provider) ? req.body.provider : 'github';
-    const baseUrl = ((req.body && req.body.baseUrl) || '').trim();
+    const provider = req.body && req.body.provider;
+    if (provider !== undefined && provider !== 'github') {
+      return res.status(400).json({ error: 'Only GitHub accounts are supported', code: 'PROVIDER_UNSUPPORTED' });
+    }
+    if (req.body && req.body.baseUrl) {
+      return res.status(400).json({ error: 'Custom Git server URLs are not supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
+    }
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
     if (!token) return res.status(400).json({ error: 'Token required' });
-    if (provider === 'gitea' && !/^https?:\/\//.test(baseUrl)) return res.status(400).json({ error: 'Gitea needs your server URL (https://…)' });
-    let safeBase = baseUrl;
-    if (baseUrl && (provider === 'gitea' || provider === 'gitlab')) safeBase = await assertPublicBase(baseUrl);
-    const acct = { provider, token, baseUrl: safeBase };
+    const acct = { provider: 'github', token };
     const user = await providerIdentity(acct);
-    await addAccount(req, res, token, user, provider, (typeof safeBase !== 'undefined' && safeBase) || baseUrl, { authMethod: 'token' });
-    res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider, authMethod: 'token' });
+    await addAccount(req, res, token, user, 'github', '', { authMethod: 'token' });
+    res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider: 'github', authMethod: 'token' });
   } catch (e) {
-    if (e.status === 401) return res.status(401).json({ error: 'Invalid token for that provider.' });
+    if (e.status === 401 && e.code !== 'ALPHA_ACCESS_REQUIRED') return res.status(401).json({ error: 'Invalid token for that provider.' });
     fail(res, e);
   }
 });
 app.get('/api/accounts', accountAuth, (req, res) => {
+  if (signedOutWithoutGithub(req, res)) return;
   const activeIdx = Math.min(req.session.active || 0, req.session.accounts.length - 1);
   res.json({
     active: activeIdx,
@@ -3650,6 +3892,7 @@ app.get('/api/accounts', accountAuth, (req, res) => {
       return {
         login: a.login, avatar: a.avatar,
         provider: a.provider || 'github',
+        retired: !isGithubAccount(a),
         authMethod: a.authMethod || 'token',
         host: a.baseUrl ? String(a.baseUrl).replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
         ...(a.authMethod === 'github-app' ? {
@@ -3666,6 +3909,7 @@ app.post('/api/accounts/switch-idx', accountAuth, async (req, res) => {
   try {
     const i = req.body && req.body.idx;
     if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
+    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
     req.session.active = i;
     clearStepUpAuthorization(req.session);
     await setSession(req, res, req.session);
@@ -3678,29 +3922,40 @@ app.post('/api/accounts/remove', accountAuth, async (req, res) => {
     const i = req.body && req.body.idx;
     if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
     const removed = req.session.accounts[i];
-    const previousCount = req.session.accounts.length;
+    const removedActive = i === (Number(req.session.active) || 0);
     const cleanup = await disconnectAlphaProviderAccount(req, removed);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
-    if (ALPHA_CONFIG.enabled) {
-      if (previousCount === 1) {
-        clearProviderSessionCookie(req, res);
-        return res.json({ ok: true, empty: true });
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
+    const guidance = [...cleanup.manualCleanup];
+    const remaining = ALPHA_CONFIG.enabled
+      ? ((await sessionOf(req, { retainRetiredAccounts: true })) || { accounts: [] }).accounts
+      : req.session.accounts;
+    if (!remaining.some(isGithubAccount)) {
+      /* No GitHub account is left to act: retired accounts go too, and the session ends. */
+      if (remaining.length) {
+        const rest = await disconnectAlphaProviderAccount(req, remaining);
+        if (!rest.supportedComplete) return providerDisconnectPending(res, rest);
+        guidance.push(...rest.manualCleanup);
       }
-      req.session = await sessionOf(req);
-      return res.json({ ok: true, active: Number(req.session.active) || 0 });
+      if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
+      else await destroySession(req, res);
+      return res.json({ ok: true, removed: removed.login, empty: true, ...(guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {}) });
     }
-    if (!req.session.accounts.length) {
-      await destroySession(req, res);
-      return res.json({ ok: true, removed: removed.login, empty: true });
+    const revocation = guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {};
+    if (ALPHA_CONFIG.enabled) {
+      req.session = await sessionOf(req, { retainRetiredAccounts: true });
+      return res.json({ ok: true, removed: removed.login, active: Number(req.session.active) || 0, ...revocation });
     }
+    /* The selected identity left: a GitHub account is chosen, never a retired one. */
+    if (removedActive) req.session.active = req.session.accounts.findIndex(isGithubAccount);
     await setSession(req, res, req.session);
-    res.json({ ok: true, removed: removed.login, active: req.session.accounts[req.session.active].login });
+    res.json({ ok: true, removed: removed.login, active: req.session.accounts[req.session.active].login, ...revocation });
   } catch (e) { fail(res, e); }
 });
 app.post('/api/accounts/switch', accountAuth, async (req, res) => {
   try {
     const i = req.session.accounts.findIndex(a => a.login === (req.body && req.body.login));
     if (i < 0) return res.status(404).json({ error: 'Account not in session' });
+    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
     req.session.active = i;
     clearStepUpAuthorization(req.session);
     await setSession(req, res, req.session);
@@ -3777,6 +4032,9 @@ async function consumeGithubAppPending(session, slot, nonce, identity, now = Dat
 async function githubAppCallbackContext(req, res) {
   const session = await sessionOf(req);
   if (!session) throw new GithubAppError('Sign in before connecting a GitHub App', 'AUTH_REQUIRED', 401);
+  if (session.retiredSelection) {
+    throw new GithubAppError('The selected account is no longer supported. Choose a GitHub account.', 'ACCOUNT_SELECTION_REQUIRED', 409);
+  }
   req.session = session;
   req.sessionAccount = session.accounts[Math.min(session.active || 0, session.accounts.length - 1)];
   req.gh = { ...req.sessionAccount };
@@ -3830,13 +4088,19 @@ app.get('/api/config', (req, res) => res.json({
   /* The boundary above which an upload leaves the blob API for a native push.
    * Published because the browser labels queued files against it; a copy
    * written into the browser would be a second source of truth. */
-  contentsMaxMb: CONTENTS_MAX / MB
+  contentsMaxMb: CONTENTS_MAX / MB,
+  /* Said, never hidden: a qualification deployment names what it serves ahead of its proof. */
+  ...(QUALIFICATION_CAPABILITIES.length ? { qualification: { capabilities: [...QUALIFICATION_CAPABILITIES] } } : {})
 }));
 app.get('/api/capabilities', (req, res) => {
-  const provider = ['github', 'gitlab', 'gitea'].includes(req.query.provider)
-    ? req.query.provider : 'github';
-  const authority = provider === 'github'
-    ? 'github.com' : String(req.query.authority || '').toLowerCase();
+  if (req.query.provider !== undefined && req.query.provider !== 'github') {
+    return res.status(400).json({ error: 'Only GitHub is supported', code: 'PROVIDER_UNSUPPORTED' });
+  }
+  if (req.query.authority !== undefined && req.query.authority !== 'github.com') {
+    return res.status(400).json({ error: 'Only github.com is supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
+  }
+  const provider = 'github';
+  const authority = 'github.com';
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.json(projectCapabilities(CAPABILITY_DOCUMENT, {
     provider, authority, deployment: DEPLOYMENT_PROFILE
@@ -4259,11 +4523,12 @@ app.post('/api/alpha/feedback', async (req, res) => {
 });
 app.post('/api/logout', accountAuth, async (req, res) => {
   try {
+    /* Every account in the session, retired ones included, so their cleanup evidence is recorded. */
     const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
     if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
     else await destroySession(req, res);
-    res.json({ ok: true });
+    res.json({ ok: true, ...(cleanup.manualCleanup.length ? { revocationGuidance: uniqueGuidance(cleanup.manualCleanup) } : {}) });
   } catch (e) { fail(res, e); }
 });
 app.post('/api/alpha/providers/disconnect-all', accountAuth, async (req, res) => {
@@ -4271,7 +4536,7 @@ app.post('/api/alpha/providers/disconnect-all', accountAuth, async (req, res) =>
   try {
     if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
     const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
+    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
     const revocationGuidance = cleanup.results.map(result => result.revocationGuidance);
     clearProviderSessionCookie(req, res);
     return res.json({ ok: true, revocationGuidance });
@@ -4307,12 +4572,13 @@ app.post('/api/alpha/delete', alphaDeletionConfirmation, alphaDeletionAuthentica
 });
 app.get('/api/me', accountAuth, async (req, res) => {
   try {
+    if (signedOutWithoutGithub(req, res)) return;
+    if (!isGithubAccount(req.sessionAccount)) {
+      return res.status(409).json({ error: 'The selected account is no longer supported. Choose a GitHub account.', code: 'ACCOUNT_SELECTION_REQUIRED' });
+    }
     const provider = req.gh.provider || 'github';
     let out;
-    if (provider === 'gitlab') {
-      const u = await glFetch(req.gh, '/user');
-      out = { login: u.username, name: u.name, avatar: u.avatar_url };
-    } else if (req.gh.authMethod === 'github-app') {
+    if (req.gh.authMethod === 'github-app') {
       out = ALPHA_CONFIG.enabled
         ? {
             login: retainedActor(req),
@@ -4338,7 +4604,7 @@ app.get('/api/me', accountAuth, async (req, res) => {
     res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req), release: APP_VERSION });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/rate', auth, capabilityAccess('rate.read', { allowExperimental: true }), async (req, res) => {
+app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
   try {
     const r = await gh(req.gh, '/rate_limit');
     res.json({ remaining: r.resources.core.remaining, limit: r.resources.core.limit, reset: r.resources.core.reset });
@@ -4353,7 +4619,7 @@ let _postureReader = null;
 function postureReader() {
   if (!_postureReader) {
     _postureReader = createPostureReader({
-      gh, glFetch, dbReady, pool, identityKey, normalizePolicyScope,
+      gh, dbReady, pool, identityKey, normalizePolicyScope,
       exposureStore: () => exposureService(),
       severityOf: exposureSeverityOf,
       databaseConfigured: Boolean(DB_URL),
@@ -4369,36 +4635,113 @@ app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) 
   try { res.json(await postureReader().read(req.gh)); } catch (e) { fail(res, e); }
 });
 
+/*
+ * The security posture on the Overview: what the audit history, the exposure
+ * scans and the governance decisions already hold for this identity, read
+ * together (src/posture-summary.js). Nothing is fetched from the provider.
+ * Without a database there is nothing to read, and the page is told so
+ * rather than shown a clean workspace; a store that fails leaves its own part
+ * unmeasured and the rest standing.
+ */
+const POSTURE_WEEKS = 12;
+app.get('/api/workspace/security-posture', providerSessionAccess, capabilityAccess('workspace.posture'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const account = req.gh;
+    if (!account || (account.provider || 'github') !== 'github') {
+      throw Object.assign(new Error('Workspace posture requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
+    }
+    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
+    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
+    const provider = 'github';
+    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
+    const key = identityKey(account);
+    const now = Date.now();
+    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
+    const [audit, exposureRows, exposureTrend, merges] = await Promise.all([
+      settle(() => auditHistory().workspace({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
+      settle(() => exposureService().workspaceSummary({ provider, authority, identityKey: key })),
+      settle(() => exposureService().workspaceTrend({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
+      settle(() => ensureGovernanceStore().countMergeOutcomes({ actorIdentityKey: key, since: now - 7 * 24 * 60 * 60 * 1000 }))
+    ]);
+    const exposure = exposureRows ? { available: true, repositories: exposureSummary(exposureRows, exposureSeverityOf) } : null;
+    res.json({ available: true, ...summarizePosture({ audit, exposure, exposureTrend, merges, now, weeks: POSTURE_WEEKS }) });
+  } catch (e) { fail(res, e); }
+});
+
+/*
+ * The findings inbox (src/findings-inbox.js): every open finding across the
+ * workspace, from the audit history and the exposure scans this identity
+ * holds, with its state and a team's decision where one applies. Nothing is
+ * fetched from the provider; a path from an exposure scan is masked as the
+ * findings screen masks it. A store that fails leaves its part unmeasured.
+ */
+app.get('/api/workspace/findings', providerSessionAccess, capabilityAccess('findings.inbox'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const account = req.gh;
+    if (!account || (account.provider || 'github') !== 'github') {
+      throw Object.assign(new Error('The findings inbox requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
+    }
+    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
+    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
+    const provider = 'github';
+    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
+    const key = identityKey(account);
+    const now = Date.now();
+    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
+    const [audit, exposure] = await Promise.all([
+      settle(() => auditHistory().workspaceFindings({ provider, authority, identityKey: key, now })),
+      settle(() => exposureService().workspaceFindings({ provider, authority, identityKey: key }))
+    ]);
+    res.json({
+      available: true,
+      vocabulary: TRIAGE_VOCABULARY,
+      ...buildInbox({ audit, exposure, now, severityOf: exposureSeverityOf, displayPath: safeDisplayPath })
+    });
+  } catch (e) { fail(res, e); }
+});
+
+/*
+ * Who owns what in a repository, by its CODEOWNERS file, for the findings
+ * inbox to name beside each finding (public/codeowners.js parses and
+ * matches). Read from the default branch at the three places GitHub looks,
+ * first found wins; patterns and owners only, bounded in size and lines.
+ */
+const CODEOWNERS_MAX_BYTES = 256 * 1024;
+app.get('/api/repo/:owner/:repo/codeowners', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    for (const location of codeowners.LOCATIONS) {
+      let meta;
+      try {
+        meta = await gh(req.gh, `${R(req)}/contents/${encodePath(location)}`);
+      } catch (error) {
+        if (error && Number(error.status) === 404) continue;
+        throw error;
+      }
+      if (!meta || meta.type !== 'file') continue;
+      if (Number(meta.size) > CODEOWNERS_MAX_BYTES || !meta.content) {
+        return res.json({ path: location, rules: [], tooLarge: Number(meta.size) > CODEOWNERS_MAX_BYTES });
+      }
+      const text = Buffer.from(meta.content, 'base64').toString('utf8');
+      return res.json({ path: location, rules: codeowners.serialize(codeowners.parse(text)), tooLarge: false });
+    }
+    res.json({ path: null, rules: [], tooLarge: false });
+  } catch (e) { fail(res, e); }
+});
+
 async function governanceRepositoryFacts(req) {
-  let info;
-  let branches;
-  if (req.gh.provider === 'gitlab') {
-    const id = glId(req);
-    [info, branches] = await Promise.all([
-      glFetch(req.gh, `/projects/${id}`),
-      glFetch(req.gh, `/projects/${id}/repository/branches?per_page=100`)
-    ]);
-    info = {
-      defaultBranch: info.default_branch || null,
-      visibility: info.visibility || 'unknown',
-      archived: !!info.archived,
-      pullRequestsEnabled: info.merge_requests_enabled !== false
-    };
-  } else {
-    const branchesPath = req.gh.provider === 'gitea' ? `${R(req)}/branches?limit=100&page=1` : `${R(req)}/branches?per_page=100`;
-    const result = await Promise.all([
-      gh(req.gh, R(req)),
-      gh(req.gh, branchesPath)
-    ]);
-    const repository = result[0] || {};
-    branches = result[1];
-    info = {
-      defaultBranch: repository.default_branch || null,
-      visibility: repository.visibility || (repository.private ? 'private' : 'public'),
-      archived: !!repository.archived,
-      pullRequestsEnabled: true
-    };
-  }
+  const [repository, branches] = await Promise.all([
+    gh(req.gh, R(req)),
+    gh(req.gh, `${R(req)}/branches?per_page=100`)
+  ]);
+  const info = {
+    defaultBranch: repository.default_branch || null,
+    visibility: repository.visibility || (repository.private ? 'private' : 'public'),
+    archived: !!repository.archived,
+    pullRequestsEnabled: true
+  };
   const branchRows = Array.isArray(branches) ? branches : [];
   const protectedCandidates = branchRows
     .filter(branch => branch && branch.protected === true && branch.name)
@@ -4419,21 +4762,21 @@ async function governanceRepositoryFacts(req) {
 }
 
 /* ================= GOVERNANCE API (Phase 1 Tasks 6-8) ================= */
-app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const templates = await req.governance.service.listPolicyTemplates({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ templates });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/templates/:templateId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const template = await req.governance.service.getPolicyTemplate({ scope: req.governance.scope, authorization: req.governance.authorization, templateId: req.params.templateId });
     res.json({ template });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), capabilityAccess('branches.read'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const repositoryFacts = await governanceRepositoryFacts(req);
     const baseline = await req.governance.service.generateRepositoryBaseline({
@@ -4446,20 +4789,21 @@ app.post('/api/repo/:owner/:repo/governance/baselines/generate', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/digital-twin', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const digitalTwin = await req.governance.service.getPolicyDigitalTwin({
       scope: req.governance.scope,
       authorization: req.governance.authorization,
       historyLimit: req.query.historyLimit,
-      afterDecisionSeq: req.query.afterDecisionSeq
+      afterDecisionSeq: req.query.afterDecisionSeq,
+      beforeDecisionSeq: req.query.beforeDecisionSeq
     });
     const access = projectGovernanceInterfaceAccess(req.governance.authorization);
     res.json({ digitalTwin, access });
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications/preferences', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const preferences = await req.governance.service.getNotificationPreferences({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ preferences });
@@ -4476,7 +4820,7 @@ app.put('/api/repo/:owner/:repo/governance/notifications/preferences', providerS
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/notifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const notifications = await req.governance.service.listNotifications({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4496,7 +4840,7 @@ app.post('/api/repo/:owner/:repo/governance/notifications/read', providerSession
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const webhooks = await req.governance.service.listWebhooks({ scope: req.governance.scope, authorization: req.governance.authorization });
     res.json({ webhooks });
@@ -4543,7 +4887,7 @@ app.delete('/api/repo/:owner/:repo/governance/webhooks/:webhookId', providerSess
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('administrator'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('administrator'), async (req, res) => {
   try {
     const deliveries = await req.governance.service.listWebhookDeliveries({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4553,7 +4897,7 @@ app.get('/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries', prov
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exports = await req.governance.service.listEvidenceExports({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4572,7 +4916,7 @@ app.post('/api/repo/:owner/:repo/governance/exports', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -4581,7 +4925,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId/verify', providerSe
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const evidenceExport = await req.governance.service.getEvidenceExport({
       scope: req.governance.scope, authorization: req.governance.authorization, exportId: req.params.exportId
@@ -4591,7 +4935,7 @@ app.get('/api/repo/:owner/:repo/governance/exports/:exportId', providerSessionAc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policies = await req.governance.service.listPolicies({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4600,7 +4944,7 @@ app.get('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, alp
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const verification = await req.governance.service.verifyPolicyDecisionChain({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -4609,10 +4953,10 @@ app.get('/api/repo/:owner/:repo/governance/decisions/verify', providerSessionAcc
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/decisions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const result = await req.governance.service.listPolicyDecisions({
-      scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq
+      scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit, afterSeq: req.query.afterSeq, beforeSeq: req.query.beforeSeq
     });
     res.json(result);
   } catch (error) { governanceFailure(res, error); }
@@ -4628,7 +4972,7 @@ app.post('/api/repo/:owner/:repo/governance/policies', providerSessionAccess, al
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policy = await req.governance.service.getPolicy({
       scope: req.governance.scope, authorization: req.governance.authorization, policyId: req.params.policyId
@@ -4658,7 +5002,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts', provider
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('author'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('author'), async (req, res) => {
   try {
     const draft = await req.governance.service.getDraft({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4700,7 +5044,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/s
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const versions = await req.governance.service.listVersions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4710,7 +5054,7 @@ app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions', provide
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const version = await req.governance.service.getVersion({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4730,7 +5074,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const review = await req.governance.service.getReviewState({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4762,7 +5106,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exceptions = await req.governance.service.listExceptions({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4783,7 +5127,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/exceptions/:exceptionId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const exception = await req.governance.service.getException({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -4845,7 +5189,7 @@ function exposureFailure(res, error) {
   res.status(status).json(publicErrorBody(error));
 }
 
-app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.request'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.request'), async (req, res) => {
   try {
     const store = exposureService();
     /*
@@ -4879,7 +5223,7 @@ app.post('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const scan = await exposureService().getScan({
       scope: req.governance.scope,
@@ -4896,7 +5240,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId', providerSessionAccess, 
  * how many findings of each severity it recorded. Paged by the last row seen,
  * so a scan finishing mid-page does not shift the next page.
  */
-app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -4930,7 +5274,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans', providerSessionAccess, alphaRep
  * survives, so clearing the evidence of a decision never clears the evidence
  * of the clear.
  */
-app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.history.clear'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.history.clear'), async (req, res) => {
   try {
     /* The same explicit word as the other irreversible actions, refused
        before anything is touched. */
@@ -4949,7 +5293,7 @@ app.post('/api/repo/:owner/:repo/exposure/clear', providerSessionAccess, alphaRe
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), governanceMutationContext('exposure.scan.cancel'), async (req, res) => {
   try {
     const scan = await exposureService().cancelScan({
       scope: req.governance.scope,
@@ -4975,8 +5319,10 @@ app.post('/api/repo/:owner/:repo/exposure/scans/:scanId/cancel', providerSession
  */
 function exposureFindingPayload(finding) {
   if (!finding) return null;
+  const displayPath = safeDisplayPath(String(finding.path || ''));
   return {
     ...finding,
+    path: displayPath,
     narration: describeFinding(finding),
     dispositionNarration: describeDisposition(finding.disposition),
     /*
@@ -4985,7 +5331,7 @@ function exposureFindingPayload(finding) {
      * raw path would publish exactly what the rest of this payload is careful
      * never to carry.
      */
-    displayPath: safeDisplayPath(String(finding.path || '')),
+    displayPath,
     /*
      * Which questions this finding can be asked. Three verifiers exist and
      * dozens of rules; offering "check whether it still works" on a finding
@@ -5007,7 +5353,7 @@ function exposureSeverityOf(rule) {
   return entry ? entry.severity : 'serious';
 }
 
-app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5033,20 +5379,23 @@ app.get('/api/repo/:owner/:repo/exposure/findings', providerSessionAccess, alpha
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     /*
      * A scan's report: each observation with the finding it is about, so a
      * history entry can be opened and read without a second request per row.
      */
-    const report = await exposureService().scanReport({
+    const report = await exposureService().scanReportPage({
       scope: req.governance.scope,
       scanId: String(req.params.scanId || ''),
       identityKey: req.governance.actor.identityKey,
-      limit: Number.parseInt(String(req.query.limit || '50'), 10)
+      limit: Number.parseInt(String(req.query.limit || '50'), 10),
+      cursor: req.query.cursor ? String(req.query.cursor) : null
     });
     res.json({
-      observations: report.map(entry => ({
+      nextCursor: report.nextCursor,
+      complete: report.complete,
+      observations: report.observations.map(entry => ({
         ...entry.observation,
         /* Described with this scan's locations, so "where" names the line. */
         finding: exposureFindingPayload({
@@ -5085,7 +5434,7 @@ app.get('/api/repo/:owner/:repo/exposure/scans/:scanId/observations', providerSe
  * is a weaker claim than "erased" and it is the true one: a JavaScript string
  * cannot be wiped, so what is promised is that no copy is kept.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.credential.verify'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5190,7 +5539,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify', provide
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const verifications = await exposureService().listVerifications({
       scope: req.governance.scope,
@@ -5221,7 +5570,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications', p
  * database, and the grant is signed over exactly what was named so the prober
  * cannot be asked for anything else.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.readability.probe'), async (req, res) => {
   try {
     const store = exposureService();
     const scope = req.governance.scope;
@@ -5349,7 +5698,7 @@ app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readabilit
   } catch (error) { exposureFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
+app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('reader', OWN_WORK), async (req, res) => {
   try {
     const probes = await exposureService().listReadabilityProbes({
       scope: req.governance.scope,
@@ -5379,7 +5728,7 @@ app.get('/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probe
  * cannot wave away their own finding, and a governance administrator who does
  * has their name on it.
  */
-app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan', { allowExperimental: true }), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('exposure.scan'), auth, governanceAccess('administrator'), governanceMutationContext('exposure.finding.accept-risk'), async (req, res) => {
   try {
     const finding = await exposureService().acceptRisk({
       scope: req.governance.scope,
@@ -5403,7 +5752,7 @@ app.post('/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke', pro
   } catch (error) { governanceFailure(res, error); }
 });
 
-app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/policies/:policyId/activations', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const activations = await req.governance.service.listActivationHistory({
       scope: req.governance.scope, authorization: req.governance.authorization,
@@ -5440,7 +5789,7 @@ app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:version
  * once here, where the request is refused before any work is done, and again
  * in the service, which does not trust that it was only ever called from here.
  */
-app.get('/api/repo/:owner/:repo/governance/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance', { allowExperimental: true }), auth, governanceAccess('reader'), async (req, res) => {
+app.get('/api/repo/:owner/:repo/governance/archive', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, governanceAccess('reader'), async (req, res) => {
   try {
     const policies = await req.governance.service.listArchivedPolicies({
       scope: req.governance.scope, authorization: req.governance.authorization, limit: req.query.limit
@@ -5526,20 +5875,6 @@ app.post('/api/repo/:owner/:repo/governance/reset', providerSessionAccess, alpha
  * callers come through here.
  */
 async function listRepositoriesFor(req, query = {}) {
-  if (req.gh.provider === 'gitlab') {
-    const list = await glFetch(req.gh, '/projects?membership=true&order_by=last_activity_at&per_page=100');
-    return list.filter(p => alphaRepositoryListAllowed(
-      req,
-      p && p.namespace && p.namespace.full_path,
-      p && p.path
-    )).map(p => ({
-      full_name: p.path_with_namespace, name: p.path,
-      private: p.visibility !== 'public', default_branch: p.default_branch,
-      pushed_at: p.last_activity_at, description: p.description,
-      stargazers_count: p.star_count, language: null,
-      owner: { login: (p.namespace && p.namespace.full_path) || '' }
-    }));
-  }
   const page = parseInt(query.page || '1', 10);
   const sort = ['pushed', 'created', 'updated', 'full_name'].includes(query.sort) ? query.sort : 'pushed';
   const result = req.gh.authMethod === 'github-app'
@@ -5563,7 +5898,7 @@ app.get('/api/repos', providerSessionAccess, alphaRepositoryListAccess, capabili
     res.json(await listRepositoriesFor(req, req.query));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create', { allowExperimental: true }), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
+app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create'), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
   try {
     const result = await createVerifiedRepository((route, options) => gh(req.gh, route, options), req.gh, req.body);
     res.status(201).json(result);
@@ -5575,32 +5910,13 @@ app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.creat
  * -- any public one -- read-only, and says so, rather than offering changes
  * the provider would refuse. The provider still decides every change.
  */
-function repositoryPermission(provider, info) {
-  if (provider === 'gitlab') {
-    const permissions = info && info.permissions || {};
-    const level = Math.max(...[permissions.project_access, permissions.group_access].map(value => Number(value && value.access_level) || 0));
-    return level >= 50 ? 'admin' : level >= 40 ? 'maintain' : level >= 30 ? 'write' : level >= 10 ? 'read' : 'none';
-  }
+function repositoryPermission(info) {
   const permissions = info && info.permissions;
   if (!permissions || typeof permissions !== 'object') return 'unknown';
   return permissions.admin ? 'admin' : permissions.maintain ? 'maintain' : permissions.push ? 'write' : permissions.triage ? 'triage' : permissions.pull ? 'read' : 'none';
 }
-app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const id = glId(req);
-      const [p3, brs] = await Promise.all([
-        glFetch(req.gh, `/projects/${id}`),
-        glFetch(req.gh, `/projects/${id}/repository/branches?per_page=100`)
-      ]);
-      return res.json({
-        full_name: p3.path_with_namespace, default_branch: p3.default_branch,
-        private: p3.visibility !== 'public', description: p3.description,
-        permission: repositoryPermission('gitlab', p3),
-        archived: p3.archived === true,
-        branches: normalizeProviderBranches('gitlab', brs)
-      });
-    }
     const [info, branches] = await Promise.all([
       gh(req.gh, R(req)),
       gh(req.gh, `${R(req)}/branches?per_page=100`)
@@ -5609,14 +5925,14 @@ app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, 
       full_name: info.full_name, default_branch: info.default_branch,
       private: info.private, description: info.description,
       homepage: declaredSite(info.homepage || info.website),
-      permission: repositoryPermission(req.gh.provider || 'github', info),
+      permission: repositoryPermission(info),
       archived: info.archived === true,
       branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
     });
   } catch (e) { fail(res, e); }
 });
 /* delete repository (requires PAT with delete_repo scope or OAuth) */
-app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete', { allowExperimental: true }), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete'), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
   try {
     await verifyRepositoryDeletion((route, options) => gh(req.gh, route, options), `${req.params.owner}/${req.params.repo}`, req.gh);
     await gh(req.gh, R(req), { method: 'DELETE' });
@@ -5633,9 +5949,7 @@ app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAcces
 app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
     const ref = req.query.ref || '';
-    const r = (req.gh.provider || 'github') === 'github'
-      ? await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref)
-      : await gh(req.gh, `${R(req)}/zipball/${encodeURIComponent(ref)}`, { raw: true });
+    const r = await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref);
     if (!r.ok) return res.status(r.status).json({ error: 'Could not download archive' });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition',
@@ -5666,7 +5980,7 @@ app.delete('/api/repo/:owner/:repo/branches/:name', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 /* compare two refs */
-app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const { base, head } = req.query;
     const c = await gh(req.gh,
@@ -5680,15 +5994,8 @@ app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepository
 });
 
 /* ================= TREE / FILES ================= */
-app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref: req.query.ref, path: req.query.path || '', per_page: '100' });
-      const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/tree?${qp}`);
-      return res.json(list.map(t => ({
-        name: t.name, path: t.path, type: t.type === 'tree' ? 'dir' : 'file', sha: t.id, size: 0
-      })));
-    }
     const p = req.query.path ? requireRepoPath(req.query.path) : '';
     const items = await gh(req.gh,
       `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`);
@@ -5698,7 +6005,7 @@ app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAcc
   } catch (e) { fail(res, e); }
 });
 /* flat recursive file list (for command-palette fuzzy finder) */
-app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
     const ref = req.query.ref;
     const br = await gh(req.gh, `${R(req)}/branches/${encodeURIComponent(ref)}`);
@@ -5713,12 +6020,6 @@ app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAc
 app.get('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
   try {
     const requestedPath = requireRepoPath(req.query.path);
-    if (req.gh.provider === 'gitlab') {
-      const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
-      if (f.size > MB) return res.json({ tooLarge: true, name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size });
-      /* Base64, as GitHub and Gitea answer: the editor decodes one shape, and decoding here broke every GitLab file with a non-Latin-1 character. */
-      return res.json({ name: f.file_name, path: requestedPath, sha: f.blob_id, size: f.size, content: f.content || '', encoding: 'base64' });
-    }
     const meta = await gh(req.gh,
       `${R(req)}/contents/${encodePath(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
     if (meta.content) {
@@ -5744,14 +6045,6 @@ function setRawHeaders(res, p) {
 app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
   try {
     const requestedPath = requireRepoPath(req.query.path);
-    if (req.gh.provider === 'gitlab') {
-      const p2 = requestedPath;
-      const r2 = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(p2)}/raw?ref=${encodeURIComponent(req.query.ref)}`, { raw: true });
-      if (!r2.ok) return res.status(r2.status).json({ error: 'Could not fetch raw content' });
-      setRawHeaders(res, p2);
-      await pipeline(Readable.fromWeb(r2.body), res);
-      return;
-    }
     const p = requestedPath;
     const r = await gh(req.gh,
       `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`,
@@ -5835,41 +6128,8 @@ app.put('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAcc
       req.body.path = requireRepoPath(req.body.path);
       req.body.branch = requireBranchName(req.body.branch);
     }
-    if (req.gh.provider === 'gitlab') {
-      const { path: p, content, message, branch, expectedHeadSha } = req.body || {};
-      const enc = encodeURIComponent(p);
-      if (expectedHeadSha) assertExpectedHead(expectedHeadSha, await glLastCommit(req.gh, glId(req), branch));
-      let exists = true;
-      try { await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}?ref=${encodeURIComponent(branch)}`); }
-      catch (e) { if (e.status === 404) exists = false; else throw e; }
-      await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}`, {
-        method: exists ? 'PUT' : 'POST',
-        body: {
-          branch, content: String(content ?? ''), commit_message: message || `Update ${p} via ${PRODUCT_NAME}`,
-          ...(exists && expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      const f2 = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${enc}?ref=${encodeURIComponent(branch)}`);
-      const last = await glLastCommit(req.gh, glId(req), branch);
-      return res.json({ ok: true, commit: last || 'committed', content: { sha: f2.blob_id } });
-    }
     const { path: p, content, message, branch, expectedHeadSha } = req.body || {};
     if (!p || content == null || !branch) return res.status(400).json({ error: 'path, content, branch required' });
-    if (req.gh.provider === 'gitea') {
-      const adapter = createGiteaFileMutationAdapter({
-        request: (apiPath, options) => gh(req.gh, apiPath, options)
-      });
-      const result = await adapter.write({
-        owner: req.params.owner,
-        repo: req.params.repo,
-        path: p,
-        content,
-        message: message || `Update ${p} via ${PRODUCT_NAME}`,
-        branch,
-        expectedHeadSha
-      });
-      return res.json({ ok: true, sha: result.sha, commit: result.commit });
-    }
     const blob = await gh(req.gh, `${R(req)}/git/blobs`, {
       method: 'POST', body: { content: Buffer.from(String(content), 'utf8').toString('base64'), encoding: 'base64' }
     });
@@ -5884,33 +6144,7 @@ app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepository
       req.body.path = requireRepoPath(req.body.path);
       req.body.branch = requireBranchName(req.body.branch);
     }
-    if (req.gh.provider === 'gitlab') {
-      const { path: p, branch, expectedHeadSha } = req.body || {};
-      if (expectedHeadSha) assertExpectedHead(expectedHeadSha, await glLastCommit(req.gh, glId(req), branch));
-      await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(p)}`, {
-        method: 'DELETE', body: {
-          branch, commit_message: `Delete ${p} via ${PRODUCT_NAME}`,
-          ...(expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      return res.json({ ok: true, commit: await glLastCommit(req.gh, glId(req), branch) || 'committed' });
-    }
     const { path: p, message, branch, sha, expectedHeadSha } = req.body || {};
-    if (req.gh.provider === 'gitea') {
-      if (!p || !branch) return res.status(400).json({ error: 'path, branch required' });
-      const adapter = createGiteaFileMutationAdapter({
-        request: (apiPath, options) => gh(req.gh, apiPath, options)
-      });
-      const result = await adapter.delete({
-        owner: req.params.owner,
-        repo: req.params.repo,
-        path: p,
-        message: message || `Delete ${p} via ${PRODUCT_NAME}`,
-        branch,
-        expectedHeadSha
-      });
-      return res.json({ ok: true, commit: result.commit });
-    }
     if (!p || !branch || !sha) return res.status(400).json({ error: 'path, branch, sha required' });
     const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
       message || `Delete ${p} via ${PRODUCT_NAME}`, [{ path: p, sha: null }], expectedHeadSha);
@@ -5918,7 +6152,7 @@ app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* rename/move (any size — reuses blob sha, no re-upload) */
-app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename', { allowExperimental: true }), auth, mutationContext('file.rename'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename'), auth, mutationContext('file.rename'), async (req, res) => {
   try {
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
     if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
@@ -5949,7 +6183,7 @@ app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepository
   } catch (e) { fail(res, e); }
 });
 /* batch: commit many staged operations atomically */
-app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch', { allowExperimental: true }), auth, mutationContext('file.batch'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch'), auth, mutationContext('file.batch'), async (req, res) => {
   try {
     let { branch, message, ops, expectedHeadSha } = req.body || {};
     if (!branch || !Array.isArray(ops) || !ops.length) return res.status(400).json({ error: 'branch and ops required' });
@@ -5979,17 +6213,6 @@ app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepository
   try {
     /* One page of 25 in one shape for every provider: the list pages by the count it receives. */
     const page = Math.max(1, Math.min(1000, parseInt(req.query.page || '1', 10) || 1));
-    if (req.gh.provider === 'gitlab') {
-      const qp = new URLSearchParams({ ref_name: req.query.ref || '', per_page: '25', page: String(page) });
-      if (req.query.path) qp.set('path', req.query.path);
-      const list = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?${qp}`);
-      return res.json(list.map(c => ({
-        sha: c.id, message: c.message,
-        author: c.author_name || '?',
-        avatar: null,
-        date: c.authored_date
-      })));
-    }
     const pathFilter = req.query.path ? `&path=${encodeURIComponent(req.query.path)}` : '';
     const commits = await gh(req.gh,
       `${R(req)}/commits?sha=${encodeURIComponent(req.query.ref)}&per_page=25&page=${page}${pathFilter}`);
@@ -6003,19 +6226,6 @@ app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepository
 });
 app.get('/api/repo/:owner/:repo/commit/:sha', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const id = glId(req);
-      const c = await glFetch(req.gh, `/projects/${id}/repository/commits/${req.params.sha}`);
-      const diffs = await glFetch(req.gh, `/projects/${id}/repository/commits/${req.params.sha}/diff`);
-      return res.json({
-        sha: c.id, message: c.message, author: { name: c.author_name, date: c.authored_date },
-        stats: c.stats || {}, files: (diffs || []).map(d => ({
-          filename: d.new_path,
-          status: d.new_file ? 'added' : d.deleted_file ? 'removed' : d.renamed_file ? 'renamed' : 'modified',
-          additions: 0, deletions: 0, patch: d.diff
-        }))
-      });
-    }
     const c = await gh(req.gh, `${R(req)}/commits/${encodeURIComponent(req.params.sha)}`);
     res.json({
       sha: c.sha, message: c.commit.message, stats: c.stats,
@@ -6116,7 +6326,7 @@ app.post('/api/repo/:owner/:repo/restore-paths', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 /* Snapshot: the full file listing of the repo as it existed at a commit */
-app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     let sha = req.query.sha;
     if (!sha) return res.status(400).json({ error: 'sha required' });
@@ -6151,7 +6361,7 @@ app.post('/api/repo/:owner/:repo/reset', providerSessionAccess, alphaRepositoryA
 });
 
 /* ================= SEARCH ================= */
-app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search'), auth, async (req, res) => {
   try {
     /*
      * The repository is the server's to name. The query used to be the
@@ -6174,74 +6384,31 @@ app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryA
 async function enforceProtectedPullMerge(req, number) {
   if (!protectedPatternsForReq(req).length) return;
   const changedPaths = [];
-  if (req.gh.provider === 'gitlab') {
-    const data = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${encodeURIComponent(number)}/changes`);
-    if (data && data.overflow) {
-      throw Object.assign(new Error('This merge request has too many changed files to verify protected paths safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
+  const pr = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
+  if (Number(pr.changed_files || 0) > 1000) {
+    throw Object.assign(new Error('This pull request has more than 1,000 changed files, so protected-path verification cannot be completed safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
+  }
+  for (let page = 1; page <= 10; page++) {
+    const batch = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}/files?per_page=100&page=${page}`);
+    for (const item of Array.isArray(batch) ? batch : []) {
+      if (item && item.previous_filename) changedPaths.push(item.previous_filename);
+      if (item && item.filename) changedPaths.push(item.filename);
     }
-    for (const item of Array.isArray(data && data.changes) ? data.changes : []) {
-      if (item && item.old_path) changedPaths.push(item.old_path);
-      if (item && item.new_path) changedPaths.push(item.new_path);
-    }
-  } else {
-    const pr = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
-    if (Number(pr.changed_files || 0) > 1000) {
-      throw Object.assign(new Error('This pull request has more than 1,000 changed files, so protected-path verification cannot be completed safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
-    }
-    for (let page = 1; page <= 10; page++) {
-      const batch = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}/files?per_page=100&page=${page}`);
-      for (const item of Array.isArray(batch) ? batch : []) {
-        if (item && item.previous_filename) changedPaths.push(item.previous_filename);
-        if (item && item.filename) changedPaths.push(item.filename);
-      }
-      if (!Array.isArray(batch) || batch.length < 100) break;
-    }
+    if (!Array.isArray(batch) || batch.length < 100) break;
   }
   enforceProtectedPaths(req, [...new Set(changedPaths)]);
 }
 
 /* ================= PULL REQUESTS ================= */
-const glState = q => q === 'open' ? 'opened' : q;
-const glDiffCounts = d => { let a = 0, r = 0; for (const l of String(d || '').split('\n')) { if (l.startsWith('+') && !l.startsWith('+++')) a++; else if (l.startsWith('-') && !l.startsWith('---')) r++; } return [a, r]; };
-app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    if (req.gh.provider === 'gitlab') {
-      const qs = state === 'all' ? '' : `state=${glState(state)}&`;
-      const mrs = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests?${qs}per_page=30&order_by=updated_at`);
-      return res.json(mrs.map(m => ({
-        number: m.iid, title: m.title, state: m.state === 'merged' ? 'closed' : (m.state === 'opened' ? 'open' : m.state),
-        draft: !!m.draft, merged: m.state === 'merged',
-        user: m.author && m.author.username, avatar: m.author && m.author.avatar_url,
-        head: m.source_branch, base: m.target_branch, updated_at: m.updated_at
-      })));
-    }
     const pulls = await gh(req.gh, `${R(req)}/pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
-    res.json(pulls.map(p => ({
-      number: p.number, title: p.title, state: p.state, draft: p.draft, merged: !!p.merged_at,
-      user: p.user && p.user.login, avatar: p.user && p.user.avatar_url,
-      head: p.head.ref, base: p.base.ref, updated_at: p.updated_at
-    })));
+    res.json(pulls.map(pullListItem));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/changes`);
-      const files = (m.changes || []).map(c => {
-        const [a, d] = glDiffCounts(c.diff);
-        return { filename: c.new_path, status: c.new_file ? 'added' : c.deleted_file ? 'removed' : c.renamed_file ? 'renamed' : 'modified', additions: a, deletions: d, patch: c.diff };
-      });
-      return res.json({
-        number: m.iid, title: m.title, body: m.description, state: m.state === 'merged' ? 'closed' : (m.state === 'opened' ? 'open' : m.state),
-        draft: !!m.draft, merged: m.state === 'merged',
-        mergeable: m.merge_status === 'can_be_merged', mergeable_state: m.merge_status,
-        user: m.author && m.author.username, head: m.source_branch, base: m.target_branch,
-        headSha: /^[0-9a-f]{40}$/i.test(String(m.sha || '')) ? String(m.sha).toLowerCase() : null,
-        additions: files.reduce((t, f) => t + f.additions, 0), deletions: files.reduce((t, f) => t + f.deletions, 0),
-        changed_files: files.length, files
-      });
-    }
     const [p, files] = await Promise.all([
       gh(req.gh, `${R(req)}/pulls/${req.params.num}`),
       gh(req.gh, `${R(req)}/pulls/${req.params.num}/files?per_page=100`)
@@ -6256,23 +6423,17 @@ app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaReposit
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.create'), async (req, res) => {
   try {
     const { title, head, base, body, draft } = req.body || {};
     if (!title || !head || !base) return res.status(400).json({ error: 'title, head, base required' });
-    if (req.gh.provider === 'gitlab') {
-      const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests`, {
-        method: 'POST', body: { title, source_branch: head, target_branch: base, description: body || '' }
-      });
-      return res.json({ ok: true, number: m.iid });
-    }
     const p = await gh(req.gh, `${R(req)}/pulls`, {
       method: 'POST', body: { title, head, base, body: body || '', draft: !!draft }
     });
     res.json({ ok: true, number: p.number });
   } catch (e) { fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.merge'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.merge'), async (req, res) => {
   try {
     const method = ['merge', 'squash', 'rebase'].includes(req.body && req.body.method) ? req.body.method : 'merge';
     /*
@@ -6289,18 +6450,6 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
       status: 409, code: 'PULL_HEAD_CHANGED'
     });
     await enforceProtectedPullMerge(req, req.params.num);
-    if (req.gh.provider === 'gitlab') {
-      let out2;
-      try {
-        out2 = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/merge`, {
-          method: 'PUT', body: { squash: method === 'squash', ...(expected ? { sha: expected } : {}) }
-        });
-      } catch (error) {
-        if (expected && error.status === 409) throw headMoved();
-        throw error;
-      }
-      return res.json({ ok: true, sha: out2.merge_commit_sha || out2.sha, message: 'merged' });
-    }
     let out;
     try {
       out = await gh(req.gh, `${R(req)}/pulls/${req.params.num}/merge`, {
@@ -6315,19 +6464,9 @@ app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaR
 });
 
 /* ================= ISSUES ================= */
-app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
   try {
     const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    if (req.gh.provider === 'gitlab') {
-      const qs = state === 'all' ? '' : `state=${glState(state)}&`;
-      const its = await glFetch(req.gh, `/projects/${glId(req)}/issues?${qs}per_page=30&order_by=updated_at`);
-      return res.json(its.map(i => ({
-        number: i.iid, title: i.title, state: i.state === 'opened' ? 'open' : i.state,
-        user: i.author && i.author.username, avatar: i.author && i.author.avatar_url,
-        comments: i.user_notes_count, updated_at: i.updated_at,
-        labels: (i.labels || []).map(n => ({ name: n, color: '7c6df0' }))
-      })));
-    }
     const issues = await gh(req.gh, `${R(req)}/issues?state=${state}&per_page=30&sort=updated`);
     res.json(issues.filter(i => !i.pull_request).map(i => ({
       number: i.number, title: i.title, state: i.state,
@@ -6337,20 +6476,8 @@ app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryA
     })));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') {
-      const [it, notes] = await Promise.all([
-        glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}`),
-        glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}/notes?per_page=50&sort=asc`)
-      ]);
-      return res.json({
-        number: it.iid, title: it.title, body: it.description, state: it.state === 'opened' ? 'open' : it.state,
-        user: it.author && it.author.username, created_at: it.created_at,
-        labels: (it.labels || []).map(n => ({ name: n, color: '7c6df0' })),
-        comments: notes.filter(n => !n.system).map(n => ({ user: n.author && n.author.username, avatar: n.author && n.author.avatar_url, body: n.body, created_at: n.created_at }))
-      });
-    }
     const [i, comments] = await Promise.all([
       gh(req.gh, `${R(req)}/issues/${req.params.num}`),
       gh(req.gh, `${R(req)}/issues/${req.params.num}/comments?per_page=50`)
@@ -6363,103 +6490,69 @@ app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaReposi
     });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.create'), async (req, res) => {
   try {
     const { title, body } = req.body || {};
     if (!title) return res.status(400).json({ error: 'title required' });
-    if (req.gh.provider === 'gitlab') {
-      const it = await glFetch(req.gh, `/projects/${glId(req)}/issues`, { method: 'POST', body: { title, description: body || '' } });
-      return res.json({ ok: true, number: it.iid });
-    }
     const i = await gh(req.gh, `${R(req)}/issues`, { method: 'POST', body: { title, body: body || '' } });
     res.json({ ok: true, number: i.number });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.comment'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.comment'), async (req, res) => {
   try {
     const { body } = req.body || {};
     if (!body) return res.status(400).json({ error: 'body required' });
-    if (req.gh.provider === 'gitlab') {
-      await glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}/notes`, { method: 'POST', body: { body } });
-      return res.json({ ok: true });
-    }
     await gh(req.gh, `${R(req)}/issues/${req.params.num}/comments`, { method: 'POST', body: { body } });
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write', { allowExperimental: true }), auth, mutationContext('issue.update'), async (req, res) => {
+app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.update'), async (req, res) => {
   try {
     const state = req.body && req.body.state === 'closed' ? 'closed' : 'open';
-    if (req.gh.provider === 'gitlab') {
-      await glFetch(req.gh, `/projects/${glId(req)}/issues/${req.params.num}`, { method: 'PUT', body: { state_event: state === 'closed' ? 'close' : 'reopen' } });
-      return res.json({ ok: true, state });
-    }
     await gh(req.gh, `${R(req)}/issues/${req.params.num}`, { method: 'PATCH', body: { state } });
     res.json({ ok: true, state });
   } catch (e) { fail(res, e); }
 });
 
 /* ================= NOTIFICATIONS / STAR / REVIEWS / GLOBAL SEARCH ================= */
-app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth, async (req, res) => {
   try {
     const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
     res.setHeader('Cache-Control', 'private, no-store');
     res.json(await listAccessibleNotifications(route => gh(req.gh, route), repositories));
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read'), auth, async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.json({ starred: false, unsupported: true });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`); res.json({ starred: true }); }
   catch (e) { if (e.status === 404) return res.json({ starred: false }); fail(res, e); }
 });
-app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.star'), async (req, res) => {
+app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.star'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'PUT' }); res.json({ ok: true, starred: true }); }
   catch (e) { fail(res, e); }
 });
-app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write', { allowExperimental: true }), auth, mutationContext('repository.unstar'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.unstar'), async (req, res) => {
   if (req.gh.authMethod === 'github-app') return res.status(403).json({
     error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
   });
   try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'DELETE' }); res.json({ ok: true, starred: false }); }
   catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write', { allowExperimental: true }), auth, mutationContext('pull.review'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.review'), async (req, res) => {
   try {
     const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
     const text = String((req.body && req.body.body) || '');
     if (!/^\d{1,10}$/.test(String(req.params.num))) return res.status(400).json({ error: 'Invalid pull request number', code: 'PULL_NUMBER_INVALID' });
-    /*
-     * GitLab has no review object. A comment is a note on the merge request
-     * and an approval is its approval -- the two things a reviewer here can
-     * mean -- and "request changes" has no counterpart in its API, so it is
-     * refused by name rather than quietly recorded as a comment.
-     */
-    if (req.gh.provider === 'gitlab') {
-      if (event === 'REQUEST_CHANGES') {
-        return res.status(409).json({
-          error: 'GitLab has no "request changes" review. Leave a comment instead, or withhold approval.',
-          code: 'REVIEW_EVENT_UNSUPPORTED'
-        });
-      }
-      if (event === 'COMMENT') {
-        if (!text.trim()) return res.status(400).json({ error: 'A comment review needs a body', code: 'REVIEW_BODY_REQUIRED' });
-        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
-      } else {
-        await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/approve`, { method: 'POST' });
-        if (text.trim()) await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${req.params.num}/notes`, { method: 'POST', body: { body: text } });
-      }
-      return res.json({ ok: true });
-    }
     await gh(req.gh, `${R(req)}/pulls/${req.params.num}/reviews`, {
       method: 'POST', body: { event, body: text }
     });
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
   try {
     if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
     const out = await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/jobs?per_page=20`);
@@ -6469,7 +6562,7 @@ app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alp
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun', { allowExperimental: true }), auth, mutationContext('workflow.rerun'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun'), auth, mutationContext('workflow.rerun'), async (req, res) => {
   try {
     /* A run id is a number; anything else would be a path segment. */
     if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
@@ -6477,7 +6570,7 @@ app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, a
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/search', providerSessionAccess, capabilityAccess('global-search', { allowExperimental: true }), githubSearchAccess, auth, async (req, res) => {
+app.get('/api/search', providerSessionAccess, capabilityAccess('global-search'), githubSearchAccess, auth, async (req, res) => {
   try {
     const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
     res.setHeader('Cache-Control', 'private, no-store');
@@ -6486,7 +6579,7 @@ app.get('/api/search', providerSessionAccess, capabilityAccess('global-search', 
 });
 
 /* ================= ACTIONS (CI) ================= */
-app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
   try {
     const branch = req.query.branch ? `&branch=${encodeURIComponent(req.query.branch)}` : '';
     const out = await gh(req.gh, `${R(req)}/actions/runs?per_page=25${branch}`);
@@ -6500,7 +6593,7 @@ app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepository
 });
 
 /* ================= RELEASES ================= */
-app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read'), auth, async (req, res) => {
   try {
     const rel = await gh(req.gh, `${R(req)}/releases?per_page=20`);
     res.json(rel.map(r => ({
@@ -6510,7 +6603,7 @@ app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositor
     })));
   } catch (e) { fail(res, e); }
 });
-app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write', { allowExperimental: true }), auth, mutationContext('release.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write'), auth, mutationContext('release.create'), async (req, res) => {
   try {
     const { tag, name, body, target, prerelease } = req.body || {};
     if (!tag) return res.status(400).json({ error: 'tag required' });
@@ -6612,46 +6705,13 @@ function parseReport(buf, branch) {
 /* GITCORE-END */
 let _gitPushBusy = false;
 function gitRemoteBase(acct, owner, repo) {
-  const prov = acct.provider || 'github';
-  if (prov === 'gitlab') {
-    const host = String(acct.baseUrl || 'https://gitlab.com').replace(/\/+$/, '');
-    return { url: `${host}/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`${acct.login || 'oauth2'}:${acct.token}`).toString('base64') };
-  }
-  if (prov === 'gitea') {
-    const host = String(acct.baseUrl || '').replace(/\/+$/, '');
-    return { url: `${host}/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`${acct.login}:${acct.token}`).toString('base64') };
-  }
+  assertGithubAccount(acct);
   return { url: `https://github.com/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`x-access-token:${acct.token || acct}`).toString('base64') };
 }
 async function treeLevels(acct, owner, repo, oldSha, parts) {
-  const prov = acct.provider || 'github';
   const levels = [];
-  if (prov === 'gitlab') {
-    const idGl = encodeURIComponent(owner + '/' + repo);
-    let dir = '';
-    for (let i = 0; i <= parts.length; i++) {
-      const entries = [];
-      let page = 1;
-      for (;;) {
-        const qs = `ref=${encodeURIComponent(oldSha)}&per_page=100&page=${page}${dir ? `&path=${encodeURIComponent(dir)}` : ''}`;
-        let batch = [];
-        try { batch = await glFetch(acct, `/projects/${idGl}/repository/tree?${qs}`); }
-        catch (e) { if (e.status === 404) break; throw e; }
-        if (!Array.isArray(batch) || !batch.length) break;
-        for (const e of batch) entries.push({ mode: e.mode === '040000' ? '40000' : e.mode, name: e.name, sha: e.id });
-        if (batch.length < 100) break;
-        if (++page > 50) throw new Error('Directory too large for native push');
-      }
-      levels.push({ entries });
-      if (i < parts.length) dir = dir ? dir + '/' + parts[i] : parts[i];
-    }
-    return levels;
-  }
-  let treeSha;
-  if (prov === 'github') {
-    const cm = await gh(acct, `/repos/${owner}/${repo}/git/commits/${oldSha}`);
-    treeSha = cm.tree.sha;
-  } else treeSha = oldSha; /* gitea resolves commit-ish to its tree */
+  const cm = await gh(acct, `/repos/${owner}/${repo}/git/commits/${oldSha}`);
+  let treeSha = cm.tree.sha;
   for (let i = 0; i <= parts.length; i++) {
     if (treeSha) {
       const t = await gh(acct, `/repos/${owner}/${repo}/git/trees/${treeSha}`);
@@ -6672,9 +6732,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const remote = gitRemoteBase(acct, owner, repo);
     const authH = remote.auth;
     const gitBase = remote.url;
-    const providerTransport = (acct.provider || 'github') === 'github' ? fetchT : providerFetch;
-    if (providerTransport === providerFetch) await assertPublicBaseCached(acct.baseUrl || 'https://gitlab.com');
-    const ad = await providerTransport(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
+    const ad = await fetchT(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
     if (!ad.ok) throw Object.assign(new Error(`git advertisement failed (${ad.status})`), { status: ad.status });
     const oldSha = parseAdvert(Buffer.from(await ad.arrayBuffer()), `refs/heads/${branch}`);
     if (!oldSha) throw new Error(`Branch ${branch} not found on the remote`);
@@ -6687,7 +6745,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
     const who = acct.login || 'nebulaverse';
     const { objs, commitSha } = buildPushObjects(fileBuf, p, levels, oldSha, message, who, `${who}@users.noreply.github.com`);
     const body = buildReceiveBody(oldSha, commitSha, branch, packEncode(objs));
-    const pr = await providerTransport(`${gitBase}/git-receive-pack`, {
+    const pr = await fetchT(`${gitBase}/git-receive-pack`, {
       method: 'POST',
       headers: { Authorization: authH, 'Content-Type': 'application/x-git-receive-pack-request', Accept: 'application/x-git-receive-pack-result', 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` },
       body, redirect: 'error'
@@ -6701,7 +6759,7 @@ async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expe
 }
 
 /* create a git blob from a raw stream (for batch commits) — returns its sha */
-app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push', { allowExperimental: true }), capabilityAccess('upload-security'), auth, mutationContext('git.blob.create'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), auth, mutationContext('git.blob.create'), async (req, res) => {
   const tmp = path.join(os.tmpdir(), 'nv-' + crypto.randomBytes(8).toString('hex'));
   let release = () => {};
   try {
@@ -6725,7 +6783,7 @@ app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAc
 /* ============================================================
    SMART UPLOAD ROUTER (raw stream body) — the headline feature
    ============================================================ */
-app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push', { allowExperimental: true }), capabilityAccess('upload-security'), auth, mutationContext('file.upload'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), capabilityAccessWhen('lfs', req => normalizeTransportChoice(req.query.lfs) === 'lfs'), auth, mutationContext('file.upload'), async (req, res) => {
   const { owner, repo } = req.params;
   let p = req.query.path, branch = req.query.branch;
   const message = req.query.message || `Upload ${p} via ${PRODUCT_NAME}`;
@@ -6765,29 +6823,6 @@ app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepository
     if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });
     /* Reported on every upload, so a transport swap is never silent. */
     const transport = { requested: plan.requested, fallback: plan.fallback };
-    if (req.gh.provider === 'gitlab') {
-      if (plan.route === 'git-push') {
-        const result2 = await uploadViaGitPush(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
-        res.json({ ok: true, size, commit: result2.commit, strategy: 'git-push', transport, securityScan });
-        return;
-      }
-      const b64gl = (await fsp.readFile(tmp)).toString('base64');
-      const idGl = encodeURIComponent(owner + '/' + repo);
-      const encGl = encodeURIComponent(p);
-      let exists = true;
-      try { await glFetch(req.gh, `/projects/${idGl}/repository/files/${encGl}?ref=${encodeURIComponent(branch)}`); }
-      catch (e3) { if (e3.status === 404) exists = false; else throw e3; }
-      await glFetch(req.gh, `/projects/${idGl}/repository/files/${encGl}`, {
-        method: exists ? 'PUT' : 'POST',
-        body: {
-          branch, content: b64gl, encoding: 'base64', commit_message: message,
-          ...(exists && expectedHeadSha ? { last_commit_id: expectedHeadSha } : {})
-        }
-      });
-      const lastGl = await glLastCommit(req.gh, idGl, branch);
-      res.json({ ok: true, size, commit: lastGl || 'committed', strategy: 'gitlab-files', transport, securityScan });
-      return;
-    }
     let result;
     if (plan.route === 'lfs') { enforceProtectedPaths(req, [p, '.gitattributes']); result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha); result.strategy = 'lfs'; }
     else if (plan.route === 'git-push') {
@@ -7033,9 +7068,8 @@ async function commitTree(token, owner, repo, branch, message, treeEntries, expe
   return commit.sha;
 }
 
-app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move', { allowExperimental: true }), auth, mutationContext('directory.move'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move'), auth, mutationContext('directory.move'), async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Folder move is GitHub/Gitea-only for now' });
     const { owner, repo } = req.params;
     let { from, to, branch, message, expectedHeadSha } = req.body || {};
     if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
@@ -7080,41 +7114,27 @@ app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaReposito
 app.get('/api/safety', providerSessionAccess, accountAuth, (req, res) => res.json(alphaSafetyView(req, safetyOf(req))));
 app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accountAuth, async (req, res) => {
   try {
-    const cur = safetyOf(req);
     const b = req.body || {};
-    if (typeof b.readOnly === 'boolean') cur.readOnly = b.readOnly;
-    if (typeof b.freezeSync === 'boolean') cur.freezeSync = b.freezeSync;
-    if (b.protect && b.protect.repo && b.protect.path) {
-      const key = String(b.protect.repo).trim();
-      if (!/^[^/\s]+\/[^/\s]+$/.test(key)) return res.status(400).json({ error: 'Invalid repository key' });
-      const list = new Set(cur.protected[key] || []);
-      const protectedPath = String(b.protect.path).replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
-      if (!protectedPath || protectedPath.length > 512 || protectedPath.includes('..')) return res.status(400).json({ error: 'Invalid protected path or pattern' });
-      if (b.protect.on === false) list.delete(protectedPath); else list.add(protectedPath);
-      if (list.size > 100) return res.status(413).json({ error: 'Up to 100 protected paths or patterns per repository' });
-      if (list.size) cur.protected[key] = [...list].sort(); else delete cur.protected[key];
-      if (Object.keys(cur.protected).length > 30) return res.status(413).json({ error: 'Up to 30 repositories with protected paths' });
-    }
-    req.effectiveSafety = await savePersistentSafety(req, cur);
-    await setSession(req, res, req.session);
+    const cur = await savePersistentSafety(req, b);
+    req.effectiveSafety = cur;
+    /* The change has committed: its evidence is written before anything else can fail. */
     const relatedRepo = b.protect && b.protect.repo ? b.protect.repo : 'identity';
     await appendEvidence(`safety:${identityKey(req.gh)}`, 'safety-change', crypto.randomUUID(), {
       actor: retainedActor(req), repository: relatedRepo, readOnly: cur.readOnly, freezeSync: cur.freezeSync,
       protectedCount: Object.values(cur.protected).reduce((n, x) => n + x.length, 0), changedAt: new Date().toISOString()
     }).catch(() => {});
+    await saveSessionSafetyCopy(req, res);
     /* The same view the read gives: no other repository's protected paths come back from a change to this one. */
     res.json(alphaSafetyView(req, req.effectiveSafety));
   } catch (e) { fail(res, e); }
 });
 
 async function pagedRepoList(req, resource, maxPages = 10) {
-  const pageSize = (req.gh.provider || 'github') === 'gitea' ? 50 : 100;
+  const pageSize = 100;
   const items = [];
   let truncated = false;
   for (let page = 1; page <= maxPages; page++) {
-    const query = (req.gh.provider || 'github') === 'gitea'
-      ? `limit=${pageSize}&page=${page}`
-      : `per_page=${pageSize}&page=${page}`;
+    const query = `per_page=${pageSize}&page=${page}`;
     const batch = await gh(req.gh, `${R(req)}/${resource}?${query}`);
     if (!Array.isArray(batch)) break;
     items.push(...batch);
@@ -7249,7 +7269,6 @@ async function preflightRestoreActions(req, actions) {
   return conflicts;
 }
 async function captureRefsSnapshot(req, includeManifest) {
-  if (req.gh.provider === 'gitlab') throw Object.assign(new Error('Snapshots are GitHub/Gitea-only for now'), { status: 501 });
   const [info, branchPage] = await Promise.all([
     gh(req.gh, `${R(req)}`),
     pagedRepoList(req, 'branches')
@@ -7291,7 +7310,7 @@ async function captureRefsSnapshot(req, includeManifest) {
   };
 }
 
-app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try { res.json(await captureRefsSnapshot(req, req.query.manifest === '1')); }
   catch (e) { fail(res, e); }
 });
@@ -7321,7 +7340,7 @@ async function snapshotComparisonForRequest(req, snapshot) {
   return { baseline, current, comparison: compareSnapshots(baseline, current) };
 }
 
-app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     res.json({
@@ -7333,7 +7352,7 @@ app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alpha
   } catch (e) { fail(res, e); }
 });
 
-app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
     const currentByName = new Map((result.current.refs || []).map(ref => [ref.name, ref]));
@@ -7349,11 +7368,12 @@ app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaR
     if (result.baseline.refsTruncated) warnings.push('The snapshot branch inventory was truncated.');
     if (result.baseline.tagsTruncated) warnings.push('The snapshot tag inventory was truncated. Tags are compared but not changed by ref restore.');
     if (result.comparison.truncated) warnings.push('At least one file manifest is truncated, so file counts are incomplete.');
-    if (actions.some(action => action.protected)) warnings.push('One or more protected provider branches would be force-updated. Provider branch rules may reject the restore.');
+    const requiresReset = actions.some(action => action.action === 'reset');
+    if (requiresReset) warnings.push('Existing branch resets are unavailable: this provider API has no expected-old compare-and-swap. Use commit restoration to recover file contents while preserving newer commits.');
     if (actions.length > 50) warnings.push('This preview contains more than 50 branch changes. Split recovery into smaller, reviewed snapshots before restoring.');
     if (protectedPatternsForReq(req).length) warnings.push('Nebulaverse-X protected-path policies are active. The actual restore remains blocked until those policies are unlocked.');
     if (safetyOf(req).readOnly) warnings.push('Nebulaverse-X read-only mode is active. Disable it before restoring branch references.');
-    const canRestore = result.comparison.compatible && actions.length > 0 && actions.length <= 50 && !result.baseline.refsTruncated && !protectedPatternsForReq(req).length && !safetyOf(req).readOnly;
+    const canRestore = !requiresReset && result.comparison.compatible && actions.length > 0 && actions.length <= 50 && !result.baseline.refsTruncated && !protectedPatternsForReq(req).length && !safetyOf(req).readOnly;
     const authorization = canRestore ? createRestoreAuthorization(req, actions) : '';
     res.json({
       kind: 'nebulaverse-restore-preview', version: 1, generatedAt: new Date().toISOString(),
@@ -7404,17 +7424,21 @@ app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaR
   } catch (e) { fail(res, e); }
 });
 
-app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
+app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   try {
     if (String(req.body && req.body.confirm || '').toUpperCase() !== 'FREEZE') {
       return res.status(400).json({ error: 'Type FREEZE to confirm emergency containment' });
     }
+    if (ALPHA_CONFIG.enabled) {
+      return res.status(403).json({
+        error: 'Emergency Shield changes identity-wide controls, which are unavailable in a repository-scoped alpha. Use repository Safeguards and session revocation instead.',
+        code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED'
+      });
+    }
     const captured = await captureRefsSnapshot(req, true);
-    const currentSafety = defaultSafety(req.effectiveSafety || req.session.safety);
-    currentSafety.readOnly = true;
-    currentSafety.freezeSync = true;
-    req.effectiveSafety = await savePersistentSafety(req, currentSafety);
-    await setSession(req, res, req.session);
+    req.effectiveSafety = await savePersistentSafety(req, { readOnly: true, freezeSync: true });
+    /* Once the controls have committed, containment finishes even if this session ended meanwhile. */
+    await saveSessionSafetyCopy(req, res);
 
     const inventory = await sessionsForIdentity(req);
     const requestedRevocations = inventory.available
@@ -7479,7 +7503,7 @@ app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alp
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
   try {
     if (!(await dbReady())) return res.json({ available: false, snapshots: [] });
     const r = await pool().query(
@@ -7505,10 +7529,15 @@ app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaR
 
 app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('recovery.restore-refs'), async (req, res) => {
   try {
-    if (req.gh.provider === 'gitlab') return res.status(501).json({ error: 'Ref restore is GitHub/Gitea-only for now' });
     const { authorization, confirm } = req.body || {};
     if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
     const grant = prepareRestoreAuthorization(req, authorization);
+    if (grant.actions.some(action => action.action !== 'recreate')) {
+      return res.status(409).json({
+        error: 'Resetting an existing branch requires provider-enforced expected-old comparison. Use commit restoration to preserve concurrent work.',
+        code: 'RESTORE_ATOMIC_RESET_UNAVAILABLE'
+      });
+    }
     const conflicts = await preflightRestoreActions(req, grant.actions);
     if (conflicts.length) {
       return res.status(409).json({
@@ -7520,14 +7549,12 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
     const report = [];
     for (const action of grant.actions) {
       try {
-        if (action.action === 'recreate') {
-          await gh(req.gh, `${R(req)}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${action.name}`, sha: action.to } });
-        } else {
-          await gh(req.gh, `${R(req)}/git/refs/heads/${encodeURIComponent(action.name)}`, { method: 'PATCH', body: { sha: action.to, force: true } });
-        }
+        // GitHub creates only absent references; a branch created after
+        // preflight is rejected by the provider instead of overwritten.
+        await gh(req.gh, `${R(req)}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${action.name}`, sha: action.to } });
         const execution = mutationGateway.executionSnapshot();
         report.push({
-          name: action.name, ok: true, action: action.action === 'recreate' ? 'recreated' : 'reset',
+          name: action.name, ok: true, action: 'recreated',
           operationId: execution && execution.operationIds[execution.operationIds.length - 1] || null
         });
       } catch (error) {
@@ -7556,31 +7583,35 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
       kind: 'nebulaverse-activity', version: 1, generatedAt: new Date().toISOString(),
       owner: req.params.owner, repo: req.params.repo, days, since
     };
-    if (req.gh.provider === 'gitlab') {
-      const cs = await glFetch(req.gh, `/projects/${glId(req)}/repository/commits?since=${encodeURIComponent(since)}&per_page=100`);
-      return res.json({ ...base, commits: cs.map(c => ({ sha: c.id, message: c.title, author: c.author_name, date: c.created_at })), pulls: [], issues: [], releases: [] });
-    }
     const includePulls = requestSupportsCapability(req, 'pulls.read');
     const includeIssues = requestSupportsCapability(req, 'issues.read');
     const includeReleases = requestSupportsCapability(req, 'releases.read');
-    const [commits, pulls, issues] = await Promise.all([
-      gh(req.gh, `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100`).catch(() => []),
-      includePulls
-        ? gh(req.gh, `${R(req)}/pulls?state=all&sort=updated&direction=desc&per_page=30`).catch(() => [])
-        : Promise.resolve([]),
-      includeIssues
-        ? gh(req.gh, `${R(req)}/issues?state=all&sort=updated&direction=desc&per_page=30`).catch(() => [])
-        : Promise.resolve([])
-    ]);
-    let releases = [];
-    if (includeReleases) {
-      try { releases = await gh(req.gh, `${R(req)}/releases?per_page=20`); } catch {}
-    }
+    /* An empty ref is the default branch: a repository with no branch selected yet asks this way. */
+    const ref = req.query.ref == null || req.query.ref === '' ? '' : requireBranchName(req.query.ref);
+    base.ref = ref || null;
+    const sourceRequests = [
+      { name: 'commits', limit: 100, requested: true, path: `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100${ref ? `&sha=${encodeURIComponent(ref)}` : ''}` },
+      { name: 'pulls', limit: 30, requested: includePulls, path: `${R(req)}/pulls?state=all&sort=updated&direction=desc&per_page=30` },
+      { name: 'issues', limit: 30, requested: includeIssues, path: `${R(req)}/issues?state=all&sort=updated&direction=desc&per_page=30` },
+      { name: 'releases', limit: 20, requested: includeReleases, path: `${R(req)}/releases?per_page=20` }
+    ];
+    const settled = await Promise.allSettled(sourceRequests.map(source => source.requested ? gh(req.gh, source.path) : Promise.resolve([])));
+    const sources = {};
+    const rows = {};
+    sourceRequests.forEach((source, index) => {
+      const outcome = settled[index];
+      const available = source.requested && outcome.status === 'fulfilled' && Array.isArray(outcome.value);
+      rows[source.name] = available ? outcome.value : [];
+      sources[source.name] = { requested: source.requested, available, truncated: available && outcome.value.length >= source.limit };
+    });
+    const { commits, pulls, issues, releases } = rows;
     const fresh = d => d && new Date(d) >= new Date(since);
     res.json({
       ...base,
+      sources,
+      partial: Object.values(sources).some(source => source.requested && (!source.available || source.truncated)),
       commits: (commits || []).map(c => ({
-        sha: c.sha, message: ((c.commit && c.commit.message) || '').split('\n')[0],
+        sha: c.sha, parentShas: (Array.isArray(c.parents) ? c.parents : []).map(parent => parent.sha).filter(sha => /^[0-9a-f]{40}$/i.test(sha)), message: ((c.commit && c.commit.message) || '').split('\n')[0],
         author: (c.commit && c.commit.author && c.commit.author.name) || '',
         date: c.commit && c.commit.author && c.commit.author.date
       })),
@@ -7627,17 +7658,14 @@ app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess
 
     const results = await Promise.all(selected.map(async entry => {
       try {
-        const commits = req.gh.provider === 'gitlab'
-          ? (await glFetch(req.gh, `/projects/${encodeURIComponent(entry.full_name)}/repository/commits?since=${encodeURIComponent(since)}&per_page=20`))
-            .map(c => ({ sha: c.id, message: c.title, author: c.author_name, date: c.created_at }))
-          : (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
-            .map(c => ({
-              sha: c.sha,
-              message: ((c.commit && c.commit.message) || '').split('\n')[0],
-              author: (c.commit && c.commit.author && c.commit.author.name) || '',
-              date: (c.commit && c.commit.committer && c.commit.committer.date)
-                || (c.commit && c.commit.author && c.commit.author.date)
-            }));
+        const commits = (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
+          .map(c => ({
+            sha: c.sha,
+            message: ((c.commit && c.commit.message) || '').split('\n')[0],
+            author: (c.commit && c.commit.author && c.commit.author.name) || '',
+            date: (c.commit && c.commit.committer && c.commit.committer.date)
+              || (c.commit && c.commit.author && c.commit.author.date)
+          }));
         return { repo: entry.full_name, commits };
       } catch (error) {
         /*
@@ -7844,6 +7872,7 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           scope: { provider: 'github', owner, repo },
           ref,
           token,
+          signal,
           transport: input => session.request(input),
           /* The files past the traced set, many to a request, through the query profile bound to GitHub's GraphQL endpoint. */
           queryTransport: input => guardedFetch(input),
@@ -7851,10 +7880,11 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
           advisoryTransport: input => guardedFetch(input),
           licenceTransport: input => guardedFetch(input),
           intelTransport: input => guardedFetch(input),
-          analyser: input => analyseOffThread(input, { onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
-          scanner: input => scanOffThread(input),
+          analyser: input => analyseOffThread(input, { signal, onStage: (stage, detail) => onProgress({ stage, ...(detail || {}) }) }),
+          scanner: input => scanOffThread(input, { signal }),
           onProgress
         });
+        assertAuditActive(signal);
         const finished = { ...result, auditedAt: new Date().toISOString() };
         /*
          * The team's decisions first, so the grade and the kept history are
@@ -7862,9 +7892,10 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
          * the history carries for each finding.
          */
         const triage = await triageForAccount(account, owner, repo);
+        assertAuditActive(signal);
         const decided = triage && triage.decisions ? applyTriage(finished, triage.decisions) : finished;
         if (triage && triage.unavailable) decided.triage = { unavailable: true };
-        const recorded = await recordAudit(account, owner, repo, decided);
+        const recorded = await recordAudit(account, owner, repo, decided, { signal });
         const { firstSeen = null, ...history } = recorded || {};
         const clocked = firstSeen ? withClocks(decided, firstSeen) : decided;
         clocked.history = recorded ? history : recorded;
@@ -7911,12 +7942,13 @@ function auditWatch() {
   return _auditWatch;
 }
 /* A history that could not be written never fails the audit it would have recorded. */
-async function recordAudit(account, owner, repo, result) {
+async function recordAudit(account, owner, repo, result, { signal } = {}) {
+  assertAuditActive(signal);
   const history = auditHistory();
   if (!history) return null;
   try {
     const scope = normalizePolicyScope({ provider: account.provider || 'github', baseUrl: account.baseUrl || '', owner, repo });
-    const recorded = await history.record({ scope, identityKey: identityKey(account), result });
+    const recorded = await history.record({ scope, identityKey: identityKey(account), result, signal });
     return {
       saved: true,
       auditId: recorded.auditId,
@@ -7927,6 +7959,8 @@ async function recordAudit(account, owner, repo, result) {
       firstSeen: recorded.firstSeen
     };
   } catch (error) {
+    assertAuditActive(signal);
+    if (error && error.code === 'AUDIT_CANCELLED') throw error;
     console.warn(`[code-audit] history not recorded (${cleanText(String(error && error.code || 'error'), 60)})`);
     return { saved: false };
   }
@@ -8145,14 +8179,6 @@ app.get('/api/repo/:owner/:repo/code-audit/metrics', providerSessionAccess, alph
  * recorded for a merge nobody asked for.
  */
 async function readPullFacts(req, number) {
-  if (req.gh.provider === 'gitlab') {
-    const m = await glFetch(req.gh, `/projects/${glId(req)}/merge_requests/${encodeURIComponent(number)}`);
-    return {
-      number, head: String(m.source_branch || ''), base: String(m.target_branch || ''), headSha: String(m.sha || '').toLowerCase(),
-      fork: Boolean(m.source_project_id && m.target_project_id && m.source_project_id !== m.target_project_id),
-      open: m.state === 'opened'
-    };
-  }
   const p = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
   const headRepo = p.head && p.head.repo && p.head.repo.full_name;
   const baseRepo = p.base && p.base.repo && p.base.repo.full_name;
@@ -8238,12 +8264,13 @@ function siteCheckRequest(req, res) {
   }
   const answer = siteJobs.request({
     identity: who, owner: 'site', repo: origin, ref: '', run,
-    launch: ({ onProgress }) => {
+    launch: ({ onProgress, signal }) => {
       siteCheckLast.set(who, Date.now());
       siteOriginLast.set(origin, Date.now());
       for (const map of [siteCheckLast, siteOriginLast]) if (map.size > 5000) map.delete(map.keys().next().value);
       return checkSite({
         url: origin,
+        signal,
         transport: input => guardedFetch(input),
         advisoryTransport: input => guardedFetch(input),
         txt: (name, budget) => guardedTxt(name, budget),
@@ -8263,33 +8290,25 @@ app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaReposit
  * safeguards. Read-only: every path and every judgement is in
  * src/branch-protection.js; this binds its reader to the open repository.
  */
-app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const provider = req.gh.provider || 'github';
     const branch = req.query.branch ? requireBranchName(String(req.query.branch)) : '';
-    const read = provider === 'gitlab'
-      ? apiPath => glFetch(req.gh, `/projects/${glId(req)}${apiPath}`)
-      : apiPath => gh(req.gh, `${R(req)}${apiPath}`);
-    const webBase = provider === 'github' ? 'https://github.com' : provider === 'gitlab' ? (req.gh.baseUrl || 'https://gitlab.com') : req.gh.baseUrl;
+    const read = apiPath => gh(req.gh, `${R(req)}${apiPath}`);
+    const webBase = 'https://github.com';
     res.json(await readBranchProtection({ provider, owner: req.params.owner, repo: req.params.repo, branch, read, webBase }));
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit'), auth, async (req, res) => {
   try {
     const branch = req.query.ref || '';
     const found = [], sources = [];
     for (const name of MANIFESTS) {
       try {
-        let text = '';
-        if (req.gh.provider === 'gitlab') {
-          const f = await glFetch(req.gh, `/projects/${glId(req)}/repository/files/${encodeURIComponent(name)}?ref=${encodeURIComponent(branch || 'HEAD')}`);
-          text = Buffer.from(f.content || '', 'base64').toString('utf8');
-        } else {
-          const f = await gh(req.gh, `${R(req)}/contents/${encodeURIComponent(name)}${branch ? `?ref=${encodeURIComponent(branch)}` : ''}`);
-          text = Buffer.from(f.content || '', 'base64').toString('utf8');
-        }
+        const f = await gh(req.gh, `${R(req)}/contents/${encodeURIComponent(name)}${branch ? `?ref=${encodeURIComponent(branch)}` : ''}`);
+        const text = Buffer.from(f.content || '', 'base64').toString('utf8');
         const pkgs = parseManifest(name, text);
         if (pkgs.length) { sources.push({ file: name, packages: pkgs.length, approximate: name === 'package.json' }); found.push(...pkgs); }
         if (name === 'package-lock.json' && pkgs.length) break;
@@ -8375,7 +8394,7 @@ function guessMime(p) {
 }
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
-app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.json({ available: false, connected: false, reason: 'GitHub-only in v5.2' });
     if (!(await dbReady())) return res.json({ available: false, connected: false, reason: 'Connect the existing Neon DATABASE_URL to persist verified events' });
@@ -8400,7 +8419,7 @@ async function removeOrphanedProviderHook(acct, req, providerHookId) {
   }
 }
 
-app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.connect'), async (req, res) => {
+app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.connect'), async (req, res) => {
   try {
     if ((req.gh.provider || 'github') !== 'github') return res.status(501).json({ error: 'Verified live events are GitHub-only in v5.2' });
     if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
@@ -8491,7 +8510,7 @@ app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, al
   } catch (e) { fail(res, e); }
 });
 
-app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, mutationContext('webhook.disconnect'), async (req, res) => {
+app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.disconnect'), async (req, res) => {
   try {
     if (!(await dbReady())) return res.status(503).json({ error: 'Live event storage is unavailable' });
     const key = identityKey(req.gh);
@@ -8612,7 +8631,7 @@ app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRep
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alphaRepositoryAccess, auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
   try {
     if (!(await dbReady())) return res.json({ available: false, events: [], hasMore: false, truncatedBefore: false, cursor: '' });
     const limit = Math.min(Math.max(parseInt(req.query.limit || '200', 10) || 200, 1), 500);
@@ -8643,7 +8662,7 @@ app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alp
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events', { allowExperimental: true }), auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
   const key = liveStreamKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh));
   const scopedClients = LIVE_CLIENTS.get(key);
   if (!canAcceptLiveClient(liveClientCount(), scopedClients ? scopedClients.size : 0, MAX_LIVE_CLIENTS_TOTAL, MAX_LIVE_CLIENTS_PER_KEY)) {
@@ -8708,7 +8727,7 @@ data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, a
   });
 });
 
-app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, auth, async (req, res) => {
+app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
   try {
     const identity = identityKey(req.gh);
     const key = scopedEvidenceKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identity);

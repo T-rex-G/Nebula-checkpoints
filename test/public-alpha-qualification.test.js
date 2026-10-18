@@ -22,8 +22,12 @@ assert(catalog.hosted.includes('single-bounded-mutation'));
 assert(catalog.manual.includes('ios-voiceover'));
 assert(catalog.manual.includes('desktop-screen-reader'));
 assert(catalog.providers.github.includes('file.write'));
-assert(catalog.providers.gitea.includes('file.write'));
-assert(!catalog.providers.gitea.includes('workflows.read'));
+assert.deepStrictEqual(Object.keys(catalog.providers), ['github']);
+for (const retired of ['gitlab', 'gitea']) {
+  const unsupportedRegistry = structuredClone(registry);
+  unsupportedRegistry.providers[retired] = structuredClone(registry.providers.github);
+  assert.throws(() => qualificationCatalog(unsupportedRegistry), error => error.code === 'PUBLIC_ALPHA_REGISTRY_INVALID');
+}
 assert(Object.isFrozen(catalog));
 
 const fixture = createPassFixture();
@@ -39,9 +43,17 @@ const options = {
     return structuredClone(fixture.envelopes[artifact.id]);
   }
 };
+for (const retired of ['gitlab', 'gitea']) {
+  assert.throws(() => verifyQualification(fixture.record, {
+    ...options, expectedAuthorizedTargets: { ...fixture.bindings.expectedAuthorizedTargets, [retired]: 'd'.repeat(64) }
+  }), error => error.code === 'PUBLIC_ALPHA_OPTIONS_INVALID');
+}
+
 const result = verifyQualification(fixture.record, options);
 assert.strictEqual(result.ok, true);
 assert.strictEqual(result.decision, 'go');
+assert.strictEqual(result.checks.trustedLiveTargets, 2);
+assert.strictEqual(result.checks.trustedLiveTargets, Object.keys(fixture.bindings.expectedAuthorizedTargets).length);
 assert.match(result.recordHash, /^[0-9a-f]{64}$/);
 assert(Object.isFrozen(result));
 

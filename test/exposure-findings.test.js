@@ -86,7 +86,8 @@ function findingsFor(text, overrides = {}) {
     'a credential differing in its last byte': print({ secret: TOKEN_B }),
     'the rule': print({ rule: 'slack-token' }),
     'the path': print({ path: 'app/other.js' }),
-    'the provider': print({ scope: { ...scope, provider: 'gitea' } }),
+    // Historical namespaces remain distinct for retained evidence; this hash is not an authorization gate.
+    'the historical provider': print({ scope: { ...scope, provider: 'gitea' } }),
     'the authority': print({ scope: { ...scope, authority: 'gitea.example' } }),
     'the owner': print({ scope: { ...scope, owner: 'Other' } }),
     'the repository': print({ scope: { ...scope, repo: 'Other' } }),
@@ -170,6 +171,16 @@ function findingsFor(text, overrides = {}) {
   );
   assert.notStrictEqual(print({ hmacKey: otherKey }), print());
   assert.throws(() => print({ hmacKey: undefined }), /key/i, 'and there is no unkeyed path');
+}
+
+/* GitHub repositories may still contain credentials issued by other services. */
+{
+  const thirdParty = `gl${'pat'}-${'B'.repeat(24)}`;
+  const findings = findingsFor(`token=${thirdParty}`);
+  assert.strictEqual(findings.findings.length, 1);
+  assert.strictEqual(findings.findings[0].rule, 'gitlab-token');
+  assert.strictEqual(findings.findings[0].scope.provider, 'github');
+  assert(!JSON.stringify(findings).includes(thirdParty), 'third-party credentials stay redacted');
 }
 
 /* ---- Findings ---------------------------------------------------------- */

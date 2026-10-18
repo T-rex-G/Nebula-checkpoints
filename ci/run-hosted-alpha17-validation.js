@@ -51,7 +51,16 @@ const OPERATIONAL_CHECK_CONTRACT = Object.freeze({
   'database-interruption-recovery': Object.freeze({ status: 'pass', failClosedDuringInterruption: true }),
   'provider-429-outage': Object.freeze({ status: 'pass', retryBounded: true }),
   'application-rollback': Object.freeze({ status: 'pass', candidateRestored: true }),
-  'disposable-tester-purge': Object.freeze({ status: 'pass', tokenBearingStateRemoved: true })
+  'disposable-tester-purge': Object.freeze({ status: 'pass', tokenBearingStateRemoved: true }),
+  /*
+   * Live events on the deployed candidate, which only a deployment GitHub can
+   * reach can prove: the product registers its webhook on the sandbox target,
+   * a push is delivered with a signature the candidate verifies, the event
+   * reaches an open stream, and disconnecting removes the webhook at GitHub.
+   */
+  'live-events-delivery': Object.freeze({
+    status: 'pass', webhookRegistered: true, signedDeliveryVerified: true, eventStreamed: true, webhookRemovedAtProvider: true
+  })
 });
 
 function fail(message, code) {

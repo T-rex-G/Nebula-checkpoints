@@ -148,6 +148,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
     method,
     credentials: 'same-origin',
     cache: opts.cache || 'no-store',
+    signal: opts.signal,
     headers: {
       ...(opts.headers || {}),
       'x-nv': '1',
@@ -866,7 +867,6 @@ function paintFloatingAction(name) {
      * and offered here would be an action with no gate at all.
      */
     if (item.control.dataset.feature) entry.dataset.feature = item.control.dataset.feature;
-    if (item.control.dataset.allowExperimental) entry.dataset.allowExperimental = item.control.dataset.allowExperimental;
     const mark = item.control.querySelector('svg');
     if (mark) {
       const copy = mark.cloneNode(true);
@@ -987,7 +987,8 @@ function showPage(name) {
     window.scrollTo(0, 0);
     const region = shown.querySelector('.container');
     if (region) region.scrollTop = 0;
-    if (name !== 'work') history.replaceState(null, '', location.pathname);
+    /* The findings inbox keeps its filters in the address; every other screen but the workbench has none. */
+    if (name !== 'work' && name !== 'findings') history.replaceState(null, '', location.pathname);
   });
   /*
    * After the swap has been laid out, not during it.
@@ -1038,6 +1039,11 @@ async function applyRoute() {
   if (!state.me) return;
   const hash = location.hash;
   if (hash === lastAppliedRoute) return;
+  if (/^#\/findings(\?.*)?$/.test(hash)) {
+    lastAppliedRoute = hash;
+    if (findingsOffered()) showFindings(findingsFiltersFromHash());
+    return;
+  }
   const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(hash);
   if (!m) return;
   lastAppliedRoute = hash;
@@ -1062,6 +1068,11 @@ async function applyRoute() {
 window.addEventListener('popstate', () => { void applyRoute(); });
 window.addEventListener('hashchange', () => { void applyRoute(); });
 async function restoreRoute() {
+  if (/^#\/findings(\?.*)?$/.test(location.hash) && findingsOffered()) {
+    lastAppliedRoute = location.hash;
+    showFindings(findingsFiltersFromHash());
+    return true;
+  }
   const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(location.hash);
   if (!m) return false;
   lastAppliedRoute = location.hash;
@@ -1273,7 +1284,7 @@ function renderGithubAppSettings(status) {
   const connections = Array.isArray(status && status.connections) ? status.connections : [];
   if (!enabled) {
     return `<div class="github-app-connection github-app-unavailable">
-      <div><b>GitHub App is optional</b><p>It is not configured on this deployment. GitHub PAT, OAuth, GitLab, and Gitea access remain available.</p></div>
+      <div><b>GitHub App is optional</b><p>It is not configured on this deployment. GitHub token and OAuth access remain available.</p></div>
     </div>`;
   }
   const currentCanAuthorize = !!(state.me && state.me.provider === 'github' && state.me.authMethod !== 'github-app');
@@ -1355,7 +1366,7 @@ document.addEventListener('click', async event => {
         showPage('login');
       } else {
         try {
-          state.me = await api('/api/me');
+          state.me = requireGithubIdentity(await api('/api/me'));
           state.caps = state.me.caps || null;
           applyCaps();
           setAvatar(state.me.avatar);
@@ -1416,7 +1427,7 @@ async function openSettings() {
       ${window.NebulaAlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
       <div class="set-group">
         <div class="set-label">About</div>
-        <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub · GitLab · Gitea from your pocket.</p>
+        <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub from your pocket.</p>
         ${state.me && state.me.release
           ? `<p class="hint mono" id="setBuild" style="margin:0 0 8px">Build ${esc(state.me.release)}</p>`
           : ''}
@@ -1444,12 +1455,21 @@ async function openSettings() {
 }
 
 function alphaRevocationGuidanceBody(guidance) {
-  const items = (Array.isArray(guidance) ? guidance : [])
+  const list = Array.isArray(guidance) ? guidance : [];
+  const items = list
     .filter(item => item && /^https:\/\//i.test(String(item.url || '')))
     .map(item => `<a class="btn btn-ghost small" href="${escAttr(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.label || 'Open provider settings')}</a>`)
     .join('');
+  /* A retired provider has no link: its step is said, never built from saved configuration. */
+  const steps = list.filter(item => item && item.label && !item.url).map(item => `<li>${esc(item.label)}</li>`).join('');
   return `<p class="hint">Nebulaverse-X removed its token-bearing provider state. Provider revocation is a separate action and is never claimed automatically.</p>
-    <div class="about-actions">${items || '<span class="hint">No provider revocation link was returned.</span>'}</div>`;
+    ${steps ? `<ul class="hint revocation-steps">${steps}</ul>` : ''}
+    <div class="about-actions">${items || (steps ? '' : '<span class="hint">No provider revocation link was returned.</span>')}</div>`;
+}
+/* What to revoke by hand, after an account left the session. */
+function showRevocationGuidance(guidance) {
+  if (!Array.isArray(guidance) || !guidance.length) return null;
+  return modal({ title: 'Revoke at provider', okText: 'Done', bodyHTML: alphaRevocationGuidanceBody(guidance) });
 }
 
 async function disconnectAlphaProviders(openGuidance) {
@@ -1568,7 +1588,17 @@ document.addEventListener('change', async e => {
 })();
 
 /* ================= AUTH ================= */
-let loginProvider = 'github';
+function githubIdentity(account) {
+  return !!account && account.provider === 'github';
+}
+function requireGithubIdentity(account) {
+  if (!githubIdentity(account)) {
+    const error = new Error('Connect a GitHub account to continue.');
+    error.status = 401;
+    throw error;
+  }
+  return account;
+}
 /*
  * These two panels belong to the controlled alpha, and say so out loud: one
  * tells an invited tester never to connect a production repository, the other
@@ -1603,9 +1633,7 @@ function ensureAlphaProviderGuidance() {
     card.insertBefore(panel, $('#loginError'));
   }
   const copy = panel.querySelector('p');
-  copy.textContent = loginProvider === 'github'
-    ? 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.'
-    : `Use a short-lived ${loginProvider === 'gitlab' ? 'GitLab' : 'Gitea'} sandbox credential with only the permissions needed for the advertised capability subset; never use a production repository.`;
+  copy.textContent = 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.';
   return panel;
 }
 function ensureLoginAlphaSessionControls() {
@@ -1631,28 +1659,11 @@ function ensureLoginAlphaSessionControls() {
   card.appendChild(controls);
   return controls;
 }
-$('#provSeg').addEventListener('click', e => {
-  const b = e.target.closest('.seg-btn'); if (!b) return;
-  selectSegment('#provSeg', x => x === b);
-  loginProvider = b.dataset.v;
-  $('#oauthBtn').hidden = loginProvider !== 'github' || !window._oauthOn;
-  $('#baseUrlWrap').hidden = loginProvider === 'github';
-  $('#baseUrl').placeholder = loginProvider === 'gitea' ? 'https://gitea.example.com' : 'https://gitlab.com (default)';
-  $('#tokenLabel').textContent = { github: 'GitHub Personal Access Token', gitlab: 'GitLab Personal Access Token (api scope)', gitea: 'Gitea Access Token' }[loginProvider];
-  $('#tokenInput').placeholder = { github: 'ghp_…', gitlab: 'glpat-…', gitea: 'token…' }[loginProvider];
-  renderLoginGuidance();
-  ensureAlphaProviderGuidance();
-});
 function renderLoginGuidance() {
   const github = 'Create a short-lived <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> limited to selected repositories. Start with Contents read access; add Contents write or other permissions only for the actions you need.';
-  const providers = {
-    github,
-    gitlab: 'Use a short-lived sandbox token from GitLab → Preferences → Access tokens. The GitLab integration requires api scope; limit the token to a test account or project.',
-    gitea: 'Use a short-lived sandbox token from your Gitea → Settings → Applications. Select only the repository permissions needed for your actions and enter the server URL above.'
-  };
-  const app = loginProvider === 'github' && state.runtime.githubApp && state.runtime.githubApp.enabled
+  const app = state.runtime.githubApp && state.runtime.githubApp.enabled
     ? ' After sign-in, open Settings → GitHub App to connect an installation limited to selected repositories.' : '';
-  $('#loginHint').innerHTML = providers[loginProvider] + app + ' Sessions use an HttpOnly session cookie stored by your browser. Provider credentials are encrypted in that cookie or in server-side session storage.';
+  $('#loginHint').innerHTML = github + app + ' Sessions use an HttpOnly session cookie stored by your browser. GitHub credentials are encrypted in that cookie or in server-side session storage.';
   const value = key => Number.isFinite(state.runtime[key]) ? `${state.runtime[key]} MB` : 'unavailable';
   $('#loginLimits').textContent = runtimeLimitsKnown()
     ? `Deployment limits — Direct upload: ${value('uploadMaxMb')}; Git data: ${value('gitDataMaxMb')}; native push: ${value('nativePushMaxMb')}. Provider limits also apply. Public alpha: no production service guarantee.`
@@ -1661,8 +1672,6 @@ function renderLoginGuidance() {
 
 const PROV_ICON = {
   github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
-  gitlab: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.4l3.68-11.3H8.32L12 21.4zM3.7 10.1L2.16 14.8a1 1 0 0 0 .36 1.12L12 21.4 3.7 10.1zM3.7 10.1h4.62L6.34 4.02a.5.5 0 0 0-.95 0L3.7 10.1zM20.3 10.1l1.54 4.7a1 1 0 0 1-.36 1.12L12 21.4l8.3-11.3zM20.3 10.1h-4.62l1.98-6.08a.5.5 0 0 1 .95 0l1.69 6.08z"/></svg>',
-  gitea: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24"><path d="M4.5 8h11v6.5a4.5 4.5 0 0 1-4.5 4.5H9a4.5 4.5 0 0 1-4.5-4.5V8z"/><path d="M15.5 9.5h2a2.5 2.5 0 0 1 0 5h-2M8 5.5V4M11.5 5.5V3.5"/></svg>'
 };
 function applyCaps() {
   const caps = state.caps || { prs: 1, issues: 1, releases: 1, actions: 1, lfs: 1, tm: 1, batch: 1, search: 1, notif: 1, compare: 1 };
@@ -1691,16 +1700,15 @@ async function loadProviderCapabilities() {
   ) || (provider === 'github' ? 'github.com' : '');
   await window.NebulaCapabilityUI.load(provider, authority, { connected: !!state.me });
   window.NebulaCapabilityUI.apply();
-  applyGovernanceCapabilityBoundary($('#govRoot'));
 }
-function runCapabilityAction(feature, action, options = {}) {
+function runCapabilityAction(feature, action) {
   if (!feature) {
     action();
     return true;
   }
   const resolved = window.NebulaCapabilityUI.decision(feature);
-  const blocked = resolved.status === 'Unavailable'
-    || (resolved.status === 'Experimental' && options.allowExperimental !== true);
+  /* Only what is Supported runs. There is no opt-in for anything less. */
+  const blocked = resolved.status !== 'Supported';
   if (blocked) {
     toast(window.NebulaCapabilityUI.explain(feature), 'err');
     return false;
@@ -1734,7 +1742,7 @@ async function loadRuntimeConfig(attempt = 0) {
     window._oauthOn = !!c.oauth;
     state.runtime = { ...state.runtime, ...c };
     refreshQueuedStrategies();
-    $('#oauthBtn').hidden = !c.oauth || loginProvider !== 'github';
+    $('#oauthBtn').hidden = !c.oauth;
     renderLoginGuidance();
   } catch {
     /* One retry: a free instance's first request can arrive while it wakes. */
@@ -1758,7 +1766,7 @@ async function boot() {
   $('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
   $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
-    state.me = await api('/api/me');
+    state.me = requireGithubIdentity(await api('/api/me'));
     try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
     refreshSafety();
     state.caps = state.me.caps || null;
@@ -1770,11 +1778,12 @@ async function boot() {
        asked; not awaited, so the marker never delays the first screen. */
     refreshUnread();
     loadPosture();
+    loadSecurityPosture();
     loadRepos(true);
     if (!(await restoreRoute())) showOverview();
   } catch (e) {
     const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
-    if (cached && isOfflineError(e)) {
+    if (githubIdentity(cached) && isOfflineError(e)) {
       /* offline launch: proceed with the last-known identity and cached data */
       state.me = cached;
       state.caps = cached.caps || null;
@@ -1785,7 +1794,16 @@ async function boot() {
       loadRepos(true);
       if (!(await restoreRoute())) showOverview();
       toast('Offline mode — showing cached data ✦', 'ok');
+    } else if (e.code === 'ACCOUNT_SELECTION_REQUIRED') {
+      /* A retired account is still the selected one: the person chooses a GitHub
+         account or removes it; nothing acts as another account meanwhile. */
+      await purgeLocalData(false);
+      state.me = null;
+      showPage('login');
+      openAccounts();
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
+      if (cached && !githubIdentity(cached)) await purgeLocalData(true);
+      state.me = null;
       ensureAlphaProviderGuidance();
       ensureLoginAlphaSessionControls();
       showPage('login');
@@ -1816,12 +1834,12 @@ async function doLogin() {
   $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Docking…';
   try {
     await purgeLocalData(true);
-    state.me = await api('/api/login', {
+    state.me = requireGithubIdentity(await api('/api/login', {
       method: 'POST',
-      body: { token, provider: loginProvider, baseUrl: ($('#baseUrl') ? $('#baseUrl').value : '').trim() }
-    });
+      body: { token, provider: 'github' }
+    }));
     try {
-      const me2 = await api('/api/me');
+      const me2 = requireGithubIdentity(await api('/api/me'));
       state.me = { ...state.me, ...me2 };
       state.caps = me2.caps || null;
       sessionStorage.setItem('nv_me', JSON.stringify(state.me));
@@ -1902,7 +1920,7 @@ async function purgeLocalData(full) {
     '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
     '#cmpResult', '#uploadQueue', '#actionsList', '#stageList', '#paletteList',
     '#filePath', '#fileSize', '#mdPreview', '#binaryPreview', '#editDiffBody',
-    '#githubAppSettingsBody', '#tokenInput', '#baseUrl', '#codeSearch', '#findInput',
+    '#githubAppSettingsBody', '#tokenInput', '#codeSearch', '#findInput',
     '#replaceInput', '#uploadMsg', '#stageMsg', '#paletteInput'
   ]) {
     const element = $(selector);
@@ -1941,8 +1959,9 @@ window.addEventListener('storage', event => {
 });
 async function doLogout() {
   let remoteError = null;
+  let result = null;
   try {
-    await api('/api/logout', { method: 'POST' });
+    result = await api('/api/logout', { method: 'POST' });
   } catch (error) {
     remoteError = error;
   } finally {
@@ -1952,6 +1971,7 @@ async function doLogout() {
     showPage('login');
   }
   if (remoteError) presentError(remoteError);
+  else if (result) showRevocationGuidance(result.revocationGuidance);
 }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
@@ -2092,8 +2112,11 @@ function showOverview() {
   renderWorkspacePulse();
   loadScannerPosture();
   loadPosture();
+  loadSecurityPosture();
   loadActivityFeed();
   showPage('overview');
+  watchPullBoard();
+  if (pullBoardState.visible) void loadPullBoard();
 }
 
 /*
@@ -2190,16 +2213,14 @@ function paintCoreState() {
   const scope = $('#ovCoreScope');
   const live = $('#ovCoreLive');
   if (!scope) return;
-  const authority = state.me && (state.me.authority || state.me.host || state.me.baseUrl)
-    || (state.me && state.me.provider === 'github' ? 'github.com' : '');
-  scope.textContent = authority || (state.me ? 'Connected' : 'Not connected');
+  const connected = !!state.me && state.me.provider === 'github';
+  scope.textContent = connected ? 'github.com' : 'Not connected';
   if (live) {
     /*
      * "Connected" rather than "Live": an identity proves a session, not that
      * anything is being watched in real time, and this rail has no stream
      * behind it that would earn the stronger word.
      */
-    const connected = !!state.me;
     live.textContent = connected ? 'Connected' : 'Not connected';
     live.classList.toggle('is-idle', !connected);
   }
@@ -2248,12 +2269,15 @@ const POSTURE_TTL_MS = 60 * 1000;
 let postureRequest = 0;
 let postureAt = 0;
 /* Anything that changes what the posture reports marks it for re-reading. */
-function invalidatePosture() { postureAt = 0; }
+function invalidatePosture() { postureAt = 0; securityPostureAt = 0; findingsState.at = 0; }
 function clearPosture() {
   postureRequest++;
   postureAt = 0;
   state.posture = null;
   paintBoundary(null);
+  clearSecurityPosture();
+  clearFindings();
+  clearPullBoard();
 }
 async function loadPosture(force) {
   if (!state.me) return;
@@ -2273,6 +2297,162 @@ async function loadPosture(force) {
     paintBoundary({ state: isOfflineError(error) ? 'offline' : 'unreachable' });
   }
   renderWorkspacePulse();
+}
+
+/*
+ * The security posture card (public/security-posture.js), on the posture's
+ * own terms: one request, re-read at most once a minute, bound to the identity
+ * that asked, and not asked at all by a deployment that does not offer it.
+ * The repositories nobody has read come from the inventory the session holds,
+ * so the card is drawn again whenever that changes.
+ */
+let securityPostureRequest = 0;
+let securityPostureAt = 0;
+function clearSecurityPosture() {
+  securityPostureRequest++;
+  securityPostureAt = 0;
+  state.securityPosture = null;
+}
+function securityPostureOffered() {
+  return Boolean(window.NebulaCapabilityUI) && window.NebulaCapabilityUI.decision('workspace.posture').status === 'Supported';
+}
+async function openRepositoryTool(owner, repo, tab) {
+  const opened = await openRepo(owner, repo);
+  if (opened) switchTab(tab);
+}
+function renderSecurityPosture() {
+  const section = $('#wpPostureSection');
+  const host = $('#wpPosture .wp-body');
+  if (!section || !host || !window.NebulaSecurityPosture) return;
+  section.hidden = !securityPostureOffered();
+  if (section.hidden) return;
+  window.NebulaSecurityPosture.render(host, window.NebulaSecurityPosture.model(state.securityPosture, state.repos), {
+    audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); },
+    inbox: findingsOffered() ? filters => showFindings(window.NebulaFindingsInbox.parseFilters(filters || '')) : null
+  });
+}
+async function loadSecurityPosture(force) {
+  if (!state.me) return;
+  if (!securityPostureOffered()) { renderSecurityPosture(); return; }
+  if (!force && securityPostureAt && Date.now() - securityPostureAt < POSTURE_TTL_MS) { renderSecurityPosture(); return; }
+  const request = ++securityPostureRequest;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const stale = () => request !== securityPostureRequest || epoch !== state.uiEpoch || identity !== state.me;
+  securityPostureAt = Date.now();
+  if (!state.securityPosture) renderSecurityPosture();
+  try {
+    const summary = await api('/api/workspace/security-posture');
+    if (stale()) return;
+    state.securityPosture = summary && typeof summary === 'object' ? summary : { available: false, reason: 'unreadable' };
+  } catch (error) {
+    if (stale()) return;
+    securityPostureAt = 0;
+    state.securityPosture = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
+  }
+  renderSecurityPosture();
+}
+
+/*
+ * The open pull requests across the workspace (public/pull-board.js). Read
+ * only when the card comes into view, from the repositories most recently
+ * pushed to, a few at a time, through the same list route the workbench
+ * uses -- so a card opened from here lands on a list already in the cache.
+ * Bound to the identity that asked, like the posture above it.
+ */
+const PULL_BOARD_TTL_MS = 5 * 60 * 1000;
+const pullBoardState = { results: null, at: 0, request: 0, inflight: false, visible: false, observer: null };
+function clearPullBoard() {
+  pullBoardState.request++;
+  pullBoardState.results = null;
+  pullBoardState.at = 0;
+  pullBoardState.inflight = false;
+}
+function pullBoardOffered() {
+  return Boolean(window.NebulaCapabilityUI && window.NebulaPullBoard) && window.NebulaCapabilityUI.decision('pulls.read').status === 'Supported';
+}
+function renderPullBoard() {
+  const section = $('#wpPullsSection');
+  const host = $('#wpPulls .wp-body');
+  if (!section || !host || !window.NebulaPullBoard) return;
+  section.hidden = !pullBoardOffered();
+  if (section.hidden) return;
+  const Board = window.NebulaPullBoard;
+  Board.render(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
+    open: (owner, repo, number) => {
+      state.pendingPull = { key: `${owner}/${repo}`.toLowerCase(), number: Number(number) };
+      /* The board lists open pull requests, so the list it lands on is the open one. */
+      if (state.prState !== 'open') {
+        state.prState = 'open';
+        selectSegment('#prState', button => button.dataset.v === 'open');
+      }
+      void openRepositoryTool(owner, repo, 'pulls').then(() => {
+        /* The list was already drawn, so the tab did not read it again: read it now to open the card's pull request. */
+        if (state.pendingPull && !$('#prList .skeleton')) loadPRs();
+      });
+    },
+    refresh: () => { void loadPullBoard(true); }
+  });
+  /*
+   * The inventory arrived after the card came into view: read it now. Only
+   * when there is someone to read for and something readable to ask, so the
+   * reading's own early returns, which draw the card, never ask again.
+   */
+  if (pullBoardState.visible && !pullBoardState.inflight && !pullBoardState.results && state.me
+    && Board.pickRepositories(state.repos).length) void loadPullBoard();
+}
+function watchPullBoard() {
+  const section = $('#wpPullsSection');
+  if (!section || pullBoardState.observer) return;
+  if (typeof IntersectionObserver !== 'function') { pullBoardState.visible = true; return; }
+  pullBoardState.observer = new IntersectionObserver(entries => {
+    pullBoardState.visible = entries.some(entry => entry.isIntersecting);
+    if (pullBoardState.visible) void loadPullBoard();
+  }, { rootMargin: '200px 0px' });
+  pullBoardState.observer.observe(section);
+}
+async function loadPullBoard(force) {
+  if (!state.me || !pullBoardOffered()) { renderPullBoard(); return; }
+  if (pullBoardState.inflight && !force) return;
+  if (!force && pullBoardState.results && Date.now() - pullBoardState.at < PULL_BOARD_TTL_MS) { renderPullBoard(); return; }
+  const Board = window.NebulaPullBoard;
+  const repositories = Board.pickRepositories(state.repos);
+  if (!repositories.length) { renderPullBoard(); return; }
+  const request = ++pullBoardState.request;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const stale = () => request !== pullBoardState.request || epoch !== state.uiEpoch || identity !== state.me;
+  pullBoardState.inflight = true;
+  pullBoardState.results = null;
+  renderPullBoard();
+  const results = await Board.readAll(repositories, async (owner, repo) => {
+    const path = `/api/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=open`;
+    try {
+      if (!force) return await apiCached(path, PULL_BOARD_TTL_MS);
+      const fresh = await api(path);
+      _cache.set(path, { d: fresh, t: Date.now() });
+      return fresh;
+    } catch (error) {
+      error.offline = isOfflineError(error);
+      throw error;
+    }
+  });
+  if (stale()) {
+    /*
+     * Overtaken by a new identity or a new interface epoch rather than by a
+     * newer reading: the answer is dropped, and so is the flag that held the
+     * card at "reading", so the board reads again for whoever is now here.
+     */
+    if (request === pullBoardState.request) {
+      pullBoardState.inflight = false;
+      renderPullBoard();
+    }
+    return;
+  }
+  pullBoardState.inflight = false;
+  pullBoardState.results = results;
+  pullBoardState.at = Date.now();
+  renderPullBoard();
 }
 
 /*
@@ -2402,6 +2582,8 @@ function renderWorkspacePulse(repos) {
   paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
   if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
+  renderSecurityPosture();
+  renderPullBoard();
 }
 
 /*
@@ -2493,20 +2675,37 @@ async function openAccounts() {
   try {
     const a = await api('/api/accounts');
     if (!ownsModal()) return;
-    $('#modalBody').innerHTML = a.accounts.map((ac, i) => `
+    const accounts = a.accounts.map((account, index) => ({ account, index }));
+    const retiredCount = accounts.filter(({ account }) => !githubIdentity(account)).length;
+    const retiredActive = !githubIdentity(a.accounts[a.active]);
+    /* A retired account is listed only so it can be removed: it is never switched to and loads nothing from its old host. */
+    const lead = retiredCount ? `<p class="hint acct-lead">${retiredActive ? 'Choose a GitHub account to continue. ' : ''}GitLab and Gitea accounts are no longer supported. Remove ${retiredCount === 1 ? 'it' : 'them'}, then revoke ${retiredCount === 1 ? 'its token' : 'their tokens'} in that provider's settings.</p>` : '';
+    $('#modalBody').innerHTML = lead + accounts.map(({ account: ac, index: i }) => githubIdentity(ac) ? `
       <div class="acct-row ${i === a.active ? 'active' : ''}">
-        <img class="avatar" src="${escAttr(ac.avatar || '')}" alt="">
+        ${/^https:\/\//i.test(String(ac.avatar || '')) ? `<img class="avatar" src="${escAttr(ac.avatar)}" alt="">` : '<span class="avatar acct-avatar-empty" aria-hidden="true"></span>'}
         <div class="acct-meta">
           <div class="acct-login">${esc(ac.login)}</div>
-          <div class="acct-host">${PROV_ICON[ac.provider] || ''}<span>${esc(ac.host || { github: 'github.com', gitlab: 'gitlab.com', gitea: 'gitea' }[ac.provider])}</span></div>
+          <div class="acct-host">${PROV_ICON.github}<span>github.com</span></div>
         </div>
-        ${i === a.active ? '<span class="br-tag">active</span>'
-          : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
-        <button class="btn btn-ghost small danger" data-remove="${i}" title="Sign out this account only">Remove</button>
+        <div class="acct-actions">
+          ${i === a.active ? '<span class="br-tag">active</span>'
+            : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
+          <button class="btn btn-ghost small danger" data-remove="${i}" title="Sign out this account only">Remove</button>
+        </div>
+      </div>` : `
+      <div class="acct-row retired">
+        <span class="avatar acct-retired-mark" aria-hidden="true"></span>
+        <div class="acct-meta">
+          <div class="acct-login">${esc(ac.login)}</div>
+          <div class="acct-host"><span>${ac.provider === 'gitea' ? 'Gitea' : 'GitLab'} · no longer supported</span></div>
+        </div>
+        <div class="acct-actions">
+          <button class="btn btn-ghost small danger" data-remove="${i}" title="Remove this account and its stored token">Remove</button>
+        </div>
       </div>`).join('') + `
       <div class="detail-actions" style="margin-top:14px">
         <button class="btn btn-ghost small" id="accAdd">Add account</button>
-        ${a.accounts[a.active] && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
+        ${githubIdentity(a.accounts[a.active]) && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
           ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
         <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
       </div>`;
@@ -2528,10 +2727,11 @@ async function openAccounts() {
         await purgeLocalData(!!out.empty);
         broadcastIdentityBoundary();
         closeModal(true);
-        toast(`${out.removed} signed out ✦`, 'ok');
-        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); return; }
+        toast(`${out.removed || 'The account'} signed out ✦`, 'ok');
+        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); showRevocationGuidance(out.revocationGuidance); return; }
         location.hash = '';
-        boot(); loadRepos(true);
+        await boot(); loadRepos(true);
+        showRevocationGuidance(out.revocationGuidance);
       } catch (e) { toast(e.message, 'err'); }
     }));
     $('#accAdd').addEventListener('click', () => {
@@ -2865,12 +3065,7 @@ function rememberRepository(owner, name, visitor = false) {
  * it; an address on another host says so, because this session can only read
  * through the provider it is signed in to.
  */
-function sessionHost() {
-  const provider = (state.me && state.me.provider) || 'github';
-  if (provider === 'github') return 'github.com';
-  try { return new URL((state.me && state.me.baseUrl) || 'https://gitlab.com').hostname.toLowerCase(); }
-  catch { return provider === 'gitlab' ? 'gitlab.com' : ''; }
-}
+function sessionHost() { return 'github.com'; }
 function repositoryReference(text) {
   const raw = String(text || '').trim();
   if (!raw || raw.length > 400 || /\s/.test(raw)) return null;
@@ -2892,10 +3087,7 @@ function repositoryReference(text) {
     path = raw;
     kind = 'name';
   }
-  let parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean);
-  /* GitLab ends the project path where its own pages begin, at "-"; GitHub's owner and name are the first two parts. */
-  if ((state.me && state.me.provider) === 'gitlab') { const end = parts.indexOf('-'); if (end >= 0) parts = parts.slice(0, end); }
-  else parts = parts.slice(0, 2);
+  const parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean).slice(0, 2);
   if (parts.length < 2) return null;
   const name = parts[parts.length - 1];
   const owner = parts.slice(0, -1).join('/');
@@ -3222,50 +3414,6 @@ function downloadZip() {
 const wPath = () => `${state.work.owner}/${state.work.repo}`;
 
 let governanceExpiryTimer = null;
-const GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS = Object.freeze([
-  'refresh', 'select-policy', 'view-version', 'view-exception', 'verify-chain',
-  'load-more-decisions', 'delivery-refresh', 'download-export', 'verify-export',
-  'ledger-tab', 'ledger-filter', 'ledger-more', 'ledger-clear', 'ledger-show-cleared', 'inbox-more', 'inbox-show-read', 'exports-all'
-]);
-function applyGovernanceCapabilityBoundary(root) {
-  if (!root) return;
-  const banner = root.querySelector('[data-governance-experimental-banner]');
-  if (!window.NebulaCapabilityUI ||
-      window.NebulaCapabilityUI.decision('governance').status !== 'Experimental') {
-    if (banner) banner.remove();
-    root.querySelectorAll('[data-governance-experimental-disabled="true"]').forEach(button => {
-      button.disabled = button.dataset.governanceOriginalDisabled === 'true';
-      const originalTitle = button.dataset.governanceOriginalTitle || '';
-      if (originalTitle) button.title = originalTitle;
-      else button.removeAttribute('title');
-      delete button.dataset.governanceExperimentalDisabled;
-      delete button.dataset.governanceOriginalDisabled;
-      delete button.dataset.governanceOriginalTitle;
-    });
-    return;
-  }
-  const shell = root.querySelector('.gov-shell');
-  if (shell && !banner) {
-    const notice = document.createElement('div');
-    notice.className = 'gov-banner warn';
-    notice.setAttribute('role', 'status');
-    notice.dataset.governanceExperimentalBanner = 'true';
-    notice.textContent = 'Experimental provider governance is view-only; mutations remain unavailable.';
-    const hero = shell.querySelector('.gov-hero');
-    if (hero) hero.insertAdjacentElement('afterend', notice);
-    else shell.prepend(notice);
-  }
-  root.querySelectorAll('[data-gov-action]').forEach(button => {
-    if (GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS.includes(button.dataset.govAction)) return;
-    if (button.dataset.governanceExperimentalDisabled !== 'true') {
-      button.dataset.governanceOriginalDisabled = String(button.disabled);
-      button.dataset.governanceOriginalTitle = button.getAttribute('title') || '';
-    }
-    button.dataset.governanceExperimentalDisabled = 'true';
-    button.disabled = true;
-    button.title = 'Unavailable: experimental governance is view-only for this provider.';
-  });
-}
 function clearGovernanceState() {
   if (governanceExpiryTimer) clearTimeout(governanceExpiryTimer);
   governanceExpiryTimer = null;
@@ -3699,6 +3847,12 @@ function exposureHistoryEntry(scan, current) {
 
   const report = current.reports[scan.scanId];
   if (details.open) {
+    if (report && !report.loading && !report.error && report.complete === false) {
+      const partial = document.createElement('p');
+      partial.className = 'exposure-caveat';
+      partial.textContent = 'Only part of this scan report was loaded. Close and reopen the report after refreshing to retrieve current evidence.';
+      body.appendChild(partial);
+    }
     if (!report || report.loading) {
       const loading = document.createElement('p');
       loading.className = 'exposure-empty';
@@ -3712,7 +3866,7 @@ function exposureHistoryEntry(scan, current) {
     } else if (!report.entries.length) {
       const none = document.createElement('p');
       none.className = 'exposure-empty';
-      none.textContent = scan.coverage === 'complete'
+      none.textContent = scan.coverage === 'complete' && report.complete === true
         ? 'This scan found no credentials in the tree it read.'
         : 'This scan found no credentials in the part of the tree it read. That is not an all-clear.';
       body.appendChild(none);
@@ -3778,11 +3932,26 @@ async function loadExposureReport(scanId) {
   current.reports[scanId] = { loading: true, entries: null, error: '' };
   renderExposure();
   try {
-    const body = await api(`/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations?limit=100`);
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    const observations = Array.isArray(body && body.observations) ? body.observations : [];
+    const observations = [];
+    const cursors = new Set();
+    const base = `/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations`;
+    let cursor = null;
+    let complete = false;
+    // A scan records at most 500 findings. Bound even a broken continuation.
+    for (let page = 0; page < 5; page++) {
+      const query = new URLSearchParams({ limit: '100' });
+      if (cursor) query.set('cursor', cursor);
+      const body = await api(`${base}?${query}`);
+      if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
+      if (!body || !Array.isArray(body.observations)) throw new Error('Invalid scan report');
+      observations.push(...body.observations.slice(0, 100));
+      complete = body.complete === true && body.observations.length <= 100;
+      if (complete || !body.nextCursor || cursors.has(body.nextCursor)) break;
+      cursor = body.nextCursor;
+      cursors.add(cursor);
+    }
     current.reports[scanId] = {
-      loading: false, error: '',
+      loading: false, error: '', complete,
       entries: observations.filter(item => item && item.finding).map(item => ({
         ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
       }))
@@ -4958,7 +5127,6 @@ function renderGovernanceInterface() {
     delivery: state.governance.delivery,
     archived: state.governance.archived
   });
-  applyGovernanceCapabilityBoundary(root);
 }
 async function loadGovernanceTwin(force = false) {
   if (!state.work || !state.work.owner || !state.work.repo || state.governance.loading) return;
@@ -5032,10 +5200,14 @@ async function verifyGovernanceDecisionChain() {
   renderGovernanceInterface();
   announceGovernance(state.governance.verification.valid === true ? 'Decision chain verified' : 'Decision chain verification failed');
 }
-async function loadMoreGovernanceDecisions(afterSeq) {
-  const cursor = Number(afterSeq);
+async function loadMoreGovernanceDecisions(value, order = 'desc') {
+  const cursor = Number(value);
   if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Decision cursor is invalid');
-  const response = await api(`/api/repo/${wPath()}/governance/decisions?limit=50&afterSeq=${cursor}`);
+  const field = order === 'desc' ? 'beforeSeq' : 'afterSeq';
+  const scope = wPath();
+  const governance = state.governance;
+  const response = await api(`/api/repo/${scope}/governance/decisions?limit=50&${field}=${cursor}`);
+  if (!state.work || wPath() !== scope || state.governance !== governance) return;
   const page = response.decisions ? response : (response.result || response);
   const twin = state.governance.digitalTwin;
   if (!twin || !page || !Array.isArray(page.decisions)) return;
@@ -5047,7 +5219,9 @@ async function loadMoreGovernanceDecisions(afterSeq) {
     history: {
       ...twin.history,
       decisions: merged,
-      nextDecisionSeq: page.complete ? null : page.nextAfterSeq
+      ...(order === 'desc'
+        ? { nextBeforeDecisionSeq: page.complete ? null : page.nextBeforeSeq }
+        : { nextDecisionSeq: page.complete ? null : page.nextAfterSeq })
     }
   };
   renderGovernanceInterface();
@@ -5521,7 +5695,7 @@ const governanceActionHandlers = Object.freeze({
   'decide-exception': button => decideGovernanceException(button.dataset.exceptionId),
   'revoke-exception': button => revokeGovernanceException(button.dataset.exceptionId),
   'verify-chain': () => verifyGovernanceDecisionChain(),
-  'load-more-decisions': button => loadMoreGovernanceDecisions(button.dataset.afterSeq),
+  'load-more-decisions': button => loadMoreGovernanceDecisions(button.dataset.beforeSeq || button.dataset.afterSeq, button.dataset.beforeSeq ? 'desc' : 'asc'),
   'delivery-refresh': () => loadGovernanceDelivery(),
   'edit-notification-preferences': () => editGovernanceNotificationPreferences(),
   'mark-notifications-read': button => markGovernanceNotificationsRead(button.dataset.throughSeq),
@@ -5710,9 +5884,9 @@ function openItemMenu(it) {
     title: it.name + (isDir ? '/' : ''), okText: 'Close',
     bodyHTML: `
       ${isDir ? '' : `<button class="btn btn-ghost btn-block" data-mi="open" style="margin-top:0">Open in editor</button>
-      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename" data-allow-experimental="true">Rename / move</button>
+      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename">Rename / move</button>
       <button class="btn btn-ghost btn-block" data-mi="download">Download</button>`}
-      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move" data-allow-experimental="true">Rename / move folder…</button>'
+      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move">Rename / move folder…</button>'
         : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
       <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
   });
@@ -6134,6 +6308,189 @@ async function runStandaloneSiteCheck(address) {
   if (_page === 'site') paintSiteScan();
 }
 $('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
+$('#findingsHomeBtn') && $('#findingsHomeBtn').addEventListener('click', () => showOverview());
+$('#settingsBtnFindings') && $('#settingsBtnFindings').addEventListener('click', openSettings);
+$('#findingsRefresh') && $('#findingsRefresh').addEventListener('click', () => { void loadFindings(true); });
+
+/* ================= FINDINGS INBOX =================
+ * Every open finding across the workspace (public/findings-inbox-ui.js), read
+ * from GET /api/workspace/findings. Owners come from each repository's
+ * CODEOWNERS file, read once per repository and only for the repositories on
+ * screen. Decisions go through each repository's own triage route, one finding
+ * at a time, so the permissions are the audit screen's own.
+ */
+const findingsState = {
+  inbox: null, filters: null, selected: new Map(), expanded: new Set(), owners: new Map(),
+  disposition: 'accepted-risk', progress: '', request: 0, at: 0, deciding: false
+};
+function findingsOffered() {
+  return Boolean(window.NebulaCapabilityUI) && window.NebulaCapabilityUI.decision('findings.inbox').status === 'Supported';
+}
+function findingsFiltersFromHash() {
+  const match = /^#\/findings(\?.*)?$/.exec(location.hash);
+  return window.NebulaFindingsInbox.parseFilters(match && match[1] ? match[1] : '');
+}
+function writeFindingsHash() {
+  const target = `#/findings${window.NebulaFindingsInbox.serializeFilters(findingsState.filters)}`;
+  lastAppliedRoute = target;
+  if (location.hash !== target) history.replaceState(null, '', `${location.pathname}${target}`);
+}
+function clearFindings() {
+  findingsState.request++;
+  findingsState.inbox = null;
+  findingsState.selected.clear();
+  findingsState.expanded.clear();
+  findingsState.owners.clear();
+  findingsState.at = 0;
+  findingsState.progress = '';
+}
+function findingOwners(item) {
+  const rules = findingsState.owners.get(`${item.owner}/${item.repo}`.toLowerCase());
+  return Array.isArray(rules) ? window.NebulaCodeowners.ownersOf(rules, item.path) : [];
+}
+function loadFindingOwners(items) {
+  const wanted = new Map();
+  for (const item of items) {
+    const key = `${item.owner}/${item.repo}`.toLowerCase();
+    if (!findingsState.owners.has(key) && !wanted.has(key)) wanted.set(key, item);
+  }
+  for (const [key, item] of wanted) {
+    findingsState.owners.set(key, 'pending');
+    const request = findingsState.request;
+    api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/codeowners`)
+      .then(answer => window.NebulaCodeowners.revive(answer && answer.rules), () => [])
+      .then(rules => {
+        if (request !== findingsState.request) return;
+        findingsState.owners.set(key, rules);
+        if (_page === 'findings') paintFindings();
+      });
+  }
+}
+function paintFindings(options = {}) {
+  const root = $('#findingsRoot');
+  if (!root || !window.NebulaFindingsInbox) return;
+  const focused = document.activeElement;
+  const keepSearch = options.keepFocus && focused && focused.classList && focused.classList.contains('fi-search');
+  const caret = keepSearch ? focused.selectionStart : null;
+  const view = window.NebulaFindingsInbox.model(findingsState.inbox, findingsState.filters, {
+    labelOf: item => (item.source === 'exposure' ? exposureRuleLabel(item.rule) : item.rule),
+    ownersOf: findingOwners
+  });
+  window.NebulaFindingsInbox.render(root, view, findingsState, {
+    filter: (patch, opts = {}) => {
+      findingsState.filters = { ...findingsState.filters, ...patch };
+      writeFindingsHash();
+      paintFindings(opts);
+    },
+    select: (item, on) => {
+      if (on) findingsState.selected.set(item.key, item);
+      else findingsState.selected.delete(item.key);
+      paintFindings();
+    },
+    clearSelection: () => { findingsState.selected.clear(); findingsState.progress = ''; paintFindings(); },
+    expand: (item, open) => { if (open) findingsState.expanded.add(item.key); else findingsState.expanded.delete(item.key); },
+    events: (item, host) => { void showFindingDecisions(item, host); },
+    open: item => { void openRepositoryTool(item.owner, item.repo, item.source === 'exposure' ? 'exposure' : 'audit'); },
+    decide: decision => { void decideFindings(decision); }
+  });
+  if (keepSearch) {
+    const search = root.querySelector('.fi-search');
+    if (search) { search.focus(); if (caret !== null) search.setSelectionRange(caret, caret); }
+  }
+  if (view.state === 'ready') loadFindingOwners(view.shown);
+}
+async function showFindingDecisions(item, host) {
+  if (!host || host.dataset.loaded === 'true') return;
+  host.dataset.loaded = 'true';
+  try {
+    const answer = await api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/code-audit/findings/${encodeURIComponent(item.id)}/triage-events`);
+    const events = Array.isArray(answer.events) ? answer.events : [];
+    host.textContent = '';
+    if (!events.length) {
+      host.appendChild(Object.assign(document.createElement('p'), { textContent: 'Nobody has decided anything about this finding.' }));
+      return;
+    }
+    const list = document.createElement('ol');
+    list.className = 'fi-timeline';
+    for (const event of events) {
+      const entry = document.createElement('li');
+      const when = document.createElement('time');
+      when.className = 'fi-when';
+      when.dateTime = event.at || '';
+      when.textContent = auditDay(event.at);
+      const what = document.createElement('span');
+      what.textContent = `${event.event === 'reopened' ? 'Reopened' : (TRIAGE_EVENT_WORD[event.disposition] || 'Decided')} by ${event.actor}${event.reason ? ` — ${String(event.reason).replace(/-/g, ' ')}` : ''}`;
+      entry.append(when, what);
+      list.appendChild(entry);
+    }
+    host.appendChild(list);
+  } catch {
+    host.dataset.loaded = '';
+    host.textContent = '';
+    host.appendChild(Object.assign(document.createElement('p'), { textContent: 'The team\u2019s decisions about this finding could not be read here.' }));
+  }
+}
+async function decideFindings(decision) {
+  if (findingsState.deciding || !findingsState.selected.size) return;
+  findingsState.deciding = true;
+  const items = [...findingsState.selected.values()];
+  let done = 0;
+  const failed = [];
+  for (const item of items) {
+    findingsState.progress = `Deciding ${done + 1} of ${items.length}…`;
+    paintFindings();
+    try {
+      await api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/code-audit/findings/${encodeURIComponent(item.id)}/triage`, {
+        method: 'POST',
+        body: { rule: item.rule, disposition: decision.disposition, reason: decision.reason, ...(decision.expiresInDays ? { expiresInDays: decision.expiresInDays } : {}) }
+      });
+      done += 1;
+      findingsState.selected.delete(item.key);
+    } catch (error) {
+      failed.push(`${item.owner}/${item.repo}: ${error.message || 'refused'}`);
+    }
+  }
+  findingsState.deciding = false;
+  findingsState.progress = failed.length
+    ? `${done} decided; ${failed.length} could not be: ${failed.slice(0, 3).join('; ')}${failed.length > 3 ? '…' : ''}`
+    : `${done} decided.`;
+  if (done) {
+    toast(`${done} ${done === 1 ? 'finding' : 'findings'} decided`, 'ok');
+    invalidatePosture();
+    await loadFindings(true);
+  } else paintFindings();
+}
+async function loadFindings(force) {
+  if (!state.me || !findingsOffered()) return;
+  if (!force && findingsState.inbox && Date.now() - findingsState.at < POSTURE_TTL_MS) { paintFindings(); return; }
+  const request = ++findingsState.request;
+  const epoch = state.uiEpoch;
+  const identity = state.me;
+  const stale = () => request !== findingsState.request || epoch !== state.uiEpoch || identity !== state.me;
+  findingsState.at = Date.now();
+  if (!findingsState.inbox) paintFindings();
+  try {
+    const inbox = await api('/api/workspace/findings');
+    if (stale()) return;
+    findingsState.inbox = inbox && typeof inbox === 'object' ? inbox : { available: false, reason: 'unreadable' };
+    /* What was decided elsewhere, or is no longer listed, cannot stay selected. */
+    const keys = new Set((findingsState.inbox.findings || []).filter(item => !item.decision).map(item => item.key));
+    for (const key of [...findingsState.selected.keys()]) if (!keys.has(key)) findingsState.selected.delete(key);
+  } catch (error) {
+    if (stale()) return;
+    findingsState.at = 0;
+    findingsState.inbox = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
+  }
+  paintFindings();
+}
+function showFindings(filters) {
+  if (!findingsOffered()) return toast(window.NebulaCapabilityUI.explain('findings.inbox'), 'err');
+  findingsState.filters = filters || findingsState.filters || window.NebulaFindingsInbox.parseFilters('');
+  showPage('findings');
+  writeFindingsHash();
+  paintFindings();
+  void loadFindings();
+}
 $('#settingsBtnSite') && $('#settingsBtnSite').addEventListener('click', openSettings);
 /*
  * An audit is a job on the server: the first request starts it and answers
@@ -6196,7 +6553,7 @@ async function runAudit() {
      */
     const kept = result.history && result.history.saved === true ? result.history : null;
     const diff = kept
-      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number(kept.resolved) || 0 } : null)
+      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number.isSafeInteger(kept.resolved) ? kept.resolved : null } : null)
       : window.NebulaCodeAudit.diff(result, previous);
     auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
     if (kept) loadAuditHistory();
@@ -6820,19 +7177,19 @@ async function renderSafeguards() {
   const global = sf.globalControls !== false;
   const prot = protectedList();
   const snapshotAt = sgLastSnapshot();
-  const providerName = { github: 'GitHub', gitlab: 'GitLab', gitea: 'Gitea' }[(state.me && state.me.provider) || 'github'] || 'the provider';
+  const providerName = 'GitHub';
   const switchRow = (id, on, title, text) => `<label class="sg-switch-row${global ? '' : ' is-managed'}">
       <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
       <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>
     </label>`;
-  /* Each tile names the capability that gates it, so the capability layer can disable it like any other control. */
+  /* Each tile names the capability that gates it, so a tile whose capability is not Supported is never drawn. */
   const tiles = [
-    { id: 'sgSnap', feature: 'recovery', experimental: false, icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
-    { id: 'sgRecover', feature: 'recovery', experimental: false, icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
-    { id: 'sgScan', feature: 'dependency-audit', experimental: true, icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
-    { id: 'sgActivity', feature: 'governance', experimental: true, icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
-    { id: 'sgEvidence', feature: 'governance', experimental: true, icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
-  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}"${tile.experimental ? ' data-allow-experimental="true"' : ''}>
+    { id: 'sgSnap', feature: 'recovery', icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
+    { id: 'sgRecover', feature: 'recovery', icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
+    { id: 'sgScan', feature: 'dependency-audit', icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
+    { id: 'sgActivity', feature: 'governance', icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
+    { id: 'sgEvidence', feature: 'governance', icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
+  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}">
       ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
   /* Focus survives a redraw: the control the reader just used is the one that has it afterwards. */
   const focusedId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id || document.activeElement.dataset.preset : '';
@@ -7610,9 +7967,7 @@ function switchTab(name) {
   /* A deep link to a collaborator's tab on a repository opened read-only lands in the editor instead of on a hidden pane. */
   if (visitingRepository() && VISITOR_TABS.has(name)) return switchTab('editor');
   const tabCapability = tab.dataset.feature;
-  if (tabCapability && !runCapabilityAction(tabCapability, () => {}, {
-    allowExperimental: tab.dataset.allowExperimental === 'true'
-  })) return;
+  if (tabCapability && !runCapabilityAction(tabCapability, () => {})) return;
   const doc = document.scrollingElement;
   const moving = previousTab !== name && doc;
   if (moving) tabScroll.set(tabScrollKey(previousTab), doc.scrollTop);
@@ -7758,7 +8113,7 @@ $('#sheet').addEventListener('click', e => {
     else if (act === 'delrepo') deleteRepoFlow();
     else if (act === 'theme') toggleTheme();
     else if (act === 'settings') openSettings();
-  }, { allowExperimental: item.dataset.allowExperimental === 'true' });
+  });
 });
 
 /* ================= COMMAND PALETTE ================= */
@@ -7766,34 +8121,34 @@ let palSel = 0, palItems = [];
 const COMMANDS = [
   { label: 'New file', kind: 'action', feature: 'file.write', run: () => $('#newFileBtn').click() },
   { label: 'New branch', kind: 'action', feature: 'branches.write', run: () => $('#newBranchBtn').click() },
-  { label: 'Push files (upload)', kind: 'view', feature: 'native-push', allowExperimental: true, run: () => switchTab('upload') },
-  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', allowExperimental: true, run: () => switchTab('pulls') },
-  { label: 'Issues', kind: 'view', feature: 'issues.read', allowExperimental: true, run: () => switchTab('issues') },
-  { label: 'Releases', kind: 'view', feature: 'releases.read', allowExperimental: true, run: () => switchTab('releases') },
-  { label: 'Compare branches', kind: 'view', feature: 'recovery', allowExperimental: true, run: () => switchTab('compare') },
+  { label: 'Push files (upload)', kind: 'view', feature: 'native-push', run: () => switchTab('upload') },
+  { label: 'Pull requests', kind: 'view', feature: 'pulls.read', run: () => switchTab('pulls') },
+  { label: 'Issues', kind: 'view', feature: 'issues.read', run: () => switchTab('issues') },
+  { label: 'Releases', kind: 'view', feature: 'releases.read', run: () => switchTab('releases') },
+  { label: 'Compare branches', kind: 'view', feature: 'recovery', run: () => switchTab('compare') },
   { label: 'Commits', kind: 'view', feature: 'repository.read', run: () => switchTab('commits') },
-  { label: 'Staged changes', kind: 'view', feature: 'file.batch', allowExperimental: true, run: () => openStagePanel() },
+  { label: 'Staged changes', kind: 'view', feature: 'file.batch', run: () => openStagePanel() },
   { label: 'Download repo as zip', kind: 'action', feature: 'repository.read', run: () => downloadZip() },
   { label: 'Settings', kind: 'action', run: () => openSettings() },
   { label: 'Safeguards (read-only, protection, recovery)', kind: 'action', feature: 'recovery', run: () => openSafeguards() },
   { label: 'Emergency recovery snapshot', kind: 'action', feature: 'recovery', run: () => snapshotFlow() },
-  { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', allowExperimental: true, run: () => securityScanFlow() },
+  { label: 'Security scan — vulnerable dependencies', kind: 'action', feature: 'dependency-audit', run: () => securityScanFlow() },
   { label: 'Export recent activity', kind: 'action', feature: 'repository.read', run: () => exportActivityFlow() },
   { label: 'Toggle theme', kind: 'action', run: () => toggleTheme() },
-  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', allowExperimental: true, run: () => switchTab('actions') },
+  { label: 'Actions (CI)', kind: 'view', feature: 'workflows.read', run: () => switchTab('actions') },
   { label: 'Neural', kind: 'view', feature: 'access-surface', run: () => switchTab('neural') },
   /*
    * Governance had no palette entry at all, while every other destination in
    * the workbench had one -- so the one surface that is also hardest to see in
    * the tab strip was the one a reader could not jump to by name either.
    */
-  { label: 'Governance', kind: 'view', feature: 'governance', allowExperimental: true, run: () => switchTab('governance') },
-  { label: 'Exposure', kind: 'view', feature: 'exposure.scan', allowExperimental: true, run: () => switchTab('exposure') },
+  { label: 'Governance', kind: 'view', feature: 'governance', run: () => switchTab('governance') },
+  { label: 'Exposure', kind: 'view', feature: 'exposure.scan', run: () => switchTab('exposure') },
   { label: 'Audit — code and site scanner', kind: 'view', feature: 'site-check', run: () => switchTab('audit') },
   { label: 'Manage branches', kind: 'action', feature: 'branches.write', run: () => openBranchManager() },
-  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', allowExperimental: true, run: () => toggleStar() },
+  { label: 'Star / unstar this repo', kind: 'action', feature: 'stars.write', run: () => toggleStar() },
   { label: 'Open the Time Machine', kind: 'action', feature: 'recovery', run: () => openTimeMachine() },
-  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', allowExperimental: true, run: () => deleteRepoFlow() },
+  { label: 'Delete this repository…', kind: 'danger', feature: 'repository.delete', run: () => deleteRepoFlow() },
   { label: 'Back to repositories', kind: 'view', run: () => $('#backBtn').click() }
 ];
 /*
@@ -7887,7 +8242,8 @@ function fuzzyScore(q, s) {
 }
 function renderPalette(q) {
   const host = $('#paletteList');
-  const cmds = COMMANDS.filter(c => fuzzy(q, c.label));
+  /* A command for something that is not Supported is not offered, so the selection never lands on what is not drawn. */
+  const cmds = COMMANDS.filter(c => fuzzy(q, c.label) && !(c.feature && window.NebulaCapabilityUI.withheld(c.feature)));
   const files = (state.fileIndex || [])
     .map(p => [p, fuzzyScore(q, p)]).filter(([, score]) => score > -1)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, q ? 30 : 14)
@@ -7927,7 +8283,6 @@ function renderPalette(q) {
     el.innerHTML = `<span class="${it.kind === 'file' ? 'mono' : ''}"></span><span class="pal-kind">${esc(it.kind)}</span>`;
     el.querySelector('span').textContent = it.label;
     if (it.feature) el.dataset.feature = it.feature;
-    if (it.allowExperimental) el.dataset.allowExperimental = 'true';
     el.addEventListener('click', () => runPaletteItem(it));
     host.appendChild(el);
   });
@@ -7939,7 +8294,7 @@ function runPaletteItem(item) {
   return runCapabilityAction(item && item.feature, () => {
     closePalette();
     item.run();
-  }, { allowExperimental: !!(item && item.allowExperimental) });
+  });
 }
 $('#reposSummaryToggle').addEventListener('click', () => {
   const expanded = $('#reposSummaryToggle').getAttribute('aria-expanded') !== 'true';
@@ -7954,7 +8309,7 @@ $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
  * the screen in view as current, which is what a reader navigating by landmark
  * relies on to know where they are.
  */
-const RAIL_SCREENS = new Set(['overview', 'repos', 'work', 'site']);
+const RAIL_SCREENS = new Set(['overview', 'repos', 'work', 'site', 'findings']);
 function paintRail(name) {
   const rail = $('#navRail');
   if (!rail) return;
@@ -8092,6 +8447,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   closeNavMenu();
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
+  if (target === 'findings') return showFindings();
   if (target === 'site') {
     /* Reached from the rail, the page is for any address rather than the repository an audit sent it. */
     if (siteScanView && siteScanView.status !== 'running') siteScanView = { ...siteScanView, from: null };
@@ -8825,6 +9181,14 @@ async function loadPRs() {
       el.addEventListener('click', () => openPR(p.number, el));
       host.appendChild(el);
     });
+    /* A card on the Overview's board asked for this pull request: open it under its row. */
+    const pending = state.pendingPull;
+    if (pending && pending.key === String(wPath() || '').toLowerCase()) {
+      state.pendingPull = null;
+      const index = prs.findIndex(p => Number(p.number) === pending.number);
+      if (index >= 0) openPR(pending.number, host.children[index]);
+      else toast(`Pull request #${pending.number} is no longer in this list`, 'err');
+    }
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
 /*
@@ -8881,6 +9245,7 @@ function renderPullGate(host, p, answer) {
   else if (gate && gate.state === 'current') { state = gate.blocking.length ? 'hold' : 'pass'; word = gate.blocking.length ? `${gate.blocking.length} ${gate.blocking.length === 1 ? 'reason' : 'reasons'} to hold` : 'Passes'; }
   else if (gate && gate.state === 'stale') { state = 'stale'; word = 'Audit is behind the head'; }
   else if (gate && gate.state === 'missing') { state = 'missing'; word = 'Not audited'; }
+  else if (gate && gate.state === 'unavailable' && gate.complete === false) { state = 'incomplete'; word = 'Audit incomplete'; }
   const badge = node('span', 'nv-chip pr-gate-chip');
   badge.dataset.tone = state === 'pass' ? 'good' : state === 'hold' ? 'critical' : 'pending';
   badge.appendChild(node('span', null, word));
@@ -8896,6 +9261,16 @@ function renderPullGate(host, p, answer) {
       : `You have not audited ${p.head}. Audit it before merging, so the merge is judged by what it brings in.`);
   } else if (gate.state === 'stale') {
     line(`Your latest audit of ${p.head} is of ${String(gate.commitSha || '').slice(0, 7)}; the head is now ${String(answer.pull.headSha || '').slice(0, 7)}. Audit it again before merging.`);
+  } else if (gate.state === 'unavailable' && gate.complete === false) {
+    /*
+     * The kept audit was read; it is the evidence in it that falls short. An
+     * audit kept before audits recorded their own completeness is cured by
+     * auditing again; a recorded gap waits on an approval.
+     */
+    const sha = String(gate.commitSha || '').slice(0, 7);
+    line(gate.evidence === 'unrecorded'
+      ? `Your audit of ${p.head} at ${sha} was kept before audits recorded how complete they were. Audit it again so the gate can judge it; until then the merge waits on an approval.`
+      : `Part of your audit of ${p.head} at ${sha} could not be completed: some files, findings or dependency answers are missing. The gate cannot clear this head on its own, so the merge waits on an approval.`);
   } else if (gate.state === 'unavailable') {
     line('The kept audits could not be read just now.');
   } else {
@@ -8914,6 +9289,7 @@ function renderPullGate(host, p, answer) {
       for (const reason of gate.blocking) if (GATE_REASON[reason]) list.appendChild(node('li', null, GATE_REASON[reason](gate)));
       host.appendChild(list);
     }
+    if (gate.complete === false) line('Part of this audit could not be completed, so there may be more than this.', 'pr-gate-line pr-gate-muted');
   }
   const policies = answer && answer.enforcement && Array.isArray(answer.enforcement.policies) ? answer.enforcement.policies : [];
   const acting = policies.filter(policy => policy.effect !== 'allow');
@@ -8927,10 +9303,10 @@ function renderPullGate(host, p, answer) {
       sentence.textContent = `Policy ${policy.policyKey} (${policy.mode}) ${effect}${rule ? `: ${rule.description}` : '.'}`;
       host.appendChild(sentence);
     }
-  } else if (gate && (state === 'hold' || state === 'missing' || state === 'stale') && answer.enforcement && answer.enforcement.available) {
+  } else if (gate && (state === 'hold' || state === 'missing' || state === 'stale' || state === 'incomplete') && answer.enforcement && answer.enforcement.available) {
     line('No active policy acts on the gate yet. The Audit merge gate template in Governance does.', 'pr-gate-line pr-gate-muted');
   }
-  if (gate && (gate.state === 'missing' || gate.state === 'stale') && !(answer.pull && answer.pull.fork)) {
+  if (gate && (gate.state === 'missing' || gate.state === 'stale' || gate.evidence === 'unrecorded') && !(answer.pull && answer.pull.fork)) {
     const branchKnown = [...$('#branchSelect').options].some(option => option.value === p.head);
     if (branchKnown) {
       const go = node('button', 'btn btn-ghost small pr-gate-audit', 'Audit this head');
@@ -10026,7 +10402,7 @@ async function loadActions() {
           });
           const acts = document.createElement('div');
           acts.className = 'detail-actions';
-          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun" data-allow-experimental="true">Re-run</button>
+          acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun">Re-run</button>
             <button class="btn btn-ghost small" data-open>Open on the provider</button>`;
           if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
           acts.querySelector('[data-rerun]').addEventListener('click', async () => {

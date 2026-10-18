@@ -37,7 +37,62 @@ async function stop(child) {
   });
 }
 
+/*
+ * The landing's WebGL artwork, withheld from WebKit here and nowhere else.
+ *
+ * This suite proves the journey across the real server and PostgreSQL; the
+ * artwork has its own suite. On a runner without a GPU every WebGL frame is
+ * drawn on the CPU. Chromium names its software rasteriser, so the scene
+ * takes its lite path. WebKit reports a generic renderer, so the scene cannot
+ * tell. Twice, on 9c42da9 and c9410a3, the page then drew no frame for the
+ * whole fifteen seconds the first click waits for its button to hold still,
+ * while the other run of the same commit passed.
+ *
+ * A browser that hands the page no WebGL context is one the product already
+ * serves completely: the vortex declines, the stage keeps its ground, and the
+ * other pieces never mount. That is the page this journey crosses in WebKit.
+ */
+function withholdWebGL() {
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+    return /^(experimental-)?webgl/i.test(String(type)) ? null : getContext.call(this, type, ...rest);
+  };
+}
+
+/*
+ * Whether the page kept drawing, recorded so a stall that comes back is
+ * evidence rather than a timeout. Every half second the page asks for one
+ * frame: a frame that comes late, or a timer that fires late because the main
+ * thread was held, is logged. Quiet on a page that keeps up.
+ */
+function recordFrameLag() {
+  const origin = performance.now();
+  let previous = origin;
+  setInterval(() => {
+    const asked = performance.now();
+    const held = asked - previous - 500;
+    previous = asked;
+    if (held > 750) console.debug(`[nv-frames] main thread held ${Math.round(held)}ms before ${Math.round(asked - origin)}ms`);
+    requestAnimationFrame(() => {
+      const lag = performance.now() - asked;
+      if (lag > 250) console.debug(`[nv-frames] frame ${Math.round(lag)}ms late at ${Math.round(asked - origin)}ms`);
+    });
+  }, 500);
+}
+
 const test = base.extend({
+  page: async ({ page, browserName }, use, testInfo) => {
+    const lines = [];
+    page.on('console', message => { if (message.text().startsWith('[nv-frames]')) lines.push(message.text()); });
+    if (browserName === 'webkit') await page.addInitScript(withholdWebGL);
+    await page.addInitScript(recordFrameLag);
+    await use(page);
+    if (testInfo.status !== testInfo.expectedStatus && lines.length) {
+      const body = lines.slice(-80).join('\n');
+      console.log(`Rendering evidence (${browserName}):\n${body}`);
+      await testInfo.attach('rendering-evidence', { body, contentType: 'text/plain' });
+    }
+  },
   application: async ({}, use, testInfo) => {
     const adminUrl = String(process.env.NV_TEST_DATABASE_URL || '').trim();
     if (!adminUrl) throw new Error('NV_TEST_DATABASE_URL is required; this integration gate must use real PostgreSQL');

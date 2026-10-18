@@ -40,26 +40,17 @@ assert.strictEqual(referenceSha({ object: { sha: 'd'.repeat(40) } }), 'd'.repeat
 assert.strictEqual(referenceSha({}), '');
 
 assert.strictEqual(typeof normalizeProviderBranches, 'function', 'provider branch normalization must be exported');
-assert.deepStrictEqual(normalizeProviderBranches('gitea', [
-  { name: 'main', protected: true, commit: { id: '1'.repeat(40) } }
-]), [
-  { name: 'main', protected: true, sha: '1'.repeat(40) }
-]);
+for (const provider of ['gitlab', 'gitea']) {
+  assert.throws(() => normalizeProviderBranches(provider, [{ name: 'main', commit: { id: '1'.repeat(40) } }]), /require GitHub/);
+}
 assert.deepStrictEqual(normalizeProviderBranches('github', [
   { name: 'main', protected: false, commit: { sha: '2'.repeat(40), id: '3'.repeat(40) } }
 ]), [
   { name: 'main', protected: false, sha: '2'.repeat(40) }
 ]);
-assert.deepStrictEqual(normalizeProviderBranches('gitlab', [
-  { name: 'release', protected: true, commit: { id: '4'.repeat(40), sha: '5'.repeat(40) } }
-]), [
-  { name: 'release', protected: true, sha: '4'.repeat(40) }
-]);
-assert.deepStrictEqual(normalizeProviderBranches('gitea', [
+assert.deepStrictEqual(normalizeProviderBranches('github', [
   { name: 'empty', protected: false, commit: null }
-]), [
-  { name: 'empty', protected: false, sha: '' }
-]);
+]), [{ name: 'empty', protected: false, sha: '' }]);
 
 assert.strictEqual(canAcceptLiveClient(0, 0), true);
 assert.strictEqual(canAcceptLiveClient(99, 4), true);

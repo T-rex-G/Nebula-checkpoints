@@ -35,9 +35,11 @@ function integer(value, fallback, min, max) {
 
 function normalizeDigitalTwinOptions(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('Digital Twin options are invalid', 'GOVERNANCE_DIGITAL_TWIN_INPUT_INVALID');
+  if (input.afterDecisionSeq != null && input.beforeDecisionSeq != null) fail('Choose one Digital Twin decision cursor', 'GOVERNANCE_DIGITAL_TWIN_INPUT_INVALID');
   return deepFreeze({
     historyLimit: integer(input.historyLimit, 50, 1, MAX_HISTORY_LIMIT),
-    afterDecisionSeq: integer(input.afterDecisionSeq, 0, 0, Number.MAX_SAFE_INTEGER)
+    afterDecisionSeq: input.afterDecisionSeq == null ? null : integer(input.afterDecisionSeq, 0, 0, Number.MAX_SAFE_INTEGER),
+    beforeDecisionSeq: input.beforeDecisionSeq == null ? null : integer(input.beforeDecisionSeq, 0, 0, Number.MAX_SAFE_INTEGER)
   });
 }
 
@@ -237,7 +239,10 @@ function buildPolicyDigitalTwinReadModel(input = {}) {
       decisions,
       exceptions,
       nextDecisionSeq: data.nextDecisionSeq == null ? null : count(data.nextDecisionSeq),
+      nextBeforeDecisionSeq: data.nextBeforeDecisionSeq == null ? null : count(data.nextBeforeDecisionSeq),
+      decisionOrder: data.decisionOrder === 'desc' || options.afterDecisionSeq == null ? 'desc' : 'asc',
       requestedAfterDecisionSeq: options.afterDecisionSeq,
+      requestedBeforeDecisionSeq: options.beforeDecisionSeq,
       limit: options.historyLimit
     },
     freshness: { status: complete ? 'current' : 'partial', asOf, completeness }

@@ -12,6 +12,13 @@
  */
 
 const assert = require('assert');
+assert.deepStrictEqual(require('../scripts/alpha17-authorize').ALLOWED_JOBS, ['github', 'hosted']);
+for (const retired of ['gitlab', 'gitea']) {
+  assert.throws(() => require('../ci/verify-alpha17-authorization').hashLiveTarget(retired, {
+    repository: 'fixture-owner/nvx-alpha17-retired', apiUrl: 'https://example.invalid'
+  }), error => error.code === 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+}
+
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -139,6 +146,11 @@ assert.throws(
   error => error && /ALPHA17_AUTHORIZATION/.test(String(error.code || '')),
   'a spent activation must not be accepted again'
 );
+
+for (const retired of ['gitlab', 'gitea']) {
+  cliFails(signArguments.map((value, index) => signArguments[index - 1] === '--jobs' ? retired : value), /unknown job/);
+  cliFails([...signArguments, `--${retired}-repository`, 'fixture-owner/nvx-alpha17-retired'], /unsupported provider option/);
+}
 
 /* Lifetimes the verifier would reject are refused at minting instead. */
 cliFails([...signArguments, '--minutes', '45'], /--minutes must be between/);

@@ -202,15 +202,19 @@ async function tests() {
     '--repo',
     'GITHUB:github.com/ACME/DEMO',
     '--repo',
-    'gitea:gitea.example.com/acme/demo'
+    'github:github.com/acme/second'
   ]), {
     command: 'issue',
     label: 'Tester 01',
     repos: [
       'github:github.com/acme/demo',
-      'gitea:gitea.example.com/acme/demo'
+      'github:github.com/acme/second'
     ]
   });
+  for (const provider of ['gitlab', 'gitea']) {
+    assert.throws(() => parseArgs(['issue', '--label', 'Tester', '--repo', `${provider}:git.example/acme/demo`]),
+      /valid repository scope/);
+  }
   assert.deepStrictEqual(parseArgs(['list']), { command: 'list' });
   assert.deepStrictEqual(parseArgs([
     'revoke',

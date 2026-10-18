@@ -40,19 +40,8 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     assert(text.includes(expected), `bare production must name ${expected}`);
   }
 
-  /*
-   * The allowlist is a note, not a problem, and this asserts the difference.
-   *
-   * It is checked when a server URL is connected rather than at startup, and
-   * only for self-hosted Git servers -- an empty allowlist is the correct
-   * configuration for a deployment using the hosted providers. Reported as
-   * missing it sent a reader hunting a value they did not need, and this test
-   * asserted that wrong behaviour until the code was read properly.
-   */
-  assert(!result.problems.some(problem => /NV_GIT_HOST_ALLOWLIST/.test(problem.detail)),
-    'an empty allowlist is not a startup problem');
-  assert(result.notes.some(note => /NV_GIT_HOST_ALLOWLIST/.test(note)),
-    'but it is worth mentioning, with what it actually affects');
+  assert(!JSON.stringify(result).includes('NV_GIT_HOST_ALLOWLIST'),
+    'GitHub-only deployments must not recommend configuring retired custom hosts');
   /* One fact, one line: the generic requirement must not restate a precise one. */
   const sessionLines = result.problems.filter(problem => problem.detail.includes('SESSION_SECRET'));
   assert.strictEqual(sessionLines.length, 1,
@@ -65,7 +54,6 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     NODE_ENV: 'production',
     SESSION_SECRET: SECRET,
     PUBLIC_BASE_URL: 'https://nebula.example.com',
-    NV_GIT_HOST_ALLOWLIST: 'github.com',
     DATABASE_URL: 'postgresql://u:p@db.example.com:5432/nv?sslmode=verify-full'
   }));
   assert.deepStrictEqual(result.problems, [],
@@ -77,7 +65,6 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
   const hosted = {
     NODE_ENV: 'production', NV_DEPLOYMENT_PROFILE: 'hosted-alpha',
     SESSION_SECRET: SECRET, PUBLIC_BASE_URL: 'https://nebula.example.com',
-    NV_GIT_HOST_ALLOWLIST: 'github.com',
     DATABASE_URL: 'postgresql://u:p@db.example.com:5432/nv?sslmode=verify-full'
   };
   const applying = evaluate(bare(hosted));
@@ -136,13 +123,12 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     NV_GOVERNANCE_AUDIT_SECRET: compose('audit', 'fixture', 'fedcba9876543210', 'fedcba9876543210'),
     DATABASE_URL: `postgresql://someuser:${compose('pw', 'fixture')}@db.example.com:5432/nv?sslmode=verify-full`,
     PUBLIC_BASE_URL: 'https://nebula.example.com',
-    NV_GIT_HOST_ALLOWLIST: 'github.com',
     GITHUB_APP_WEBHOOK_SECRET: compose('webhook', 'fixture', '01234567')
   };
   const result = evaluate(bare(values));
   const rendered = JSON.stringify(result);
   for (const [name, value] of Object.entries(values)) {
-    if (name === 'NODE_ENV' || name === 'NV_GIT_HOST_ALLOWLIST' || name === 'PUBLIC_BASE_URL') continue;
+    if (name === 'NODE_ENV' || name === 'PUBLIC_BASE_URL') continue;
     assert(!rendered.includes(value), `${name}'s value must never appear in the report`);
   }
   assert(!rendered.includes(compose('pw', 'fixture')), 'a database password must never appear in the report');

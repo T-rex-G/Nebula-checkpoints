@@ -68,41 +68,13 @@ assert.deepStrictEqual(providerRevocationGuidance({
   url: 'https://github.com/settings/tokens',
   automatic: false
 });
-assert.deepStrictEqual(providerRevocationGuidance({
-  provider: 'gitlab', authMethod: 'token', baseUrl: 'https://gitlab.com'
-}), {
-  label: 'Revoke the token on GitLab',
-  url: 'https://gitlab.com/-/user_settings/personal_access_tokens',
-  automatic: false
-});
-
-assert.deepStrictEqual(providerRevocationGuidance({
-  provider: 'GitHub', authMethod: 'token', baseUrl: ''
-}), {
-  label: 'Revoke the token on GitHub',
-  url: 'https://github.com/settings/tokens',
-  automatic: false
-});
-assert.deepStrictEqual(providerRevocationGuidance({
-  provider: 'gitlab', authMethod: 'token', baseUrl: 'https://gitlab.example.com/gitlab/'
-}), {
-  label: 'Revoke the token on GitLab',
-  url: 'https://gitlab.example.com/gitlab/-/user_settings/personal_access_tokens',
-  automatic: false
-});
-assert.deepStrictEqual(providerRevocationGuidance({
-  provider: 'gitea', authMethod: 'token', baseUrl: 'https://gitea.example.com/forge/'
-}), {
-  label: 'Revoke the token on Gitea',
-  url: 'https://gitea.example.com/forge/user/settings/applications',
-  automatic: false
-});
-assert.throws(
-  () => providerRevocationGuidance({ provider: 'bitbucket', baseUrl: 'https://bitbucket.org' }),
-  /provider is unsupported/
-);
-assert.throws(
-  () => providerRevocationGuidance({ provider: 'gitea', baseUrl: 'not a url' }),
-  /provider baseUrl is invalid/
-);
+for (const provider of ['gitlab', 'gitea']) {
+  assert.deepStrictEqual(providerRevocationGuidance({ provider, baseUrl: 'https://untrusted.example/anything' }), {
+    label: 'Revoke this retired provider credential manually in its account settings',
+    url: null,
+    automatic: false
+  });
+  assert.strictEqual(providerRevocationGuidance({ provider, baseUrl: 'not a url' }).url, null);
+}
+assert.throws(() => providerRevocationGuidance({ provider: 'bitbucket' }), /provider is unsupported/);
 console.log('alpha privacy model tests passed');

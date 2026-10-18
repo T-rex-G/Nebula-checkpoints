@@ -76,3 +76,10 @@ const scenarios = ui.defaultSimulationRequest('main');
 assert.strictEqual(scenarios.schemaVersion, 1);
 assert(Array.isArray(scenarios.scenarios) && scenarios.scenarios.length >= 3);
 console.log('governance interface renderer tests passed');
+
+// Current Twin pages descend: older pages use the oldest observed sequence.
+const recentHtml = ui.renderGovernanceInterface({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: 8, decisionOrder: 'desc' } }, access: reader });
+assert(recentHtml.includes('data-before-seq="8"'));
+assert(!recentHtml.includes('data-after-seq='));
+const completeHtml = ui.renderGovernanceInterface({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: null, decisionOrder: 'desc' } }, access: reader });
+assert(!completeHtml.includes('data-gov-action="load-more-decisions"'));

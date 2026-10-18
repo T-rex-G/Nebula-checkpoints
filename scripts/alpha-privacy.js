@@ -149,13 +149,11 @@ async function runCli(argv, operator) {
 }
 
 function credentialForProvider(provider, env) {
-  const names = {
-    github: 'NV_ALPHA_GITHUB_TOKEN',
-    gitlab: 'NV_ALPHA_GITLAB_TOKEN',
-    gitea: 'NV_ALPHA_GITEA_TOKEN'
-  };
-  const name = names[provider];
-  const credential = name && String(env[name] || '');
+  if (provider !== 'github') {
+    throw cliError('cleanup task requires manual external cleanup', 'ALPHA_PROVIDER_UNSUPPORTED');
+  }
+  const name = 'NV_ALPHA_GITHUB_TOKEN';
+  const credential = String(env[name] || '');
   if (!credential) {
     throw cliError(`retry-cleanup requires ${name || 'a supported provider credential'}`,
       'ALPHA_PROVIDER_CREDENTIAL_REQUIRED');
@@ -164,30 +162,18 @@ function credentialForProvider(provider, env) {
 }
 
 function providerEndpoint(task) {
+  if (task.provider !== 'github') {
+    throw cliError('cleanup task requires manual external cleanup', 'ALPHA_PROVIDER_UNSUPPORTED');
+  }
   const owner = encodeURIComponent(task.owner);
   const repo = encodeURIComponent(task.repo);
   const hook = encodeURIComponent(String(task.provider_hook_id));
-  if (task.provider === 'github') {
-    return `https://api.github.com/repos/${owner}/${repo}/hooks/${hook}`;
-  }
-  const authority = String(task.authority || '');
-  if (!/^[a-z0-9.-]+(?::[1-9][0-9]{0,4})?$/i.test(authority)) {
-    throw cliError('provider authority is invalid', 'ALPHA_PROVIDER_AUTHORITY_INVALID');
-  }
-  if (task.provider === 'gitlab') {
-    return `https://${authority}/api/v4/projects/${encodeURIComponent(`${task.owner}/${task.repo}`)}/hooks/${hook}`;
-  }
-  if (task.provider === 'gitea') {
-    return `https://${authority}/api/v1/repos/${owner}/${repo}/hooks/${hook}`;
-  }
-  throw cliError('cleanup task provider is unsupported', 'ALPHA_PROVIDER_UNSUPPORTED');
+  return `https://api.github.com/repos/${owner}/${repo}/hooks/${hook}`;
 }
 
 async function verifyProviderWebhookAbsent(task, credential, fetchImpl) {
   const url = providerEndpoint(task);
-  const headers = task.provider === 'gitlab'
-    ? { 'PRIVATE-TOKEN': credential }
-    : { Authorization: task.provider === 'gitea' ? `token ${credential}` : `Bearer ${credential}` };
+  const headers = { Authorization: `Bearer ${credential}` };
   const removed = await fetchImpl(url, { method: 'DELETE', headers, redirect: 'error' });
   if (removed.status === 404) return true;
   if (!removed.ok) throw cliError('provider webhook deletion failed', 'ALPHA_PROVIDER_DELETE_FAILED');

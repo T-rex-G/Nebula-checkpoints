@@ -125,7 +125,19 @@ const providerSessions = {
   'provider-gitea': providerSession(accounts.gitea),
   'provider-gitea-path': providerSession(accounts.giteaPath),
   'provider-app': providerSession(accounts.githubApp),
-  'provider-app-delete': providerSession(accounts.githubApp, appDeleteStepUp)
+  /* A retired account still selected beside a GitHub one: nothing may act as the GitHub one in its place. */
+  'provider-mixed-retired-active': seal({
+    accounts: [accounts.gitlab, accounts.github], active: 0,
+    security: { sessionNonce, stepUp: null },
+    safety: { readOnly: false, freezeSync: false, protected: {} }
+  }),
+  'provider-app-delete': providerSession(accounts.githubApp, appDeleteStepUp),
+  /* The same pair, for removing the retired account. */
+  'provider-mixed-retired-remove': seal({
+    accounts: [accounts.gitlab, accounts.github], active: 0,
+    security: { sessionNonce, stepUp: null },
+    safety: { readOnly: false, freezeSync: false, protected: {} }
+  })
 };
 
 const fixtureSource = String.raw`
@@ -215,6 +227,8 @@ function alphaState(letter) {
 function activeSession(letter) {
   const scopes = {
     A: ['github:github.com/acme/demo'],
+    M: ['github:github.com/acme/demo', 'gitlab:gitlab.com/acme/old'],
+    N: ['github:github.com/acme/demo', 'gitea:git.example/acme/old'],
     /*
      * An unbound invitation: no scopes, so no list to check against. It is a
      * distinct shape from a session whose scopes failed to load, which is why
@@ -237,6 +251,14 @@ function activeSession(letter) {
     termsVersion: process.env.NV_ALPHA_TERMS_VERSION,
     expiresAt: '2026-08-05T12:00:00.000Z'
   };
+}
+
+/* The real module's exports, so the server meets the same interface it ships against. */
+class AlphaAccessOperationalError extends Error {
+  constructor() {
+    super('Alpha access operation could not be completed');
+    this.name = 'AlphaAccessOperationalError';
+  }
 }
 
 class AlphaAccessStore {
@@ -459,7 +481,7 @@ class Pool {
 
 Module._load = function load(request, parent, isMain) {
   if (request === './src/alpha-access-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaAccessStore };
+    return { AlphaAccessStore, AlphaAccessOperationalError };
   }
   if (request === './src/alpha-privacy-store' && parent && /server\.js$/.test(parent.filename)) {
     return { AlphaPrivacyStore };
@@ -494,9 +516,6 @@ Module._load = function load(request, parent, isMain) {
     return { startWebhookWorker: () => ({ stop() {} }) };
   }
   if (request === 'pg') return { Pool };
-  if (request === './src/provider-transport' && parent && /server\.js$/.test(parent.filename)) {
-    return { providerFetch: (...args) => global.fetch(...args) };
-  }
   if (request === 'dns') {
     return { promises: { lookup: async () => [{ address: '93.184.216.34', family: 4 }] } };
   }
@@ -513,59 +532,11 @@ function jsonResponse(body, status = 200) {
 global.fetch = async function providerFetch(url, options = {}) {
   const href = String(url);
   record({ kind: 'provider.fetch', method: options.method || 'GET', url: href });
-  if (/\/projects\/Acme%2FDemo\/repository\/commits\?/i.test(href)) {
-    return jsonResponse([{ id: 'a'.repeat(40), title: 'Allowed activity', author_name: 'Fixture', created_at: '2026-09-20T10:00:00Z' }]);
-  }
   if (/\/repos\/Acme\/Demo\/commits\?/i.test(href)) {
     return jsonResponse([{ sha: 'a'.repeat(40), commit: {
       message: 'Allowed activity', author: { name: 'Fixture', date: '2026-01-01T10:00:00Z' },
       committer: { date: '2026-09-20T10:00:00Z' }
     } }]);
-  }
-  if (/\/api\/v4\/user$/.test(href)) {
-    return jsonResponse({ username: 'fixture-user', name: 'Fixture', avatar_url: '' });
-  }
-  if (/\/api\/v4\/projects\?/.test(href)) {
-    return jsonResponse([
-      {
-        path_with_namespace: 'Acme/Demo',
-        path: 'Demo',
-        namespace: { full_path: 'Acme' },
-        visibility: 'private',
-        default_branch: 'main',
-        last_activity_at: '2026-07-30T00:00:00.000Z',
-        description: 'allowed',
-        star_count: 1
-      },
-      {
-        path_with_namespace: 'Acme/Production',
-        path: 'Production',
-        namespace: { full_path: 'Acme' },
-        visibility: 'private',
-        default_branch: 'main',
-        last_activity_at: '2026-07-30T00:00:00.000Z',
-        description: 'not allowed',
-        star_count: 2
-      }
-    ]);
-  }
-  if (/\/api\/v1\/user\/repos\?/.test(href)) {
-    return jsonResponse([
-      {
-        full_name: 'Acme/Demo',
-        name: 'Demo',
-        owner: { login: 'Acme' },
-        private: true,
-        default_branch: 'main'
-      },
-      {
-        full_name: 'Acme/Production',
-        name: 'Production',
-        owner: { login: 'Acme' },
-        private: true,
-        default_branch: 'main'
-      }
-    ]);
   }
   if (/api\.github\.com\/user$/.test(href)) {
     return jsonResponse({ id: 7, login: 'fixture-user', name: 'Fixture', avatar_url: '' });
@@ -655,7 +626,6 @@ const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
     NV_ALPHA_ACCESS_MODE: 'invite',
     NV_ALPHA_INVITE_PEPPER: 'alpha-test-pepper-0123456789abcdef-0123456789abcdef',
     NV_ALPHA_TERMS_VERSION: termsVersion,
-    NV_GIT_HOST_ALLOWLIST: 'gitlab.com,gitea.example',
     NV_ALPHA_TEST_EVENT_LOG: eventLog,
     NV_ALPHA_TEST_ROOT: root,
     NV_TRUSTED_PROXIES: '127.0.0.1/32,::1/128',
@@ -1165,8 +1135,8 @@ ${logs}`
 
     for (const [letter, sid] of [
       ['A', 'provider-github'],
-      ['E', 'provider-gitlab'],
-      ['F', 'provider-gitea']
+      ['M', 'provider-github'],
+      ['N', 'provider-github']
     ]) {
       const response = await request('/api/repos', {
         headers: { cookie: combinedCookie(letter, sid) }
@@ -1199,6 +1169,16 @@ ${logs}`
       assert.ok(reads.every(event => event.method === 'GET'), 'the overview must never write to a provider');
       assert.ok(!reads.some(event => /Production/i.test(event.url)), 'the feed must not read a repository outside the invitation');
       assert.strictEqual(reads.filter(event => /commits\?/.test(event.url)).length, 1);
+    }
+
+    for (const letter of ['E', 'F']) {
+      const transportBefore = transportEvents();
+      const retiredGrant = await request('/api/repo/acme/demo', {
+        headers: { cookie: combinedCookie(letter, 'provider-github') }
+      });
+      assert.strictEqual(retiredGrant.status, 403, 'a retired-only invitation cannot admit a GitHub account');
+      assert.strictEqual((await json(retiredGrant)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
+      assert.deepStrictEqual(transportEvents(), transportBefore);
     }
 
     const cacheIdentityResponse = await request('/api/me', {
@@ -1291,30 +1271,54 @@ ${logs}`
     );
 
     for (const [provider, letter, sid] of [
-      ['GitLab', 'Q', 'provider-gitlab-path'],
-      ['Gitea', 'P', 'provider-gitea-path']
+      ['gitlab', 'E', 'provider-gitlab'],
+      ['gitea', 'F', 'provider-gitea'],
+      ['gitlab', 'Q', 'provider-gitlab-path'],
+      ['gitea', 'P', 'provider-gitea-path']
     ]) {
-      const transportBeforePathRoot = transportEvents();
-      const pathRoot = await request('/api/repo/acme/demo', {
-        headers: { cookie: combinedCookie(letter, sid) }
-      });
-      assert.strictEqual(pathRoot.status, 403);
-      assert.strictEqual((await json(pathRoot)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
-      assert.deepStrictEqual(
-        transportEvents(),
-        transportBeforePathRoot,
-        `${provider} path-root repository access must fail before credential or provider transport`
-      );
-      const pathRootList = await request('/api/repos', {
-        headers: { cookie: combinedCookie(letter, sid) }
-      });
-      assert.strictEqual(pathRootList.status, 403);
-      assert.strictEqual((await json(pathRootList)).code, 'ALPHA_REPOSITORY_NOT_ALLOWED');
-      assert.deepStrictEqual(
-        transportEvents(),
-        transportBeforePathRoot,
-        `${provider} path-root repository listing must fail before capability, credential, or provider transport`
-      );
+      const transportBefore = transportEvents();
+      for (const route of ['/api/repo/acme/demo', '/api/repos', '/api/activity/recent']) {
+        const response = await request(route, {
+          headers: { cookie: combinedCookie(letter, sid) }
+        });
+        assert.strictEqual(response.status, 401, `${provider} saved sessions cannot read ${route}`);
+        assert.strictEqual((await json(response)).code, 'AUTH_REQUIRED');
+      }
+      assert.deepStrictEqual(transportEvents(), transportBefore,
+        `${provider} historical sessions fail before credential or provider transport`);
+    }
+
+    {
+      const transportBefore = transportEvents();
+      const cookie = combinedCookie('A', 'provider-mixed-retired-active');
+      for (const route of ['/api/repos', '/api/repo/acme/demo', '/api/me']) {
+        const response = await request(route, { headers: { cookie } });
+        assert.strictEqual(response.status, 409, `a retired selected account is refused on ${route}, not swapped for GitHub`);
+        assert.strictEqual((await json(response)).code, 'ACCOUNT_SELECTION_REQUIRED');
+      }
+      assert.deepStrictEqual(transportEvents(), transportBefore, 'no provider request is made as another account');
+      const listed = await request('/api/accounts', { headers: { cookie } });
+      assert.strictEqual(listed.status, 200);
+      const body = await json(listed);
+      assert.deepStrictEqual(body.accounts.map(item => [item.provider, item.retired]), [['gitlab', true], ['github', false]],
+        'the account list shows the retired account so it can be replaced');
+      assert.strictEqual(body.active, 0);
+    }
+
+    {
+      /* Removing the retired account records the operator's cleanup and takes its credential out of the session. */
+      const cookie = combinedCookie('A', 'provider-mixed-retired-remove');
+      const cleanupsBefore = events('privacy.cleanup.create').length;
+      const removed = await request('/api/accounts/remove', postJson({ idx: 0 }, { cookie, 'x-nv-csrf': csrfFor(accounts.gitlab) }));
+      const removedBody = await json(removed);
+      assert.strictEqual(removed.status, 200, JSON.stringify(removedBody));
+      assert.strictEqual(removedBody.revocationGuidance.length, 1, 'the person is told to revoke the old token at its provider');
+      const cleanups = events('privacy.cleanup.create').slice(cleanupsBefore);
+      assert.deepStrictEqual(cleanups.map(event => [event.input.provider, event.input.resourceType, event.input.reasonCode]),
+        [['gitlab', 'provider-session', 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED']]);
+      const listed = await json(await request('/api/accounts', { headers: { cookie } }));
+      assert.deepStrictEqual(listed.accounts.map(item => [item.provider, item.retired]), [['github', false]]);
+      assert.strictEqual((await request('/api/me', { headers: { cookie } })).status, 200, 'the GitHub account now acts');
     }
 
     const fetchesBeforeAllowedSearch = events('provider.fetch').length;

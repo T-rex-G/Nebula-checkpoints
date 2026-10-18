@@ -55,34 +55,14 @@ function providerRevocationGuidance(account) {
       automatic: false
     });
   }
-  if (provider === 'gitlab') {
-    const base = providerBaseUrl(account, 'https://gitlab.com');
-    return Object.freeze({
-      label: 'Revoke the token on GitLab',
-      url: new URL(`${base}/-/user_settings/personal_access_tokens`).toString(),
-      automatic: false
-    });
-  }
-  if (provider !== 'gitea') throw new TypeError('provider is unsupported');
-  const base = providerBaseUrl(account);
+  // Retired account records remain eligible for local privacy cleanup. Never
+  // construct or contact a URL from their saved provider configuration.
+  if (!['gitlab', 'gitea'].includes(provider)) throw new TypeError('provider is unsupported');
   return Object.freeze({
-    label: 'Revoke the token on Gitea',
-    url: new URL(`${base}/user/settings/applications`).toString(),
+    label: 'Revoke this retired provider credential manually in its account settings',
+    url: null,
     automatic: false
   });
-}
-
-function providerBaseUrl(account, fallback) {
-  let base;
-  try {
-    base = new URL(account && account.baseUrl || fallback);
-  } catch {
-    throw new TypeError('provider baseUrl is invalid');
-  }
-  if (!/^https?:$/.test(base.protocol) || base.username || base.password) {
-    throw new TypeError('provider baseUrl is invalid');
-  }
-  return `${base.origin}${base.pathname.replace(/\/+$/, '')}`;
 }
 
 module.exports = Object.freeze({

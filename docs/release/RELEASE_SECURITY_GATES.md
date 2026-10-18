@@ -85,9 +85,10 @@ A pass is public-alpha accessibility qualification, not legal certification.
 
 ## Live-provider gates
 
-- GitHub must pass the complete golden path.
-- GitLab and Gitea must each pass every capability advertised as `Supported`.
-- Each provider uses a separately pre-created `nvx-alpha17-` sandbox repository.
+- GitHub is the only product provider and must pass the complete golden path.
+- Retired-provider jobs, targets and artifacts cannot satisfy current gates.
+  Historical artifacts remain dated records, not current support.
+- GitHub uses a separately pre-created `nvx-alpha17-` sandbox repository.
   The signed activation binds its exact repository/API identity; qualification
   creates and deletes only a per-run temporary branch and proof files.
 - Disposable mutations must prove stale-head write and delete rejection with
@@ -120,6 +121,12 @@ A pass is public-alpha accessibility qualification, not legal certification.
 - Memory/restart observation, active-session revocation, provider disconnect,
   filesystem independence, database interruption/recovery, provider 429/outage,
   deploy rollback, tested database restore, and tester purge.
+- Live-event delivery, which only a deployment GitHub can reach can prove: the
+  operator connects live events on the sandbox target through the product,
+  pushes one commit, sees the signed delivery verified and the event arrive in
+  an open stream, then disconnects and confirms on GitHub that the webhook is
+  gone (`live-events-delivery`: webhook registered, signed delivery verified,
+  event streamed, webhook removed at the provider).
 - Encrypted pre-deploy backup and one isolated restore whose source/target URLs
   match official Neon branch connection URIs and whose destructive target is
   rechecked through a live database session; no dump in source, Actions

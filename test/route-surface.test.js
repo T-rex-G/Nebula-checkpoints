@@ -40,8 +40,8 @@ function seal(value) {
 }
 
 const account = {
-  provider: 'gitea', authMethod: 'token', login: 'surface-user',
-  token: 'fixture-token', baseUrl: 'https://gitea.example'
+  provider: 'github', authMethod: 'token', login: 'surface-user',
+  token: 'fixture-token'
 };
 const sessionCookie = () => `nv_session=${seal({
   accounts: [account], active: 0,
@@ -224,7 +224,22 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * resolutions and the metrics) and `src/code-audit-policy.js` (the clock) --
  * each tested on its own, against a real database where it keeps rows.
  */
-const SERVER_ROUTE_CEILING = 184;
+/*
+ * 184 to 185 adds the Overview's security posture: one read across the audit
+ * history, the exposure scans and the governance decisions the identity
+ * already holds. The handler calls the three stores and hands what they
+ * returned to `src/posture-summary.js`, which decides every figure and is
+ * tested on its own; the store queries are tested against a real database.
+ */
+/*
+ * 185 to 187 adds the findings inbox and the CODEOWNERS read beside it. The
+ * inbox reads the two stores and hands their rows to `src/findings-inbox.js`,
+ * which decides every state and the order; the CODEOWNERS route reads one file
+ * through the qualified file read and hands it to `public/codeowners.js`,
+ * which parses and matches it the way GitHub documents. Both are tested on
+ * their own, the store queries against a real database.
+ */
+const SERVER_ROUTE_CEILING = 187;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')
@@ -263,7 +278,7 @@ const child = spawn(process.execPath, ['server.js'], {
   env: {
     ...process.env,
     PORT: String(port), NODE_ENV: 'test', SESSION_SECRET: secret, DATABASE_URL: '',
-    NV_GIT_HOST_ALLOWLIST: 'gitea.example', NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
+    NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
   },
   stdio: ['ignore', 'pipe', 'pipe']
 });

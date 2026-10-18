@@ -450,12 +450,20 @@ function openRows(rows, decisions, now) {
  * pull request cannot lengthen its own deadline by changing the policy file
  * it is asking to merge.
  */
+/* Reasons a known finding refuses a merge even when the rest of the audit could not be completed. */
+const DENY_ON_KNOWN = new Set(['critical', 'secret', 'exploited', 'overdue']);
+
 function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } = {}) {
   if (!head || !head.audit) return gateResult('missing', { base: base && base.audit ? 'audited' : 'missing' });
   const audit = head.audit;
   if (!headSha || audit.commitSha !== headSha) {
     return gateResult('stale', { grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, base: base && base.audit ? 'audited' : 'missing' });
   }
+  /* A matching commit proves freshness, not that the evidence needed to judge it was available. */
+  const evidenceComplete = audit.analysisComplete === true
+    && !(audit.files && audit.files.complete !== true)
+    && !(audit.findings && audit.findings.total > audit.findings.stored)
+    && !(audit.watch && ['partial', 'unavailable'].includes(audit.watch.state));
   const sla = (base && base.audit && base.audit.sla) || DEFAULT_SLA;
   const open = openRows(head.findings, decisions, now);
   const counts = { critical: 0, serious: 0, warning: 0 };
@@ -477,6 +485,27 @@ function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } 
   if (open.some(row => confirmed(row) && row.category === 'secrets')) blocking.push('secret');
   if (overdue.length) blocking.push('overdue');
   if (introduced) blocking.push('introduced');
+  /*
+   * Incomplete evidence can only add findings. What it already shows that the
+   * gate refuses (a confirmed critical, a credential, an exploited
+   * vulnerability, an overdue finding) is judged as it stands; anything less
+   * waits on an approval, as a head nobody could fully audit does.
+   */
+  /*
+   * Which kind of incomplete: an audit kept before audits recorded their own
+   * completeness ('unrecorded') is cured by auditing again; one that recorded
+   * a gap ('incomplete') waits on an approval. A gate that could not read the
+   * kept audits at all says neither.
+   */
+  const evidence = evidenceComplete ? null
+    : (audit.analysisComplete === true || audit.analysisComplete === false ? 'incomplete' : 'unrecorded');
+  if (!evidenceComplete && !blocking.some(reason => DENY_ON_KNOWN.has(reason))) {
+    return gateResult('unavailable', {
+      grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, blocking, open: counts,
+      overdue: overdue.length, exploited: exploitedRows.length, introduced,
+      base: base && base.audit ? 'audited' : 'missing', complete: false, evidence
+    });
+  }
   return gateResult('current', {
     grade: audit.grade,
     auditedAt: audit.auditedAt,
@@ -487,7 +516,8 @@ function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() } 
     exploited: exploitedRows.length,
     introduced,
     base: base && base.audit ? 'audited' : 'missing',
-    complete: audit.files ? audit.files.complete === true : null,
+    complete: evidenceComplete ? (audit.files ? audit.files.complete === true : null) : false,
+    evidence,
     sla: { ...sla, source: base && base.audit && base.audit.sla ? 'base' : 'default' }
   });
 }
@@ -505,6 +535,7 @@ function gateResult(state, facts = {}) {
     introduced: facts.introduced === undefined ? null : facts.introduced,
     base: facts.base || 'missing',
     complete: facts.complete === undefined ? null : facts.complete,
+    evidence: facts.evidence || null,
     sla: facts.sla ? Object.freeze(facts.sla) : null
   });
 }

@@ -36,7 +36,7 @@ catalogue covers cloud and infrastructure (AWS secret keys, Google, Azure
 storage, DigitalOcean, Cloudflare, Vault, Terraform Cloud, Doppler, Pulumi,
 Render, Neon, Fly.io, Netlify, PlanetScale, Databricks), packages and CI (npm,
 PyPI, Docker Hub, CircleCI, Buildkite, JFrog, Atlassian, Linear, Postman, Figma,
-Sentry, Grafana, New Relic, Dynatrace), AI providers (OpenAI, Anthropic, Hugging
+Grafana, New Relic, Dynatrace), AI providers (OpenAI, Anthropic, Hugging
 Face, Replicate, Groq, Perplexity), payments (Stripe live and test keys and
 webhook secrets, Square, Shopify, Braintree, Flutterwave, EasyPost), messaging
 and webhooks (SendGrid, Mailgun, Mailchimp, Resend, Twilio, Slack, Discord and
@@ -214,7 +214,7 @@ Verifiers exist for GitHub, GitLab and Slack tokens, and for OpenAI,
 Anthropic, Hugging Face, Groq, Replicate, xAI, OpenRouter, Google API keys,
 Stripe live and test keys, SendGrid, Mailgun, Resend, npm, DigitalOcean,
 Notion, Airtable, Linear, Postman, Figma, Doppler, Netlify, Render, Neon,
-Sentry, CircleCI, Buildkite, Terraform Cloud, Pulumi, HubSpot, Contentful,
+CircleCI, Buildkite, Terraform Cloud, Pulumi, HubSpot, Contentful,
 Square, X, the Supabase management token, Pinecone, Tailscale API keys,
 Dropbox, Asana, Heroku and Datadog API keys. Each asks one fixed endpoint
 that proves authentication and changes nothing, with the credential in a

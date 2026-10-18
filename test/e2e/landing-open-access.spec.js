@@ -261,6 +261,30 @@ test('the marker admits nobody on its own', async ({ page }) => {
   await expect(passThrough(page)).toBeHidden();
 });
 
+test('an access store that was waking is asked again once the database answers', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'required', ready: 'ready' });
+  /*
+   * The server says ALPHA_ACCESS_UNAVAILABLE while its access store cannot be
+   * read -- a database waking from scale-to-zero -- and keeps the reader's
+   * cookie. The page waits for readiness and asks once more, rather than
+   * leaving the reader on "Temporarily unavailable" until they reload.
+   */
+  let asked = 0;
+  await page.route('**/api/alpha/status', route => {
+    asked += 1;
+    if (asked === 1) {
+      return route.fulfill({ status: 503, contentType: 'application/json', headers: { 'retry-after': '5' },
+        body: JSON.stringify({ error: 'Alpha access is temporarily unavailable. Try again in a few seconds.', code: 'ALPHA_ACCESS_UNAVAILABLE' }) });
+    }
+    return route.fallback();
+  });
+  await page.goto('/');
+
+  await expect(invite(page)).toBeVisible(SETTLES_AFTER_RETRIES);
+  await expect(wakeState(page)).not.toHaveText('Temporarily unavailable');
+  expect(asked).toBe(2);
+});
+
 test('a gate that cannot redeem says so instead of offering the field', async ({ page }) => {
   await mockPublicAlphaApi(page, { mode: 'invite', access: 'required', ready: 'database-unavailable' });
   await page.goto('/');

@@ -17,7 +17,7 @@ assert(server.includes('repositoryFacts'));
 
 assert(server.includes("new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$')"),
   'read-only safeguards must exempt only the exact baseline generation route');
-assert(server.includes("const branchesPath = req.gh.provider === 'gitea' ? `${R(req)}/branches?limit=100&page=1` : `${R(req)}/branches?per_page=100`;"),
-  'Gitea branch facts must use Gitea pagination rather than GitHub pagination');
+assert(server.includes('gh(req.gh, `${R(req)}/branches?per_page=100`)'),
+  'branch facts must use GitHub pagination');
 
 console.log('governance template and Digital Twin server contract tests passed');

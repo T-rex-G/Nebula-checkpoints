@@ -329,6 +329,15 @@ const ui = require('../public/code-audit-ui');
     assert.strictEqual(keptRun.versionControlProvenance[0].revisionId, audit.commitSha);
   }
 
+  /* A count the server could not establish is never shown as zero. */
+  {
+    const known = ui.diffSentence({ newIds: new Set(['a', 'b']), resolved: 1, previousAt: null });
+    assert.strictEqual(known, '2 new findings, 1 resolved.');
+    const unknown = ui.diffSentence({ newIds: new Set(['a']), resolved: null, previousAt: null });
+    assert(!/\b0 resolved\b/.test(unknown) && unknown.startsWith('1 new finding.'), unknown);
+    assert(/Nothing is counted as resolved: this audit did not have the evidence to prove a fix/.test(unknown), 'the reader is told why nothing is counted as resolved');
+  }
+
   console.log('code audit UI tests passed');
 })().catch(error => {
   console.error(error && error.stack || error);

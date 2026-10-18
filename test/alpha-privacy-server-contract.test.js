@@ -16,7 +16,7 @@ function routeBlock(method, routePath) {
 
 assert.match(
   server,
-  /const \{ alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback \} = require\('\.\/src\/alpha-privacy'\)/
+  /const \{ alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance \} = require\('\.\/src\/alpha-privacy'\)/
 );
 
 const privacy = routeBlock('get', '/api/alpha/privacy');

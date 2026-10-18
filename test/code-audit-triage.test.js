@@ -128,7 +128,7 @@ const row = (seed, extra = {}) => ({
   reach: null, exploited: false, waived: null, firstSeenAt: new Date(T0).toISOString(), ...extra
 });
 const kept = (commit, rows, extra = {}) => ({
-  audit: { commitSha: commit, grade: 'C', auditedAt: new Date(T0).toISOString(), files: { complete: true }, sla: null, ...extra },
+  audit: { commitSha: commit, grade: 'C', auditedAt: new Date(T0).toISOString(), files: { complete: true }, analysisComplete: true, sla: null, ...extra },
   findings: rows
 });
 const HEAD = 'a'.repeat(40);
@@ -137,10 +137,41 @@ const HEAD = 'a'.repeat(40);
   const stale = evaluateMergeGate({ headSha: HEAD, head: kept('b'.repeat(40), [row('a1', { severity: 'critical' })]), base: null });
   assert.deepStrictEqual([stale.state, [...stale.blocking], stale.commitSha], ['stale', [], 'b'.repeat(40)], 'an audit of another commit judges nothing');
   assert.strictEqual(unavailableGate().state, 'unavailable');
+  assert.strictEqual(unavailableGate().evidence, null, 'a gate that could not read the kept audits claims nothing about their evidence');
   assert.deepStrictEqual([...GATE_STATES].sort(), ['current', 'missing', 'stale', 'unavailable']);
 
   const clean = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('w1', { severity: 'warning' })]), base: kept('c'.repeat(40), []), now: T0 + DAY });
   assert.deepStrictEqual([clean.state, [...clean.blocking], clean.open.warning, clean.base, clean.introduced], ['current', [], 1, 'audited', 0]);
+
+  for (const extra of [
+    { analysisComplete: null },
+    { analysisComplete: undefined },
+    { analysisComplete: false },
+    { files: { complete: false } },
+    { findings: { total: 1501, stored: 1500 } },
+    { watch: { state: 'partial' } },
+    { watch: { state: 'unavailable' } }
+  ]) {
+    const incomplete = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [], extra), base: null, now: T0 });
+    assert.strictEqual(incomplete.state, 'unavailable', 'an exact commit does not make incomplete audit evidence current');
+    /* Which kind: an audit kept before completeness was recorded is cured by auditing again; a recorded gap is not. */
+    assert.strictEqual(incomplete.evidence, 'analysisComplete' in extra && extra.analysisComplete !== false ? 'unrecorded' : 'incomplete',
+      `the gate does not say what kind of incomplete ${JSON.stringify(extra)} is`);
+    assert.strictEqual(incomplete.complete, false);
+    const template = getPolicyTemplate('audit-merge-gate');
+    const actions = previewMergePolicies([{ policyKey: 'audit-gate', document: { ...template.document, enforcement: { mode: 'block' } } }],
+      { branch: 'main', audit: gateAttributes(incomplete) });
+    assert.deepStrictEqual(actions.map(item => item.effect), ['require-approval'], 'the existing template holds incomplete evidence');
+  }
+  /* Incomplete evidence can only add findings: a confirmed critical or credential it already shows still denies the merge. */
+  for (const extra of [{ analysisComplete: false }, { files: { complete: false } }, { watch: { state: 'partial' } }]) {
+    const known = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('k1', { severity: 'critical' }), row('k2', { severity: 'serious', category: 'secrets' })], extra), base: null, now: T0 });
+    assert.deepStrictEqual([known.state, [...known.blocking], known.open.critical, known.complete], ['current', ['critical', 'serious', 'secret'], 1, false]);
+    const template = getPolicyTemplate('audit-merge-gate');
+    const actions = previewMergePolicies([{ policyKey: 'audit-gate', document: { ...template.document, enforcement: { mode: 'block' } } }],
+      { branch: 'main', audit: gateAttributes(known) });
+    assert.deepStrictEqual(actions.map(item => item.effect), ['deny'], 'known blockers deny whatever else the audit could not see');
+  }
 
   /* Every reason, each for what it says. */
   const now = T0 + 40 * DAY;

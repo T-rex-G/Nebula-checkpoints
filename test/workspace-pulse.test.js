@@ -103,16 +103,15 @@ const component = (model, id) => model.trust.components.find(entry => entry.id =
  * missing feature, not a weakness of this workspace.
  */
 {
-  const half = pulse.model({ ...PERFECT, features: features(4, 4, 0) });
-  assert.strictEqual(component(half, 'capabilities').ratio, 0.5, 'experimental must not score as verified');
-  assert(component(half, 'capabilities').detail.includes('4 of 8'), 'the component must report the count behind its ratio');
-  const gitea = pulse.model({ ...PERFECT, features: features(6, 4, 25) });
-  const reading = component(gitea, 'capabilities');
-  assert.strictEqual(reading.ratio, 0.6, 'the denominator is what the provider offers');
-  assert(reading.detail.includes('6 of 10') && reading.detail.includes('4 experimental') && reading.detail.includes('25 unavailable'),
-    `the detail must say exactly what the ratio is made of: ${reading.detail}`);
+  /* Only what is Supported is offered, so nothing else enters the ratio or the sentence. */
+  const half = pulse.model({ ...PERFECT, features: { a: { status: 'Supported', evidenceState: 'Provider-verified' }, b: { status: 'Supported', evidenceState: 'Deterministic' }, c: { status: 'Experimental', evidenceState: 'Provider-verified' } } });
+  assert.strictEqual(component(half, 'capabilities').ratio, 0.5, 'only Supported capabilities are offered and counted');
+  const reading = component(half, 'capabilities');
+  assert(reading.detail.includes('1 of 2 offered capabilities provider-verified'), reading.detail);
+  assert(!/experimental|unavailable/i.test(reading.detail), `nothing that is not offered is named: ${reading.detail}`);
   const none = pulse.model({ ...PERFECT, features: features(0, 0, 8) });
   assert.strictEqual(component(none, 'capabilities').ratio, 0);
+  assert.match(component(none, 'capabilities').detail, /offers none/);
 }
 
 /*
@@ -225,19 +224,20 @@ const component = (model, id) => model.trust.components.find(entry => entry.id =
   }
 }
 
-/* The capability card reports the verified count against the projected total. */
+/* The capability card describes what is offered, by the evidence behind it, and nothing else. */
 {
-  const model = pulse.model({ ...PERFECT, features: features(5, 2, 3) });
-  assert.strictEqual(model.signals.live, 5);
-  assert.strictEqual(model.signals.total, 10);
+  const model = pulse.model({ ...PERFECT, features: { ...features(5, 2, 3), extra: { status: 'Supported', evidenceState: 'Deterministic' } } });
+  assert.strictEqual(model.signals.live, 6);
+  assert.strictEqual(model.signals.total, 6, 'the total is what is offered');
   assert.deepStrictEqual(
     model.signals.breakdown.map(entry => [entry.label, entry.count]),
-    [['Supported', 5], ['Experimental', 2], ['Unavailable', 3]]
+    [['Provider-verified', 5], ['Deterministic', 1]]
   );
+  assert(!model.signals.breakdown.some(entry => /Experimental|Unavailable/.test(entry.label)), 'no state that is not offered is drawn');
   assert.strictEqual(
     model.signals.breakdown.reduce((total, entry) => total + entry.count, 0),
     model.signals.total,
-    'the breakdown must account for every projected capability'
+    'the breakdown accounts for every offered capability'
   );
 }
 
@@ -251,14 +251,14 @@ const component = (model, id) => model.trust.components.find(entry => entry.id =
     verifiedExperimental: { status: 'Experimental', evidenceState: 'Provider-verified' },
     restricted: { status: 'Unavailable', evidenceState: 'Provider-verified' }
   } });
-  assert.strictEqual(model.signals.live, 4, 'the availability ring counts Supported without calling it verified');
-  assert.strictEqual(model.signals.providerVerified, 2, 'evidence count follows evidenceState independently of status');
-  assert.strictEqual(component(model, 'capabilities').ratio, 1 / 5,
+  assert.strictEqual(model.signals.live, 4, 'the ring counts what is Supported without calling it verified');
+  assert.strictEqual(model.signals.providerVerified, 0, 'only offered capabilities are counted by evidence');
+  assert.strictEqual(component(model, 'capabilities').ratio, 0,
     'only offered provider-verified capabilities contribute; stale and unknown evidence earn no credit');
-  assert.match(component(model, 'capabilities').detail, /1 of 5 offered capabilities provider-verified/);
+  assert.match(component(model, 'capabilities').detail, /0 of 4 offered capabilities provider-verified/);
   assert.match(component(model, 'capabilities').detail, /registry evidence/);
   assert.deepStrictEqual(model.signals.evidence.map(entry => [entry.label, entry.count]), [
-    ['Provider-verified', 2], ['Deterministic', 1], ['Inferred', 1], ['Stale', 1], ['Unavailable', 0], ['Unknown', 1]
+    ['Provider-verified', 0], ['Deterministic', 1], ['Inferred', 1], ['Stale', 1], ['Unavailable', 0], ['Unknown', 1]
   ]);
   const absent = pulse.model({ features: { one: { status: 'Supported' } } });
   assert.strictEqual(component(absent, 'capabilities').status, 'unknown', 'availability alone never establishes evidence maturity');

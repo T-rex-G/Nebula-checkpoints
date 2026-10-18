@@ -60,29 +60,14 @@ const PROVIDER_PROBES = Object.freeze({
     { key: 'release-write', status: 'pass', statusClass: '2xx', createdReadBack: true, tagAtTarget: true, cleanupAbsent: true },
     { key: 'star-toggle', status: 'pass', statusClass: '2xx', starVisible: true, unstarVisible: true, initialStateRestored: true },
     { key: 'code-search', status: 'pass', statusClass: '2xx', fixtureFound: true, resultsScoped: true, absentDiscriminated: true },
-    { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true }
-  ],
-  gitlab: [
+    { key: 'workflow-rerun', status: 'pass', statusClass: '2xx', dispatchedRunCompleted: true, rerunAccepted: true, attemptAdvanced: true },
+    { key: 'repository-create', status: 'pass', statusClass: '2xx', identityChecked: true, createdReadBack: true, readBackById: true, defaultRefReported: true },
+    { key: 'repository-delete', status: 'pass', statusClass: '2xx', unprivilegedRefused: true, administratorVerified: true, absentByName: true, absentById: true },
     {
-      key: 'tree-read',
-      status: 'pass',
-      statusClass: '2xx',
-      entries: 3,
-      proofPathPresent: true,
-      blobIdentityMatched: true
-    },
-    ...['pulls-read', 'issues-read'].map(key => ({
-      key,
-      status: 'pass',
-      statusClass: '2xx',
-      listed: 1,
-      detailAgreed: true,
-      absentDiscriminated: true
-    })),
-    { key: 'issue-write', status: 'pass', statusClass: '2xx', createdReadBack: true, commentReadBack: true, closedReadBack: true, readOnlyRefused: true },
-    { key: 'pull-write', status: 'pass', statusClass: '2xx', createdReadBack: true, reviewRecorded: true, staleHeadRefused: true, mergedIntoBase: true, refsRemoved: true }
-  ],
-  gitea: []
+      key: 'notifications-read', status: 'pass', statusClass: '2xx', classicConnection: true, inboxRead: true, scopedRead: true,
+      productRefusesFineGrained: true, providerRefusesFineGrained: true
+    }
+  ]
 });
 
 function providerChecks(provider) {
@@ -164,7 +149,8 @@ function hostedOperationalRecord() {
       'database-interruption-recovery': { status: 'pass', failClosedDuringInterruption: true },
       'provider-429-outage': { status: 'pass', retryBounded: true },
       'application-rollback': { status: 'pass', candidateRestored: true },
-      'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true }
+      'disposable-tester-purge': { status: 'pass', tokenBearingStateRemoved: true },
+      'live-events-delivery': { status: 'pass', webhookRegistered: true, signedDeliveryVerified: true, eventStreamed: true, webhookRemovedAtProvider: true }
     },
     signature: {
       algorithm: 'ed25519',
@@ -334,9 +320,7 @@ function createPassFixture({ latestMigration = '015_alpha_privacy' } = {}) {
     security: { criticalUnresolved: 0, highUnresolved: 0 },
     goldenPathCapabilities: [
       'github:repository.read',
-      'github:file.write',
-      'gitlab:file.write',
-      'gitea:file.write'
+      'github:file.write'
     ],
     observedEnabledCapabilities: [],
     knownLimitations: ['Render Free wake delay.'],

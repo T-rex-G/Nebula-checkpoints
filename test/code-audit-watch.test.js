@@ -100,6 +100,14 @@ const stored = [
     assert.deepStrictEqual(outcome.alerts.map(alert => alert.kind), ['exploited'], 'the catalog is still asked when OSV is down');
   }
   {
+    /* An id the engine cannot name keeps the version unchecked, yet a well-formed new advisory beside it is still news. */
+    const { transport } = services({ vulns: { 'express@4.17.1': ['GHSA-rv95-896h-c2vc', 'not a valid id'] } });
+    const outcome = await watchComponents({ components: stored, advisoryTransport: transport, intelTransport: transport, intelCache: createIntelCache() });
+    assert.strictEqual(outcome.state, 'partial', 'a partly answered version is not "nothing new"');
+    assert.deepStrictEqual([outcome.checked, outcome.total], [2, 3]);
+    assert.deepStrictEqual(outcome.alerts.map(alert => [alert.kind, alert.name, alert.id]), [['advisory', 'express', 'GHSA-rv95-896h-c2vc']]);
+  }
+  {
     const { transport } = services({ failNames: ['Django'], kevDown: true });
     const outcome = await watchComponents({ components: stored, advisoryTransport: transport, intelTransport: transport, intelCache: createIntelCache(), limits: { ...require('../src/code-audit-watch').LIMITS, advisoryBatch: 2 } });
     assert.strictEqual(outcome.state, 'partial', 'one failed batch of two');

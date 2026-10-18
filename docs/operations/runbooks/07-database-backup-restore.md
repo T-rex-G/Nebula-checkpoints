@@ -79,8 +79,11 @@ git status --short
 
 For the protected Alpha.17 live-qualification workflow, configure the
 `alpha17-live-qualification` environment with secrets
-`ALPHA17_DATABASE_URL`, `ALPHA17_RESTORE_DATABASE_URL`,
-`ALPHA17_BACKUP_KEY_BASE64`, and `ALPHA17_NEON_API_KEY`; configure variables
+`ALPHA17_DATABASE_URL`, `ALPHA17_RESTORE_DATABASE_URL` and
+`ALPHA17_NEON_API_KEY`. The backup key is not one of them: the job draws a
+fresh one for the step that writes and restores the backup, masks it, and
+drops it before anything else runs, so no stored key can open a backup a
+cancelled job left behind. Configure variables
 `ALPHA17_NEON_PROJECT_ID`, `ALPHA17_COHORT_NEON_BRANCH_ID`,
 `ALPHA17_RESTORE_NEON_PROJECT_ID`, `ALPHA17_RESTORE_NEON_BRANCH_ID`, and the
 out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`, plus
@@ -89,7 +92,7 @@ out-of-band-reviewed `ALPHA17_RESTORE_TARGET_FINGERPRINT`, plus
 to that isolated branch; also configure
 `ALPHA17_OPERATOR_KEY_ID` and `ALPHA17_OPERATOR_PUBLIC_KEY_BASE64` as one
 reviewed Ed25519 verification-key binding. The hosted job
-requires authorization schema `1.2.0`; its target hash binds all of those
+requires authorization schema `1.3.0`; its target hash binds all of those
 project/branch identifiers, the isolated-target kind, and the reviewed
 fingerprint. It verifies that signed target from an exact trusted checkout and
 installs that checkout without lifecycle scripts before any of these secrets are

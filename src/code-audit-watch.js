@@ -70,7 +70,8 @@ async function watchComponents({ components, advisoryTransport, intelTransport, 
 
   /* Ids OSV holds now that the audit did not receive, per version. */
   const fresh = [];
-  for (const entry of answered) {
+  /* A partly answered version still counts as unchecked, but the ids it did return can be news. */
+  for (const entry of queried.asked.filter(item => queried.ids.has(audit.advisoryKey(item)))) {
     const key = audit.advisoryKey(entry);
     const known = new Set((baseline.get(key).advisoryIds || []).map(String));
     for (const id of queried.ids.get(key) || []) if (!known.has(id)) fresh.push({ entry, id });

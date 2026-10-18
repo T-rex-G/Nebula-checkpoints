@@ -3,7 +3,7 @@
 ## Current implemented foundation
 
 Nebulaverse-X is one Node.js web service with browser-delivered workspaces and
-provider adapters for GitHub, GitLab, and Gitea. PostgreSQL is optional for
+a GitHub repository integration. PostgreSQL is optional for
 basic repository work and required for durable sessions, verified events,
 governance, and invitation access when invite mode is enabled. Durable state belongs in
 Neon or the provider; Render local storage is disposable.
@@ -55,11 +55,13 @@ The controlled hosted architecture applies two independent checks: invitation
 access and provider authorization. Neither check grants the other. Each tester
 is additionally restricted to exact canonical sandbox-repository allowlists in
 `provider:hostname/owner/repository` form, checked before provider credential
-resolution or transport. The cohort accepts root-host-only GitLab and Gitea
-installations; path-rooted provider installations remain unavailable even
-though the broader product retains that capability.
+resolution or transport. GitHub is the only product and golden-qualification
+provider. Retired or unknown provider selections are rejected; stored legacy
+connections are filtered or invalidated without provider egress. Users must
+revoke any old remote credentials in their original provider settings.
+Historical audit records retain their existing retention and cleanup rules.
 
-GitHub repository creation/deletion, code search, and notifications are usable
+GitHub repository creation/deletion and notifications are usable
 experimental operations through ordinary connected accounts. Exact invitation
 scopes still bound creation targets, deletion targets, search, and notifications.
 Creation verifies the provider identity and repository readback; deletion keeps

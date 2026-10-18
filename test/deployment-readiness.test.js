@@ -12,7 +12,8 @@ const { loadMigrations } = require('../src/migrations');
     '/healthz': { ok: true, maintenance: false },
     '/readyz': { ok: true, database: 'connected', migration },
     '/api/version': { releaseTreeSha256: fingerprint },
-    '/api/alpha/status': { mode: 'invite' }
+    '/api/alpha/status': { mode: 'invite' },
+    '/api/config': { profile: 'hosted-alpha' }
   };
   let stalled = false;
   let redirect = false;
@@ -23,7 +24,9 @@ const { loadMigrations } = require('../src/migrations');
     res.end(JSON.stringify(states[req.url]));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const options = { baseUrl: `http://127.0.0.1:${server.address().port}`, expectedFingerprint: fingerprint, timeoutMs: 200 };
+  // Positive HTTP cases need scheduling headroom under parallel browser load.
+  // The stalled-body case below keeps its strict, short deadline.
+  const options = { baseUrl: `http://127.0.0.1:${server.address().port}`, expectedFingerprint: fingerprint, timeoutMs: 2000 };
   try {
     assert.equal((await checkDeployment(options)).ok, true);
     states['/api/alpha/status'].mode = 'off';
@@ -44,11 +47,25 @@ const { loadMigrations } = require('../src/migrations');
     states['/healthz'].maintenance = false;
     stalled = true;
     const start = Date.now();
-    assert.equal((await checkDeployment(options)).ok, false);
+    assert.equal((await checkDeployment({ ...options, timeoutMs: 200 })).ok, false);
     assert(Date.now() - start < 3000, 'deadline must include the response body');
     stalled = false;
     redirect = true;
     assert.equal((await checkDeployment(options)).ok, false);
+    /*
+     * A qualification deployment serves capabilities ahead of their proof
+     * (src/qualification-capabilities.js). It may be inspected, never admit a
+     * cohort -- which is what keeps the switch out of production.
+     */
+    redirect = false;
+    assert.equal((await checkDeployment(options)).ok, true);
+    states['/api/config'] = { profile: 'hosted-alpha', qualification: { capabilities: ['live-events'] } };
+    const qualifying = await checkDeployment(options);
+    assert.equal(qualifying.ok, false, 'a qualification deployment cannot admit the cohort');
+    assert.deepStrictEqual(qualifying.checks.find(check => check.route === '/api/config'), { route: '/api/config', ok: false, reason: 'deployment does not match the required state' });
+    assert.equal((await checkDeployment({ ...options, purpose: 'operator-verification' })).ok, true, 'it can still be inspected');
+    states['/api/config'] = { profile: 'hosted-alpha' };
+    assert.equal((await checkDeployment(options)).ok, true);
     await assert.rejects(checkDeployment({ ...options, purpose: 'public' }), /purpose/);
     await assert.rejects(checkDeployment({ ...options, expectedFingerprint: '' }), /fingerprint/);
     console.log('deployment readiness gate tests passed');

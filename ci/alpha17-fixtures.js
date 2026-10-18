@@ -33,13 +33,17 @@ function cloneBranch(branch) {
   };
 }
 
-/* The permanent GitLab fixtures, as the dispatch procedure describes them. */
-function giteaOrGitlabSeedIssues() {
-  return [{ id: 41, iid: 1, title: 'fixture issue', state: 'opened' }];
-}
-function giteaOrGitlabSeedMergeRequests() {
-  return [{ id: 155016530, iid: 1, title: 'fixture merge request', state: 'opened' }];
-}
+/*
+ * Credentials shaped the way the product classifies them -- built from parts
+ * so no complete credential-shaped literal sits in the source: a fine-grained
+ * mutation credential, a classic notification credential, and the
+ * administration credential of the qualification account.
+ */
+const FIXTURE_CREDENTIALS = Object.freeze({
+  mutation: ['github', 'pat', 'fixture_mutation_credential'].join('_'),
+  repositoryAdmin: 'fixture-repository-admin-credential',
+  notifications: ['gh' + 'p', 'fixtureNotificationsCredential'].join('_')
+});
 
 function createProviderFetchFixture(options = {}) {
   const provider = String(options.provider || '');
@@ -47,10 +51,14 @@ function createProviderFetchFixture(options = {}) {
   const defaultBranch = String(options.defaultBranch || 'main');
   const mutationCredential = String(options.mutationCredential || '');
   const readOnlyCredential = String(options.readOnlyCredential || '');
+  /* The account-wide credentials of the repository and notification proofs, each answered only for what it may do. */
+  const repositoryAdminCredential = String(options.repositoryAdminCredential || FIXTURE_CREDENTIALS.repositoryAdmin);
+  const notificationsCredential = String(options.notificationsCredential || FIXTURE_CREDENTIALS.notifications);
+  const ADMIN_LOGIN = 'alpha17-fixture-qualification';
   const deleteCommitSha = options.deleteCommitSha == null
     ? null
     : String(options.deleteCommitSha).trim().toLowerCase();
-  if (!['github', 'gitlab', 'gitea'].includes(provider)) throw new TypeError('fixture provider is invalid');
+  if (provider !== 'github') throw new TypeError('fixture provider is invalid');
   const initialSha = '1'.repeat(40);
   const state = {
     counter: 1,
@@ -59,13 +67,7 @@ function createProviderFetchFixture(options = {}) {
     /* oid -> size, for objects the LFS store has actually been handed. */
     lfsObjects: new Map(),
     branches: new Map([[defaultBranch, { sha: initialSha, files: new Map() }]]),
-    /*
-     * A commit log, keyed by sha, recording which path each commit touched.
-     * The fixture used to keep only a head and a single tip, which cannot
-     * answer "what commit last touched this path, as of that ref" -- and that
-     * is the exact question GitLab's conflict check asks. See gitlabFetch's
-     * PUT handler.
-     */
+    // Commit history supports the GitHub ancestry and readback proofs.
     commits: new Map(),
     /*
      * The Git Data object stores. A branch head alone cannot answer what tree
@@ -84,6 +86,13 @@ function createProviderFetchFixture(options = {}) {
      */
     clock: Date.parse('2026-09-26T12:00:00.000Z'),
     nextNumber: 100,
+    /*
+     * The target's visibility. GitHub lets anyone who can read a public
+     * repository open an issue in it, a read-only credential included; no
+     * reader may manage its labels on any visibility.
+     */
+    public: options.publicRepository === true,
+    labels: new Map(),
     issues: new Map([[11, { number: 11, title: 'fixture', body: 'Permanent issues.read fixture.', state: 'open', comments: [] }]]),
     pulls: new Map([[7, {
       number: 7, title: 'fixture', body: 'Permanent pulls.read fixture.', state: 'open', merged: false,
@@ -96,12 +105,13 @@ function createProviderFetchFixture(options = {}) {
       run_attempt: 1, created_at: '2026-08-01T00:00:00.000Z', reads: 0
     }]]),
     starred: false,
-    /* GitLab's issues and merge requests, keyed by the project-scoped iid. */
-    glIssues: new Map(giteaOrGitlabSeedIssues().map(issue => [issue.iid, { ...issue, notes: [] }])),
-    glMergeRequests: new Map(giteaOrGitlabSeedMergeRequests().map(request => [request.iid, {
-      ...request, source_branch: 'nvx-alpha17-fixture-merge', target_branch: defaultBranch,
-      sha: '5'.repeat(40), merge_commit_sha: null, checks: 1, notes: []
-    }])),
+    /* Repositories the administration credential's account owns, by name: created and deleted only as GitHub would. */
+    ownedRepositories: new Map(),
+    nextRepositoryId: 900000,
+    notifications: [{
+      id: '5001', reason: 'review_requested', unread: true, updated_at: '2026-09-25T10:00:00Z',
+      subject: { title: 'Review requested', type: 'PullRequest' }, repository: { full_name: repository }
+    }],
     searchIndex: [{ path: 'NVX_SEARCH_FIXTURE.md', text: 'nvx-alpha17-search-fixture: permanent code search fixture.' }]
   };
 
@@ -223,7 +233,6 @@ function createProviderFetchFixture(options = {}) {
   }
 
   function credential(headers) {
-    if (provider === 'gitlab') return headers.get('private-token') || '';
     const authorization = headers.get('authorization') || '';
     return authorization.replace(/^(?:bearer|token)\s+/i, '');
   }
@@ -262,16 +271,6 @@ function createProviderFetchFixture(options = {}) {
    * wherever they accept a branch. Resolving both interchangeably made the
    * fixture answer a question no real provider was asked.
    */
-  /*
-   * One merge request and one issue, so the collection probes list a real
-   * object, fetch it on its own and compare -- rather than passing on an empty
-   * listing, which proves only that the endpoint answered.
-   */
-  const giteaOrGitlabSeed = Object.freeze({
-    mergeRequests: giteaOrGitlabSeedMergeRequests(),
-    issues: giteaOrGitlabSeedIssues()
-  });
-
   function findSource(ref, { commitsAllowed = true } = {}) {
     if (state.branches.has(ref)) return state.branches.get(ref);
     if (!commitsAllowed) return null;
@@ -298,11 +297,7 @@ function createProviderFetchFixture(options = {}) {
     }
     const parent = branch.sha;
     branch.sha = nextSha(`${branchName}:${filePath}:${remove ? 'delete' : 'write'}`);
-    /*
-     * Which commit last touched this file, as distinct from the branch head.
-     * They diverge as soon as anything else is committed, and GitLab keys its
-     * conditional update on the file's, not the branch's.
-     */
+    // Record the commit that last touched the file, separately from branch head.
     if (!remove) branch.files.get(filePath).lastCommitId = branch.sha;
     /*
      * Lineage, because a provider that reports no commit on a mutation can
@@ -346,24 +341,6 @@ function createProviderFetchFixture(options = {}) {
     return false;
   }
 
-  /*
-   * `git log -1 <ref> -- <path>`, which is what GitLab resolves on both sides
-   * of its conflict check. Returns null when no commit in the ref's history
-   * touched the path -- meaning the file did not exist there.
-   */
-  function lastCommitForPath(ref, filePath) {
-    const branch = state.branches.get(ref);
-    let sha = branch ? branch.sha : String(ref || '');
-    const seen = new Set();
-    while (sha && state.commits.has(sha) && !seen.has(sha)) {
-      seen.add(sha);
-      const commit = state.commits.get(sha);
-      if (commit.path === filePath) return commit.id;
-      sha = commit.parentIds[0];
-    }
-    return null;
-  }
-
   async function githubFetch(url, init) {
     const parsed = new URL(url);
     const method = String(init.method || 'GET').toUpperCase();
@@ -376,7 +353,41 @@ function createProviderFetchFixture(options = {}) {
     }
     /* Also account-wide: the LFS probe signs Basic auth with the actor's login. */
     if (parsed.pathname === '/user' && method === 'GET') {
+      const who = credential(new Headers(init.headers || {}));
+      if (repositoryAdminCredential && who === repositoryAdminCredential) return json({ login: ADMIN_LOGIN, id: 7101 });
+      if (notificationsCredential && who === notificationsCredential) return json({ login: 'alpha17-fixture-reader', id: 7102 });
       return json({ login: 'alpha17-fixture-actor' });
+    }
+    /* Repository creation and deletion in the qualification account, for the administration credential only. */
+    {
+      const who = credential(new Headers(init.headers || {}));
+      const isAdmin = Boolean(repositoryAdminCredential) && who === repositoryAdminCredential;
+      if (parsed.pathname === '/user/repos' && method === 'POST') {
+        if (!isAdmin) return json({ message: 'Resource not accessible by personal access token' }, 403);
+        const body = bodyOf(init);
+        if (state.ownedRepositories.has(body.name)) return json({ message: 'name already exists on this account' }, 422);
+        const created = { id: state.nextRepositoryId++, name: body.name, full_name: `${ADMIN_LOGIN}/${body.name}`, private: body.private !== false, default_branch: 'main', permissions: { admin: true } };
+        state.ownedRepositories.set(body.name, created);
+        return json({ ...created }, 201);
+      }
+      const owned = /^\/repos\/([^/]+)\/([^/]+)$/.exec(parsed.pathname);
+      if (owned && owned[1] === ADMIN_LOGIN) {
+        const found = state.ownedRepositories.get(owned[2]);
+        if (!isAdmin || !found) return json({ message: 'Not Found' }, 404);
+        if (method === 'GET') return json({ ...found });
+        if (method === 'DELETE') { state.ownedRepositories.delete(owned[2]); return json(null, 204); }
+      }
+      const byId = /^\/repositories\/(\d+)$/.exec(parsed.pathname);
+      if (byId && method === 'GET') {
+        const found = [...state.ownedRepositories.values()].find(item => item.id === Number(byId[1]));
+        return isAdmin && found ? json({ ...found }) : json({ message: 'Not Found' }, 404);
+      }
+      /* Notifications answer a classic connection only; GitHub refuses fine-grained tokens. */
+      if ((parsed.pathname === '/notifications' || parsed.pathname === `/repos/${repository}/notifications`) && method === 'GET') {
+        if (!notificationsCredential || who !== notificationsCredential) return json({ message: 'Resource not accessible by personal access token' }, 403);
+        const scoped = parsed.pathname !== '/notifications';
+        return json(state.notifications.filter(item => !scoped || item.repository.full_name === repository).map(item => ({ ...item })));
+      }
     }
     /*
      * The LFS store. Modelled, not stubbed: the batch endpoint offers an upload
@@ -452,9 +463,25 @@ function createProviderFetchFixture(options = {}) {
       return json({ total_count: items.length, incomplete_results: false, items });
     }
     if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
-    if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
+    const readerOpensIssue = state.public && method === 'POST' && parsed.pathname === `${base}/issues`
+      && credential(new Headers(init.headers || {})) === readOnlyCredential;
+    if (method !== 'GET' && !canMutate(init) && !readerOpensIssue) return json({ message: 'forbidden' }, 403);
     if (parsed.pathname === base && method === 'GET') {
-      return json({ full_name: repository, default_branch: defaultBranch });
+      return json({ full_name: repository, default_branch: defaultBranch, private: !state.public, visibility: state.public ? 'public' : 'private' });
+    }
+    /* Labels, made and removed only by a credential that may write issues. */
+    if (parsed.pathname === `${base}/labels` && method === 'POST') {
+      const body = bodyOf(init);
+      const name = String(body.name || '');
+      if (!name || state.labels.has(name)) return json({ message: 'Validation Failed' }, 422);
+      state.labels.set(name, { name, color: String(body.color || '') });
+      return json({ name, color: String(body.color || '') }, 201);
+    }
+    const labelPrefix = `${base}/labels/`;
+    if (parsed.pathname.startsWith(labelPrefix) && method === 'DELETE') {
+      const name = decodeURIComponent(parsed.pathname.slice(labelPrefix.length));
+      if (!state.labels.delete(name)) return json({ message: 'Not Found' }, 404);
+      return new Response(null, { status: 204 });
     }
     /* GET /repos/:owner/:repo/branches/:branch, the branch with its head commit. */
     const branchesPrefix = `${base}/branches/`;
@@ -884,365 +911,14 @@ function createProviderFetchFixture(options = {}) {
     return json({ message: 'not found' }, 404);
   }
 
-  async function gitlabFetch(url, init) {
-    const parsed = new URL(url);
-    const method = String(init.method || 'GET').toUpperCase();
-    const base = `/api/v4/projects/${encodeURIComponent(repository)}`;
-    if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
-    if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
-    if (parsed.pathname === base && method === 'GET') {
-      return json({ path_with_namespace: repository, default_branch: defaultBranch });
-    }
-    const branchBase = `${base}/repository/branches`;
-    if (parsed.pathname === branchBase && method === 'POST') {
-      const body = bodyOf(init);
-      const conflict = createBranch(body.branch, body.ref);
-      return conflict || json({ name: body.branch, commit: { id: state.branches.get(body.branch).sha } }, 201);
-    }
-    const branchPrefix = `${branchBase}/`;
-    if (parsed.pathname.startsWith(branchPrefix)) {
-      const branchName = decodeURIComponent(parsed.pathname.slice(branchPrefix.length));
-      if (method === 'GET') {
-        const branch = state.branches.get(branchName);
-        return branch ? json({ name: branchName, commit: { id: branch.sha } }) : json({ message: 'not found' }, 404);
-      }
-      if (method === 'DELETE') {
-        if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
-        return json(null, 204);
-      }
-    }
-    /*
-     * GET /projects/:id/repository/tree -- an array whose `id` is the blob
-     * sha, paginated rather than flagged as truncated.
-     */
-    if (parsed.pathname === `${base}/repository/tree` && method === 'GET') {
-      const branch = state.branches.get(parsed.searchParams.get('ref'));
-      if (!branch) return json({ message: 'not found' }, 404);
-      return json([...branch.files.entries()].map(([path, file]) => ({
-        id: file.sha, name: path.split('/').pop(), type: 'blob', path, mode: '100644'
-      })));
-    }
-    /*
-     * Merge requests and issues. The detail path takes `iid`, the
-     * project-scoped internal id -- `id` is global to the instance and would
-     * not resolve here, which is exactly the mistake the client must not make.
-     *
-     * Both are writable, as GitLab's are. A new merge request reports its
-     * mergeability as still being checked on the first read, and refuses a
-     * merge until it has been -- which is why a client has to wait for it --
-     * and a merge whose `sha` is not the source branch's head is refused with
-     * 409, which is the precondition the product sends.
-     */
-    const suffix = parsed.pathname.slice(base.length);
-    const issueView = issue => ({ id: issue.iid + 1000, iid: issue.iid, title: issue.title, description: issue.description || '', state: issue.state });
-    if (suffix === '/issues' && method === 'POST') {
-      const body = bodyOf(init);
-      if (!String(body.title || '').trim()) return json({ message: 'title is missing' }, 400);
-      const iid = state.nextNumber++;
-      state.glIssues.set(iid, { iid, title: String(body.title), description: String(body.description || ''), state: 'opened', notes: [] });
-      return json(issueView(state.glIssues.get(iid)), 201);
-    }
-    if (suffix.startsWith('/issues') && method === 'GET' && (suffix === '/issues' || suffix.startsWith('/issues?'))) {
-      return json([...state.glIssues.values()].map(issueView));
-    }
-    const glIssueMatch = /^\/issues\/(\d+)(\/notes)?$/.exec(suffix);
-    if (glIssueMatch) {
-      const issue = state.glIssues.get(Number(glIssueMatch[1]));
-      if (!issue) return json({ message: '404 Not found' }, 404);
-      if (glIssueMatch[2]) {
-        if (method === 'GET') return json(issue.notes.map(note => ({ ...note })));
-        if (method === 'POST') {
-          const body = bodyOf(init);
-          if (!String(body.body || '').trim()) return json({ message: 'body is missing' }, 400);
-          const note = { id: state.nextNumber++, body: String(body.body) };
-          issue.notes.push(note);
-          return json({ ...note }, 201);
-        }
-      }
-      if (!glIssueMatch[2] && method === 'GET') return json(issueView(issue));
-      if (!glIssueMatch[2] && method === 'PUT') {
-        const body = bodyOf(init);
-        if (body.state_event === 'close') issue.state = 'closed';
-        else if (body.state_event === 'reopen') issue.state = 'opened';
-        return json(issueView(issue));
-      }
-    }
-    const requestView = request => {
-      const source = state.branches.get(request.source_branch);
-      return {
-        id: request.iid + 2000, iid: request.iid, title: request.title, state: request.state,
-        source_branch: request.source_branch, target_branch: request.target_branch,
-        sha: source && request.state !== 'merged' ? source.sha : request.sha,
-        merge_commit_sha: request.merge_commit_sha,
-        detailed_merge_status: request.state === 'merged' ? 'not_open' : request.checks >= 1 ? 'mergeable' : 'checking'
-      };
-    };
-    if (suffix === '/merge_requests' && method === 'POST') {
-      const body = bodyOf(init);
-      const source = state.branches.get(String(body.source_branch || ''));
-      const target = state.branches.get(String(body.target_branch || ''));
-      if (!source || !target) return json({ message: 'Invalid branch' }, 400);
-      if (source.sha === target.sha) return json({ message: 'Source branch has no changes' }, 409);
-      const iid = state.nextNumber++;
-      state.glMergeRequests.set(iid, {
-        iid, title: String(body.title || ''), state: 'opened', source_branch: String(body.source_branch),
-        target_branch: String(body.target_branch), sha: source.sha, merge_commit_sha: null, checks: 0, notes: []
-      });
-      return json(requestView(state.glMergeRequests.get(iid)), 201);
-    }
-    if (method === 'GET' && (suffix === '/merge_requests' || suffix.startsWith('/merge_requests?'))) {
-      return json([...state.glMergeRequests.values()].map(requestView));
-    }
-    const glRequestMatch = /^\/merge_requests\/(\d+)(\/notes|\/merge)?$/.exec(suffix);
-    if (glRequestMatch) {
-      const request = state.glMergeRequests.get(Number(glRequestMatch[1]));
-      if (!request) return json({ message: '404 Not found' }, 404);
-      if (glRequestMatch[2] === '/notes') {
-        if (method === 'GET') return json(request.notes.map(note => ({ ...note })));
-        if (method === 'POST') {
-          const body = bodyOf(init);
-          if (!String(body.body || '').trim()) return json({ message: 'body is missing' }, 400);
-          const note = { id: state.nextNumber++, body: String(body.body) };
-          request.notes.push(note);
-          return json({ ...note }, 201);
-        }
-      }
-      if (glRequestMatch[2] === '/merge' && method === 'PUT') {
-        if (request.state !== 'opened' || request.checks < 1) return json({ message: '405 Method Not Allowed' }, 405);
-        const source = state.branches.get(request.source_branch);
-        const target = state.branches.get(request.target_branch);
-        if (!source || !target) return json({ message: '404 Not found' }, 404);
-        const body = bodyOf(init);
-        if (body.sha && String(body.sha) !== source.sha) return json({ message: 'SHA does not match HEAD of source branch' }, 409);
-        const files = snapshotFiles(target.files);
-        for (const [name, file] of source.files) files.set(name, { content: Buffer.from(file.content), sha: file.sha });
-        const sha = nextSha(`gitlab-merge:${request.iid}`);
-        state.commits.set(sha, { id: sha, parentIds: [target.sha, source.sha], date: tick(), path: null, treeSha: nextSha('gitlab-merge:tree'), files: snapshotFiles(files) });
-        target.sha = sha;
-        target.files = snapshotFiles(files);
-        target.tip = { id: sha, parentIds: state.commits.get(sha).parentIds, message: `Merge branch '${request.source_branch}'` };
-        request.sha = source.sha;
-        request.merge_commit_sha = sha;
-        request.state = 'merged';
-        return json(requestView(request));
-      }
-      if (!glRequestMatch[2] && method === 'GET') {
-        const view = requestView(request);
-        request.checks += 1;
-        return json(view);
-      }
-    }
-    /*
-     * GET /projects/:id/repository/commits/:ref, which accepts a branch name.
-     * This is how a caller learns what a delete actually committed, since the
-     * delete itself answers with nothing.
-     */
-    const commitPrefix = `${base}/repository/commits/`;
-    if (parsed.pathname.startsWith(commitPrefix) && method === 'GET') {
-      const ref = decodeURIComponent(parsed.pathname.slice(commitPrefix.length));
-      const branch = state.branches.get(ref)
-        || [...state.branches.values()].find(candidate => candidate.sha === ref);
-      if ((!branch || !branch.tip) && state.commits.has(ref)) {
-        const commit = state.commits.get(ref);
-        return json({ id: commit.id, parent_ids: commit.parentIds, message: '', title: '' });
-      }
-      if (!branch || !branch.tip) return json({ message: 'not found' }, 404);
-      return json({
-        id: branch.tip.id,
-        parent_ids: branch.tip.parentIds,
-        message: branch.tip.message,
-        title: String(branch.tip.message).split('\n')[0]
-      });
-    }
-    const filePrefix = `${base}/repository/files/`;
-    if (parsed.pathname.startsWith(filePrefix)) {
-      const filePath = decodeURIComponent(parsed.pathname.slice(filePrefix.length));
-      if (method === 'GET') {
-        const branch = state.branches.get(parsed.searchParams.get('ref'));
-        const file = branch && branch.files.get(filePath);
-        return file
-          ? json({
-            content: file.content.toString('base64'),
-            blob_id: file.sha,
-            // GitLab's file read carries the ref's commit and the commit that
-            // last modified this file. The write response carries neither.
-            commit_id: branch.sha,
-            last_commit_id: file.lastCommitId
-          })
-          : json({ message: 'not found' }, 404);
-      }
-      const body = bodyOf(init);
-      const branch = state.branches.get(body.branch);
-      if (!branch) return json({ message: 'not found' }, 404);
-      if (method === 'PUT') {
-        /*
-         * GitLab's conditional update, transcribed from Files::BaseService.
-         *
-         *   def file_has_changed?(path, commit_id)
-         *     return false unless commit_id
-         *     last_commit_from_branch = get_last_commit_for_path(ref: @start_branch, path: path)
-         *     return false unless last_commit_from_branch
-         *     last_commit_from_commit_id = get_last_commit_for_path(ref: commit_id, path: path)
-         *     return false unless last_commit_from_commit_id
-         *     last_commit_from_branch.sha != last_commit_from_commit_id.sha
-         *   end
-         *
-         * It does not ask "is this the file's current commit". It asks whether
-         * the file's last commit DIFFERS between the branch and the ref the
-         * writer named. A ref where the path does not exist yields no commit,
-         * and no commit is read as no information -- so the write is allowed.
-         *
-         * The fixture used to compare last_commit_id against the file's
-         * current lastCommitId and answer 409, which refuses strictly more
-         * than GitLab does. Under that fixture a token naming a commit from
-         * before the file existed looked like a conflict; against gitlab.com
-         * the same token was accepted and the write landed. Runs 63 and 64
-         * died on the difference.
-         */
-        const existing = branch.files.get(filePath);
-        if (!existing) return json({ message: 'not found' }, 404);
-        const content = Buffer.from(String(body.content || ''), 'base64');
-        if (body.last_commit_id) {
-          const onBranch = lastCommitForPath(body.branch, filePath);
-          const onRef = lastCommitForPath(body.last_commit_id, filePath);
-          if (onBranch && onRef && onBranch !== onRef) {
-            /*
-             * 400, not 409, and the message is the only thing distinguishing
-             * this from the other reasons GitLab rejects a commit.
-             */
-            return json({
-              message: 'You are attempting to update a file that has changed since you started editing it'
-            }, 400);
-          }
-        }
-        /*
-         * GitLab refuses a commit that changes nothing, with the same 400 and
-         * a different message. A proof that sent identical bytes would be
-         * refused for the wrong reason and could not tell the two apart.
-         */
-        if (existing.content.equals(content)) {
-          return json({ message: 'A commit with the same content already exists' }, 400);
-        }
-        mutateFile(body.branch, filePath, content, false, body.commit_message);
-        return json({ file_path: filePath, branch: body.branch }, 200);
-      }
-      if (method === 'POST') {
-        mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'), false, body.commit_message);
-        /*
-         * Exactly what GitLab documents for a created file, and nothing more:
-         * branch and file_path. It returns no commit id.
-         *
-         * This fixture used to invent one. The client read it, every test
-         * agreed, and the first live GitLab write failed on an empty commit
-         * sha. A fixture kinder than the provider manufactures confidence,
-         * which is worse than having no fixture at all.
-         */
-        return json({ file_path: filePath, branch: body.branch }, 201);
-      }
-      if (method === 'DELETE') {
-        if (!branch.files.has(filePath)) return json({ message: 'not found' }, 404);
-        /*
-         * Files::DeleteService runs the same file_has_changed? check as the
-         * update, and raises FileChangedError with its own wording. The
-         * fixture used to compare last_commit_id against the BRANCH HEAD and
-         * answer 409 -- wrong on the comparison, the status and the message,
-         * and it happened to pass only because this run's head and the file's
-         * last commit coincide.
-         */
-        if (body.last_commit_id) {
-          const onBranch = lastCommitForPath(body.branch, filePath);
-          const onRef = lastCommitForPath(body.last_commit_id, filePath);
-          if (onBranch && onRef && onBranch !== onRef) {
-            return json({
-              message: 'You are attempting to delete a file that has been previously updated'
-            }, 400);
-          }
-        }
-        mutateFile(body.branch, filePath, Buffer.alloc(0), true, body.commit_message);
-        // GitLab answers a delete with 204 and an empty body.
-        return json(null, 204);
-      }
-    }
-    return json({ message: 'not found' }, 404);
-  }
-
-  async function giteaFetch(url, init) {
-    const parsed = new URL(url);
-    const method = String(init.method || 'GET').toUpperCase();
-    const base = `/api/v1/repos/${repository}`;
-    if (!parsed.pathname.startsWith(base)) return json({ message: 'unknown repository' }, 404);
-    if (method !== 'GET' && !canMutate(init)) return json({ message: 'forbidden' }, 403);
-    if (parsed.pathname === base && method === 'GET') {
-      return json({ full_name: repository, default_branch: defaultBranch });
-    }
-    const branchBase = `${base}/branches`;
-    if (parsed.pathname === branchBase && method === 'POST') {
-      const body = bodyOf(init);
-      /*
-       * Gitea's own option object separates these: old_branch_name is marked
-       * deprecated and names a BRANCH, while old_ref_name names a branch, tag
-       * or commit. A commit sha handed to old_branch_name is looked up as a
-       * branch name and is not found -- so the fixture must not resolve it,
-       * or a client using the wrong field passes here and fails live.
-       */
-      const conflict = body.old_ref_name
-        ? createBranch(body.new_branch_name, body.old_ref_name)
-        : createBranch(body.new_branch_name, body.old_branch_name, { commitsAllowed: false });
-      return conflict || json({ name: body.new_branch_name, commit: { id: state.branches.get(body.new_branch_name).sha } }, 201);
-    }
-    const branchPrefix = `${branchBase}/`;
-    if (parsed.pathname.startsWith(branchPrefix)) {
-      const branchName = decodeURIComponent(parsed.pathname.slice(branchPrefix.length));
-      if (method === 'GET') {
-        const branch = state.branches.get(branchName);
-        return branch ? json({ name: branchName, commit: { id: branch.sha } }) : json({ message: 'not found' }, 404);
-      }
-      if (method === 'DELETE') {
-        if (branchName === defaultBranch || !state.branches.delete(branchName)) return json({ message: 'not found' }, 404);
-        return json(null, 204);
-      }
-    }
-    const contentPrefix = `${base}/contents/`;
-    if (parsed.pathname.startsWith(contentPrefix)) {
-      const filePath = decodeURIComponent(parsed.pathname.slice(contentPrefix.length));
-      if (method === 'GET') {
-        const branch = state.branches.get(parsed.searchParams.get('ref'));
-        const file = branch && branch.files.get(filePath);
-        return file ? json({ content: file.content.toString('base64'), sha: file.sha }) : json({ message: 'not found' }, 404);
-      }
-      const body = bodyOf(init);
-      const branch = state.branches.get(body.branch);
-      if (!branch) return json({ message: 'not found' }, 404);
-      if (method === 'PUT') {
-        /* Gitea keys an update on the blob sha, the same way GitHub does. */
-        const existing = branch.files.get(filePath);
-        if (!existing) return json({ message: 'not found' }, 404);
-        if (body.sha !== existing.sha) return json({ message: 'conflict' }, 409);
-        const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
-        return json({ content: changed.files.get(filePath), commit: { sha: changed.sha } }, 200);
-      }
-      if (method === 'POST') {
-        const changed = mutateFile(body.branch, filePath, Buffer.from(String(body.content || ''), 'base64'));
-        return json({ content: changed.files.get(filePath), commit: { sha: changed.sha } }, 201);
-      }
-      if (method === 'DELETE') {
-        const file = branch.files.get(filePath);
-        if (!file || body.sha !== file.sha) return json({ message: 'conflict' }, 409);
-        const changed = mutateFile(body.branch, filePath, Buffer.alloc(0), true);
-        return json({ commit: { sha: deleteCommitSha || changed.sha } }, 200);
-      }
-    }
-    return json({ message: 'not found' }, 404);
-  }
-
-  const routers = { github: githubFetch, gitlab: gitlabFetch, gitea: giteaFetch };
   return Object.freeze({
     state,
+    setPublic(value) { state.public = value === true; },
     fetch: async (url, init = {}) => {
       state.requests.push({ method: String(init.method || 'GET').toUpperCase(), url: String(url) });
-      return routers[provider](url, init);
+      return githubFetch(url, init);
     }
   });
 }
 
-module.exports = Object.freeze({ createProviderFetchFixture });
+module.exports = Object.freeze({ createProviderFetchFixture, FIXTURE_CREDENTIALS });

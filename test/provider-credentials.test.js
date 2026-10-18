@@ -6,13 +6,20 @@ const { resolveProviderAccount } = require('../src/provider-credentials');
 (async () => {
   for (const account of [
     { provider: 'github', authMethod: 'token', login: 'alice', token: 'ghp_a' },
-    { provider: 'github', authMethod: 'oauth', login: 'alice', token: 'gho_a' },
-    { provider: 'gitlab', authMethod: 'token', login: 'alice', token: 'glpat-a', baseUrl: 'https://gitlab.com' },
-    { provider: 'gitea', authMethod: 'token', login: 'alice', token: 'gt-a', baseUrl: 'https://gitea.example' }
+    { provider: 'github', authMethod: 'oauth', login: 'alice', token: 'gho_a' }
   ]) {
     const resolved = await resolveProviderAccount(account, {});
     assert.notStrictEqual(resolved, account);
     assert.deepStrictEqual(resolved, account);
+  }
+
+  for (const provider of ['gitlab', 'gitea']) {
+    let brokerCalls = 0;
+    await assert.rejects(resolveProviderAccount({
+      provider, authMethod: 'token', login: 'alice', token: 'retired-token'
+    }, { githubAppBroker: { resolveInstallationAccount() { brokerCalls++; } } }),
+    error => error.code === 'PROVIDER_ACCOUNT_INVALID');
+    assert.strictEqual(brokerCalls, 0, 'retired providers are rejected before credential resolution');
   }
 
   const stored = { provider: 'github', authMethod: 'github-app', login: 'nebula-org', installationId: 77 };

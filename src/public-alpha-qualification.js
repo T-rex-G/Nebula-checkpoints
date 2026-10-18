@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const {
   EVIDENCE_SCHEMA_VERSION,
+  HOSTED_CAPABILITY_REQUIREMENTS,
   PROVIDER_CAPABILITY_REQUIREMENTS,
   artifactTypeForLabel,
   validateEvidenceEnvelope,
@@ -56,7 +57,8 @@ const HOSTED_KEYS = Object.freeze([
   'provider-429-outage',
   'application-rollback',
   'isolated-database-restore',
-  'disposable-tester-purge'
+  'disposable-tester-purge',
+  'live-events-delivery'
 ]);
 
 const MANUAL_KEYS = Object.freeze([
@@ -179,6 +181,21 @@ function qualificationCatalog(registry) {
       }
     }
     /*
+     * A capability the provider can prove only to a reachable deployment is
+     * Provider-verified on a hosted check instead, and only on one every
+     * release record requires.
+     */
+    const hostedBacked = HOSTED_CAPABILITY_REQUIREMENTS[provider] || {};
+    for (const [feature, keys] of Object.entries(hostedBacked)) {
+      const tuple = deployment[feature];
+      if (
+        !Array.isArray(tuple) || tuple[0] !== 'Supported' || tuple[1] !== 'Provider-verified'
+        || Object.hasOwn(requirements, feature) || !keys.length || keys.some(key => !HOSTED_KEYS.includes(key))
+      ) {
+        fail('hosted qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
+      }
+    }
+    /*
      * The other direction, which nothing checked here: a provider must not
      * advertise Provider-verified capabilities the contract never asks for
      * proof of. Without this, withdrawing a contract entry would silently
@@ -188,16 +205,9 @@ function qualificationCatalog(registry) {
       .filter(([, tuple]) => Array.isArray(tuple) && tuple[1] === 'Provider-verified')
       .map(([feature]) => feature)
       .sort();
-    if (advertised.join(',') !== required.join(',')) {
+    if (advertised.join(',') !== [...required, ...Object.keys(hostedBacked)].sort().join(',')) {
       fail('provider qualification contract conflicts with the capability registry', 'PUBLIC_ALPHA_REGISTRY_INVALID');
     }
-    /*
-     * A provider the contract asks nothing of is not part of the
-     * qualification: it owes no artifact and no evidence entries. Gitea is in
-     * that state deliberately -- claims withdrawn for want of a live run --
-     * and listing it with an empty requirement set would demand an artifact
-     * carrying no claims, which the validator rejects.
-     */
     if (required.length) providers[provider] = required;
   }
   const contracted = Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
@@ -284,7 +294,7 @@ function verifyEvidenceEntry(entry, label, artifacts, now, context) {
 }
 
 function capabilityTuple(registry, qualifiedName) {
-  const match = /^(github|gitlab|gitea):(.+)$/.exec(String(qualifiedName));
+  const match = /^(github):(.+)$/.exec(String(qualifiedName));
   if (!match) fail('capability name is invalid', 'PUBLIC_ALPHA_CAPABILITY_INVALID');
   const tuple = registry.providers[match[1]] &&
     registry.providers[match[1]][DEPLOYMENT] &&
@@ -295,12 +305,7 @@ function capabilityTuple(registry, qualifiedName) {
 
 function liveEvidenceBindings(options) {
   const expected = options.expectedAuthorizedTargets;
-  /*
-   * Derived, because this was a fourth copy of the contract and it went stale
-   * the moment Gitea's claims were withdrawn: the list still demanded a signed
-   * Gitea target for a provider that no longer has a leg to run. A provider
-   * the contract asks nothing of has no live target to bind.
-   */
+  // Only current provider contracts require signed targets.
   const expectedKeys = [
     ...Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS)
       .filter(provider => Object.keys(PROVIDER_CAPABILITY_REQUIREMENTS[provider]).length > 0),
@@ -452,7 +457,7 @@ function verifyQualification(input, options = {}) {
       hosted: catalog.hosted.length,
       manual: catalog.manual.length,
       artifacts: record.artifacts.length,
-      trustedLiveTargets: 4,
+      trustedLiveTargets: Object.keys(liveBindings.expectedAuthorizedTargets).length,
       hostedOperatorSignatures: 1,
       cleanupVerified: true,
       securityFindingsOpen: 0

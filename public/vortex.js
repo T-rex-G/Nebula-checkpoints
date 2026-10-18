@@ -82,6 +82,60 @@
   const strandVertices = tier => tier.strands * (tier.segments + 1);
 
   /*
+   * The budget answers to the clock, not to a frame count.
+   *
+   * It used to wait out forty-five frames and then thirty slow ones before it
+   * stepped down a tier: seventy-five frames, which on a renderer that needs
+   * a second a frame is more than a minute at a budget it cannot hold, with
+   * everything else the page has to do queued behind each one. The button
+   * beside the scene was on screen the whole time and could not be pressed.
+   *
+   * So the measure is time. A device that cannot hold the frame for a second
+   * and a half drops a tier, and never climbs back in the same visit -- a
+   * scene that alternates between two budgets flickers. One that is grossly
+   * behind goes straight to the lightest. When even the lightest cannot draw
+   * ten frames a second for two seconds, or two frames in a row each take a
+   * second, the scene rests: it keeps the frame it has and gives the machine
+   * back to the page. One long frame among good ones -- a collection, a busy
+   * moment elsewhere -- is not a verdict: no single frame counts for more
+   * than half a second, and the average forgives it.
+   */
+  const PACE = Object.freeze({
+    alpha: 0.2, smooth: 42, floor: 100, gross: 250, stall: 1000, weigh: 500, settle: 1000, lower: 1500, rest: 2000
+  });
+  function pacer(startTier) {
+    let cap = Math.max(0, Math.floor(Number(startTier) || 0));
+    let frames = 0;
+    let elapsed = 0;
+    let ema = 16;
+    let slowFor = 0;
+    let stalls = 0;
+    return {
+      cap: () => cap,
+      /* 'steady', 'lower' (the cap just fell) or 'rest' (stop drawing for this visit). */
+      step(interval) {
+        if (!(interval > 0) || !Number.isFinite(interval)) return 'steady';
+        frames += 1;
+        stalls = interval >= PACE.stall ? stalls + 1 : 0;
+        if (stalls >= 2) return 'rest';
+        /* The very first interval measures the page's own start-up, not this scene. */
+        if (frames === 1) return 'steady';
+        elapsed += interval;
+        ema += (interval - ema) * PACE.alpha;
+        slowFor = ema > (cap > 0 ? PACE.smooth : PACE.floor) ? slowFor + Math.min(interval, PACE.weigh) : 0;
+        if (elapsed < PACE.settle) return 'steady';
+        if (cap > 0) {
+          if (slowFor < PACE.lower) return 'steady';
+          cap = ema > PACE.gross ? 0 : cap - 1;
+          slowFor = 0;
+          return 'lower';
+        }
+        return slowFor < PACE.rest ? 'steady' : 'rest';
+      }
+    };
+  }
+
+  /*
    * Shapes, in world units: the form is two units tall, radii are measured
    * from the axis, waistAt runs from the crown (0) to the base (1). flare is
    * the exponent of the profile -- higher holds the column narrow longer and
@@ -799,28 +853,15 @@ void main() {
 
     /*
      * The budget: the box's size picks a tier, and the device may lower it.
-     * A software renderer starts at the lightest; a GPU that cannot hold the
-     * frame rate is stepped down one tier at a time, and never back up in the
-     * same visit -- a scene that alternates between two budgets flickers.
+     * A software renderer starts at the lightest; the pacer (above) lowers it
+     * further, and may rest the scene altogether.
      */
-    let tierCap = lite ? 0 : TIERS.length - 1;
-    const pace = { ema: 16, frames: 0, slow: 0 };
+    const pace = pacer(lite ? 0 : TIERS.length - 1);
+    let resting = false;
     function tierFor() {
       const edge = Math.min(cssW, cssH) || 1;
       const index = TIERS.findIndex(tier => edge < tier.upTo);
-      return TIERS[Math.min(index === -1 ? TIERS.length - 1 : index, tierCap)];
-    }
-    function pacing(interval) {
-      if (tierCap === 0) return;
-      pace.ema += (interval - pace.ema) * 0.1;
-      pace.frames += 1;
-      if (pace.frames < 45) return;
-      pace.slow = pace.ema > 42 ? pace.slow + 1 : 0;
-      if (pace.slow < 30) return;
-      tierCap -= 1;
-      pace.ema = 16;
-      pace.frames = 0;
-      pace.slow = 0;
+      return TIERS[Math.min(index === -1 ? TIERS.length - 1 : index, pace.cap())];
     }
 
     function radiusAt(v, waist) {
@@ -1113,10 +1154,36 @@ void main() {
       const interval = now - last;
       /* Lite holds thirty frames a second; the display may offer more. */
       if (lite && interval < 31) return;
-      pacing(interval);
-      const dt = Math.min(interval / 1000, 0.05);
       last = now;
-      draw(dt);
+      if (pace.step(interval) === 'rest') {
+        rest();
+        return;
+      }
+      draw(Math.min(interval / 1000, 0.05));
+    }
+
+    function halt() {
+      running = false;
+      pointerUp();
+      hover.target = 0;
+      hover.active = 0;
+      cam.yawV = 0;
+      cam.pitchV = 0;
+      if (raf) global.cancelAnimationFrame(raf);
+      raf = 0;
+    }
+
+    /*
+     * Rested for the rest of the visit. The frame on screen stays -- it is the
+     * same picture a reader who asked for less motion is given -- and nothing
+     * here starts the loop again; the host is told so it can stop asking.
+     */
+    function rest() {
+      resting = true;
+      halt();
+      if (typeof options.onRest === 'function') {
+        try { options.onRest(); } catch { /* the host's own business */ }
+      }
     }
 
     function begin() {
@@ -1142,7 +1209,7 @@ void main() {
       if (!res) return;
       lost = false;
       resize();
-      if (wanted) begin();
+      if (wanted && !resting) begin();
       else draw(0);
     };
     canvas.addEventListener('webglcontextlost', onLost);
@@ -1222,19 +1289,12 @@ void main() {
       },
       start() {
         wanted = true;
-        if (running || lost) return;
+        if (running || lost || resting) return;
         begin();
       },
       stop() {
         wanted = false;
-        running = false;
-        pointerUp();
-        hover.target = 0;
-        hover.active = 0;
-        cam.yawV = 0;
-        cam.pitchV = 0;
-        if (raf) global.cancelAnimationFrame(raf);
-        raf = 0;
+        halt();
       },
       isRunning() { return running; },
       setTheme(name) {
@@ -1248,8 +1308,8 @@ void main() {
         if (!running) this.renderStill();
       },
       shape() { return shape; },
-      /* Whether this device is drawing the lite scene, and the budget it is on. */
-      budget() { return { lite, tier: TIERS.indexOf(tierFor()) }; },
+      /* Whether this device is drawing the lite scene, the budget it is on, and whether it has rested. */
+      budget() { return { lite, tier: TIERS.indexOf(tierFor()), resting }; },
       setReaching(on) { reachingTarget = on ? 1 : 0; },
       interactive() { return true; },
       destroy() {
@@ -1275,6 +1335,6 @@ void main() {
   }
 
   global.NebulaVortex = Object.freeze({
-    create, THEMES, PRESETS, RANGES, TIERS, FEATHER, VERTEX_LIMIT, strandVertices, resolveShape
+    create, THEMES, PRESETS, RANGES, TIERS, FEATHER, VERTEX_LIMIT, PACE, strandVertices, resolveShape, pacer
   });
 })(typeof globalThis === 'undefined' ? this : globalThis);

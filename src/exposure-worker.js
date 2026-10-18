@@ -275,10 +275,14 @@ function createExposureRunner(options = {}) {
      * revoked session is noticed within that bound, and no read is ever started
      * after one has been noticed. Every write still checks unconditionally.
      */
+    let checking = null;
     async function checkAccessIfDue() {
+      /* Reads waiting on a check share it, and none starts until it has passed. */
+      if (checking) return checking;
       if (dispatchedSinceCheck >= budgets.renewEveryFiles
-        || now() - lastCheckAt >= budgets.accessCheckIntervalMs) {
-        await checkAccess();
+        || now() - lastCheckAt >= Math.min(budgets.accessCheckIntervalMs, leaseMs / 2)) {
+        checking = checkAccess().finally(() => { checking = null; });
+        return checking;
       }
     }
 
@@ -325,6 +329,13 @@ function createExposureRunner(options = {}) {
 
     function outOfTime() {
       return now() - startedAt >= budgets.maxWallClockMs;
+    }
+
+    async function beforeHistoryPage() {
+      if (outOfTime()) {
+        throw Object.assign(new Error('Scan time budget was exhausted'), { code: 'EXPOSURE_TIME_LIMIT' });
+      }
+      await checkAccessIfDue();
     }
 
     function reserveBytes(count) {
@@ -529,13 +540,15 @@ function createExposureRunner(options = {}) {
         try {
           listing = await reader.listCommits({
             scope: scan.scope, commitSha, token, transport,
-            maxCommits: budgets.maxCommits, stopAt: scan.historyBaseCommit || ''
+            maxCommits: budgets.maxCommits, beforePage: beforeHistoryPage
           });
         } catch (error) {
-          if (errorCode(error) !== 'EXPOSURE_RATE_LIMITED') throw error;
+          const reason = errorCode(error) === 'EXPOSURE_TIME_LIMIT' ? 'time-limit'
+            : errorCode(error) === 'EXPOSURE_RATE_LIMITED' ? 'rate-limited' : null;
+          if (!reason) throw error;
           listing = null;
           skippedAny = true;
-          budgetReason = budgetReason || 'rate-limited';
+          budgetReason = budgetReason || reason;
         }
         if (listing) {
           if (listing.truncated) {
@@ -561,7 +574,9 @@ function createExposureRunner(options = {}) {
               dispatchedSinceCheck += 1;
               /* Merge conflict resolutions can introduce bytes in neither
                  parent. Read the provider's first-parent diff for merges too. */
-              const read = reader.readCommitChanges({ scope: scan.scope, sha: item.sha, token, transport });
+              const read = reader.readCommitChanges({
+                scope: scan.scope, sha: item.sha, token, transport, beforePage: beforeHistoryPage
+              });
               inflight.push({ entry: item, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
             }
           };
@@ -598,10 +613,12 @@ function createExposureRunner(options = {}) {
             const { entry: item, settled } = inflight.shift();
             const outcome = await settled;
             if (outcome.error) {
-              if (errorCode(outcome.error) === 'EXPOSURE_RATE_LIMITED') {
-                /* The provider asked us to stop. What was read is kept. */
+              const reason = errorCode(outcome.error) === 'EXPOSURE_TIME_LIMIT' ? 'time-limit'
+                : errorCode(outcome.error) === 'EXPOSURE_RATE_LIMITED' ? 'rate-limited' : null;
+              if (reason) {
+                /* Preserve completed work when a deadline or throttle stops history. */
                 skippedAny = true;
-                budgetReason = budgetReason || 'rate-limited';
+                budgetReason = budgetReason || reason;
                 historyDispatching = false;
                 inflight.length = 0;
                 break;

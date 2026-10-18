@@ -16,7 +16,7 @@ async function resolveProviderAccount(account, dependencies = {}) {
   const provider = String(account.provider || 'github');
   const authMethod = String(account.authMethod || 'token');
   const login = String(account.login || '').trim();
-  if (!login || !['github', 'gitlab', 'gitea'].includes(provider)) {
+  if (!login || !['github'].includes(provider)) {
     throw new ProviderCredentialError('Provider account identity is invalid', 'PROVIDER_ACCOUNT_INVALID');
   }
   if (provider === 'github' && authMethod === 'github-app') {
@@ -29,6 +29,9 @@ async function resolveProviderAccount(account, dependencies = {}) {
       throw new ProviderCredentialError('GitHub App credential broker returned no credential', 'GITHUB_APP_CREDENTIAL_UNAVAILABLE', 503);
     }
     return { ...resolved };
+  }
+  if (!['token', 'oauth'].includes(authMethod)) {
+    throw new ProviderCredentialError('Provider authentication method is invalid', 'PROVIDER_ACCOUNT_INVALID');
   }
   const token = String(account.token || '');
   if (!token) throw new ProviderCredentialError('Provider account credential is unavailable', 'PROVIDER_CREDENTIAL_UNAVAILABLE');

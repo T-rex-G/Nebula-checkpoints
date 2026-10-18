@@ -20,7 +20,7 @@ assert(server.includes('SNAPSHOT_RETENTION_COUNT'), 'Snapshot retention cap is m
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(server), 'Old snapshot pruning query is missing');
 assert(server.includes('providerHookId') && server.includes('removeOrphanedProviderHook'), 'Webhook creation must clean up orphaned provider hooks after partial failure');
 
-assert(/async function setSession\(req, res, data\)[\s\S]+if \(DB_URL\)[\s\S]+Session database is temporarily unavailable/.test(server), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
+assert(/async function setSession\(req, res, data\b[\s\S]+if \(DB_URL\)[\s\S]+Session database is temporarily unavailable/.test(server), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
 assert(server.includes('if (DB_URL && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
 assert(/async function destroySession[\s\S]+if \(sid && DB_URL\)[\s\S]+sign-out was not completed/.test(server), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
 assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(server) && /catch \(e\) \{\s*res\.status\(e\.status \|\| 500\)/.test(server), 'Authenticated requests must report a configured session-store outage as 503');

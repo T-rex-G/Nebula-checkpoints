@@ -9,6 +9,74 @@ The signed result is external release evidence and must bind to the exact frozen
 candidate named below. A result for another archive or source commit is not
 transferable.
 
+## How to run the two passes
+
+A pass means one person using the product only through the screen reader, eyes
+off the layout, and writing down what they heard. Every checkbox below is
+something heard or reached, not something seen. Allow about 45 minutes for
+each pass and use a disposable sandbox repository and invitation.
+
+Before starting, open `/api/version` on the hosted candidate and keep the
+response. Do the same when finished. Both go in the candidate binding.
+
+**iPhone with VoiceOver**
+
+1. Settings → Accessibility → VoiceOver → on. Settings → Accessibility →
+   Accessibility Shortcut → VoiceOver, so a triple-click of the side button
+   turns it on and off.
+2. The gestures used:
+   - swipe right or left with one finger to move to the next or previous item;
+   - double-tap to activate the item read;
+   - two-finger swipe up to read the whole page from the top;
+   - rotate two fingers to choose a rotor setting, such as Headings or Form
+     Controls, then swipe down or up to jump between them;
+   - two-finger scrub (a quick Z) to go back or close a dialog.
+3. Open the candidate URL in Safari. With the rotor on Headings, confirm the
+   landing reads "Enter the Nebulaverse-X test orbit" first, and that service
+   readiness is announced on its own ("Checking service readiness…" and then
+   the result) without being touched.
+4. Move to the invitation field, paste the invitation, accept the terms and
+   enter. Note what is announced for a wrong invitation and for a correct one.
+5. On the sign-in screen, move to "GitHub Personal Access Token". VoiceOver
+   should read the guidance about the token's permissions with the field,
+   before anything is typed. Sign in.
+6. On the Overview, use the rotor on Headings: the hidden headings (Workspace
+   trust, Security posture, Recent activity, Open pull requests) should each
+   be reachable. Open one evidence or "Show the numbers" disclosure, read it,
+   close it, and note where focus lands. It should be back on the control that
+   opened it.
+7. Open a repository, preview a change, and confirm the preview and its
+   verification are told apart by words, not by colour alone.
+8. Open Settings and find "Alpha privacy and credentials": "Disconnect from
+   Nebulaverse-X", "End alpha session" and "Delete alpha data" should each
+   announce a different name, and the text around them should say what each
+   one does.
+9. Turn the phone to landscape and back, and set Safari's text size to its
+   largest (aA → larger). Nothing should need horizontal scrolling and every
+   control should stay reachable.
+
+**Desktop (VoiceOver for macOS, or NVDA on Windows)**
+
+1. macOS: Cmd+F5 starts VoiceOver; VO means Control+Option. VO+Right moves to
+   the next item, VO+Space activates it, VO+U opens the rotor (headings, links,
+   form controls), and VO+A reads from the cursor. NVDA: Insert+Down reads
+   all, H jumps to the next heading, F to the next form field, and Escape
+   closes a dialog.
+2. Use only the keyboard (Tab, Shift+Tab, Enter, Space, Escape, arrow keys)
+   from the invitation through a verified change and its cleanup. Note any
+   control focus skips or cannot leave.
+3. Open a dialog, such as the repository picker or a destructive confirmation.
+   Focus should stay inside it, Escape should close it, and focus should
+   return to the control that opened it.
+4. Watch for announcements that repeat. A status read twice, or read on every
+   keystroke, is a finding.
+5. Set browser zoom to 400% and repeat steps 2 and 3. Then turn on the
+   system's Reduce Motion setting and reload: the landing scene and card
+   arrivals should hold still.
+
+Write every problem in the findings section with what was heard, where, and
+how bad it is. A failure is recorded as a failure, not left blank.
+
 ## Candidate binding
 
 - Subject: `Nebulaverse-X-v5.3.0-alpha.17.0`

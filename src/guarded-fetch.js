@@ -388,16 +388,17 @@ function createGuardedSession(options = {}) {
   const requestImpl = typeof options.requestImpl === 'function' ? options.requestImpl : undefined;
   const pins = new Map();
   const pools = new Map();
+  const controller = new AbortController();
   let closed = false;
 
   function refused() {
     return new GuardedFetchError('This session has been closed', 'GUARDED_FETCH_REFUSED');
   }
 
-  async function pinFor(hostname) {
+  async function pinFor(hostname, signal) {
     const cached = pins.get(hostname);
     if (cached && cached.expiresAt > now()) return cached.pinned;
-    const answers = await resolveWithin(resolver, hostname, DEFAULT_DEADLINE_MS);
+    const answers = await resolveWithin(resolver, hostname, DEFAULT_DEADLINE_MS, signal);
     const pinned = validateAddresses(answers)[0];
     pins.set(hostname, { pinned, expiresAt: now() + ttlMs });
     return pinned;
@@ -427,10 +428,12 @@ function createGuardedSession(options = {}) {
       throw new GuardedFetchError('A session serves only the profile it was opened for', 'GUARDED_FETCH_PROFILE_INVALID');
     }
     const target = normalizeTarget(input.url, profile);
-    const pinned = await pinFor(target.hostname);
+    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    const pinned = await pinFor(target.hostname, signal);
     if (closed) throw refused();
     return guardedFetch({
       ...input,
+      signal,
       ...(requestImpl ? { requestImpl } : {}),
       addresses: [pinned],
       agent: poolFor(target.hostname, pinned)
@@ -439,6 +442,7 @@ function createGuardedSession(options = {}) {
 
   function close() {
     closed = true;
+    controller.abort();
     for (const agent of pools.values()) agent.destroy();
     pools.clear();
     pins.clear();

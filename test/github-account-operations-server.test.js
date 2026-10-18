@@ -92,13 +92,14 @@ async function main() {
     assert.strictEqual(new URL(deletionOAuth.headers.get('location')).searchParams.get('scope'), 'repo delete_repo');
     const projected = await check('/api/account/capabilities', { headers: session() }, 200);
     assert.match(projected.response.headers.get('cache-control'), /no-store/);
+    /* Proven by the live-provider harness and promoted: served as any Supported capability is. */
     for (const feature of ['repository.create', 'repository.delete', 'notifications']) {
-      assert.strictEqual(projected.body.features[feature].status, 'Experimental');
+      assert.deepStrictEqual([projected.body.features[feature].status, projected.body.features[feature].evidenceState], ['Supported', 'Provider-verified']);
     }
     assert(!JSON.stringify(projected.body).includes(account.token));
     const fine = await check('/api/account/capabilities', { headers: session({ ...account, token: 'github_pat_fixture' }) }, 200);
     assert.strictEqual(fine.body.features.notifications.status, 'Unavailable');
-    assert.strictEqual(fine.body.features['repository.create'].status, 'Experimental');
+    assert.strictEqual(fine.body.features['repository.create'].status, 'Supported');
     const beforeFine = events();
     await check('/api/notifications', { headers: session({ ...account, token: 'github_pat_fixture' }) }, 409);
     assert.deepStrictEqual(events(), beforeFine, 'unsupported notification credentials must never reach GitHub');

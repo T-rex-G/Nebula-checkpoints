@@ -22,18 +22,17 @@ const scope = normalizePolicyScope({ provider: 'GitHub', owner: 'Acme', repo: 'D
 assert.deepStrictEqual(scope, {
   provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo'
 });
-const nested = normalizePolicyScope({ provider: 'gitlab', owner: 'Platform/Security', repo: 'Control-Plane' });
-assert.strictEqual(nested.scopeKey, 'gitlab:gitlab.com:platform/security/control-plane');
-const gitea = normalizePolicyScope({ provider: 'gitea', baseUrl: 'https://git.example.com/platform/', owner: 'Team', repo: 'Repo' });
-assert.strictEqual(gitea.scopeKey, 'gitea:git.example.com/platform:team/repo');
-assert.deepStrictEqual(normalizePolicyScope(gitea), gitea,
-  'a normalized Gitea scope must be safe to normalize again across enforcement boundaries');
-const caseSensitiveBasePath = normalizePolicyScope({ provider: 'gitea', baseUrl: 'https://git.example.com/GitRoot/', owner: 'Team', repo: 'Repo' });
-assert.strictEqual(caseSensitiveBasePath.authority, 'git.example.com/GitRoot', 'self-hosted provider base paths must preserve case');
-assert.strictEqual(caseSensitiveBasePath.scopeKey, 'gitea:git.example.com/GitRoot:team/repo');
-assert.throws(() => normalizePolicyScope({ provider: 'gitea', owner: 'a', repo: 'b' }), error => error.code === 'GOVERNANCE_SCOPE_INVALID');
-assert.throws(() => normalizePolicyScope({ provider: 'gitlab', baseUrl: 'https://user:pass@git.example.com', owner: 'a', repo: 'b' }), error => error.code === 'GOVERNANCE_SCOPE_INVALID');
-assert.throws(() => normalizePolicyScope({ provider: 'bitbucket', owner: 'a', repo: 'b' }), error => error.code === 'GOVERNANCE_SCOPE_INVALID');
+assert.deepStrictEqual(normalizePolicyScope(scope), scope, 'GitHub scopes remain stable across enforcement boundaries');
+for (const provider of ['gitlab', 'gitea', 'bitbucket']) {
+  assert.throws(() => normalizePolicyScope({ provider, owner: 'a', repo: 'b', baseUrl: 'https://github.com' }),
+    error => error.code === 'GOVERNANCE_SCOPE_INVALID');
+}
+for (const baseUrl of ['https://git.example.com', 'http://github.com', 'https://user:pass@github.com', 'https://github.com/path']) {
+  assert.throws(() => normalizePolicyScope({ provider: 'github', baseUrl, owner: 'a', repo: 'b' }),
+    error => error.code === 'GOVERNANCE_SCOPE_INVALID');
+}
+assert.throws(() => normalizePolicyScope({ provider: 'github', owner: 'Platform/Security', repo: 'a' }),
+  error => error.code === 'GOVERNANCE_SCOPE_INVALID');
 assert.strictEqual(normalizePolicyKey(' Release-Protection '), 'release-protection');
 assert.throws(() => normalizePolicyKey('../escape'), error => error.code === 'GOVERNANCE_POLICY_KEY_INVALID');
 

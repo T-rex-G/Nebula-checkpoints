@@ -12,7 +12,7 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { createProviderFetchFixture } = require('../ci/alpha17-fixtures');
+const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
 
 const RUN_ID = 'run-4096';
@@ -26,10 +26,12 @@ function environment() {
     NV_ALPHA17_WORKFLOW_RUN_ID: RUN_ID,
     NV_ALPHA17_REPOSITORY: repository,
     NV_ALPHA17_BRANCH: `nvx-alpha17-${RUN_ID}-proof`,
-    NV_ALPHA17_MUTATION_CREDENTIAL: 'fixture-mutation-credential',
+    NV_ALPHA17_MUTATION_CREDENTIAL: FIXTURE_CREDENTIALS.mutation,
+    NV_ALPHA17_REPOSITORY_ADMIN_CREDENTIAL: FIXTURE_CREDENTIALS.repositoryAdmin,
+    NV_ALPHA17_NOTIFICATIONS_CREDENTIAL: FIXTURE_CREDENTIALS.notifications,
     NV_ALPHA17_READ_ONLY_CREDENTIAL: 'fixture-readonly-credential',
-    NV_ALPHA17_GITHUB_API_URL: 'https://github.fixture.invalid',
-    NV_ALPHA17_GITHUB_LFS_URL: 'https://github-lfs.fixture.invalid',
+    NV_ALPHA17_GITHUB_API_URL: 'https://api.github.com',
+    NV_ALPHA17_GITHUB_LFS_URL: 'https://github.com',
     /* Only so a run that never finishes is falsified in seconds, not minutes. */
     NV_ALPHA17_RUN_OBSERVATION_ATTEMPTS: '3'
   };
@@ -135,7 +137,8 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
       refResolved: true, treeBound: true, blobTextMatched: true, historyReached: true
     });
     assert.strictEqual(byKey.get('folder-move').filesMoved, 2, 'the move must carry a nested path and a second file');
-    for (const key of ['file-rename', 'folder-move', 'issue-write', 'pull-write', 'release-write', 'star-toggle', 'code-search', 'workflow-rerun']) {
+    for (const key of ['file-rename', 'folder-move', 'issue-write', 'pull-write', 'release-write', 'star-toggle', 'code-search', 'workflow-rerun',
+      'repository-create', 'repository-delete', 'notifications-read']) {
       const check = byKey.get(key);
       assert(check && check.status === 'pass', `${key} must pass against a correct provider`);
       for (const [field, value] of Object.entries(check)) {
@@ -144,6 +147,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     }
     /* And the provider is left as it was found: nothing the probes made survives but a closed issue and a merged pull request. */
     assert.deepStrictEqual([...fixture.state.branches.keys()], ['main']);
+    assert.strictEqual(fixture.state.ownedRepositories.size, 0, 'the disposable repository is gone');
     assert.strictEqual(fixture.state.starred, false);
     assert.deepStrictEqual([...fixture.state.tags.keys()], ['fixture']);
     assert.deepStrictEqual([...fixture.state.releases.keys()], [21]);
@@ -157,6 +161,25 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.strictEqual(reruns.length, 1);
     assert.strictEqual(reruns[0].run_attempt, 2);
     assert.strictEqual(fixture.state.runs.get(31).run_attempt, 1, 'the permanent fixture run is never the one re-run');
+    assert.strictEqual(fixture.state.labels.size, 0, 'no label is made');
+  }
+
+  /*
+   * ---- A public target --------------------------------------------------
+   * GitHub lets anyone who can read a public repository open an issue in it,
+   * the read-only credential included. That is the repository's visibility,
+   * not the credential's scope, so it neither passes nor fails issue-write;
+   * the label the credential may not create still does. Its issue is closed.
+   */
+  {
+    const { result, fixture } = await run(async () => null, target => target.setPublic(true));
+    assert.strictEqual(result.status, 'pass', 'a public target qualifies as a private one does');
+    const issueWrite = result.checks.find(check => check.key === 'issue-write');
+    assert.strictEqual(issueWrite.readOnlyRefused, true);
+    const made = [...fixture.state.issues.values()].filter(issue => issue.number !== 11);
+    assert.strictEqual(made.length, 2, 'the probe issue and the one any reader may open');
+    assert(made.every(issue => issue.state === 'closed'), 'both are closed');
+    assert.strictEqual(fixture.state.labels.size, 0, 'no label is made');
   }
 
   /* ---- exposure-read ----------------------------------------------------- */
@@ -267,6 +290,19 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
     return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
   });
+  /*
+   * A public target opens issues to anyone who can read it, so there a
+   * read-only credential's issue proves nothing about its scope. What it may
+   * never do on any target is manage the repository's labels.
+   */
+  expectUnmet('a read-only credential that can create a label', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'POST' || !request.pathname.endsWith('/labels') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
+  }, fixture => fixture.setPublic(true));
+  expectUnmet('a private target whose read-only credential can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || !request.authorization.includes(context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${context.env.NV_ALPHA17_MUTATION_CREDENTIAL}` } });
+  }, fixture => fixture.setPublic(false));
 
   /* ---- pull-write -------------------------------------------------------- */
   expectUnmet('a pull request that reads back against another base', 'pull-write', 'createdReadBack', async (request, pass) => {
@@ -351,79 +387,60 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     request.method === 'POST' && request.pathname.endsWith('/rerun') ? reply(201, {}) : null
   ));
 
-  /* ---- GitLab: the same write proofs through GitLab's own requests ------- */
-  {
-    const { runGitlabValidation } = require('../ci/run-gitlab-alpha17-validation');
-    const gitlabEnvironment = () => {
-      const repository = 'fixture-owner/nvx-alpha17-gitlab-qualification';
-      const env = {
-        ...environment(),
-        NV_ALPHA17_REPOSITORY: repository,
-        NV_ALPHA17_GITLAB_API_URL: 'https://gitlab.fixture.invalid/api/v4'
-      };
-      env.NV_ALPHA17_SIGNED_TARGET_SHA256 = crypto.createHash('sha256').update(JSON.stringify({
-        apiUrl: env.NV_ALPHA17_GITLAB_API_URL, jobName: 'gitlab', repository
-      })).digest('hex');
-      return env;
-    };
-    const runGitlab = async middleware => {
-      const env = gitlabEnvironment();
-      const fixture = createProviderFetchFixture({
-        provider: 'gitlab', repository: env.NV_ALPHA17_REPOSITORY, defaultBranch: 'main', runId: RUN_ID,
-        mutationCredential: env.NV_ALPHA17_MUTATION_CREDENTIAL, readOnlyCredential: env.NV_ALPHA17_READ_ONLY_CREDENTIAL
-      });
-      const context = { fixture, env, memo: {} };
-      const fetchImpl = async (url, init = {}) => {
-        const request = describe(url, init);
-        request.token = new Headers(init.headers || {}).get('private-token') || '';
-        return (await middleware(request, () => fixture.fetch(url, init), context, url, init)) || fixture.fetch(url, init);
-      };
-      return { result: await runGitlabValidation({ env, fetchImpl, now: () => new Date(NOW) }), fixture };
-    };
-    const { result, fixture } = await runGitlab(async () => null);
-    const byKey = new Map(result.checks.map(check => [check.key, check]));
-    for (const key of ['issue-write', 'pull-write']) {
-      assert(byKey.get(key) && byKey.get(key).status === 'pass', `GitLab ${key} must pass against a correct provider`);
+  /* ---- repository-create / repository-delete ---------------------------- */
+  const ADMIN = 'alpha17-fixture-qualification';
+  const REPOSITORY_NAME = `${PREFIX}-repository`;
+  const ownRepository = request => request.pathname === `/repos/${ADMIN}/${REPOSITORY_NAME}`;
+  const asAdmin = request => request.authorization.endsWith(FIXTURE_CREDENTIALS.repositoryAdmin);
+  const asMutation = request => request.authorization.endsWith(FIXTURE_CREDENTIALS.mutation);
+  expectUnmet('a create the provider refuses', 'repository-create', 'createdReadBack', async request => (
+    request.method === 'POST' && request.pathname === '/user/repos' ? reply(403, { message: 'refused' }) : null
+  ));
+  expectUnmet('a repository that does not answer by the identity its create gave it', 'repository-create', 'readBackById', async request => (
+    request.method === 'GET' && /^\/repositories\/\d+$/.test(request.pathname) ? reply(404, { message: 'Not Found' }) : null
+  ));
+  falsify('a create whose readback names another repository is left for the operator, never deleted',
+    () => run(async (request, pass) => {
+      if (request.method !== 'GET' || !ownRepository(request) || !asAdmin(request)) return null;
+      const found = await (await pass()).json();
+      return reply(200, { ...found, id: found.id + 1 });
+    }),
+    error => error && error.code === 'ALPHA17_REPOSITORY_CLEANUP_INCOMPLETE' && error.message.includes(`${ADMIN}/${REPOSITORY_NAME}`));
+  expectUnmet('a repository-confined credential the product would let delete', 'repository-delete', 'unprivilegedRefused', async (request, pass, context, url, init) => {
+    if (request.method !== 'GET' || !ownRepository(request) || !asMutation(request)) return null;
+    return context.fixture.fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${FIXTURE_CREDENTIALS.repositoryAdmin}` } });
+  });
+  expectUnmet('an administration credential that is not an administrator', 'repository-delete', 'administratorVerified', async (request, pass) => {
+    if (request.method !== 'GET' || !ownRepository(request) || !asAdmin(request)) return null;
+    const answer = await pass();
+    if (answer.status !== 200) return answer;
+    return reply(200, { ...(await answer.json()), permissions: { admin: false } });
+  });
+  expectUnmet('a deleted repository that still answers by name', 'repository-delete', 'absentByName', async (request, pass, context) => {
+    if (request.method === 'DELETE' && ownRepository(request)) context.memo.deleted = await (await pass()).status;
+    if (request.method === 'GET' && ownRepository(request) && context.memo.deleted) {
+      return reply(200, { id: 1, full_name: `${ADMIN}/${REPOSITORY_NAME}`, default_branch: 'main', permissions: { admin: true } });
     }
-    assert.deepStrictEqual([...fixture.state.branches.keys()], ['main']);
-    const merged = [...fixture.state.glMergeRequests.values()].filter(request => request.iid !== 1);
-    assert.strictEqual(merged.length, 1);
-    assert.strictEqual(merged[0].state, 'merged');
+    return request.method === 'DELETE' && ownRepository(request) ? reply(204) : null;
+  });
+  expectUnmet('a deleted repository that still answers by identity', 'repository-delete', 'absentById', async (request, pass, context) => {
+    if (request.method === 'DELETE' && ownRepository(request)) { context.memo.deleted = true; return pass(); }
+    if (request.method === 'GET' && /^\/repositories\/\d+$/.test(request.pathname) && context.memo.deleted) {
+      return reply(200, { id: Number(request.pathname.split('/').pop()), full_name: `${ADMIN}/${REPOSITORY_NAME}` });
+    }
+    return null;
+  });
 
-    const gitlabUnmet = (label, probe, condition, middleware) =>
-      falsify(label, () => runGitlab(middleware), namesCondition(label, probe, condition));
-    gitlabUnmet('a GitLab issue that reads back under another title', 'issue-write', 'createdReadBack', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/issues\/1\d\d$/.test(request.pathname)) return null;
-      return reply(200, { ...(await (await pass()).json()), title: 'someone else' });
-    });
-    gitlabUnmet('a GitLab close that is acknowledged and not applied', 'issue-write', 'closedReadBack', async request => (
-      request.method === 'PUT' && /\/issues\/\d+$/.test(request.pathname) ? reply(200, { state: 'closed' }) : null
-    ));
-    gitlabUnmet('a read_api token that can open an issue', 'issue-write', 'readOnlyRefused', async (request, pass, context, url, init) => {
-      if (request.method !== 'POST' || !request.pathname.endsWith('/issues') || request.token !== context.env.NV_ALPHA17_READ_ONLY_CREDENTIAL) return null;
-      return context.fixture.fetch(url, { ...init, headers: { ...init.headers, 'PRIVATE-TOKEN': context.env.NV_ALPHA17_MUTATION_CREDENTIAL } });
-    });
-    gitlabUnmet('a merge request that never finishes its mergeability check', 'pull-write', 'createdReadBack', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/merge_requests\/1\d\d$/.test(request.pathname)) return null;
-      return reply(200, { ...(await (await pass()).json()), detailed_merge_status: 'checking', sha: 'a'.repeat(40) });
-    });
-    gitlabUnmet('a review note that never appears', 'pull-write', 'reviewRecorded', async request => (
-      request.method === 'GET' && /\/merge_requests\/\d+\/notes$/.test(request.pathname) ? reply(200, []) : null
-    ));
-    gitlabUnmet('a GitLab merge accepted against a head it no longer has', 'pull-write', 'staleHeadRefused', async (request, pass, context, url, init) => {
-      if (request.method !== 'PUT' || !request.pathname.endsWith('/merge')) return null;
-      const { sha, ...rest } = request.body;
-      void sha;
-      return context.fixture.fetch(url, { ...init, body: JSON.stringify(rest) });
-    });
-    gitlabUnmet('a GitLab merge commit that is not the base and the source', 'pull-write', 'mergedIntoBase', async (request, pass) => {
-      if (request.method !== 'GET' || !/\/repository\/commits\/[0-9a-f]{40}$/.test(request.pathname)) return null;
-      const response = await pass();
-      if (response.status !== 200) return response;
-      const commit = await response.json();
-      return reply(200, commit.parent_ids && commit.parent_ids.length === 2 ? { ...commit, parent_ids: [commit.parent_ids[1], commit.parent_ids[0]] } : commit);
-    });
-  }
+  /* ---- notifications-read ------------------------------------------------ */
+  expectUnmet('an inbox that does not answer', 'notifications-read', 'inboxRead', async request => (
+    request.method === 'GET' && request.pathname === '/notifications' && !asMutation(request) ? reply(500, { message: 'unavailable' }) : null
+  ));
+  expectUnmet('a repository-scoped inbox that is refused', 'notifications-read', 'scopedRead', async request => (
+    request.method === 'GET' && request.pathname.endsWith('/notifications') && request.pathname.startsWith('/repos/') ? reply(403, { message: 'refused' }) : null
+  ));
+  expectUnmet('a provider that serves notifications to a fine-grained token', 'notifications-read', 'providerRefusesFineGrained', async request => (
+    request.method === 'GET' && request.pathname === '/notifications' && asMutation(request) ? reply(200, []) : null
+  ));
 
   /*
    * ---- The probes send what the product sends -------------------------------
@@ -486,17 +503,6 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.match(search, /scopedCodeQuery\(req\.query\.q, repository\)/);
     assert.strictEqual(scopedCodeQuery('nvx-alpha17-search-fixture', 'owner/name'), 'nvx-alpha17-search-fixture repo:owner/name');
     assert.match(harness, /url\.searchParams\.set\('q', `\$\{words\} repo:\$\{repository\}`\)/);
-
-    /* GitLab: the issue, note, close, merge-request, review-note and merge requests the product sends. */
-    const gitlabHarness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-gitlab-alpha17-validation.js'), 'utf8');
-    assert.match(route('post', '/api/repo/:owner/:repo/issues'), /\/issues`, \{ method: 'POST', body: \{ title, description: body \|\| '' \} \}/);
-    assert.match(route('patch', '/api/repo/:owner/:repo/issues/:num'), /body: \{ state_event: state === 'closed' \? 'close' : 'reopen' \}/);
-    assert.match(gitlabHarness, /\{ state_event: 'close' \}/);
-    assert.match(route('post', '/api/repo/:owner/:repo/pulls'), /body: \{ title, source_branch: head, target_branch: base, description: body \|\| '' \}/);
-    assert.match(merge, /body: \{ squash: method === 'squash', \.\.\.\(expected \? \{ sha: expected \} : \{\}\) \}/);
-    assert.match(gitlabHarness, /\{ squash: false, sha: reportedHead \}/);
-    assert.match(route('post', '/api/repo/:owner/:repo/pulls/:num/reviews'), /merge_requests\/\$\{req\.params\.num\}\/notes`, \{ method: 'POST', body: \{ body: text \} \}/);
-    assert.match(gitlabHarness, /merge_requests\/\$\{iid\}\/notes`, \{ body: reviewNote \}/);
 
     /* Exposure: the probe runs the product's reader module, not a copy of it. */
     assert.match(harness, /const exposureReader = require\('\.\.\/src\/exposure-reader'\);/);

@@ -152,18 +152,15 @@ registration.
 
 On Render, the callback uses `RENDER_EXTERNAL_URL`. On other production hosts, set `PUBLIC_BASE_URL` to a canonical HTTPS origin. The server does not trust an arbitrary production `Host` header to construct callbacks.
 
-## Self-hosted GitLab and Gitea
+## GitHub-only repository connections
 
-The server validates custom provider URLs before use:
-
-- HTTP(S) only
-- No username/password in URL
-- No raw IP host
-- No localhost/private hostname
-- DNS answers must not resolve to private, loopback, link-local, or reserved ranges
-- Cross-origin redirects do not carry provider credentials
-
-For production, set `NV_GIT_HOST_ALLOWLIST` to the exact approved hostnames.
+GitHub is the only supported repository provider. Retired or unknown provider
+inputs fail before credential use or outbound requests. Legacy connections are
+removed locally without contacting their old provider; that does not revoke a
+remote token. Revoke old tokens manually in the original provider settings.
+Audit and governance history remains subject to existing retention and explicit
+cleanup policies. No remote revocation or historical data deletion is implied
+by removing a provider integration.
 
 ## Browser security
 
@@ -199,7 +196,7 @@ For real disaster recovery, store independently encrypted mirror/LFS/metadata ba
 
 ## Protected-file boundary
 
-Nebulaverse-X policies cannot prevent a maintainer from changing a path through Git CLI, GitHub's website, another application, or a compromised provider token. Synchronizing equivalent GitHub/GitLab rules is a future production stage.
+Nebulaverse-X policies cannot prevent a maintainer from changing a path through Git CLI, GitHub's website, another application, or a compromised provider token. Synchronizing equivalent GitHub rules is a future production stage.
 
 ## Upload malware gate and optional YARA
 
@@ -216,7 +213,7 @@ Before public exposure:
 - Use a private source repository.
 - Configure the existing Neon pooled `DATABASE_URL`.
 - Keep `SESSION_SECRET` only in Render.
-- Configure `NV_GIT_HOST_ALLOWLIST` when self-hosted providers are enabled; custom production hosts are rejected without it.
+- Verify repository connections are GitHub-only and retired-provider inputs fail before credential use or outbound requests.
 - Tune `NV_LIVE_CLIENTS_PER_REPO`, `NV_LIVE_CLIENTS_TOTAL`, and snapshot retention only after measuring the Render Free instance.
 - Connect webhooks only for repositories that need live monitoring.
 - Confirm `/healthz` and `/readyz`.

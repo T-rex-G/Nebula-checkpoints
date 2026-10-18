@@ -386,23 +386,6 @@ function githubAccess(response, expectedLogin, source) {
   return { baseRole: 'none', providerRole: role === 'unknown' ? 'none' : role, level: 0, source, complete: true };
 }
 
-function gitlabAccess(response) {
-  if (!isPlainObject(response) || !isPlainObject(response.permissions)) return null;
-  const rawLevels = [response.permissions.project_access, response.permissions.group_access]
-    .map(value => value == null ? 0 : Number(value && value.access_level));
-  if (rawLevels.some(value => !Number.isInteger(value) || value < 0 || value > 50)) return null;
-  const accessLevel = Math.max(...rawLevels);
-  if (accessLevel >= 50) return { baseRole: 'admin', providerRole: 'owner', level: 50, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 40) return { baseRole: 'maintain', providerRole: 'maintainer', level: 40, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 30) return { baseRole: 'write', providerRole: 'developer', level: 30, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 25) return { baseRole: 'read', providerRole: 'security-manager', level: 10, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 20) return { baseRole: 'read', providerRole: 'reporter', level: 10, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 15) return { baseRole: 'read', providerRole: 'planner', level: 10, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 10) return { baseRole: 'read', providerRole: 'guest', level: 10, source: 'gitlab.project.permissions', complete: true };
-  if (accessLevel >= 5) return { baseRole: 'read', providerRole: 'minimal', level: 10, source: 'gitlab.project.permissions', complete: true };
-  return { baseRole: 'none', providerRole: 'none', level: 0, source: 'gitlab.project.permissions', complete: true };
-}
-
 /*
  * Read access by virtue of the repository being public, not of membership.
  * It is the reader level every signed-in person has on a public repository,
@@ -411,19 +394,14 @@ function gitlabAccess(response) {
  * collaborators share (its governance) refuses it, because being able to read
  * a public repository makes nobody a collaborator on it.
  */
-const PUBLIC_ACCESS_SOURCES = Object.freeze(['github.repository.public', 'gitea.repository.public', 'gitlab.project.public']);
+const PUBLIC_ACCESS_SOURCES = Object.freeze(['github.repository.public']);
 function publicRepositoryAccess(repository, scope) {
   if (!isPlainObject(repository)) return null;
   const expected = `${scope.owner}/${scope.repo}`.toLowerCase();
-  if (scope.provider === 'gitlab') {
-    const name = String(repository.path_with_namespace || '').trim().toLowerCase();
-    if (repository.visibility !== 'public' || name !== expected) return null;
-    return { baseRole: 'read', providerRole: 'public', level: 10, source: 'gitlab.project.public', complete: true };
-  }
   const name = String(repository.full_name || '').trim().toLowerCase();
   const visibility = repository.visibility == null ? (repository.private === false ? 'public' : '') : String(repository.visibility).toLowerCase();
   if (repository.private !== false || repository.internal === true || visibility !== 'public' || name !== expected) return null;
-  return { baseRole: 'read', providerRole: 'public', level: 10, source: `${scope.provider === 'gitea' ? 'gitea' : 'github'}.repository.public`, complete: true };
+  return { baseRole: 'read', providerRole: 'public', level: 10, source: 'github.repository.public', complete: true };
 }
 function isPublicReaderAccess(snapshot) {
   return Boolean(snapshot && snapshot.repositoryAccess && PUBLIC_ACCESS_SOURCES.includes(snapshot.repositoryAccess.source));
@@ -488,15 +466,6 @@ function createAuthorizationResolver(options = {}) {
 
   async function resolveFresh(account, scope, context) {
     try {
-      if (scope.provider === 'gitlab') {
-        const apiPath = `/projects/${encodeURIComponent(`${scope.owner}/${scope.repo}`)}`;
-        const response = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath });
-        const member = gitlabAccess(response);
-        const access = member && member.level === 0 ? (publicRepositoryAccess(response, scope) || member) : member;
-        if (!access) return unavailableFromContext(context, scope, 'AUTHORIZATION_PROVIDER_RESPONSE_INCOMPLETE', now, cacheTtlMs, 'partial');
-        return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs });
-      }
-
       if (context.executionPrincipal.kind === 'installation') {
         const installation = account.installation;
         if (!isPlainObject(installation) || Number(installation.id) !== context.executionPrincipal.installationId ||
@@ -541,7 +510,7 @@ function createAuthorizationResolver(options = {}) {
         if (!access) throw error;
         return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs });
       }
-      const source = scope.provider === 'gitea' ? 'gitea.collaborator.permission' : 'github.collaborator.permission';
+      const source = 'github.collaborator.permission';
       const access = githubAccess(permission, context.governanceActor.login, source);
       if (!access) return unavailableFromContext(context, scope, 'AUTHORIZATION_PROVIDER_RESPONSE_INCOMPLETE', now, cacheTtlMs, 'partial');
       return createResolvedSnapshot({ scope, context, access, now, ttlMs: cacheTtlMs });

@@ -6,8 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 const AUTHORIZATION_SCHEMA_VERSION = '1.3.0';
-const ALLOWED_JOBS = Object.freeze(['github', 'gitlab', 'gitea', 'hosted']);
-const PROVIDER_JOBS = new Set(['github', 'gitlab', 'gitea']);
+const ALLOWED_JOBS = Object.freeze(['github', 'hosted']);
+const PROVIDER_JOBS = new Set(['github']);
 const MAX_LIFETIME_MS = 30 * 60 * 1000;
 
 function fail(message, code) {
@@ -188,6 +188,15 @@ function fileClaimLedger(directory) {
   });
 }
 
+function requireGithubOrigin(value, service = 'api') {
+  const origin = service === 'api' ? 'https://api.github.com'
+    : service === 'lfs' ? 'https://github.com' : '';
+  if (!origin || typeof value !== 'string' || ![origin, `${origin}/`].includes(value.trim())) {
+    fail('GitHub qualification must use its canonical API or LFS origin', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
+  }
+  return origin;
+}
+
 function normalizeLiveTarget(jobName, input) {
   const job = String(jobName || '').trim();
   if (!ALLOWED_JOBS.includes(job) || !isPlainObject(input)) {
@@ -207,7 +216,7 @@ function normalizeLiveTarget(jobName, input) {
       fail('provider target must be one pre-created disposable alpha.17 repository', 'ALPHA17_AUTHORIZATION_TARGET_INVALID');
     }
     return Object.freeze({
-      apiUrl: normalizeUrl(input.apiUrl, 'provider API URL'),
+      apiUrl: requireGithubOrigin(input.apiUrl),
       jobName: job,
       repository
     });
@@ -477,6 +486,7 @@ module.exports = Object.freeze({
   encodeAuthorizationEnvelope,
   fileClaimLedger,
   hashLiveTarget,
+  requireGithubOrigin,
   verifyLiveTargetBinding,
   verifyAuthorizationEnvelope
 });

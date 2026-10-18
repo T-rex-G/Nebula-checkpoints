@@ -98,6 +98,13 @@ test('keyboard-only tester path exposes visible focus and status announcements',
   await page.keyboard.press('Enter');
   await expect(ui.screen(page, 'login')).toBeVisible();
 
+  /*
+   * The permission guidance follows the field on screen, so a screen reader
+   * moving forward would reach the field before it. As the field's description
+   * it is read on arrival, before anything is typed.
+   */
+  await expect(ui.secretField(page, 'GitHub Personal Access Token'))
+    .toHaveAccessibleDescription(/fine-grained token limited to selected repositories/);
   await ui.focusAndConfirm(expect, ui.secretField(page, 'GitHub Personal Access Token'));
   await page.keyboard.type('fixture-provider-credential');
   await page.keyboard.press('Tab');

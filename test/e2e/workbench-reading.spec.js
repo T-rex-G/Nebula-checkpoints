@@ -136,7 +136,7 @@ test('the palette ranks files by how well they match, not by name', async ({ pag
   await (await ui.action(page, 'Command palette')).click();
   const input = page.locator('#paletteInput');
   const first = page.locator('#paletteList .pal-item').first();
-  for (const [query, expected] of [['app', 'apps/web/src/legacy/app.js'], ['style', 'apps/web/src/styles/style.css'], ['branchprot', 'src/branch-protection.js'], ['matrix', 'scripts/test-matrix.js']]) {
+  for (const [query, expected] of [['app', 'public/app.js'], ['style', 'public/style.css'], ['branchprot', 'src/branch-protection.js'], ['matrix', 'scripts/test-matrix.js']]) {
     await input.fill(query);
     await expect(first).toContainText(expected);
   }

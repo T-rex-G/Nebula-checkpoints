@@ -12,7 +12,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { PRODUCT_NAME } = require('../../src/version.js');
-const { stripHtmlComments } = require('../../src/public-assets.js');
+const { stripCssComments, stripHtmlComments } = require('../../src/public-assets.js');
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -30,6 +30,16 @@ export default defineConfig({
     sourcemap: false,
     modulePreload: { polyfill: false },
     target: 'es2022',
+    /*
+     * The stylesheet ships as written, less its comments. A CSS minifier
+     * rewrites the cascade it is given: it read `backdrop-filter:none;
+     * -webkit-backdrop-filter:none` as one property declared twice and kept
+     * only the prefixed copy, so the unprefixed blur of an earlier rule won
+     * again on every phone. It also respells custom-property values, which
+     * scripts read as text. The cascade the stylesheet's own comments reason
+     * about is the cascade the browser receives.
+     */
+    cssMinify: false,
     reportCompressedSize: false,
     /* A bundled library's licence travels with its code; source commentary does not. */
     rolldownOptions: { output: { comments: { legal: true, annotation: false, jsdoc: false } } }
@@ -58,6 +68,13 @@ export default defineConfig({
       const body = [...packages].sort(([a], [b]) => (a < b ? -1 : 1)).map(([name, entry]) =>
         `${name} ${entry.version} (${entry.licence})\n\n${entry.text}`).join(`\n\n${'-'.repeat(72)}\n\n`);
       this.emitFile({ type: 'asset', fileName: 'licenses.txt', source: `${PRODUCT_NAME} bundles the following packages.\n\n${body}\n` });
+    }
+  }, {
+    name: 'nebulaverse-stylesheet',
+    generateBundle(_options, bundle) {
+      for (const item of Object.values(bundle)) {
+        if (item.type === 'asset' && item.fileName.endsWith('.css')) item.source = stripCssComments(String(item.source));
+      }
     }
   }, {
     name: 'nebulaverse-page',

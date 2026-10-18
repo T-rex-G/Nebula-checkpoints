@@ -11,7 +11,7 @@ const {
   createZipArchive,
   discoverReleaseManifest
 } = require('../scripts/package-release');
-const { checks: foundationChecks } = require('../scripts/foundation-gate');
+const { checks: foundationChecks, prerequisites: foundationPrerequisites } = require('../scripts/foundation-gate');
 const root = path.resolve(__dirname, '..');
 const packageScript = path.join(root, 'scripts', 'package-release.js');
 function ensureLocalManifestRepository() {
@@ -49,6 +49,8 @@ const foundationArtifacts = [
   'test/capability-registry-server-contract.test.js', 'test/provider-route-inventory.test.js',
   'test/public-alpha-documentation.test.js'
 ];
+assert.deepStrictEqual(foundationPrerequisites, ['scripts/build-web.js'],
+  'a release is cut from a clean checkout, so the gate builds the page its server checks need');
 assert.deepStrictEqual(foundationChecks, [
   'scripts/verify.js',
   'test/public-alpha-provenance.test.js',

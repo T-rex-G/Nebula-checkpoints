@@ -282,6 +282,7 @@ test('the board has no critical or serious accessibility violations', async ({ p
  * page was reloaded.
  */
 test('a reading overtaken by a new identity reads again instead of hanging', async ({ page }) => {
+  await page.addInitScript(() => { window.__NV_HARNESS__ = true; });
   await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
   let release;
   const held = new Promise(resolve => { release = resolve; });
@@ -298,7 +299,7 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   await expect(card).toContainText('Reading the open pull requests');
   await expect.poll(() => calls).toBe(1);
   /* The signed-in identity is replaced while the first reading is on its way. */
-  await page.evaluate(() => { state.me = { ...state.me }; });
+  await page.evaluate(() => { const { state } = window.__NV_DIAGNOSTICS__; state.me = { ...state.me }; });
   release();
   /* Read again (from the lists already fetched, within their five minutes), not left reading. */
   await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');

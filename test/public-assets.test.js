@@ -11,7 +11,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { stripJsComments, stripHtmlComments, securityContact } = require('../src/public-assets');
+const { stripJsComments, stripCssComments, stripHtmlComments, securityContact } = require('../src/public-assets');
 
 let acorn;
 try { acorn = require('acorn'); } catch { acorn = require(require.resolve('acorn', { paths: [path.dirname(require.resolve('eslint'))] })); }
@@ -66,6 +66,12 @@ for (const name of fs.readdirSync(copiedAsWritten).filter(file => file.endsWith(
 
 /* ---- CSS and HTML ------------------------------------------------------------------------- */
 {
+  assert.strictEqual(stripCssComments('/* head */\na{b:c} /* tail */\ne::after{content:"/* kept */"}\n'), 'a{b:c}  \ne::after{content:"/* kept */"}\n');
+  const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
+  const cssOut = stripCssComments(css);
+  assert(!cssOut.includes('/*'), 'the stylesheet ships no comment');
+  assert.strictEqual(cssOut.replace(/\s+/g, ''), css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ''), 'only comments and the whitespace around them were removed');
+
   assert.strictEqual(stripHtmlComments('<a>\n  <!-- one -->\n<b><!-- two --></b> <!-- three --> <i>\n'), '<a>\n<b></b>  <i>\n');
   assert.strictEqual(stripHtmlComments('<!-- a --> <p>kept</p>\n<!-- b -->\n'), ' <p>kept</p>\n', 'a comment never swallows the markup up to the next one');
   const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
@@ -99,6 +105,27 @@ for (const name of fs.readdirSync(copiedAsWritten).filter(file => file.endsWith(
   }
   const worker = fs.readFileSync(path.join(built, 'sw.js'), 'utf8');
   assert.deepStrictEqual(commentsIn(worker, 'script').filter(comment => !legal(comment.value)), [], 'the service worker ships no comment');
+}
+
+/*
+ * The stylesheet a browser receives is the one that was written: every sheet
+ * the entry imports, in import order, less its comments, and nothing
+ * rewritten. A CSS minifier once kept only the prefixed copy of
+ * `backdrop-filter:none; -webkit-backdrop-filter:none`, and the blur of an
+ * earlier rule came back on every phone. Only asset URLs differ, because the
+ * build gives fonts hashed names.
+ */
+{
+  const entry = path.join(root, 'apps', 'web', 'src', 'main.js');
+  const sheets = [...fs.readFileSync(entry, 'utf8').matchAll(/^import '([^']+\.css)';$/gm)]
+    .map(match => (match[1].startsWith('.') ? path.resolve(path.dirname(entry), match[1]) : require.resolve(match[1])));
+  assert(sheets.length >= 2, 'the entry imports its stylesheets');
+  const builtSheets = fs.readdirSync(path.join(built, 'build')).filter(name => name.endsWith('.css'));
+  assert.strictEqual(builtSheets.length, 1, 'the page loads one stylesheet');
+  const shape = text => text.replace(/url\([^)]*\)/g, 'url()').replace(/\s+/g, '');
+  assert.strictEqual(shape(fs.readFileSync(path.join(built, 'build', builtSheets[0]), 'utf8')),
+    sheets.map(sheet => shape(stripCssComments(fs.readFileSync(sheet, 'utf8')))).join(''),
+    'the built stylesheet is the written cascade, in order, less comments');
 }
 
 {

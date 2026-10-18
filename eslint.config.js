@@ -39,7 +39,6 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
  * replaces them. Test callbacks serialized into the page resolve against these.
  */
 const APP_SHELL_GLOBALS = Object.freeze({
-  state: 'readonly',
   switchTab: 'readonly',
   toast: 'readonly',
   showPage: 'readonly',

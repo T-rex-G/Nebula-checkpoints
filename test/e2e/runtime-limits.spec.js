@@ -5,6 +5,8 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
+/* The limits live in the page state, which the harness reaches through its seam. */
+test.beforeEach(async ({ page }) => page.addInitScript(() => { window.__NV_HARNESS__ = true; }));
 
 /*
  * The client must not state a limit the server never sent it.
@@ -26,15 +28,18 @@ const CONFIG = {
 };
 
 async function runtime(page) {
-  return page.evaluate(() => ({
-    uploadMaxMb: state.runtime.uploadMaxMb,
-    gitDataMaxMb: state.runtime.gitDataMaxMb,
-    nativePushMaxMb: state.runtime.nativePushMaxMb,
-    contentsMaxMb: state.runtime.contentsMaxMb,
-    /* The label a queued file would carry, at sizes either side of the ceiling. */
-    smallLabel: strategyFor(1 * 1048576, 'auto'),
-    largeLabel: strategyFor(30 * 1048576, 'auto')
-  }));
+  return page.evaluate(() => {
+    const { state } = window.__NV_DIAGNOSTICS__;
+    return {
+      uploadMaxMb: state.runtime.uploadMaxMb,
+      gitDataMaxMb: state.runtime.gitDataMaxMb,
+      nativePushMaxMb: state.runtime.nativePushMaxMb,
+      contentsMaxMb: state.runtime.contentsMaxMb,
+      /* The label a queued file would carry, at sizes either side of the ceiling. */
+      smallLabel: strategyFor(1 * 1048576, 'auto'),
+      largeLabel: strategyFor(30 * 1048576, 'auto')
+    };
+  });
 }
 
 test('the limits the server sent are the limits the interface uses', async ({ page }) => {

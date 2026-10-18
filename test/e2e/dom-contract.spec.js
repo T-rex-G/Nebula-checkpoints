@@ -13,9 +13,9 @@
  *
  * Visible elements only: a panel React does not render until it is opened and
  * a panel the classic page kept in the DOM but hidden are the same thing to a
- * reader. Each view is read until two readings 700 ms apart agree, so a class
- * an animation toggles or a request still landing is not mistaken for
- * structure.
+ * reader. Each view is read until it has held still for longer than the
+ * page's slowest poll, so a class an animation toggles or a job between two
+ * polls is not mistaken for structure.
  *
  * NV_DOM_CONTRACT_WRITE=1 records the current interface as the contract.
  */
@@ -25,6 +25,8 @@ const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 
 test.use({ serviceWorkers: 'block' });
+/* A view may take the whole settling budget, on top of reaching it. */
+test.setTimeout(60000);
 
 const CONTRACT_DIR = path.join(__dirname, '..', 'oracles', 'dom-contract');
 const DEVIATIONS = path.join(__dirname, '..', 'oracles', 'dom-contract-deviations.json');
@@ -55,25 +57,30 @@ function readTokens() {
 }
 
 /*
- * Read until the view stops changing: two consecutive readings 700 ms apart
- * must agree, and what both share is the contract. A slow machine lets a late
- * request land between two fixed samples; waiting for agreement does not.
+ * Read until the view stops changing. A job the page polls backs off to one
+ * request every two seconds, so two readings that agree across a shorter gap
+ * can both fall between polls and record a view that is still on its way.
+ * The view must hold still for STILL_MS, longer than that longest gap; what
+ * it held is the contract.
  */
+const SAMPLE_MS = 500;
+const STILL_MS = 2500;
+const BUDGET_MS = 24000;
+
 async function stableTokens(page) {
   const same = (left, right) => left.length === right.length && left.every((token, index) => token === right[index]);
-  let previous = await page.evaluate(readTokens);
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    await page.waitForTimeout(700);
+  const readings = [await page.evaluate(readTokens)];
+  let still = 0;
+  for (let waited = 0; waited < BUDGET_MS; waited += SAMPLE_MS) {
+    await page.waitForTimeout(SAMPLE_MS);
     const current = await page.evaluate(readTokens);
-    if (same(previous, current)) return current;
-    if (attempt === 11) {
-      /* Still moving after the budget: an animation that never stops. What the last two readings share is structure. */
-      const last = new Set(current);
-      return previous.filter(token => last.has(token));
-    }
-    previous = current;
+    still = same(readings[readings.length - 1], current) ? still + SAMPLE_MS : 0;
+    readings.push(current);
+    if (still >= STILL_MS) return current;
   }
-  return previous;
+  /* Still moving after the budget: an animation that never stops. What every reading of the last STILL_MS shares is structure. */
+  const recent = readings.slice(-(STILL_MS / SAMPLE_MS + 1)).map(reading => new Set(reading));
+  return readings[readings.length - 1].filter(token => recent.every(reading => reading.has(token)));
 }
 
 function deviationsFor(project, view) {
@@ -146,6 +153,8 @@ test('website page', async ({ page }, testInfo) => {
   await expect(page.locator('#tab-audit')).toBeVisible();
   await page.locator('#tab-audit .audit-site').getByRole('button', { name: 'Check in Parallax' }).click();
   await expect(page.locator('#page-site')).toHaveClass(/active/);
+  /* The page starts a check and polls it; the contract is the page with its answer. */
+  await expect(page.locator('#page-site .audit-site-assessment')).toBeVisible({ timeout: 20000 });
   await holdContract(page, testInfo, 'site');
 });
 

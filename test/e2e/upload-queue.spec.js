@@ -260,8 +260,9 @@ for (const failure of ['network', 'malformed', 'abort']) {
 }
 
 test('files exceeding the limit are failures in the summary', async ({ page }) => {
+  await page.addInitScript(() => { window.__NV_HARNESS__ = true; });
   await openUploads(page);
-  await page.evaluate(() => { state.runtime.uploadMaxMb = 0; });
+  await page.evaluate(() => { window.__NV_DIAGNOSTICS__.state.runtime.uploadMaxMb = 0; });
   await selectFiles(page);
   await expect(page.locator('#modalTitle')).toHaveText("2 of 2 didn't upload");
   await expect(page.locator('#modalBody')).toContainText('per-file limit');
@@ -300,6 +301,7 @@ test('security-context failure is retryable and is never counted as uploaded', a
 });
 
 test('an account change during preparation prevents an upload under the new account', async ({ page }) => {
+  await page.addInitScript(() => { window.__NV_HARNESS__ = true; });
   await openUploads(page);
   const writes = [];
   await page.route('**/api/repo/sandbox/demo/upload?**', route => {
@@ -307,7 +309,7 @@ test('an account change during preparation prevents an upload under the new acco
     return route.fulfill({ json: GOOD });
   });
   await page.route('**/api/security/csrf', async route => {
-    await page.evaluate(() => { state.me.offlineCacheScope = 'different-account-scope'; });
+    await page.evaluate(() => { window.__NV_DIAGNOSTICS__.state.me.offlineCacheScope = 'different-account-scope'; });
     return route.fulfill({ json: {
       token: 'upload-account-fixture', expiresAt: new Date(Date.now() + 600000).toISOString()
     } });

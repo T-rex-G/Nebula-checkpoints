@@ -10515,10 +10515,27 @@ export {
 /*
  * Transitional: the browser suite reaches these by name. Every other function
  * of this file used to be a property of window as well; these are the ones a
- * test still calls or reads, and they go when the read-only diagnostics probe
- * and real interactions replace them.
+ * test still calls, and they go when the read-only diagnostics probe and real
+ * interactions replace them.
  */
 Object.assign(window, {
-  state, switchTab, toast, showPage, openSettings, openFile, stepUpApi, strategyFor,
+  switchTab, toast, showPage, openSettings, openFile, stepUpApi, strategyFor,
   loadActivityFeed, clearExposureState, showSiteScan, runtimeLimitsKnown, uploadOne
 });
+
+/*
+ * The page state was never a window property: as a classic script's top-level
+ * const it was reachable by name only, and a guard that looks for it on window
+ * (no credential in anything the page caches) depends on that. Three browser
+ * tests still change it mid-flight to stand in for an identity or a limit
+ * changing under a running operation. They reach it through the harness: the
+ * marker exists only when the test set it before any page script ran, it is
+ * read once and deleted, and without it nothing is defined. The live object
+ * goes when those tests become real interactions and the probe becomes the
+ * read-only snapshot.
+ */
+if (Object.prototype.hasOwnProperty.call(window, '__NV_HARNESS__')) {
+  const asked = window.__NV_HARNESS__ === true;
+  delete window.__NV_HARNESS__;
+  if (asked) Object.defineProperty(window, '__NV_DIAGNOSTICS__', { value: Object.freeze({ state }), enumerable: false, writable: false, configurable: false });
+}

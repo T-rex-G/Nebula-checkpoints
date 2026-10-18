@@ -7,10 +7,10 @@
  * The source is written to be read by the people who maintain it, and much of
  * its commentary explains how a defence works, which test guards what, and
  * how the hosted service behaves under load. None of that is for a visitor.
- * The browser build (scripts/build-web.js) minifies the modules and the
- * stylesheet itself; these two strippers handle what it copies as written --
- * the page and the one classic script -- keeping whitespace, names and
- * statements exactly.
+ * The browser build (scripts/build-web.js) minifies the modules itself; these
+ * strippers handle what it keeps as written -- the page, the one classic
+ * script and the stylesheet -- keeping whitespace, names, statements and
+ * declarations exactly.
  *
  * The JavaScript lexer knows strings, template literals (with nested
  * `${...}` expressions), regular-expression literals and both comment forms.
@@ -166,6 +166,43 @@ function stripJsComments(source) {
   return lines.join('') + line;
 }
 
+/* CSS: `/* ... *\/` outside strings. A comment alone on its lines goes with them. */
+function stripCssComments(source) {
+  const s = String(source);
+  const lines = [];
+  let line = '';
+  const emit = text => {
+    const nl = text.lastIndexOf('\n');
+    if (nl === -1) line += text;
+    else { lines.push(line + text.slice(0, nl + 1)); line = text.slice(nl + 1); }
+  };
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < s.length && s[j] !== c) { if (s[j] === '\\') j += 1; j += 1; }
+      emit(s.slice(i, j + 1));
+      i = j + 1;
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '*') {
+      const end = s.indexOf('*/', i + 2);
+      if (end === -1) throw new Error('Unterminated CSS comment');
+      const after = restOfLineAt(s, end + 2);
+      if (/^[ \t]*$/.test(line) && after) { line = ''; i = end + 2 + after[0].length; }
+      else { emit(' '); i = end + 2; }
+      continue;
+    }
+    /* Copy up to the next character that could open a string or a comment. */
+    let j = i + 1;
+    while (j < s.length && s[j] !== '"' && s[j] !== "'" && s[j] !== '/') j += 1;
+    emit(s.slice(i, j));
+    i = j;
+  }
+  return lines.join('') + line;
+}
+
 /* HTML: `<!-- ... -->`, the same way. The page carries no inline script or style. */
 function stripHtmlComments(source) {
   /* The body never crosses a `-->`, so a comment cannot swallow the markup up to the next one. */
@@ -189,4 +226,4 @@ function securityContact(value) {
   return SECURITY_CONTACT_FALLBACK;
 }
 
-module.exports = Object.freeze({ stripJsComments, stripHtmlComments, securityContact });
+module.exports = Object.freeze({ stripJsComments, stripCssComments, stripHtmlComments, securityContact });

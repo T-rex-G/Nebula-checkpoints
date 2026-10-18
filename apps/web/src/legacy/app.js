@@ -4,6 +4,8 @@
 'use strict';
 import * as codeowners from '../../../../packages/contracts/src/codeowners.ts';
 import * as uploadPlanning from '../../../../packages/contracts/src/upload-planning.ts';
+import * as findingsInbox from '../features/findings/findings-model.ts';
+import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -2330,7 +2332,7 @@ function renderSecurityPosture() {
   if (section.hidden) return;
   window.NebulaSecurityPosture.render(host, window.NebulaSecurityPosture.model(state.securityPosture, state.repos), {
     audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); },
-    inbox: findingsOffered() ? filters => showFindings(window.NebulaFindingsInbox.parseFilters(filters || '')) : null
+    inbox: findingsOffered() ? filters => showFindings(findingsInbox.parseFilters(filters || '')) : null
   });
 }
 async function loadSecurityPosture(force) {
@@ -6315,7 +6317,7 @@ $('#settingsBtnFindings') && $('#settingsBtnFindings').addEventListener('click',
 $('#findingsRefresh') && $('#findingsRefresh').addEventListener('click', () => { void loadFindings(true); });
 
 /* ================= FINDINGS INBOX =================
- * Every open finding across the workspace (public/findings-inbox-ui.js), read
+ * Every open finding across the workspace (features/findings), read
  * from GET /api/workspace/findings. Owners come from each repository's
  * CODEOWNERS file, read once per repository and only for the repositories on
  * screen. Decisions go through each repository's own triage route, one finding
@@ -6330,10 +6332,10 @@ function findingsOffered() {
 }
 function findingsFiltersFromHash() {
   const match = /^#\/findings(\?.*)?$/.exec(location.hash);
-  return window.NebulaFindingsInbox.parseFilters(match && match[1] ? match[1] : '');
+  return findingsInbox.parseFilters(match && match[1] ? match[1] : '');
 }
 function writeFindingsHash() {
-  const target = `#/findings${window.NebulaFindingsInbox.serializeFilters(findingsState.filters)}`;
+  const target = `#/findings${findingsInbox.serializeFilters(findingsState.filters)}`;
   lastAppliedRoute = target;
   if (location.hash !== target) history.replaceState(null, '', `${location.pathname}${target}`);
 }
@@ -6370,15 +6372,15 @@ function loadFindingOwners(items) {
 }
 function paintFindings(options = {}) {
   const root = $('#findingsRoot');
-  if (!root || !window.NebulaFindingsInbox) return;
+  if (!root) return;
   const focused = document.activeElement;
   const keepSearch = options.keepFocus && focused && focused.classList && focused.classList.contains('fi-search');
   const caret = keepSearch ? focused.selectionStart : null;
-  const view = window.NebulaFindingsInbox.model(findingsState.inbox, findingsState.filters, {
+  const view = findingsInbox.model(findingsState.inbox, findingsState.filters, {
     labelOf: item => (item.source === 'exposure' ? exposureRuleLabel(item.rule) : item.rule),
     ownersOf: findingOwners
   });
-  window.NebulaFindingsInbox.render(root, view, findingsState, {
+  renderFindingsInbox(root, view, findingsState, {
     filter: (patch, opts = {}) => {
       findingsState.filters = { ...findingsState.filters, ...patch };
       writeFindingsHash();
@@ -6487,7 +6489,7 @@ async function loadFindings(force) {
 }
 function showFindings(filters) {
   if (!findingsOffered()) return toast(window.NebulaCapabilityUI.explain('findings.inbox'), 'err');
-  findingsState.filters = filters || findingsState.filters || window.NebulaFindingsInbox.parseFilters('');
+  findingsState.filters = filters || findingsState.filters || findingsInbox.parseFilters('');
   showPage('findings');
   writeFindingsHash();
   paintFindings();

@@ -94,3 +94,26 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
 - Node 22.23.1 and Express 4.22.3 stay qualified.
 - The 22.23.3 security patch is an owner decision before final qualification.
 - Node 24 and Express 5 each follow as their own qualified change after the merge.
+
+### B3 — The React pilot: the findings page
+
+- **Migrated, not mocked:** the workspace findings inbox is now React 19 and strict TypeScript.
+  - `packages/contracts/src/findings.ts` types what `GET /api/workspace/findings` sends.
+  - `apps/web/src/features/findings/findings-model.ts` is the inbox's pure model (filters in the address, views, facets, the timeline), ported line for line. Its unit tests import it unchanged.
+  - `FindingsInbox.tsx` draws it. The classic `findings-inbox-ui.js` is deleted, and with it the `window.NebulaFindingsInbox` global.
+- **Rendering:**
+  - one root per host, rendered synchronously (`flushSync`), so the page's existing callers see the inbox drawn when the call returns, as before;
+  - the search box stays uncontrolled, so typing is never overwritten by a poll;
+  - open rows and the bulk bar's choices live in component state and survive a refresh of the list;
+  - no inline script, no `innerHTML` and no `style` attribute.
+- **Build:** the JSX runtime is React's automatic runtime, set in `apps/web/tsconfig.json`; the bundle holds no `createElement` calls. React adds 68,896 bytes (gzip) to the main chunk, from 313,295 to 382,191. Every surface moves to it in Phase E, so this is the framework's one-time cost, not this page's.
+- **CSP at run time:** the DOM-contract walk now fails if any view raises a `securitypolicyviolation`. A throwaway probe confirmed the listener catches a real refusal. All 38 views raise none.
+- **Checks:**
+  - findings browser tests and the DOM contract on both projects, 60 of 60 (the findings page's contract unchanged);
+  - DOM contract with the CSP check, 38 of 38;
+  - unit gate (247 programs) green;
+  - typecheck under all four projects, lint and `verify.js` green;
+  - the CSP header unchanged (no server change);
+  - two builds give one `servedAssetsSha256`.
+- **Gate B:** passed.
+- **Next:** the remaining C3 contracts, then C4 (the server's runtime and build identity in `/api/version`, the compiled-server CI job and the qualification double build).

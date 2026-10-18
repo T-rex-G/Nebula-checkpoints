@@ -7,7 +7,7 @@
  */
 
 const assert = require('assert');
-const ui = require('../apps/web/src/features/findings/findings-inbox-ui');
+const ui = require('../apps/web/src/features/findings/findings-model.ts');
 
 const item = (key, overrides = {}) => ({
   key, source: 'audit', id: key, owner: 'Acme', repo: 'Shop', ref: 'main', rule: 'SEC-011', title: `Title ${key}`,

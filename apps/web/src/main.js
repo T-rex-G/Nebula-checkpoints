@@ -28,7 +28,6 @@ import './features/overview/workspace-pulse.js';
 import './features/repositories/repo-inventory.js';
 import './features/posture/security-posture.js';
 import './features/posture/pull-board.js';
-import './features/findings/findings-inbox-ui.js';
 import './features/uranus/code-audit-ui.js';
 import './features/parallax/rendered-audit-ui.js';
 import './visualizations/nebula-visuals.js';

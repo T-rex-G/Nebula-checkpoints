@@ -83,6 +83,25 @@ async function stableTokens(page) {
   return readings[readings.length - 1].filter(token => recent.every(reading => reading.has(token)));
 }
 
+/*
+ * Every view is also read under the server's own Content-Security-Policy, and
+ * nothing it draws may be refused by it: a refused style or script is a sink
+ * the policy caught, and the page a reader sees is the page without it.
+ */
+const refusals = new WeakMap();
+
+test.beforeEach(async ({ page }) => {
+  const refused = [];
+  refusals.set(page, refused);
+  await page.exposeFunction('nvContractRefused', entry => refused.push(entry));
+  await page.addInitScript(() => {
+    const report = window.nvContractRefused;
+    document.addEventListener('securitypolicyviolation', event => {
+      report(`${event.effectiveDirective} refused ${event.blockedURI || 'inline'} at ${event.sourceFile || 'the document'}:${event.lineNumber || 0}`);
+    });
+  });
+});
+
 function deviationsFor(project, view) {
   if (!fs.existsSync(DEVIATIONS)) return { added: [], removed: [] };
   const all = JSON.parse(fs.readFileSync(DEVIATIONS, 'utf8'));
@@ -94,6 +113,7 @@ async function holdContract(page, testInfo, view) {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(800);
   const tokens = await stableTokens(page);
+  expect({ view, refused: refusals.get(page) }).toEqual({ view, refused: [] });
   const file = path.join(CONTRACT_DIR, testInfo.project.name, `${view.replace(/\//g, '--')}.json`);
   if (WRITE) {
     fs.mkdirSync(path.dirname(file), { recursive: true });

@@ -46,3 +46,29 @@ Standing limits from the owner's approval: no `LICENSE` file, no branch deletion
 
   Two browser tests failed once under three local workers and passed alone (load timing). The DOM-contract reader now waits for the view to settle.
 - **Next:** the TypeScript foundation (C1, C2), then the React pilot (B3).
+
+### B2 follow-up — What the browser matrix caught
+
+CI's browser shards failed on the pilot's head. Every failure was real; none was a flake.
+
+- **Stylesheet:** the CSS minifier had rewritten the cascade. It read `backdrop-filter:none; -webkit-backdrop-filter:none` as one property declared twice and kept only the prefixed copy, so phone messages were blurred again. It also respelled custom-property values that scripts read as text. The stylesheet now ships as written, less comments, through the stripper the server used before. A unit test holds the built sheet equal to the imported sheets in order.
+- **Page state:** `state` had been put on `window` for the browser suite. The classic page never exposed it, and the no-credential guard depends on that. It is reachable again only through the harness marker (ADR-092): set before boot, read once, absent in production. Four browser tests opt in.
+- **Mock data:** a mechanical path rewrite had renamed files in the mocked repository of two browser tests. Restored.
+- **DOM contract:** two equal readings 700 ms apart can fall between two polls of a running job, and the first recording had caught eleven views mid-load. A view must now hold still for 2.5 s, longer than the page's slowest poll. The 38 contracts were re-recorded from the baseline application twice, with identical bytes, and the current build matches all 38.
+- **Release plumbing:** the qualification workflow and the candidate qualifier now build the page before any program starts a server. The foundation gate builds when no build is present. The build program and its configuration are trust-compared like every other program the qualifier runs. The negative matrix's synthetic session key was renamed so the secret gate stays strict.
+- **Checks:**
+  - 295 affected browser tests green;
+  - unit gate (246 programs) green;
+  - lint, typecheck, docs, secrets and inventory green;
+  - two packaged archives identical. The candidate's own build gives the checkout's `servedAssetsSha256`.
+
+### C1–C3 — The TypeScript foundation and the shared contracts
+
+- **Scopes:** `tsconfig.base.json` holds the strict settings (`strict`, `noUncheckedIndexedAccess`, `erasableSyntaxOnly`, `verbatimModuleSyntax`). `packages/contracts`, `apps/api` and `apps/web` extend it for their platforms. `npm run typecheck` checks the contracts under all three: no platform, Node and the DOM.
+- **Boundaries:** `test/module-boundaries.test.js` joins the unit gate. It checks:
+  - the root stays CommonJS and the scopes declare only `"type":"module"`;
+  - no top-level await, and no stray entry-file paths;
+  - the page, server and contracts boundaries;
+  - module indexes and domain purity;
+  - no new dependency cycle. The baseline's one recorded cycle goes in D2.
+- **Contracts:** the offline cache policy, upload planning and CODEOWNERS matching are strict TypeScript, typed and exported by name. They publish nothing on `window`: the page and the service worker import them, and the server requires them with an explicit `.ts`, run by Node's own type stripping. That removes three page globals.

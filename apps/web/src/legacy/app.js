@@ -2,6 +2,9 @@
    NEBULAVERSE-X — app.js
    ============================================================ */
 'use strict';
+import * as codeowners from '../../../../packages/contracts/src/codeowners.ts';
+import * as uploadPlanning from '../../../../packages/contracts/src/upload-planning.ts';
+
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const isMobile = () => window.matchMedia('(max-width:900px)').matches;
@@ -6345,7 +6348,7 @@ function clearFindings() {
 }
 function findingOwners(item) {
   const rules = findingsState.owners.get(`${item.owner}/${item.repo}`.toLowerCase());
-  return Array.isArray(rules) ? window.NebulaCodeowners.ownersOf(rules, item.path) : [];
+  return Array.isArray(rules) ? codeowners.ownersOf(rules, item.path) : [];
 }
 function loadFindingOwners(items) {
   const wanted = new Map();
@@ -6357,7 +6360,7 @@ function loadFindingOwners(items) {
     findingsState.owners.set(key, 'pending');
     const request = findingsState.request;
     api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/codeowners`)
-      .then(answer => window.NebulaCodeowners.revive(answer && answer.rules), () => [])
+      .then(answer => codeowners.revive(answer && answer.rules), () => [])
       .then(rules => {
         if (request !== findingsState.request) return;
         findingsState.owners.set(key, rules);
@@ -8544,7 +8547,7 @@ $('#filePicker').addEventListener('change', e => { queueFiles(e.target.files); e
  * upload and what actually carries it cannot disagree.
  */
 function transportPlanFor(size, transport) {
-  return NebulaUploadPlanning.planUploadTransport({
+  return uploadPlanning.planUploadTransport({
     size,
     requested: transport,
     lfsAvailable: (state.me && state.me.provider ? state.me.provider : 'github') === 'github',
@@ -8582,7 +8585,7 @@ $('#uploadTransport').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn');
   if (!b || b.dataset.capabilityBlocked === 'true') return;
   selectSegment('#uploadTransport', x => x === b);
-  uploadTransportV = NebulaUploadPlanning.normalizeTransportChoice(b.dataset.v);
+  uploadTransportV = uploadPlanning.normalizeTransportChoice(b.dataset.v);
 });
 const batchQueue = []; // { file, targetPath, item }
 $('#uploadMode').addEventListener('click', e => {
@@ -10105,7 +10108,7 @@ function timeAgo(iso) {
 }
 /* ---- batch commit: blobs first, then ONE atomic commit ---- */
 function batchPlan(count = batchQueue.length) {
-  return window.NebulaUploadPlanning.planBatchCommits(count);
+  return uploadPlanning.planBatchCommits(count);
 }
 function updateBatchBar() {
   const bar = $('#batchBar');

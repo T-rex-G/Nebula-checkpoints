@@ -908,6 +908,7 @@ this PR must stay open and unmerged for another AI review.
 
 - names every script, stylesheet, font and chunk by its content;
 - removes source commentary but keeps bundled libraries' licence notices, and writes `licenses.txt`;
+- ships the stylesheet as written, less comments: no CSS minifier rewrites the cascade the stylesheet's rules reason about;
 - writes the service worker's shell list and cache version from what it produced.
 
 `dist/` is never committed and never part of `releaseTreeSha256`. The server refuses to start without the build. It reports `servedAssetsSha256`, a digest of every built file, in `/api/version` beside the release fingerprint. CI builds twice and requires the same digest.
@@ -928,7 +929,7 @@ The run-time comment stripper, the `?v=` asset stamp derived from the version, t
 - **State:** one typed external store (`useSyncExternalStore`) replaces the shared state object. No router, state or data library is added.
 - **No globals:** in production the application defines no globals of its own. An end-to-end test compares the page's own `window` properties after boot with a blank page's.
 - **Test probe:** tests read non-secret interface state through a read-only probe. It is defined only when the test harness sets a marker before the page's first script runs, the application deletes the marker at boot, and the probe returns frozen copies of an allowlist.
-- **Transitional names:** until the probe lands, the workbench publishes thirteen functions the browser suite calls by name. They are listed in one place, `apps/web/src/legacy/app.js`.
+- **Transitional names:** until the probe lands, the workbench publishes twelve functions the browser suite calls by name. They are listed in one place, `apps/web/src/legacy/app.js`. The page state is not among them. Four browser tests reach it through the same harness marker the probe will use, until those tests become real interactions.
 
 **Reason:** As classic scripts, all 418 of the workbench's functions and 22 library objects (including mutators) were reachable by any script on the page, beside a live CSRF token and step-up credentials held in plain variables. ES modules end that by construction; the probe gives tests what they need and nothing an injected script could use.
 

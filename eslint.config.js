@@ -16,6 +16,7 @@
  */
 
 const globals = require('globals');
+const tseslint = require('typescript-eslint');
 
 /* Published on `window` by the module wrappers that own them. */
 const PUBLISHED_MODULE_GLOBALS = Object.freeze({
@@ -25,10 +26,8 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
   NebulaExportSafety: 'readonly',
   NebulaGovernanceUI: 'readonly',
   NebulaNeural: 'readonly',
-  NebulaOfflineCachePolicy: 'readonly',
   NebulaOverlayMotion: 'readonly',
   NebulaTrustUI: 'readonly',
-  NebulaUploadPlanning: 'readonly',
   NebulaPwa: 'writable',
   _oauthOn: 'writable'
 });
@@ -143,15 +142,35 @@ module.exports = [
     rules: RULES
   },
   {
-    /* Shared by the server, the page and the service worker; they depend on no platform. */
-    name: 'nebulaverse/contracts',
-    files: ['packages/contracts/src/**/*.js'],
-    languageOptions: {
-      ecmaVersion: 2024,
-      sourceType: 'module',
-      globals: { ...globals.browser, ...globals.serviceworker }
-    },
-    rules: RULES
+    /*
+     * The TypeScript areas (ADR-087, ADR-088). The compiler resolves names, so
+     * no-undef stands down; what lint adds is what strict mode alone allows:
+     * no explicit any, no comment that silences the compiler, type-only
+     * imports written as such (Node strips them, so they must be marked), and
+     * the boundaries the import-graph test also holds.
+     */
+    name: 'nebulaverse/typescript',
+    files: ['apps/**/*.ts', 'apps/**/*.tsx', 'packages/**/*.ts'],
+    languageOptions: { parser: tseslint.parser, ecmaVersion: 2024, sourceType: 'module' },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/ban-ts-comment': ['error', { 'ts-expect-error': true, 'ts-ignore': true, 'ts-nocheck': true, 'ts-check': false }],
+      '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'separate-type-imports' }],
+      'no-restricted-syntax': ['error',
+        { selector: 'TSEnumDeclaration', message: 'Erasable syntax only: an enum is code, not a type (ADR-088).' },
+        { selector: 'TSModuleDeclaration[kind!="global"]', message: 'Erasable syntax only: no namespaces (ADR-088).' }]
+    }
+  },
+  {
+    name: 'nebulaverse/contracts-boundary',
+    files: ['packages/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/apps/**'], message: 'The contracts are shared; they import neither application.' }] }] }
+  },
+  {
+    name: 'nebulaverse/web-boundary',
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/apps/api/**', '**/api/src/**'], message: 'The page never imports the server.' }] }] }
   },
   {
     name: 'nebulaverse/build-configuration',

@@ -16,7 +16,6 @@ import './styles/rendered-audit.css';
 
 import './legacy/vendor-globals.js';
 import './features/workbench/archive-safety.js';
-import '../../../packages/contracts/src/upload-planning.js';
 import './components/overlay-motion.js';
 import './features/workbench/export-safety.js';
 import './features/governance/governance-ui.js';
@@ -29,7 +28,6 @@ import './features/overview/workspace-pulse.js';
 import './features/repositories/repo-inventory.js';
 import './features/posture/security-posture.js';
 import './features/posture/pull-board.js';
-import '../../../packages/contracts/src/codeowners.js';
 import './features/findings/findings-inbox-ui.js';
 import './features/uranus/code-audit-ui.js';
 import './features/parallax/rendered-audit-ui.js';

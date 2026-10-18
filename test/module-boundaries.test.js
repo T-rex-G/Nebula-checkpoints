@@ -1,0 +1,202 @@
+'use strict';
+/*
+ * The module system and the boundaries between the parts, as tests (ADR-088,
+ * ADR-089, ADR-094).
+ *
+ *  - The root package stays CommonJS; apps/ and packages/ are ES-module scopes
+ *    declared by a package.json that says nothing else.
+ *  - Nothing under apps/ or packages/ awaits at the top level: a CommonJS test
+ *    or tool that require()s such a graph fails with ERR_REQUIRE_ASYNC_MODULE.
+ *  - A worker or child-process entry file is named in one place,
+ *    apps/api/src/entrypoint.ts, so the native and compiled runtimes resolve
+ *    the same file.
+ *  - The page never imports the server, the server never imports the page,
+ *    and the shared contracts import neither.
+ *  - A module of the server is reached through its index only, and its domain
+ *    layer imports no transport, persistence or process package.
+ *  - No dependency cycle, except the ones recorded below with the commit that
+ *    removes them.
+ */
+const assert = require('assert/strict');
+const fs = require('fs');
+const path = require('path');
+const ts = require('typescript');
+
+const root = path.resolve(__dirname, '..');
+const rel = file => path.relative(root, file).split(path.sep).join('/');
+
+/* The one cycle the baseline had (N-01). Removed in Phase D2; the list then becomes empty. */
+const RECORDED_CYCLES = Object.freeze([
+  ['src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-simulation.js', 'src/mutation-gateway.js']
+]);
+
+const DOMAIN_FORBIDDEN = /^(?:node:)?(?:child_process|cluster|dgram|dns|fs|fs\/promises|http|https|http2|net|tls|worker_threads)$|^(?:express|pg|playwright-core)$/;
+
+function walk(directory, out = []) {
+  if (!fs.existsSync(directory)) return out;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules') walk(full, out);
+    } else if (/\.(?:[cm]?[jt]sx?)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+function parse(file) {
+  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+  return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind);
+}
+
+/* Static imports and re-exports (the edges that order evaluation), and dynamic import() targets. */
+function importsOf(source) {
+  const statics = [];
+  const dynamics = [];
+  const requires = [];
+  const visit = node => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      if (!(ts.isImportDeclaration(node) && node.importClause && node.importClause.isTypeOnly)) statics.push(node.moduleSpecifier.text);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
+      dynamics.push(node.arguments[0].text);
+    } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
+      requires.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return { statics, dynamics, requires };
+}
+
+function resolveRelative(from, specifier) {
+  if (!specifier.startsWith('.')) return null;
+  const base = path.resolve(path.dirname(from), specifier);
+  for (const candidate of [base, `${base}.js`, `${base}.ts`, `${base}.tsx`, `${base}.json`, path.join(base, 'index.ts'), path.join(base, 'index.js')]) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+function topLevelAwait(source) {
+  let found = null;
+  const visit = node => {
+    if (found) return;
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (ts.isAwaitExpression(node) || (ts.isForOfStatement(node) && node.awaitModifier)) {
+      found = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(source, visit);
+  return found;
+}
+
+function entryPathLiterals(source) {
+  const hits = [];
+  const literalPath = node => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && /\.(?:[cm]?[jt]s)$/.test(node.text);
+  const visit = node => {
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && ['URL', 'Worker'].includes(node.expression.text) &&
+        node.arguments && literalPath(node.arguments[0])) hits.push(node.arguments[0].text);
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
+      if (['fork', 'spawn'].includes(name) && node.arguments.some(literalPath)) hits.push(node.arguments.find(literalPath).text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return hits;
+}
+
+function stronglyConnected(edges) {
+  let index = 0;
+  const stack = [];
+  const on = new Set();
+  const indices = new Map();
+  const lows = new Map();
+  const components = [];
+  const strong = node => {
+    indices.set(node, index); lows.set(node, index); index += 1;
+    stack.push(node); on.add(node);
+    for (const next of edges.get(node) || []) {
+      if (!indices.has(next)) { strong(next); lows.set(node, Math.min(lows.get(node), lows.get(next))); }
+      else if (on.has(next)) lows.set(node, Math.min(lows.get(node), indices.get(next)));
+    }
+    if (lows.get(node) === indices.get(node)) {
+      const component = [];
+      let member;
+      do { member = stack.pop(); on.delete(member); component.push(member); } while (member !== node);
+      if (component.length > 1) components.push(component.sort());
+    }
+  };
+  for (const node of edges.keys()) if (!indices.has(node)) strong(node);
+  return components.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+}
+
+/* --- module scopes --------------------------------------------------------- */
+
+assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).type, 'commonjs',
+  'the root package must stay CommonJS: every test, script and CI tool is CommonJS');
+for (const scope of ['apps', 'packages']) {
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(root, scope, 'package.json'), 'utf8')), { type: 'module' },
+    `${scope}/package.json must declare the ES-module scope and nothing else`);
+}
+console.log('  ok  the root stays CommonJS; apps/ and packages/ are ES-module scopes');
+
+/* --- the new code ---------------------------------------------------------- */
+
+const scoped = [...walk(path.join(root, 'apps')), ...walk(path.join(root, 'packages'))]
+  .filter(file => !/[/\\](?:public|dist)[/\\]/.test(file) && !/vite\.config\.js$/.test(file));
+const edges = new Map();
+const violations = [];
+for (const file of scoped) {
+  const name = rel(file);
+  const source = parse(file);
+  const awaited = topLevelAwait(source);
+  if (awaited) violations.push(`${name}: top-level await at line ${source.getLineAndCharacterOfPosition(awaited.getStart(source)).line + 1}`);
+  if (name !== 'apps/api/src/entrypoint.ts') {
+    for (const literal of entryPathLiterals(source)) violations.push(`${name}: names the entry file ${literal}; only apps/api/src/entrypoint.ts may`);
+  }
+  const { statics, dynamics, requires } = importsOf(source);
+  if (requires.length) violations.push(`${name}: require() in an ES module (${requires.join(', ')})`);
+  const targets = [];
+  for (const specifier of [...statics, ...dynamics]) {
+    const target = resolveRelative(file, specifier);
+    if (!target) {
+      if (specifier.startsWith('.')) violations.push(`${name}: ${specifier} does not resolve`);
+      if (/^modules\/[^/]+\/domain\//.test(name.replace(/^apps\/api\/src\//, '')) && DOMAIN_FORBIDDEN.test(specifier)) {
+        violations.push(`${name}: domain code imports ${specifier}`);
+      }
+      continue;
+    }
+    const to = rel(target);
+    if (name.startsWith('packages/') && to.startsWith('apps/')) violations.push(`${name}: the contracts import ${to}`);
+    if (name.startsWith('apps/web/') && to.startsWith('apps/api/')) violations.push(`${name}: the page imports the server (${to})`);
+    if (name.startsWith('apps/api/') && to.startsWith('apps/web/')) violations.push(`${name}: the server imports the page (${to})`);
+    const fromModule = /^apps\/api\/src\/modules\/([^/]+)\//.exec(name);
+    const toModule = /^apps\/api\/src\/modules\/([^/]+)\/(.+)$/.exec(to);
+    if (toModule && (!fromModule || fromModule[1] !== toModule[1]) && toModule[2] !== 'index.ts') {
+      violations.push(`${name}: reaches into module ${toModule[1]} past its index (${to})`);
+    }
+    if (statics.includes(specifier)) targets.push(to);
+  }
+  edges.set(name, targets);
+}
+assert.deepStrictEqual(violations, [], `module rules broken:\n- ${violations.join('\n- ')}`);
+assert.deepStrictEqual(stronglyConnected(edges), [], 'a dependency cycle in apps/ or packages/');
+console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray entry paths, boundaries held, no cycle`);
+
+/* --- the CommonJS server that remains ------------------------------------- */
+
+const legacy = [path.join(root, 'server.js'), ...walk(path.join(root, 'src'))].filter(fs.existsSync);
+const legacyEdges = new Map();
+for (const file of legacy) {
+  const { requires } = importsOf(parse(file));
+  legacyEdges.set(rel(file), requires.map(specifier => resolveRelative(file, specifier)).filter(Boolean).map(rel)
+    .filter(target => target === 'server.js' || target.startsWith('src/')));
+}
+assert.deepStrictEqual(stronglyConnected(legacyEdges), RECORDED_CYCLES.map(cycle => [...cycle].sort()),
+  'the server\'s dependency cycles changed: a new one appeared, or a recorded one is gone and must be struck from the list');
+console.log(`  ok  ${legacy.length} CommonJS server files: ${RECORDED_CYCLES.length} recorded cycle, no new one`);

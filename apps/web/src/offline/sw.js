@@ -1,5 +1,5 @@
 /* Nebulaverse-X service worker — versioned shell + opt-in scoped private reads. */
-import POLICY from '../../../../packages/contracts/src/offline-cache-policy.js';
+import * as POLICY from '../../../../packages/contracts/src/offline-cache-policy.ts';
 
 /*
  * The shell's file list and its version are written in by the build

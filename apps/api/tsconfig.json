@@ -1,0 +1,11 @@
+{
+  "$comment": "The server: Node 22, run natively by type stripping (ADR-088).",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "../../packages/contracts/src/**/*.ts"]
+}

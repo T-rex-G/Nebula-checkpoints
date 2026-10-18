@@ -27,7 +27,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const planning = require('../packages/contracts/src/upload-planning');
+const planning = require('../packages/contracts/src/upload-planning.ts');
 for (const name of ['TRANSPORT_CHOICES', 'normalizeTransportChoice', 'planUploadTransport']) {
   assert(planning[name], `${name} must be implemented`);
 }
@@ -149,7 +149,7 @@ assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMa
 /* ---- 7. the server routes through the planner ---- */
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes("require('./packages/contracts/src/upload-planning')"), 'the server must load the shared planner');
+assert(server.includes("require('./packages/contracts/src/upload-planning.ts')"), 'the server must load the shared planner');
 
 const routeStart = server.indexOf("app.post('/api/repo/:owner/:repo/upload'");
 const routeEnd = server.indexOf('async function uploadViaContents');
@@ -216,7 +216,7 @@ const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'le
  * somewhere in this file" is satisfied by a file that mentions it and then
  * decides for itself anyway.
  */
-assert(app.includes('return NebulaUploadPlanning.planUploadTransport({'),
+assert(app.includes('return uploadPlanning.planUploadTransport({'),
   'the browser must label a queued file with the shared planner');
 assert(app.includes('gitPushMaxBytes: state.runtime.nativePushMaxMb * 1048576'),
   'the browser must plan against the ceiling the server publishes');

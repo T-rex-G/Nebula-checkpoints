@@ -41,7 +41,17 @@ assert(
   fs.existsSync(path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')),
   'the checker must be installed from the lockfile rather than resolved globally'
 );
-assert.strictEqual(pkg.scripts.typecheck, 'tsc --project jsconfig.json');
+/*
+ * The JavaScript that remains, then the strict TypeScript areas. The shared
+ * contracts are checked under each platform that runs them: none of their
+ * own, the server's (Node) and the page's (the DOM).
+ */
+assert.strictEqual(pkg.scripts.typecheck,
+  'tsc --project jsconfig.json && tsc --project packages/contracts && tsc --project apps/api && tsc --project apps/web');
+for (const project of ['packages/contracts', 'apps/api', 'apps/web']) {
+  const result = tsc(['--project', project]);
+  assert.strictEqual(result.status, 0, `${project} must pass the strict checker:\n${result.stdout || ''}${result.stderr || ''}`);
+}
 
 /* Nothing is emitted, and the configuration says so rather than relying on
    the invocation to pass --noEmit. */

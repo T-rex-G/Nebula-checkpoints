@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const policy = require('../packages/contracts/src/offline-cache-policy');
+const policy = require('../packages/contracts/src/offline-cache-policy.ts');
 
 assert.strictEqual(policy.TTL_MS, 24 * 60 * 60 * 1000);
 assert.strictEqual(policy.MAX_ENTRIES, 100);

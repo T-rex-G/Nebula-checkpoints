@@ -108,8 +108,8 @@ const {
 const { PRODUCT_NAME, APP_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
 const { loadWebBuild, webCacheControl } = require('./src/web-build');
-const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy');
-const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning');
+const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
+const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
@@ -196,7 +196,7 @@ const { createPostureReader, exposureSummary } = require('./src/workspace-postur
 const { summarizePosture } = require('./src/posture-summary');
 const { pullListItem } = require('./src/pull-list');
 const { buildInbox } = require('./src/findings-inbox');
-const codeowners = require('./packages/contracts/src/codeowners');
+const codeowners = require('./packages/contracts/src/codeowners.ts');
 const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
@@ -4688,7 +4688,7 @@ app.get('/api/workspace/findings', providerSessionAccess, capabilityAccess('find
 
 /*
  * Who owns what in a repository, by its CODEOWNERS file, for the findings
- * inbox to name beside each finding (packages/contracts/src/codeowners.js parses and
+ * inbox to name beside each finding (packages/contracts/src/codeowners.ts parses and
  * matches). Read from the default branch at the three places GitHub looks,
  * first found wins; patterns and owners only, bounded in size and lines.
  */

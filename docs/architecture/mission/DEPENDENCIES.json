@@ -1,0 +1,1671 @@
+{
+ "schemaVersion": 1,
+ "baseline": "3bf017a8cdb11e8ef86af7ff857add9b61b6f242",
+ "modules": {
+  "server.js": {
+   "owner": "apps/api (decomposed)",
+   "lines": 8926,
+   "requires": [
+    "public/codeowners.js",
+    "public/offline-cache-policy.js",
+    "public/upload-planning.js",
+    "src/activity-feed.js",
+    "src/alpha-access-store.js",
+    "src/alpha-access.js",
+    "src/alpha-privacy-store.js",
+    "src/alpha-privacy.js",
+    "src/anonymous-readability-probe.js",
+    "src/asset-stamp.js",
+    "src/authorization-resolver.js",
+    "src/branch-protection.js",
+    "src/capability-registry.js",
+    "src/code-audit-history.js",
+    "src/code-audit-jobs.js",
+    "src/code-audit-policy.js",
+    "src/code-audit-triage.js",
+    "src/code-audit-watch.js",
+    "src/code-audit-worker.js",
+    "src/code-audit.js",
+    "src/config.js",
+    "src/credential-verification.js",
+    "src/database-pool.js",
+    "src/exposure-detection.js",
+    "src/exposure-findings.js",
+    "src/exposure-narration.js",
+    "src/exposure-reader.js",
+    "src/exposure-session.js",
+    "src/exposure-store.js",
+    "src/exposure-worker.js",
+    "src/file-security.js",
+    "src/findings-inbox.js",
+    "src/github-account-operations.js",
+    "src/github-app.js",
+    "src/governance-api.js",
+    "src/governance-enforcement.js",
+    "src/governance-interface.js",
+    "src/governance-model.js",
+    "src/governance-store.js",
+    "src/governance-webhook-worker.js",
+    "src/guarded-fetch.js",
+    "src/hosted-readiness.js",
+    "src/intelligence.js",
+    "src/key-derivation.js",
+    "src/live-stream.js",
+    "src/local-session-policy.js",
+    "src/migrations.js",
+    "src/mutation-coverage.js",
+    "src/mutation-gateway.js",
+    "src/posture-summary.js",
+    "src/protected-paths.js",
+    "src/provider-credentials.js",
+    "src/provider-disconnect.js",
+    "src/public-assets.js",
+    "src/public-errors.js",
+    "src/pull-list.js",
+    "src/qualification-capabilities.js",
+    "src/rate-limit-identity.js",
+    "src/rate-limit-store.js",
+    "src/release-fingerprint.js",
+    "src/routes/rendered-audit.js",
+    "src/safe-passage.js",
+    "src/security-foundation.js",
+    "src/single-use-store.js",
+    "src/site-check.js",
+    "src/snapshot-signatures.js",
+    "src/uranus-reach.js",
+    "src/version.js",
+    "src/workspace-posture.js"
+   ],
+   "packages": [
+    "express"
+   ],
+   "builtins": [
+    "crypto",
+    "fs",
+    "fs/promises",
+    "os",
+    "path",
+    "stream",
+    "stream/promises",
+    "zlib"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 69
+  },
+  "src/activity-feed.js": {
+   "owner": "pulsar",
+   "lines": 239,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/alpha-access-store.js": {
+   "owner": "identity-access",
+   "lines": 703,
+   "requires": [
+    "src/alpha-access.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/alpha-access.js": {
+   "owner": "identity-access",
+   "lines": 243,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "url"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/alpha-access-store.js",
+    "src/github-account-operations.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 0
+  },
+  "src/alpha-privacy-store.js": {
+   "owner": "identity-access",
+   "lines": 2656,
+   "requires": [
+    "src/provider-disconnect.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/alpha-privacy.js": {
+   "owner": "identity-access",
+   "lines": 72,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-session.js",
+    "src/provider-disconnect.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 0
+  },
+  "src/anonymous-readability-probe.js": {
+   "owner": "quasar",
+   "lines": 512,
+   "requires": [
+    "src/guarded-fetch.js",
+    "src/supabase-key-kinds.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-narration.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 2
+  },
+  "src/asset-stamp.js": {
+   "owner": "platform/release",
+   "lines": 46,
+   "requires": [
+    "src/version.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/authorization-resolver.js": {
+   "owner": "platform/authorization",
+   "lines": 570,
+   "requires": [
+    "src/governance-model.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/governance-api.js",
+    "src/governance-interface.js",
+    "src/mutation-gateway.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 1
+  },
+  "src/backup-format.js": {
+   "owner": "platform/persistence",
+   "lines": 232,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "fs",
+    "fs/promises",
+    "path",
+    "stream",
+    "stream/promises"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 0
+  },
+  "src/branch-protection.js": {
+   "owner": "posture",
+   "lines": 194,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/capability-registry.js": {
+   "owner": "platform/release",
+   "lines": 133,
+   "requires": [
+    "src/github-account-operations.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "fs"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/work-continuity.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/code-audit-history.js": {
+   "owner": "uranus",
+   "lines": 1307,
+   "requires": [
+    "src/code-audit-policy.js",
+    "src/code-audit.js",
+    "src/security-standards.js",
+    "src/uranus-reach.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 4
+  },
+  "src/code-audit-jobs.js": {
+   "owner": "uranus",
+   "lines": 223,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/routes/rendered-audit.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/code-audit-policy.js": {
+   "owner": "kepler",
+   "lines": 130,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/code-audit-history.js",
+    "src/code-audit-triage.js",
+    "src/code-audit.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 0
+  },
+  "src/code-audit-triage.js": {
+   "owner": "uranus",
+   "lines": 619,
+   "requires": [
+    "src/code-audit-policy.js",
+    "src/code-audit.js",
+    "src/governance-simulation.js",
+    "src/uranus-reach.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 4
+  },
+  "src/code-audit-watch.js": {
+   "owner": "uranus",
+   "lines": 155,
+   "requires": [
+    "src/code-audit.js",
+    "src/exploit-intel.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 2
+  },
+  "src/code-audit-worker.js": {
+   "owner": "uranus",
+   "lines": 247,
+   "requires": [
+    "src/code-audit.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "worker_threads"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/code-audit.js": {
+   "owner": "uranus",
+   "lines": 3476,
+   "requires": [
+    "src/code-audit-policy.js",
+    "src/ecosystems.js",
+    "src/exploit-intel.js",
+    "src/exposure-detection.js",
+    "src/exposure-narration.js",
+    "src/licences.js",
+    "src/popular-packages.js",
+    "src/security-standards.js",
+    "src/uranus-flow.js",
+    "src/uranus-lex.js",
+    "src/uranus-reach.js",
+    "src/uranus-surface.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/code-audit-history.js",
+    "src/code-audit-triage.js",
+    "src/code-audit-watch.js",
+    "src/code-audit-worker.js",
+    "src/site-check.js"
+   ],
+   "fanIn": 6,
+   "fanOut": 12
+  },
+  "src/config-registry.js": {
+   "owner": "platform/config",
+   "lines": 398,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 0
+  },
+  "src/config.js": {
+   "owner": "platform/config",
+   "lines": 192,
+   "requires": [
+    "src/hosted-readiness.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "net"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/control-catalog.js": {
+   "owner": "kepler",
+   "lines": 372,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/governance-enforcement.js",
+    "src/governance-model.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/credential-verification.js": {
+   "owner": "quasar",
+   "lines": 1123,
+   "requires": [
+    "src/guarded-fetch.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-narration.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/database-pool.js": {
+   "owner": "platform/persistence",
+   "lines": 35,
+   "requires": [],
+   "packages": [
+    "pg"
+   ],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/ecosystems.js": {
+   "owner": "uranus",
+   "lines": 495,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/exploit-intel.js": {
+   "owner": "uranus",
+   "lines": 184,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit-watch.js",
+    "src/code-audit.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/exposure-archives.js": {
+   "owner": "quasar",
+   "lines": 329,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "zlib"
+   ],
+   "requiredBy": [
+    "src/exposure-reader.js",
+    "src/exposure-worker.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/exposure-detection.js": {
+   "owner": "quasar",
+   "lines": 486,
+   "requires": [
+    "src/exposure-rules.js",
+    "src/secret-scanner.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/code-audit.js",
+    "src/exposure-findings.js",
+    "src/exposure-narration.js",
+    "src/exposure-worker.js",
+    "src/site-check.js"
+   ],
+   "fanIn": 6,
+   "fanOut": 2
+  },
+  "src/exposure-findings.js": {
+   "owner": "quasar",
+   "lines": 288,
+   "requires": [
+    "src/exposure-detection.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "util"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-worker.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/exposure-narration.js": {
+   "owner": "quasar",
+   "lines": 906,
+   "requires": [
+    "src/anonymous-readability-probe.js",
+    "src/credential-verification.js",
+    "src/exposure-detection.js",
+    "src/exposure-rules.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/code-audit.js",
+    "src/exposure-store.js",
+    "src/site-check.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 4
+  },
+  "src/exposure-reader.js": {
+   "owner": "quasar",
+   "lines": 953,
+   "requires": [
+    "src/exposure-archives.js",
+    "src/exposure-rules.js",
+    "src/guarded-fetch.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-worker.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 3
+  },
+  "src/exposure-rules.js": {
+   "owner": "quasar",
+   "lines": 370,
+   "requires": [
+    "src/supabase-key-kinds.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/exposure-detection.js",
+    "src/exposure-narration.js",
+    "src/exposure-reader.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 1
+  },
+  "src/exposure-session.js": {
+   "owner": "quasar",
+   "lines": 64,
+   "requires": [
+    "src/alpha-privacy.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/exposure-store.js": {
+   "owner": "quasar",
+   "lines": 2080,
+   "requires": [
+    "src/exposure-narration.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/exposure-worker.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/exposure-worker.js": {
+   "owner": "quasar",
+   "lines": 840,
+   "requires": [
+    "src/exposure-archives.js",
+    "src/exposure-detection.js",
+    "src/exposure-findings.js",
+    "src/exposure-reader.js",
+    "src/exposure-store.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 5
+  },
+  "src/file-security.js": {
+   "owner": "platform/files",
+   "lines": 104,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "child_process",
+    "fs",
+    "fs/promises",
+    "path",
+    "util"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/findings-inbox.js": {
+   "owner": "posture",
+   "lines": 155,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/github-account-operations.js": {
+   "owner": "github-provider",
+   "lines": 192,
+   "requires": [
+    "src/alpha-access.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/capability-registry.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/github-app.js": {
+   "owner": "github-provider",
+   "lines": 429,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/governance-api.js": {
+   "owner": "kepler",
+   "lines": 848,
+   "requires": [
+    "src/authorization-resolver.js",
+    "src/governance-delivery.js",
+    "src/governance-digital-twin.js",
+    "src/governance-model.js",
+    "src/governance-simulation.js",
+    "src/governance-templates.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "dns"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 6
+  },
+  "src/governance-delivery.js": {
+   "owner": "kepler",
+   "lines": 404,
+   "requires": [
+    "src/governance-model.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "net"
+   ],
+   "requiredBy": [
+    "src/governance-api.js",
+    "src/governance-store.js",
+    "src/governance-webhook-worker.js",
+    "src/guarded-fetch.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 1
+  },
+  "src/governance-digital-twin.js": {
+   "owner": "kepler",
+   "lines": 259,
+   "requires": [
+    "src/governance-model.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/governance-api.js",
+    "src/governance-store.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/governance-enforcement.js": {
+   "owner": "kepler",
+   "lines": 605,
+   "requires": [
+    "src/control-catalog.js",
+    "src/governance-exceptions.js",
+    "src/governance-model.js",
+    "src/governance-simulation.js",
+    "src/mutation-gateway.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/governance-store.js",
+    "src/mutation-gateway.js",
+    "src/safe-passage.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 5
+  },
+  "src/governance-exceptions.js": {
+   "owner": "kepler",
+   "lines": 269,
+   "requires": [
+    "src/governance-model.js",
+    "src/mutation-gateway.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/governance-enforcement.js",
+    "src/governance-store.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 2
+  },
+  "src/governance-interface.js": {
+   "owner": "kepler",
+   "lines": 57,
+   "requires": [
+    "src/authorization-resolver.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/governance-model.js": {
+   "owner": "kepler",
+   "lines": 373,
+   "requires": [
+    "src/control-catalog.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/authorization-resolver.js",
+    "src/governance-api.js",
+    "src/governance-delivery.js",
+    "src/governance-digital-twin.js",
+    "src/governance-enforcement.js",
+    "src/governance-exceptions.js",
+    "src/governance-simulation.js",
+    "src/governance-store.js",
+    "src/governance-templates.js",
+    "src/governance-webhook-worker.js",
+    "src/mutation-gateway.js",
+    "src/staging-validation.js",
+    "src/test-matrix.js"
+   ],
+   "fanIn": 14,
+   "fanOut": 1
+  },
+  "src/governance-simulation.js": {
+   "owner": "kepler",
+   "lines": 366,
+   "requires": [
+    "src/governance-model.js",
+    "src/mutation-gateway.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/code-audit-triage.js",
+    "src/governance-api.js",
+    "src/governance-enforcement.js",
+    "src/governance-store.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 2
+  },
+  "src/governance-store.js": {
+   "owner": "kepler",
+   "lines": 2960,
+   "requires": [
+    "src/governance-delivery.js",
+    "src/governance-digital-twin.js",
+    "src/governance-enforcement.js",
+    "src/governance-exceptions.js",
+    "src/governance-model.js",
+    "src/governance-simulation.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 6
+  },
+  "src/governance-templates.js": {
+   "owner": "kepler",
+   "lines": 388,
+   "requires": [
+    "src/governance-model.js",
+    "src/protected-paths.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/governance-api.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 2
+  },
+  "src/governance-webhook-worker.js": {
+   "owner": "kepler",
+   "lines": 283,
+   "requires": [
+    "src/governance-delivery.js",
+    "src/governance-model.js",
+    "src/guarded-fetch.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "dns",
+    "https"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 3
+  },
+  "src/guarded-fetch.js": {
+   "owner": "platform/network",
+   "lines": 748,
+   "requires": [
+    "src/governance-delivery.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "dns",
+    "http",
+    "https",
+    "net"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/anonymous-readability-probe.js",
+    "src/credential-verification.js",
+    "src/exposure-reader.js",
+    "src/governance-webhook-worker.js",
+    "src/rendered-site-audit.js"
+   ],
+   "fanIn": 6,
+   "fanOut": 1
+  },
+  "src/hosted-readiness.js": {
+   "owner": "platform/persistence",
+   "lines": 109,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/config.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/intelligence.js": {
+   "owner": "pulsar",
+   "lines": 616,
+   "requires": [
+    "src/key-derivation.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/snapshot-signatures.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/key-derivation.js": {
+   "owner": "identity-access",
+   "lines": 120,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/intelligence.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/licences.js": {
+   "owner": "uranus",
+   "lines": 666,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/live-stream.js": {
+   "owner": "pulsar",
+   "lines": 88,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/local-session-policy.js": {
+   "owner": "platform/authorization",
+   "lines": 46,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/migrations.js": {
+   "owner": "platform/persistence",
+   "lines": 107,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "fs",
+    "path"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/mutation-coverage.js": {
+   "owner": "platform/mutation-gateway",
+   "lines": 314,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/mutation-gateway.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/mutation-gateway.js": {
+   "owner": "platform/mutation-gateway",
+   "lines": 555,
+   "requires": [
+    "src/authorization-resolver.js",
+    "src/governance-enforcement.js",
+    "src/governance-model.js",
+    "src/mutation-coverage.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "async_hooks",
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/governance-enforcement.js",
+    "src/governance-exceptions.js",
+    "src/governance-simulation.js",
+    "src/safe-passage.js"
+   ],
+   "fanIn": 5,
+   "fanOut": 4
+  },
+  "src/popular-packages.js": {
+   "owner": "uranus",
+   "lines": 84,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/posture-summary.js": {
+   "owner": "posture",
+   "lines": 163,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/protected-paths.js": {
+   "owner": "platform/mutation-gateway",
+   "lines": 374,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/governance-templates.js",
+    "src/safe-passage.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 0
+  },
+  "src/provider-credentials.js": {
+   "owner": "github-provider",
+   "lines": 42,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/provider-disconnect.js": {
+   "owner": "identity-access",
+   "lines": 363,
+   "requires": [
+    "src/alpha-privacy.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/alpha-privacy-store.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/public-alpha-qualification.js": {
+   "owner": "platform/release",
+   "lines": 480,
+   "requires": [
+    "src/qualification-evidence.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 1
+  },
+  "src/public-assets.js": {
+   "owner": "platform/release",
+   "lines": 290,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "fs",
+    "path",
+    "vm"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/public-errors.js": {
+   "owner": "platform/http",
+   "lines": 46,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/pull-list.js": {
+   "owner": "posture",
+   "lines": 58,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/qualification-capabilities.js": {
+   "owner": "platform/release",
+   "lines": 48,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/qualification-evidence.js": {
+   "owner": "platform/release",
+   "lines": 948,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "src/public-alpha-qualification.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/rate-limit-identity.js": {
+   "owner": "platform/rate-limit",
+   "lines": 141,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/rate-limit-store.js": {
+   "owner": "platform/rate-limit",
+   "lines": 158,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/release-fingerprint.js": {
+   "owner": "platform/release",
+   "lines": 215,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "child_process",
+    "crypto",
+    "fs",
+    "path"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/rendered-site-audit.js": {
+   "owner": "parallax",
+   "lines": 267,
+   "requires": [
+    "src/guarded-fetch.js",
+    "src/site-url-privacy.js"
+   ],
+   "packages": [
+    "axe-core",
+    "playwright-core"
+   ],
+   "builtins": [
+    "zlib"
+   ],
+   "requiredBy": [
+    "src/rendered-site-runner.js",
+    "src/rendered-site-worker.js",
+    "src/routes/rendered-audit.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 2
+  },
+  "src/rendered-site-runner.js": {
+   "owner": "parallax",
+   "lines": 75,
+   "requires": [
+    "src/rendered-site-audit.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "child_process",
+    "fs",
+    "os",
+    "path"
+   ],
+   "requiredBy": [
+    "src/rendered-site-worker.js",
+    "src/routes/rendered-audit.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/rendered-site-worker.js": {
+   "owner": "parallax",
+   "lines": 13,
+   "requires": [
+    "src/rendered-site-audit.js",
+    "src/rendered-site-runner.js"
+   ],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 2
+  },
+  "src/routes/rendered-audit.js": {
+   "owner": "parallax",
+   "lines": 64,
+   "requires": [
+    "src/code-audit-jobs.js",
+    "src/rendered-site-audit.js",
+    "src/rendered-site-runner.js"
+   ],
+   "packages": [
+    "playwright-core"
+   ],
+   "builtins": [
+    "fs",
+    "path"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 3
+  },
+  "src/safe-passage.js": {
+   "owner": "platform/mutation-gateway",
+   "lines": 232,
+   "requires": [
+    "src/governance-enforcement.js",
+    "src/mutation-gateway.js",
+    "src/protected-paths.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 3
+  },
+  "src/secret-scanner.js": {
+   "owner": "quasar",
+   "lines": 165,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "child_process",
+    "fs",
+    "path"
+   ],
+   "requiredBy": [
+    "src/exposure-detection.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/security-foundation.js": {
+   "owner": "platform/authorization",
+   "lines": 380,
+   "requires": [
+    "src/single-use-store.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/security-standards.js": {
+   "owner": "posture",
+   "lines": 213,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit-history.js",
+    "src/code-audit.js",
+    "src/site-check.js"
+   ],
+   "fanIn": 3,
+   "fanOut": 0
+  },
+  "src/single-use-store.js": {
+   "owner": "platform/rate-limit",
+   "lines": 201,
+   "requires": [],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/security-foundation.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/site-check.js": {
+   "owner": "parallax",
+   "lines": 1136,
+   "requires": [
+    "src/code-audit.js",
+    "src/exposure-detection.js",
+    "src/exposure-narration.js",
+    "src/security-standards.js",
+    "src/site-url-privacy.js"
+   ],
+   "packages": [
+    "parse5",
+    "tldts"
+   ],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 5
+  },
+  "src/site-url-privacy.js": {
+   "owner": "parallax",
+   "lines": 20,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/rendered-site-audit.js",
+    "src/site-check.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/snapshot-signatures.js": {
+   "owner": "pulsar",
+   "lines": 160,
+   "requires": [
+    "src/intelligence.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 1
+  },
+  "src/staging-validation.js": {
+   "owner": "platform/release",
+   "lines": 231,
+   "requires": [
+    "src/governance-model.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto",
+    "path"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 1
+  },
+  "src/supabase-key-kinds.js": {
+   "owner": "quasar",
+   "lines": 89,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/anonymous-readability-probe.js",
+    "src/exposure-rules.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/test-matrix.js": {
+   "owner": "platform/release",
+   "lines": 155,
+   "requires": [
+    "src/governance-model.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "child_process",
+    "crypto",
+    "fs",
+    "path"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 1
+  },
+  "src/uranus-cfamily.js": {
+   "owner": "uranus",
+   "lines": 2070,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/uranus-flow.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/uranus-flow.js": {
+   "owner": "uranus",
+   "lines": 2551,
+   "requires": [
+    "src/uranus-cfamily.js",
+    "src/uranus-lex.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "v8"
+   ],
+   "requiredBy": [
+    "src/code-audit.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 2
+  },
+  "src/uranus-lex.js": {
+   "owner": "uranus",
+   "lines": 491,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit.js",
+    "src/uranus-flow.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 0
+  },
+  "src/uranus-reach.js": {
+   "owner": "uranus",
+   "lines": 426,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js",
+    "src/code-audit-history.js",
+    "src/code-audit-triage.js",
+    "src/code-audit.js"
+   ],
+   "fanIn": 4,
+   "fanOut": 0
+  },
+  "src/uranus-surface.js": {
+   "owner": "uranus",
+   "lines": 278,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "src/code-audit.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  },
+  "src/version.js": {
+   "owner": "platform/release",
+   "lines": 61,
+   "requires": [
+    "package.json"
+   ],
+   "packages": [],
+   "builtins": [
+    "crypto"
+   ],
+   "requiredBy": [
+    "server.js",
+    "src/asset-stamp.js"
+   ],
+   "fanIn": 2,
+   "fanOut": 1
+  },
+  "src/work-continuity.js": {
+   "owner": "platform/release",
+   "lines": 537,
+   "requires": [
+    "package.json",
+    "src/capability-registry.js"
+   ],
+   "packages": [],
+   "builtins": [
+    "fs",
+    "path"
+   ],
+   "requiredBy": [],
+   "fanIn": 0,
+   "fanOut": 2
+  },
+  "src/workspace-posture.js": {
+   "owner": "posture",
+   "lines": 248,
+   "requires": [],
+   "packages": [],
+   "builtins": [],
+   "requiredBy": [
+    "server.js"
+   ],
+   "fanIn": 1,
+   "fanOut": 0
+  }
+ },
+ "cycles": [
+  [
+   "src/governance-enforcement.js",
+   "src/governance-exceptions.js",
+   "src/governance-simulation.js",
+   "src/mutation-gateway.js"
+  ]
+ ],
+ "pathLoadedEntrypoints": {
+  "src/rendered-site-worker.js": "forked by src/rendered-site-runner.js",
+  "src/code-audit-worker.js": "spawned by itself through __filename in src/code-audit-jobs.js",
+  "src/exposure-worker.js": "started as a worker by server.js"
+ }
+}

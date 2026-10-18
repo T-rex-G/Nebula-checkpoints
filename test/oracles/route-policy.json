@@ -1,0 +1,2383 @@
+{
+ "schemaVersion": 1,
+ "routes": 195,
+ "sequence": [
+  {
+   "kind": "setting",
+   "call": "set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES))"
+  },
+  {
+   "kind": "setting",
+   "call": "disable('x-powered-by')"
+  },
+  {
+   "kind": "middleware",
+   "label": "retire-legacy-cookies",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "correlation-id",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "structured-logging",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "security-headers",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "api-no-store",
+   "mount": "/api"
+  },
+  {
+   "kind": "middleware",
+   "label": "api-same-origin",
+   "mount": "/api"
+  },
+  {
+   "kind": "middleware",
+   "label": "api-rate-admission",
+   "mount": "/api"
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/healthz",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/readyz",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/.well-known/security.txt",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/robots.txt",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/apple-touch-icon.png",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/apple-touch-icon-precomposed.png",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/vendor/*",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/hooks/github/:hookId",
+   "guards": [
+    "express.raw({ type: 'application/json', limit: '2mb' })"
+   ],
+   "publicByPosition": true
+  },
+  {
+   "kind": "middleware",
+   "label": "json-body",
+   "mount": "/"
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/index.html",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/sw.js",
+   "guards": [],
+   "publicByPosition": true
+  },
+  {
+   "kind": "middleware",
+   "label": "api-maintenance",
+   "mount": "/api"
+  },
+  {
+   "kind": "middleware",
+   "label": "stripped-public-assets",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "static-files",
+   "mount": "/"
+  },
+  {
+   "kind": "middleware",
+   "label": "alpha-access-boundary",
+   "mount": "/api"
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/alpha/status",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/alpha/redeem",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/alpha/end",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/login",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/accounts",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/accounts/switch-idx",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/accounts/remove",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/accounts/switch",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/config",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/capabilities",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/account/capabilities",
+   "guards": [
+    "providerSessionAccess"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/github-app/connect",
+   "guards": [
+    "requireGithubAppFeature",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/github-app/oauth/callback",
+   "guards": [
+    "requireGithubAppFeature"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/github-app/setup",
+   "guards": [
+    "requireGithubAppFeature"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/github-app/status",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/github-app/refresh",
+   "guards": [
+    "requireGithubAppFeature",
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/github-app/disconnect",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/security/scanner-status",
+   "guards": [
+    "auth",
+    "capabilityAccess('upload-security')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/security/csrf",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/security/step-up",
+   "guards": [
+    "providerSessionAccess",
+    "alphaStepUpRepositoryAccess",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/oauth/login",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/oauth/callback",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/alpha/privacy",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/alpha/feedback",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/logout",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/alpha/providers/disconnect-all",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/alpha/delete",
+   "guards": [
+    "alphaDeletionConfirmation",
+    "alphaDeletionAuthentication"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/me",
+   "guards": [
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/rate",
+   "guards": [
+    "auth",
+    "capabilityAccess('rate.read')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/workspace/posture",
+   "guards": [
+    "providerSessionAccess",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/workspace/security-posture",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('workspace.posture')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/workspace/findings",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('findings.inbox')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/codeowners",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/templates",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/templates/:templateId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/baselines/generate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "capabilityAccess('branches.read')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/digital-twin",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/notifications/preferences",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/governance/notifications/preferences",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.notification.preferences.update')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/notifications",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/notifications/read",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.notification.read')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/webhooks",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/webhooks",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.update')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.rotate')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.delete')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exports",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.audit.export.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports/:exportId/verify",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports/:exportId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/decisions/verify",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/decisions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.policy.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.update')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.submit')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('governance.reviewer.assign')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('governance.approval.decide')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.exception.request')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.exception.decide')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/scans",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.scan.request')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/clear",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.history.clear')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.scan.cancel')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId/observations",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.credential.verify')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.readability.probe')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.finding.accept-risk')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.exception.revoke')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/activations",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.activate')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.rollback')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/archive",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.deactivate')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.policy.archive')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.policy.restore')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.discard')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.version.withdraw')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/reset",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.reset')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repos",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryListAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repos",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('repository.create')",
+    "repositoryCreationAccess",
+    "auth",
+    "mutationContext('repository.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.delete')",
+    "repositoryDeletionConfirmation",
+    "auth",
+    "mutationContext('repository.delete')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/zip",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/branches",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('branches.write')",
+    "auth",
+    "mutationContext('branch.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/branches/:name",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('branches.write')",
+    "auth",
+    "mutationContext('branch.delete')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/compare",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/tree",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('tree.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/files",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('tree.read')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/file",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/raw",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/file",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.write')",
+    "auth",
+    "mutationContext('file.write')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/file",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.delete')",
+    "auth",
+    "mutationContext('file.delete')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/rename",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.rename')",
+    "auth",
+    "mutationContext('file.rename')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/batch",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.batch')",
+    "auth",
+    "mutationContext('file.batch')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/commits",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/commit/:sha",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/revert",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.revert')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.restore')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-paths",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.restore-paths')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/snapshot",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/reset",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('branch.reset')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/search",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('search')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/pulls",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/pulls/:num",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/pulls",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/pulls/:num/merge",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.merge')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/issues",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/issues/:num",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/issues",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/issues/:num/comments",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.comment')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/issues/:num",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.update')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/notifications",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('notifications')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/star",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/star",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.write')",
+    "auth",
+    "mutationContext('repository.star')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/star",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.write')",
+    "auth",
+    "mutationContext('repository.unstar')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/pulls/:num/reviews",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.review')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/actions/:runId/jobs",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/actions/:runId/rerun",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.rerun')",
+    "auth",
+    "mutationContext('workflow.rerun')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/search",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('global-search')",
+    "githubSearchAccess",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/actions",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/releases",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('releases.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/releases",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('releases.write')",
+    "auth",
+    "mutationContext('release.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/blob",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('native-push')",
+    "capabilityAccess('upload-security')",
+    "auth",
+    "mutationContext('git.blob.create')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/upload",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('native-push')",
+    "capabilityAccess('upload-security')",
+    "capabilityAccessWhen('lfs', req => normalizeTransportChoice(req.query.lfs) === 'lfs')",
+    "auth",
+    "mutationContext('file.upload')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/move-dir",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('folder.move')",
+    "auth",
+    "mutationContext('directory.move')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/safety",
+   "guards": [
+    "providerSessionAccess",
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/safety",
+   "guards": [
+    "providerSessionAccess",
+    "alphaSafetyMutationAccess",
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/refs-snapshot",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/snapshot-compare",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-preview",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/signed-snapshot",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/emergency-manifest",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/signed-snapshots",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-refs",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('recovery.restore-refs')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/activity",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/activity/recent",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryListAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/access-surface",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('access-surface')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/history",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/history/:auditId",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/watch",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/history/clear",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('code-audit.history.clear')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/triage",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('code-audit.finding.triage')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('code-audit.finding.reopen')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/code-audit/score",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('code-audit')",
+    "accountAuth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/metrics",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/gate",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/site-rendered/status",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/site-rendered",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/site-rendered",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/site-rendered",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/site-check",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/site-check",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/branch-protection",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/audit-deps",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('dependency-audit')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/live-events/status",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/live-events/connect",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth",
+    "mutationContext('webhook.connect')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/live-events",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth",
+    "mutationContext('webhook.disconnect')"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/intelligence/events",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/live-events/stream",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/evidence",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/security/sessions",
+   "guards": [
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "POST",
+   "path": "/api/security/revoke-others",
+   "guards": [
+    "auth"
+   ],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "/api/version",
+   "guards": [],
+   "publicByPosition": false
+  },
+  {
+   "kind": "route",
+   "method": "GET",
+   "path": "*",
+   "guards": [],
+   "publicByPosition": false
+  }
+ ]
+}

@@ -48,6 +48,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      # The architecture mission's baseline inventory, regenerated from the
+      # baseline commit and compared byte for byte with the committed record.
+      - run: node scripts/architecture-inventory.js --check
       - run: npm run check:syntax
       - run: npm run lint
       # Before the suites and long before the browser gates: a type error should

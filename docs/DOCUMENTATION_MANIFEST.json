@@ -53,6 +53,34 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/architecture/mission/BASELINE.md",
+      "lifecycle": "architecture",
+      "authority": "architecture-mission-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/mission/BASELINE_TESTS.md",
+      "lifecycle": "architecture",
+      "authority": "architecture-mission-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/mission/LEDGER.md",
+      "lifecycle": "architecture",
+      "authority": "architecture-mission-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
+      "path": "docs/architecture/mission/RESIDUE_REGISTER.md",
+      "lifecycle": "architecture",
+      "authority": "architecture-mission-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/current/CONTINUATION_PROMPT.md",
       "lifecycle": "current",
       "authority": "generated-from-work-continuity",

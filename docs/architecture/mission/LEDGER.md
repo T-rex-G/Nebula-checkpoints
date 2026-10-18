@@ -72,3 +72,25 @@ CI's browser shards failed on the pilot's head. Every failure was real; none was
   - module indexes and domain purity;
   - no new dependency cycle. The baseline's one recorded cycle goes in D2.
 - **Contracts:** the offline cache policy, upload planning and CODEOWNERS matching are strict TypeScript, typed and exported by name. They publish nothing on `window`: the page and the service worker import them, and the server requires them with an explicit `.ts`, run by Node's own type stripping. That removes three page globals.
+
+### Runtime and framework assessments (owner's request, 18 October 2026)
+
+Two questions were assessed without changing the qualified baseline: Node 24 LTS as a production target, and Express 5 as the HTTP foundation. Each was run out of tree against commit `e09bfcc`, in its own worktree, through the gates the mission runs.
+
+| Gate | Node 24.22.0 | Express 5.3.0 |
+|---|---|---|
+| Clean install from the lockfile | unchanged | 4 packages added, 18 removed; production 101 → 98, audit clean |
+| Browser build | byte-identical `servedAssetsSha256` | byte-identical `servedAssetsSha256` |
+| Route policy (195 routes) | equal | equal, except two wildcard spellings |
+| Negative matrix (1,011 answers) | equal | equal |
+| Unit gate (246 programs) | 245; the one failure is the deliberate Node pin | 244; the failures are the two spellings and `text/javascript` |
+| Desktop browser subset (117) | all pass | all pass |
+| Server warnings | none | none |
+
+Node 22.23.3, the current Node 22 patch release, passed the same gates as Node 24, again failing only the pin.
+
+The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framework). Neither changes this mission:
+
+- Node 22.23.1 and Express 4.22.3 stay qualified.
+- The 22.23.3 security patch is an owner decision before final qualification.
+- Node 24 and Express 5 each follow as their own qualified change after the merge.

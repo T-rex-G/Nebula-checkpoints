@@ -962,3 +962,113 @@ They are enforced through ESLint, an import-graph test built on the TypeScript c
 **Reason:** An extraction that moves a protected route ahead of the alpha access boundary, or a guard below a handler, parses, type-checks and passes every functional test written for the happy path. Only a recorded surface compared mechanically catches it.
 
 **Consequence:** Every intended change to the security surface is written down beside the oracle that would otherwise refuse it.
+
+## ADR-095 — Node 22 stays the qualified runtime; Node 24 LTS is the next production target
+
+**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Node 22.23.1 remains the qualified baseline of this mission.
+
+**Question:** Is Node 24 LTS a better long-term production target than Node 22?
+
+**Findings:**
+
+- **Support windows** (Node.js release schedule):
+  - Node 22 is supported until 30 April 2027, about six months away.
+  - Node 24 enters maintenance on 20 October 2026 and is supported until 30 April 2028.
+  - Node 26 becomes LTS on 28 October 2026 and is supported until 30 April 2029.
+- **A security gap in the pin:** 22.23.1 predates the security release 22.23.2 (28 July 2026), which fixes ten CVEs:
+  - three high: two in http2 and one in the permission model, neither of which the service uses;
+  - medium: HTTPS identity checks on session reuse, DNS `resolveAny` replies and a zlib out-of-bounds write. The first two sit under the outbound provider transport.
+
+  The current Node 22 release is 22.23.3.
+- **What can test a runtime:**
+  - *Workspace:* Node 22.23.1 and 24.22.0 side by side (checksum-verified), PostgreSQL 16 and Chromium. There is no WebKit.
+  - *GitHub Actions:* `setup-node` installs any published version, and the runners already run JavaScript actions on Node 24. A Node 24 run of the full workflow, WebKit included, is a matrix entry. It has not been added.
+  - *Render staging:* Render installs the exact version `.nvmrc` names at build time (staging build log: "Installing Node.js version 22.23.1"), so a staging service can run any published version. Running it there is a staging deploy, a Phase R action that needs the owner's word. Both staging services still build with `npm ci --omit=dev`; any deploy of this branch needs ADR-091's build command first.
+- **Measured on Node 24.22.0** (npm 11.19.1) at `e09bfcc`, in a separate worktree:
+  - `npm ci` installs from the existing lockfile and changes nothing;
+  - the browser build is byte-identical: the same `servedAssetsSha256`;
+  - lint and every type check pass;
+  - the route policy (195 routes) and the negative matrix (1,011 answers) are equal;
+  - 245 of 246 unit programs pass. The one failure is the deliberate pin: "candidate qualification requires Node v22.23.1";
+  - the server starts and serves with no deprecation or runtime warning;
+  - 117 desktop browser tests pass, covering the DOM contract's 19 views, the offline shell, uploads, Exposure, Parallax, the golden path and runtime limits.
+- **What a move changes besides the runtime:** the version is pinned on purpose in seven places:
+  - `.nvmrc`;
+  - `engines.node`;
+  - ten workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - two contract tests.
+
+  They move together in one reviewed commit, with new qualification evidence.
+
+**Recommendation:**
+
+1. Keep 22.23.1 for this mission, as directed.
+2. Before final qualification, the owner decides on 22.23.1 → 22.23.3. It is a patch release on the same line and carries the July security fixes. Measured the same way, it passes the same gates and fails only the deliberate pin. It still changes the qualified baseline (pins and evidence move with it), so it waits for that decision.
+3. Make Node 24 LTS the next production runtime. Node 22 cannot be a long-term target: it ends in April 2027. Node 24 has a year of LTS fixes behind it and passes every gate here. Do it as its own change after this mission merges and before the end of the first quarter of 2027, in this order:
+   - the pins and the evidence rules, in one commit;
+   - the full CI on Node 24, WebKit included;
+   - a staging rehearsal on Render with `.nvmrc` at 24.
+4. Re-assess Node 26 once it has six months of LTS behind it, around April 2027, well ahead of Node 24's end in April 2028.
+
+**Not chosen:**
+
+- *Node 24 inside this mission:* it would change the qualified runtime mid-mission and mix two causes in one qualification.
+- *Node 26 now:* it is not LTS until 28 October, and a new LTS line takes the most fixes in its first months.
+
+## ADR-096 — Express 4 stays the HTTP foundation of this mission; Express 5 follows it
+
+**Status:** Proposed for the owner's decision, 18 October 2026. Express 4.22.3 remains the qualified baseline of this mission.
+
+**Question:** Is Express 5 a better long-term foundation for the new HTTP architecture?
+
+**Findings:** measured with Express 5.3.0 on Node 22.23.1 at `e09bfcc`, in a separate worktree. Express 5 brings router 2.2, body-parser 2.3, path-to-regexp 8.4, send 1.2 and serve-static 2.2.
+
+- **Support:** both lines are supported with no end date set.
+  - 4.22.3 (14 September 2026) is maintained on the `latest-4` tag.
+  - Express 5 is `latest` (5.3.0, 9 October 2026), is where new work lands, and needs Node 18 or later.
+- **Routing:** 2 of the 174 distinct route paths need the new syntax:
+  - `/vendor/*` becomes `/vendor/*asset`, and the parameter is an array of segments. Phase G retires that route regardless.
+  - `*` becomes `/{*page}`.
+
+  No route uses a regular-expression path, an optional `?` parameter or an unnamed group.
+- **Middleware order and guards:** the route-policy oracle, run against the Express 5 tree, differs only in those two spellings. Every middleware, every route's guard chain and their order are identical.
+- **Security invariants:** the negative-request matrix is identical under Express 5. That is 1,011 answers, across 8 caller contexts, to callers who should be refused or limited.
+- **Removed APIs:** none in use:
+  - `req.param`;
+  - `res.redirect('back')`;
+  - `app.del`;
+  - `res.sendfile`;
+  - numeric status arguments to `res.send` and `res.json`;
+  - writes to `req.query`.
+
+  The 11 dynamic `res.status(...)` arguments are provider or job status numbers.
+- **Error handling:** Express 5 sends a rejected async handler to the error handler. Under Express 4 the rejection escapes to the process, and with no process-level handler, Node 22 ends the process.
+  - All 166 async handlers keep their awaits inside `try`.
+  - 27 run some code before their first `try`. It is mostly headers and guarded reads. The rest are calls whose inputs a guard has already established: a session lookup behind `accountAuth`, and the audit-job and live-stream registries.
+
+  The exposure is theoretical today. Express 5 removes it by construction.
+- **Query parsing:** Express 5 defaults to the simple parser, which builds no nested objects from `a[b]=`. The page sends no such parameter and the server reads none, so behaviour is unchanged, and nested-object type confusion through the query string is no longer possible.
+- **Served surface:** one change. Static JavaScript is served as `text/javascript` rather than `application/javascript`, the RFC 9239 type. `test/server-smoke.test.js` pins the old value.
+- **Dependencies:** the production tree goes from 101 to 98 packages, and both trees audit clean. The legacy path-to-regexp 0.1 line, with its regular-expression denial-of-service history (CVE-2024-45296, CVE-2024-52798), leaves the tree.
+- **Tests:** 244 of 246 unit programs pass unchanged. The two that differ are the route-policy oracle (the two spellings) and the smoke test (the MIME type). The same 117 desktop browser tests pass, the DOM contract's 19 views among them.
+
+**Recommendation:**
+
+- **Keep Express 4.22.3 for this mission.** Its security surface is the one the oracles recorded. Phase D moves every route into modules, and changing the framework under that extraction would put two causes behind every oracle difference.
+- **Adopt Express 5 as its own change after this mission merges.** It is demonstrably compatible here, and its gains are worth one more qualification, not a mid-mission swap:
+  - async errors handled by construction;
+  - a stricter query parser;
+  - a smaller tree;
+  - the line where development happens.
+
+  The change, in order:
+  1. the version;
+  2. the catch-all spelling (the vendor route is gone by then);
+  3. `text/javascript` accepted in the smoke test and recorded in the route-policy oracle's intended changes;
+  4. both oracles and the full browser suite;
+  5. a staging rehearsal.
+- **Phase D's route builder avoids Express 4-only constructs:** no unnamed `*`, no `req.params[0]`, no nested `req.query` objects. The later move then stays a version change.
+
+**Blockers:** none technical. Procedurally it needs its own qualification and the owner's word, like any change to the qualified runtime.

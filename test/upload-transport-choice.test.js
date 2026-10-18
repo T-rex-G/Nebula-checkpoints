@@ -27,7 +27,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const planning = require('../public/upload-planning');
+const planning = require('../packages/contracts/src/upload-planning');
 for (const name of ['TRANSPORT_CHOICES', 'normalizeTransportChoice', 'planUploadTransport']) {
   assert(planning[name], `${name} must be implemented`);
 }
@@ -149,7 +149,7 @@ assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMa
 /* ---- 7. the server routes through the planner ---- */
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes("require('./public/upload-planning')"), 'the server must load the shared planner');
+assert(server.includes("require('./packages/contracts/src/upload-planning')"), 'the server must load the shared planner');
 
 const routeStart = server.indexOf("app.post('/api/repo/:owner/:repo/upload'");
 const routeEnd = server.indexOf('async function uploadViaContents');
@@ -208,7 +208,7 @@ assert(/transport\.fallback = transport\.fallback \|\|/.test(route),
 
 /* ---- 8. the browser routes through the same planner ---- */
 
-const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 
 /*
  * The label on a queued file is the server's decision read early, not a second
@@ -245,7 +245,7 @@ assert(app.includes('transport: uploadTransportV, mode: uploadModeV'),
 assert(app.includes('const swap = res.transport && res.transport.fallback;'),
   'the landed line must read the fallback the server reported');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'index.html'), 'utf8');
 assert(!/id="forceLfs"/.test(html), 'the force checkbox must be gone from the markup');
 assert(/id="uploadTransport"/.test(html), 'the markup must offer the transport choice');
 const control = html.slice(html.indexOf('id="uploadTransport"'), html.indexOf('id="uploadTransportHint"'));

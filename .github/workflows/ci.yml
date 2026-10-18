@@ -51,6 +51,9 @@ jobs:
       # The architecture mission's baseline inventory, regenerated from the
       # baseline commit and compared byte for byte with the committed record.
       - run: node scripts/architecture-inventory.js --check
+      # The browser build twice from the same tree: the served-assets digest the
+      # server attests must name the same bytes on every build.
+      - run: npm run build:web:check
       - run: npm run check:syntax
       - run: npm run lint
       # Before the suites and long before the browser gates: a type error should
@@ -200,6 +203,7 @@ jobs:
       - run: npm ci
       - run: bash ci/install-browser.sh chromium webkit
       - run: bash ci/install-postgres-client.sh
+      - run: npm run build:web
       - run: npm run test:restore-integration
       - run: npm run test:integration
       - name: Retain real browser integration evidence

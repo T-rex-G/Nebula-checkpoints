@@ -14,7 +14,7 @@
 const assert = require('assert');
 
 let planning = {};
-try { planning = require('../public/upload-planning'); } catch { /* asserted below */ }
+try { planning = require('../packages/contracts/src/upload-planning'); } catch { /* asserted below */ }
 for (const name of ['MAX_BATCH_ITEMS', 'planBatchCommits']) {
   assert(planning[name], `${name} must be implemented`);
 }

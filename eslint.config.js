@@ -1,18 +1,18 @@
 'use strict';
 
 /*
- * Static identifier resolution for the alpha.17 candidate.
+ * Static identifier resolution.
  *
  * `node --check` proves that each file parses. It does not prove that every
- * referenced name resolves. The browser layer is a set of classic scripts
- * sharing one global scope, so a name that lives inside another script's
- * module closure parses cleanly and throws only when the code path runs.
- * `no-undef` closes that gap.
+ * referenced name resolves, and a name that does not resolve parses cleanly and
+ * throws only when its code path runs. `no-undef` closes that gap.
  *
- * The shared surfaces below are declared exactly as the sources publish them,
- * so a name that is not genuinely published stays an error. Adding a new
- * cross-script global therefore requires declaring it here, which keeps the
- * implicit global contract explicit and reviewable.
+ * The browser application is ES modules under apps/web and packages/contracts:
+ * a module sees only what it imports and the platform's own globals. Until the
+ * interface is rebuilt from typed components, some modules still read each
+ * other's published objects by name; those names are declared below exactly as
+ * the sources publish them, so a name that is not genuinely published stays an
+ * error and adding one requires declaring it here.
  */
 
 const globals = require('globals');
@@ -34,70 +34,32 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
 });
 
 /*
- * Declared at the top level of public/app.js, which loads last and therefore
- * owns the shared application scope. public/neural.js is lazy-loaded by
- * app.js and the browser test callbacks run against the same document, so
- * both resolve against these names at runtime.
+ * The workbench functions the browser suite still calls by name, published on
+ * window by apps/web/src/legacy/app.js until the read-only diagnostics probe
+ * replaces them. Test callbacks serialized into the page resolve against these.
  */
 const APP_SHELL_GLOBALS = Object.freeze({
-  api: 'readonly',
-  currentTab: 'readonly',
-  dlFile: 'readonly',
-  EXPOSURE_DISPOSITION_WORDS: 'readonly',
-  exportActivityFlow: 'readonly',
-  exposureRuleLabel: 'readonly',
-  loadActivityFeed: 'readonly',
-  modal: 'readonly',
-  openFile: 'readonly',
-  openSafeguards: 'readonly',
-  openSettings: 'readonly',
-  recoveryFlow: 'readonly',
-  securityScanFlow: 'readonly',
-  setSafety: 'readonly',
   state: 'readonly',
+  switchTab: 'readonly',
+  toast: 'readonly',
+  showPage: 'readonly',
+  openSettings: 'readonly',
+  openFile: 'readonly',
   stepUpApi: 'readonly',
   strategyFor: 'readonly',
-  switchTab: 'readonly',
-  toast: 'readonly'
+  loadActivityFeed: 'readonly',
+  clearExposureState: 'readonly',
+  showSiteScan: 'readonly',
+  runtimeLimitsKnown: 'readonly',
+  uploadOne: 'readonly'
 });
 
-/* Vendored browser libraries served from public/vendor. */
+/* Bundled from their npm packages and published by apps/web/src/legacy/vendor-globals.js. */
 const VENDOR_GLOBALS = Object.freeze({
   CodeMirror: 'writable',
   DOMPurify: 'readonly',
   marked: 'readonly'
 });
-
-/* Loaded through a script tag and also required by Node tests or the server. */
-const DUAL_TARGET_MODULES = Object.freeze([
-  'public/light-waves.js',
-  'public/landing-map.js',
-  'public/code-audit-ui.js',
-  'public/archive-safety.js',
-  'public/export-safety.js',
-  'public/governance-ui.js',
-  'public/offline-cache-policy.js',
-  'public/overlay-motion.js',
-  'public/repo-sigil.js',
-  'public/upload-planning.js',
-  'public/codeowners.js',
-  'public/findings-inbox-ui.js',
-  'public/pull-board.js',
-  'public/repo-inventory.js',
-  'public/security-posture.js',
-  'public/workspace-pulse.js'
-]);
-
-/*
- * The design's WebGL artwork. These are the only true ES modules in the
- * browser layer: they are loaded by dynamic import rather than a script tag,
- * because three.js ships as a module and a bare specifier would have cost an
- * inline import map -- and an inline script means relaxing script-src.
- */
-const BROWSER_ES_MODULES = Object.freeze([
-  'public/nebula-galaxy.js',
-  'public/nebula-singularity.js'
-]);
 
 const RULES = Object.freeze({ 'no-undef': 'error' });
 
@@ -106,6 +68,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       'public/vendor/**',
+      'dist/**',
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
@@ -149,58 +112,52 @@ module.exports = [
     rules: RULES
   },
   {
-    name: 'nebulaverse/browser-classic-scripts',
-    files: ['public/*.js'],
-    ignores: ['public/sw.js', ...DUAL_TARGET_MODULES, ...BROWSER_ES_MODULES],
+    name: 'nebulaverse/browser-modules',
+    files: ['apps/web/src/**/*.js'],
+    ignores: ['apps/web/src/offline/sw.js'],
     languageOptions: {
       ecmaVersion: 2024,
-      sourceType: 'script',
+      sourceType: 'module',
       globals: {
         ...globals.browser,
         ...VENDOR_GLOBALS,
-        ...APP_SHELL_GLOBALS,
         ...PUBLISHED_MODULE_GLOBALS
       }
     },
     rules: RULES
   },
   {
-    name: 'nebulaverse/browser-es-modules',
-    files: BROWSER_ES_MODULES,
-    languageOptions: {
-      ecmaVersion: 2024,
-      sourceType: 'module',
-      globals: { ...globals.browser }
-    },
+    /* Classic, blocking, and first: it decides the theme of the first paint. */
+    name: 'nebulaverse/theme-boot',
+    files: ['apps/web/public/theme-boot.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.browser } },
     rules: RULES
   },
   {
     name: 'nebulaverse/service-worker',
-    files: ['public/sw.js'],
+    files: ['apps/web/src/offline/sw.js'],
     languageOptions: {
       ecmaVersion: 2024,
-      sourceType: 'script',
-      globals: {
-        ...globals.serviceworker,
-        ...PUBLISHED_MODULE_GLOBALS
-      }
+      sourceType: 'module',
+      globals: { ...globals.serviceworker }
     },
     rules: RULES
   },
   {
-    name: 'nebulaverse/dual-target-modules',
-    files: DUAL_TARGET_MODULES,
+    /* Shared by the server, the page and the service worker; they depend on no platform. */
+    name: 'nebulaverse/contracts',
+    files: ['packages/contracts/src/**/*.js'],
     languageOptions: {
       ecmaVersion: 2024,
-      sourceType: 'script',
-      globals: {
-        ...globals.browser,
-        ...globals.serviceworker,
-        ...globals.node,
-        ...VENDOR_GLOBALS,
-        ...PUBLISHED_MODULE_GLOBALS
-      }
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.serviceworker }
     },
+    rules: RULES
+  },
+  {
+    name: 'nebulaverse/build-configuration',
+    files: ['apps/web/vite.config.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.node } },
     rules: RULES
   }
 ];

@@ -56,7 +56,6 @@
     "src/alpha-access.js",
     "src/alpha-privacy-store.js",
     "src/alpha-privacy.js",
-    "src/asset-stamp.js",
     "src/anonymous-readability-probe.js",
     "src/backup-format.js",
     "src/capability-registry.js",

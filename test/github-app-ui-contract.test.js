@@ -4,9 +4,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const css = fs.readFileSync(path.join(root, 'public', 'style.css'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
 
 assert(app.includes("api('/api/github-app/status')"), 'settings must load GitHub App connection status');
 assert(app.includes("api('/api/github-app/connect'"), 'settings must start the optional connection flow');

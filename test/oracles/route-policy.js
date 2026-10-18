@@ -19,24 +19,32 @@ const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all']);
 const SETTINGS = new Set(['set', 'disable', 'enable']);
 
 /*
- * The global middlewares have no names in the monolith; these are the names the
- * decomposed pipeline must give them, in registration order. A thirteenth
- * app.use, or one fewer, fails the capture rather than shifting every label.
+ * The global middlewares have no names in the monolith, so each is named by
+ * what it does: the first signature its source matches. These are the names
+ * the decomposed pipeline must give them. A middleware no signature matches
+ * fails the capture rather than being guessed at.
  */
-const MIDDLEWARE_LABELS = Object.freeze([
-  'retire-legacy-cookies',
-  'correlation-id',
-  'structured-logging',
-  'security-headers',
-  'api-no-store',
-  'api-same-origin',
-  'api-rate-admission',
-  'json-body',
-  'api-maintenance',
-  'stripped-public-assets',
-  'static-files',
-  'alpha-access-boundary'
+const MIDDLEWARE_SIGNATURES = Object.freeze([
+  ['retire-legacy-cookies', /nv_workspace_session/],
+  ['correlation-id', /x-nebulaverse-correlation-id/],
+  ['structured-logging', /res\.on\('finish'/],
+  ['security-headers', /Content-Security-Policy/],
+  ['api-no-store', /writeOfflineCacheHeaders/],
+  ['api-same-origin', /APP_HEADER_REQUIRED/],
+  ['api-rate-admission', /rateLimitIdentity/],
+  ['json-body', /^express\.json\(/],
+  ['api-maintenance', /SERVICE_IN_MAINTENANCE/],
+  ['stripped-public-assets', /PUBLIC_ASSETS/],
+  ['static-files', /^express\.static\(/],
+  ['alpha-access-boundary', /^alphaAccessBoundary$/]
 ]);
+const MIDDLEWARE_LABELS = Object.freeze(MIDDLEWARE_SIGNATURES.map(([label]) => label));
+
+function middlewareLabel(source, at) {
+  const match = MIDDLEWARE_SIGNATURES.find(([, pattern]) => pattern.test(source));
+  if (!match) throw new Error(`${at}: a global middleware the policy cannot name`);
+  return match[0];
+}
 
 function text(node, source) {
   return node.getText(source).replace(/\s+/g, ' ').trim();
@@ -132,7 +140,7 @@ function registrationsIn(source, spreads, file, root, expand) {
         const mount = args.length > 1 ? literalPath(args[0], source) : null;
         entries.push({
           kind: 'use', mount: mount || '/',
-          middleware: text(args[args.length - 1], source).startsWith('(') ? 'inline' : text(args[args.length - 1], source),
+          label: middlewareLabel(args[args.length - 1].getText(source), at),
           at
         });
         return true;
@@ -174,18 +182,12 @@ function extractMonolithPolicy(root) {
 }
 
 function canonicalPolicy(entries) {
-  const uses = entries.filter(entry => entry.kind === 'use');
-  if (uses.length !== MIDDLEWARE_LABELS.length) {
-    throw new Error(`expected ${MIDDLEWARE_LABELS.length} global middlewares, found ${uses.length}`);
-  }
-  let useIndex = 0;
   let beforeBoundary = true;
   const sequence = [];
   for (const entry of entries) {
     if (entry.kind === 'use') {
-      const label = MIDDLEWARE_LABELS[useIndex++];
-      if (label === 'alpha-access-boundary') beforeBoundary = false;
-      sequence.push({ kind: 'middleware', label, mount: entry.mount });
+      if (entry.label === 'alpha-access-boundary') beforeBoundary = false;
+      sequence.push({ kind: 'middleware', label: entry.label, mount: entry.mount });
     } else if (entry.kind === 'setting') {
       sequence.push({ kind: 'setting', call: entry.call });
     } else {

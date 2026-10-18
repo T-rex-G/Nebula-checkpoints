@@ -65,9 +65,9 @@ assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed
 assert(/restore-paths[\s\S]+enforceProtectedPaths\(req, matches\.map\(item => item\.path\)\)/.test(server), 'Restore-paths must enforce policies against every restored child path');
 assert(/move-dir[\s\S]+enforceProtectedPaths\(req, affectedPaths\)/.test(server), 'Folder moves must enforce policies against source and destination child paths');
 
-const neural = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'neural.js'), 'utf8');
-const app = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-const exportSafety = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'export-safety.js'), 'utf8');
+const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
+const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const exportSafety = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'features', 'workbench', 'export-safety.js'), 'utf8');
 
 assert(neural.includes('catchUpIntelligence'), 'Neural SSE reconnect must catch up missed persisted events');
 assert(neural.includes('after=${encodeURIComponent(after)}') && neural.includes('hasMore'), 'Neural catch-up must page from a persisted event cursor');

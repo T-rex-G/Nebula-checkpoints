@@ -1,8 +1,8 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
-const app = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-const neural = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'neural.js'), 'utf8');
+const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
 assert(/await purgeLocalData\(true\);[\s\S]{0,500}api\('\/api\/login'/.test(app), 'login must clear prior identity data before authentication');
 assert(/data-switch[\s\S]{0,1200}await purgeLocalData\(false\);[\s\S]{0,500}accounts\/switch-idx/.test(app), 'account switch must await cache purge before switching');

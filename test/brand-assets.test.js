@@ -16,10 +16,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const assets = path.join(root, 'public', 'assets');
+const assets = path.join(root, 'apps', 'web', 'public', 'assets');
 const icon = fs.readFileSync(path.join(assets, 'icon.svg'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const manifest = JSON.parse(fs.readFileSync(path.join(root, 'public', 'manifest.webmanifest'), 'utf8'));
+const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, 'apps', 'web', 'public', 'manifest.webmanifest'), 'utf8'));
 
 /*
  * The four planes the dimensional mark extrudes, as they appear in the sprite
@@ -46,7 +46,7 @@ for (const colour of RETIRED) {
 
 /* Every icon the manifest promises exists, and none is a leftover stub. */
 for (const entry of manifest.icons) {
-  const file = path.join(root, 'public', entry.src.replace(/^\//, ''));
+  const file = path.join(root, 'apps', 'web', 'public', entry.src.replace(/^\//, ''));
   assert.ok(fs.existsSync(file), `${entry.src} is declared in the manifest and missing on disk`);
   const size = fs.statSync(file).size;
   assert.ok(size > 400, `${entry.src} is ${size} bytes, which is too small to be the drawn mark`);
@@ -71,8 +71,8 @@ assert.ok(html.includes(`content="${PAGE_LIGHT}"`), 'the light theme colour is n
  */
 const OBSIDIAN_DARK = '#07080A';
 const OBSIDIAN_LIGHT = '#F4F2EE';
-const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-const bootSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'theme-boot.js'), 'utf8');
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const bootSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'public', 'theme-boot.js'), 'utf8');
 for (const [name, source] of [['app.js', appSource], ['theme-boot.js', bootSource]]) {
   for (const colour of [PAGE_DARK, PAGE_LIGHT, OBSIDIAN_DARK, OBSIDIAN_LIGHT]) {
     assert.ok(source.includes(`'${colour}'`), `${name} does not paint ${colour} for its preset`);

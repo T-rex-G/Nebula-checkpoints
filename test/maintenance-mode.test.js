@@ -99,7 +99,10 @@ async function waitForBoot() {
     }
 
     /* Static assets still load, so the page can render the notice. */
-    const asset = await get('/style.css');
+    const shell = await (await get('/')).text();
+    const stylesheet = (/<link rel="stylesheet" crossorigin href="([^"]+)">/.exec(shell) || [])[1];
+    assert(stylesheet, 'the page must name its built stylesheet');
+    const asset = await get(stylesheet);
     assert.strictEqual(asset.status, 200, 'static assets must survive maintenance');
 
     /* And the document itself is served, carrying the notice rather than an error. */

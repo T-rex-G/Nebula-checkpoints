@@ -6,8 +6,8 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const neural = fs.readFileSync(path.join(root, 'public/neural.js'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
+const neural = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/neural.js'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'), 'utf8');
 
 function declaration(source, name, indent = '') {
   const start = source.indexOf(`${indent}async function ${name}(`);

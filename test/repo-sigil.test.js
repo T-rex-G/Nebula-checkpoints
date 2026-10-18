@@ -8,7 +8,7 @@
  */
 
 const assert = require('node:assert/strict');
-const sigil = require('../public/repo-sigil.js');
+const sigil = require('../apps/web/src/features/repositories/repo-sigil.js');
 
 function inventory() {
   const names = [];

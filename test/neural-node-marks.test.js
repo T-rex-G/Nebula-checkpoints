@@ -16,7 +16,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'neural.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
 const tableStart = source.indexOf('TYPE_STYLE');
 assert(tableStart > 0, 'neural.js must define a node style table');

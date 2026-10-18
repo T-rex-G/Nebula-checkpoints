@@ -7,7 +7,14 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const ROOT = path.resolve(__dirname, '..');
-const neural = fs.readFileSync(path.join(ROOT, 'public/neural.js'), 'utf8');
+/*
+ * The module's one import is the workbench functions it uses; the harness
+ * supplies those itself, so the import is lifted and the rest runs as written.
+ */
+const neuralModule = fs.readFileSync(path.join(ROOT, 'apps/web/src/visualizations/neural.js'), 'utf8');
+const WORKBENCH_IMPORT = /^import \{[^}]*\} from '\.\.\/legacy\/app\.js';\n/m;
+assert.match(neuralModule, WORKBENCH_IMPORT, 'the Neural module must take the workbench functions from app.js, by import');
+const neural = neuralModule.replace(WORKBENCH_IMPORT, '');
 const now = '2026-10-08T10:00:00.000Z';
 const sha = 'a'.repeat(40);
 function harness(custom = {}) {
@@ -42,7 +49,7 @@ function harness(custom = {}) {
     api:async (url,options={})=>{requests.push(url);if(custom.api){const got=custom.api(url,data,options);if(got!==undefined)return await got;} const key=Object.keys(data).find(k=>url===k||url.includes(`/acme/demo/${k}`));if(!key)throw new Error('Unexpected '+url);return data[key];}
   };
   c.window.matchMedia=c.matchMedia;
-  vm.runInNewContext(neural,c,{filename:`${ROOT}/public/neural.js`});
+  vm.runInNewContext(neural,c,{filename:`${ROOT}/apps/web/src/visualizations/neural.js`});
   return {c,ui:c.window.NebulaNeural,elements,streams,requests,warnings,data,timers,listeners};
 }
 async function settleCatchup(h){for(let i=0;i<40;i++){await new Promise(setImmediate);if(!h.ui.state.catchUpBusy)return;}throw new Error('Catch-up stuck');}
@@ -158,7 +165,7 @@ test('reset aborts map reads and late responses cannot populate a new repository
 });
 
 test('browser API forwards caller cancellation to fetch', async () => {
-  const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'apps/web/src/legacy/app.js'), 'utf8');
   const start = app.indexOf('async function api(');
   const end = app.indexOf('\n}\n', start) + 2;
   const context = {

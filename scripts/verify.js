@@ -4,11 +4,23 @@ const path = require('path');
 const vm = require('vm');
 const root = path.resolve(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
-const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('../src/version');
-const renderReleaseTemplate = value => value
-  .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
-  .replaceAll('__NV_VERSION__', APP_VERSION)
-  .replaceAll('__NV_ASSET_VERSION__', ASSET_VERSION);
+const ts = require('typescript');
+const { PRODUCT_NAME } = require('../src/version');
+const renderReleaseTemplate = value => value.replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME);
+/* The browser entry's imports, in order, as root-relative paths. */
+const ENTRY = 'apps/web/src/main.js';
+const shellImports = () => [...read(ENTRY).matchAll(/^import\s+(?:[^'"]+\s+from\s+)?'(\.[^']+)';$/gm)]
+  .map(match => path.relative(root, path.resolve(root, path.dirname(ENTRY), match[1])).split(path.sep).join('/'));
+/* A module under apps/ or packages/ is an ES module; everything else a classic script or CommonJS. */
+function assertParses(file) {
+  const source = read(file);
+  if (/^(apps|packages)\//.test(file)) {
+    const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    must(!parsed.parseDiagnostics.length, `${file} does not parse: ${parsed.parseDiagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' ')).join('; ')}`);
+  } else {
+    new vm.Script(source, { filename: file });
+  }
+}
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 const required = [
@@ -29,7 +41,7 @@ const required = [
   'test/alpha-provider-webhook-lifecycle.test.js',
   'test/alpha-privacy-server-contract.test.js', 'test/alpha-browser-purge.test.js',
   'test/alpha-privacy-cli.test.js',
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -78,7 +90,7 @@ const required = [
   'docs/operations/runbooks/OPERATOR_CHECKLIST.md',
   'src/snapshot-signatures.js', 'test/snapshot-signatures.test.js', 'PUBLIC_ALPHA_PROVENANCE.json', 'config/public-alpha-capabilities.json', 'src/capability-registry.js', 'docs/current/ROADMAP.md', 'docs/vision/PRODUCT_VISION.md', 'docs/current/PROVIDER_CAPABILITIES.md', 'docs/architecture/ARCHITECTURE.md', 'docs/release/RELEASE_SECURITY_GATES.md', 'docs/release/PUBLIC_ALPHA.md', 'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md', 'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js', 'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
   'server.js', 'package.json', 'package-lock.json', 'render.yaml', 'README.md', 'docs/README.md', 'docs/DOCUMENTATION_MANIFEST.json', 'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md', 'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md', 'docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md', 'docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md', 'docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md', 'docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md', 'docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md', 'docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md', 'docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md', 'docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md', 'docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md', 'docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md', 'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md', 'docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md', 'docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md', 'docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md',
-  'public/index.html', 'public/governance-ui.js', 'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js', 'public/app.js', 'public/neural.js', 'public/style.css', 'public/sw.js',
+  'apps/web/index.html', 'apps/web/src/features/governance/governance-ui.js', 'packages/contracts/src/offline-cache-policy.js', 'apps/web/src/features/workbench/archive-safety.js', 'apps/web/src/features/workbench/export-safety.js', 'apps/web/src/legacy/app.js', 'apps/web/src/visualizations/neural.js', 'apps/web/src/styles/style.css', 'apps/web/src/offline/sw.js',
   'src/intelligence.js', 'src/file-security.js', 'src/config.js', 'src/version.js', 'src/migrations.js', 'src/security-foundation.js', 'src/authorization-resolver.js', 'src/github-app.js', 'src/provider-credentials.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/staging-validation.js', 'src/test-matrix.js', 'db/migrations/001_sessions.sql', 'db/migrations/002_security.sql', 'db/migrations/003_intelligence.sql', 'db/migrations/004_recovery.sql', 'db/migrations/005_evidence.sql', 'db/migrations/006_github_app.sql', 'db/migrations/007_governance.sql', 'db/migrations/008_governance_drafts.sql', 'db/migrations/009_governance_reviews.sql', 'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql', 'db/migrations/013_governance_notifications_exports.sql', 'db/migrations/012_governance_exceptions.sql', 'scripts/copy-vendor.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'test/staging-validation.test.js', 'test/staging-validation-contract.test.js', 'test/staging-validation-cli.test.js', 'test/test-matrix.test.js', 'test/intelligence.test.js', 'test/config-startup.test.js', 'test/archive-safety.test.js', 'test/export-safety.test.js', 'test/file-security.test.js', 'test/hardening-contract.test.js', 'test/security-foundation.test.js', 'test/security-foundation-contract.test.js', 'test/security-foundation-server.test.js', 'test/authorization-resolver.test.js', 'test/authorization-resolver-server-contract.test.js', 'test/governance-model.test.js', 'test/governance-persistence-contract.test.js', 'test/governance-store.test.js', 'test/governance-review-model.test.js', 'test/governance-review-persistence-contract.test.js', 'test/governance-review-store.test.js', 'test/governance-review-api.test.js', 'test/governance-templates.test.js', 'test/governance-digital-twin.test.js', 'test/governance-digital-twin-store.test.js', 'test/governance-template-digital-twin-api.test.js', 'test/governance-template-digital-twin-server-contract.test.js', 'test/governance-interface-access.test.js', 'test/governance-interface-server-contract.test.js', 'test/governance-interface-renderer.test.js', 'test/governance-interface-client-contract.test.js', 'test/governance-interface-workflow-contract.test.js', 'test/governance-interface-ui-contract.test.js', 'test/mutation-coverage.test.js', 'test/mutation-coverage-server-contract.test.js', 'test/mutation-gateway-execution.test.js', 'test/server-smoke.test.js',
   'public/vendor/codemirror/5.65.16/codemirror.min.js', 'public/vendor/marked/15.0.12/marked.min.js', 'public/vendor/dompurify/3.4.16/purify.min.js'
 ];
@@ -101,16 +113,16 @@ for (const file of [
   'ci/alpha17-json.js', 'ci/alpha17-restore-attestation.js',
   'ci/run-alpha17-restore-validation.js',
   'ci/verify-alpha17-authorization.js',
-  'public/offline-cache-policy.js', 'public/archive-safety.js', 'public/export-safety.js',
-  'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
-  'public/app.js', 'public/governance-ui.js', 'public/neural.js', 'public/code-audit-ui.js',
+  'packages/contracts/src/offline-cache-policy.js', 'apps/web/src/features/workbench/archive-safety.js', 'apps/web/src/features/workbench/export-safety.js',
+  'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/web/src/legacy/app.js', 'apps/web/src/features/governance/governance-ui.js', 'apps/web/src/visualizations/neural.js', 'apps/web/src/features/uranus/code-audit-ui.js',
   'src/code-audit.js', 'src/workspace-posture.js'
 ]) {
-  new vm.Script(read(file), { filename: file });
+  assertParses(file);
 }
-new vm.Script(renderReleaseTemplate(read('public/sw.js')), { filename: 'public/sw.js' });
+assertParses('apps/web/src/offline/sw.js');
 
-const htmlSource = read('public/index.html');
+const htmlSource = read('apps/web/index.html');
 const html = renderReleaseTemplate(htmlSource);
 const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
 const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
@@ -119,17 +131,19 @@ for (const id of [
   'tab-neural', 'neuralCanvas', 'neuralCard', 'neuralLegend', 'neuralTimeline',
   'neuralEmergencyBtn', 'neuralModeList', 'neuralRiskScore', 'neuralLiveBtn', 'neuralExplainBtn'
 ]) must(ids.includes(id), `Missing #${id}`);
-must(/ensureNeural\(\)/.test(read('public/app.js')) && /neural\.js\?v=/.test(read('public/app.js')),
+must(/ensureNeural\(\)/.test(read('apps/web/src/legacy/app.js')) && /import\('\.\.\/visualizations\/neural\.js'\)/.test(read('apps/web/src/legacy/app.js')),
   'Neural module is not wired for lazy loading in app.js');
-must(/\/neural\.js\?v=/.test(read('public/sw.js')), 'Neural module is not precached by the service worker');
+/* The worker precaches every built chunk but the artwork and its library, which it caches on first use. */
+const notPrecached = /const NOT_PRECACHED = (\/.*\/);/.exec(read('scripts/build-web.js'));
+must(notPrecached && !/neural/.test(notPrecached[1]), 'Neural module is not precached by the service worker');
 must(html.includes('data-tab="neural"'), 'Desktop Neural tab missing');
 must(html.includes('data-act="neural"'), 'Mobile Neural entry missing');
 
 
 for (const id of ['tab-governance', 'govRoot', 'govLive']) must(ids.includes(id), `Missing #${id}`);
 must(html.includes('data-tab="governance"') && html.includes('data-act="governance"'), 'Governance desktop/mobile navigation missing');
-must(html.includes('/governance-ui.js?v=') && read('public/sw.js').includes('/governance-ui.js?v='), 'Governance renderer must be loaded and precached');
-must(/\/governance/.test(read('public/offline-cache-policy.js')), 'Governance APIs must remain network-only');
+must(shellImports().includes('apps/web/src/features/governance/governance-ui.js'), 'Governance renderer must be loaded and precached');
+must(/\/governance/.test(read('packages/contracts/src/offline-cache-policy.js')), 'Governance APIs must remain network-only');
 must(read('server.js').includes('projectGovernanceInterfaceAccess') && read('server.js').includes('res.json({ digitalTwin, access })'), 'Digital Twin access projection is not wired');
 
 
@@ -175,21 +189,21 @@ must(
 must(pkg.dependencies?.codemirror === '5.65.16', 'CodeMirror must be pinned and bundled');
 must(pkg.dependencies?.marked === '15.0.12', 'Marked must be pinned to the Node 18-compatible browser build');
 must(pkg.dependencies?.dompurify === '3.4.16', 'DOMPurify must be pinned to the patched browser build');
-must(pkg.scripts?.postinstall === 'node scripts/copy-vendor.js', 'Vendor assets must be generated during deployment');
-must(html.includes('/vendor/marked/15.0.12/marked.min.js'), 'Pinned Marked browser asset is not loaded');
-must(html.includes('/vendor/dompurify/3.4.16/purify.min.js'), 'Pinned DOMPurify browser asset is not loaded');
-/* version-agnostic: a stamp bump must never break the build contract */
-const at = name => html.indexOf(name);
-must(/\/archive-safety\.js\?v=\d+/.test(html), 'Secure archive validator is not loaded');
-must(/\/export-safety\.js\?v=\d+/.test(html), 'Secure export helper is not loaded');
-must(at('/archive-safety.js?v=') > -1 && at('/archive-safety.js?v=') < at('/app.js?v='), 'Archive validator must load before app.js');
-must(at('/export-safety.js?v=') > -1 && at('/export-safety.js?v=') < at('/app.js?v='), 'Export safety helper must load before app.js');
-const stamps = [...html.matchAll(/\?v=(\d+)/g)].map(m => m[1]);
-must(new Set(stamps).size === 1, `All asset stamps must match, found: ${[...new Set(stamps)].join(', ')}`);
-const renderedSw = renderReleaseTemplate(read('public/sw.js'));
-must(renderedSw.includes(stamps[0]), 'Service worker version must match the HTML asset stamp');
+const vendorBridge = read('apps/web/src/legacy/vendor-globals.js');
+must(/from 'marked'/.test(vendorBridge), 'Pinned Marked is not bundled');
+must(/from 'dompurify'/.test(vendorBridge), 'Pinned DOMPurify is not bundled');
+must(/from 'codemirror'/.test(vendorBridge), 'Pinned CodeMirror is not bundled');
+const imports = shellImports();
+const at = name => imports.indexOf(name);
+const appAt = at('apps/web/src/legacy/app.js');
+must(imports.find(entry => entry.endsWith('.js')) === 'apps/web/src/legacy/vendor-globals.js', 'The bundled libraries must load before anything that reads them');
+must(at('apps/web/src/features/workbench/archive-safety.js') > -1 && at('apps/web/src/features/workbench/archive-safety.js') < appAt, 'Archive validator must load before app.js');
+must(at('apps/web/src/features/workbench/export-safety.js') > -1 && at('apps/web/src/features/workbench/export-safety.js') < appAt, 'Export safety helper must load before app.js');
+/* Named by content at build time: no URL in the page carries a stamp. */
+must(!/\?v=/.test(html), 'An asset stamp is back in the page');
+must(html.includes('<script type="module" src="/src/main.js"></script>'), 'The page must load the one module entry');
 
-const app = read('public/app.js');
+const app = read('apps/web/src/legacy/app.js');
 must(app.includes("name === 'neural'"), 'Neural tab activation hook missing');
 must(app.includes('window.NebulaNeural.deactivate'), 'Neural deactivation hook missing');
 /*
@@ -224,17 +238,15 @@ must(/- key: NV_ALPHA_TERMS_VERSION\n\s+value: 2026-07-29/.test(render), 'Render
 must(/- key: DATABASE_URL\n\s+sync: false/.test(render), 'Render must require an operator-supplied DATABASE_URL');
 must(!/fromDatabase:/.test(render), 'Render must not provision or bind a managed database');
 
-const sw = renderedSw;
-must(/\/neural\.js\?v=\d+/.test(sw), 'Neural script is not precached');
-must(/\/archive-safety\.js\?v=\d+/.test(sw), 'Secure archive validator is not precached');
-must(/\/export-safety\.js\?v=\d+/.test(sw), 'Secure export helper is not precached');
+const sw = read('apps/web/src/offline/sw.js');
+must(/const PRECACHE = __NV_PRECACHE__;/.test(sw), 'The shell list must be the one the build writes in');
 /* Optional private repository caching must be explicit, scoped and bounded. */
-const offlinePolicy = read('public/offline-cache-policy.js');
-must(sw.includes("importScripts('/offline-cache-policy.js?v="), 'Service worker must load the audited offline cache policy');
+const offlinePolicy = read('packages/contracts/src/offline-cache-policy.js');
+must(sw.includes("import POLICY from '../../../../packages/contracts/src/offline-cache-policy.js';"), 'Service worker must load the audited offline cache policy');
 must(sw.includes('POLICY.classifyApiRequest') && sw.includes('privateNetworkFirst'), 'Service worker must use the scoped cache classifier');
 must(offlinePolicy.includes('MAX_ENTRIES = 100') && offlinePolicy.includes('MAX_RESPONSE_BYTES = 1024 * 1024') && offlinePolicy.includes('MAX_TOTAL_BYTES = 25 * 1024 * 1024'), 'Private cache limits are missing');
 must(offlinePolicy.includes('TTL_MS = 24 * 60 * 60 * 1000'), 'Private cache TTL is missing');
-must(/startsWith\('nv-api-'\)/.test(read('public/app.js')), 'Identity boundaries must purge scoped API caches');
+must(/startsWith\('nv-api-'\)/.test(read('apps/web/src/legacy/app.js')), 'Identity boundaries must purge scoped API caches');
 must(sw.includes("cache: 'no-store'"), 'Network-only API responses must not use browser HTTP caches');
 must(!sw.includes("const API = 'nv-api-perm'"), 'A shared persistent API cache must not exist');
 must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includes('nv-api-${CACHE_SCHEMA}-${scope}'), 'Private cache namespaces must be schema-versioned');
@@ -274,7 +286,7 @@ must(migrationSql.includes('nv_security_state') && server.includes('loadPersiste
 must(server.includes('runMigrations') && migrationSql.includes('nv_schema_migrations') === false, 'Server must use the numbered migration runner');
 must(app.includes('Secure CSV exporter is unavailable') && app.includes('NebulaExportSafety.activityCsv'), 'CSV export must fail closed through the formula-safe helper');
 must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
-const neural = read('public/neural.js');
+const neural = read('apps/web/src/visualizations/neural.js');
 must(neural.includes('graphShortestPath') && neural.includes('Explain this connection'), 'Deterministic connection explanation is missing');
 must(neural.includes('EventSource') && neural.includes('VERIFIED LIVE'), 'Neural verified live stream is missing');
 must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeURIComponent(after)}'), 'Cursor-based Neural event catch-up is missing');
@@ -286,7 +298,7 @@ must(server.includes('normalizeFileBatch') && server.includes('summarizeBatchIte
 const mutationCoverage = read('src/mutation-coverage.js');
 must(mutationCoverage.includes('MUTATION_ROUTE_INVENTORY') && mutationCoverage.includes('ACTION_EXECUTION_CONTRACTS'), 'Task 18 mutation coverage inventory is missing');
 must(read('src/governance-delivery.js').includes('MAX_EXPORT_EVENTS') && read('src/governance-webhook-worker.js').includes('startWebhookWorker'), 'Task 19 governance delivery foundation is missing');
-must(read('public/governance-ui.js').includes('Notifications and signed evidence'), 'Task 19 governance delivery interface is missing');
+must(read('apps/web/src/features/governance/governance-ui.js').includes('Notifications and signed evidence'), 'Task 19 governance delivery interface is missing');
 must(read('src/mutation-gateway.js').includes('MUTATION_PROVIDER_WRITE_LIMIT') && read('src/mutation-gateway.js').includes('operationId'), 'Task 18 provider-write bounds or operation IDs are missing');
 
 const stagingValidation = read('src/staging-validation.js');

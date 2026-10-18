@@ -47,7 +47,8 @@ assert.throws(() => yamlEnvironmentEntry(boundedEntryFixture, 'MISSING_SECRET'),
 assert.strictEqual((render.match(/^\s*- type:\s*web\s*$/gm) || []).length, 1);
 assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
 assert.match(render, /plan:\s*free/);
-assert.match(render, /buildCommand:\s*npm ci --omit=dev\s*$/m);
+assert.match(render, /buildCommand:\s*npm ci && npm run build && npm prune --omit=dev\s*$/m,
+  'the service builds the browser application, then drops the build tools from what it runs');
 assert.match(render, /startCommand:\s*npm start/);
 assert.match(render, /healthCheckPath:\s*\/healthz/);
 assert(!/^databases:/m.test(render));

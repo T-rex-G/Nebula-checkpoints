@@ -29,14 +29,19 @@ const WRITE = process.argv.includes('--write');
  * route listed here may be absent now; nothing else about the surface may move.
  */
 const INTENDED_CHANGES = Object.freeze({
-  removedRoutes: Object.freeze({})
+  removedRoutes: Object.freeze({}),
+  removedMiddleware: Object.freeze({
+    'stripped-public-assets': 'The browser build removes source comments and names every file by its content; ' +
+      'the run-time stripper served files that no longer exist (Phase B2).'
+  })
 });
 
 function withoutIntended(policy) {
   return {
     ...policy,
     sequence: policy.sequence.filter(entry =>
-      entry.kind !== 'route' || !INTENDED_CHANGES.removedRoutes[`${entry.method} ${entry.path}`])
+      !(entry.kind === 'route' && INTENDED_CHANGES.removedRoutes[`${entry.method} ${entry.path}`]) &&
+      !(entry.kind === 'middleware' && INTENDED_CHANGES.removedMiddleware[entry.label]))
   };
 }
 

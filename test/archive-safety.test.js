@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { normalizeZipPath, validateArchiveEntries, crc32, DEFAULT_LIMITS } = require('../public/archive-safety');
+const { normalizeZipPath, validateArchiveEntries, crc32, DEFAULT_LIMITS } = require('../apps/web/src/features/workbench/archive-safety');
 
 assert.strictEqual(normalizeZipPath('project/src/app.js'), 'project/src/app.js');
 assert.strictEqual(normalizeZipPath('folder\\nested\\file.txt'), 'folder/nested/file.txt');

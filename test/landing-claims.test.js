@@ -14,7 +14,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'index.html'), 'utf8');
 const { EXPOSURE_RULES } = require('../src/exposure-rules');
 const { ADAPTERS } = require('../src/credential-verification');
 const audit = require('../src/code-audit');

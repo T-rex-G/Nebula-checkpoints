@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
 let ui = {};
-try { ui = require('../public/governance-ui'); } catch {}
+try { ui = require('../apps/web/src/features/governance/governance-ui'); } catch {}
 for (const name of ['renderGovernanceInterface', 'normalizeInterfaceAccess', 'parseJsonObject', 'defaultSimulationRequest']) {
   assert.strictEqual(typeof ui[name], 'function', `${name} must be implemented`);
 }

@@ -27,7 +27,7 @@ for (let i = 0; i < 60; i += 1) DIRS['test/e2e'].push(`flow-${String(i).padStart
 for (let i = 0; i < 30; i += 1) DIRS.scripts.push(`task-${String(i).padStart(2, '0')}.js`);
 
 const FILES = Object.entries(DIRS).flatMap(([dir, names]) => names.map(name => (dir ? `${dir}/${name}` : name)));
-const LONG_FILE = 'public/app.js';
+const LONG_FILE = 'apps/web/src/legacy/app.js';
 const LONG_FILE_LINES = 4000;
 
 const iso = hours => new Date(Date.UTC(2026, 8, 20) - hours * 3600e3).toISOString();

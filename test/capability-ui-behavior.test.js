@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'capability-ui.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'features', 'capabilities', 'capability-ui.js'), 'utf8');
 const notes = new Map();
 
 function control(feature, options = {}) {

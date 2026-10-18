@@ -105,20 +105,26 @@ const {
   repositoryAllowed,
   inviteUnbound
 } = require('./src/alpha-access');
-const { PRODUCT_NAME, APP_VERSION, ASSET_VERSION } = require('./src/version');
+const { PRODUCT_NAME, APP_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
-const { assetStampFor } = require('./src/asset-stamp');
-const OFFLINE_CACHE_POLICY = require('./public/offline-cache-policy');
-const { normalizeTransportChoice, planUploadTransport } = require('./public/upload-planning');
+const { loadWebBuild, webCacheControl } = require('./src/web-build');
+const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy');
+const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
+/*
+ * The browser application as built from that tree (scripts/build-web.js). Read
+ * once; the server will not start without it. servedAssetsSha256 names the
+ * built bytes the way RELEASE_TREE_SHA256 names the source.
+ */
+const WEB_ROOT = path.join(__dirname, 'dist', 'web');
+const WEB_BUILD = loadWebBuild(WEB_ROOT);
 /*
  * Bound to the tree rather than the version, so every build invalidates the
  * shell cache it replaces. A stamp that only names the version leaves a
  * returning browser with new HTML and cache-first scripts from an older build.
  */
-const ASSET_STAMP = assetStampFor(RELEASE_TREE_SHA256);
 const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
 const { scanUploadFile, scannerStatus } = require('./src/file-security');
@@ -168,7 +174,7 @@ const { exploitedInProduction } = require('./src/uranus-reach');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { readBranchProtection } = require('./src/branch-protection');
-const { buildPublicAssets, etagMatches, securityContact, stripHtmlComments, stripJsComments } = require('./src/public-assets');
+const { securityContact } = require('./src/public-assets');
 const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
 
@@ -190,7 +196,7 @@ const { createPostureReader, exposureSummary } = require('./src/workspace-postur
 const { summarizePosture } = require('./src/posture-summary');
 const { pullListItem } = require('./src/pull-list');
 const { buildInbox } = require('./src/findings-inbox');
-const codeowners = require('./public/codeowners');
+const codeowners = require('./packages/contracts/src/codeowners');
 const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
@@ -791,7 +797,7 @@ app.get('/robots.txt', (req, res) => {
 
 /* iOS requests these at the root by convention when adding to home screen */
 for (const alias of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
-  app.get(alias, (req, res) => res.sendFile(path.join(__dirname, 'public', 'assets', 'apple-touch-icon.png')));
+  app.get(alias, (req, res) => res.sendFile(path.join(WEB_ROOT, 'assets', 'apple-touch-icon.png')));
 }
 
 /* ============ same-origin vendor proxy (server fetches, memory-caches, serves) ============ */
@@ -895,27 +901,18 @@ app.get('/vendor/*', async (req, res) => {
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
 app.use(express.json({ limit: '30mb' }));
 /*
- * The page, the service worker and the first-party scripts and stylesheets are
- * served without their source comments (src/public-assets.js): the commentary
- * is for maintainers, not for every visitor's download.
+ * The page and the service worker are the build's own files, read once (WEB_BUILD,
+ * near the top). The build has already removed their source comments and named
+ * every script and stylesheet by its content.
  */
-const INDEX_TEMPLATE = stripHtmlComments(fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'));
-const SW_TEMPLATE = (source => { try { return stripJsComments(source); } catch { return source; } })(fs.readFileSync(path.join(__dirname, 'public', 'sw.js'), 'utf8'));
-const PUBLIC_ASSETS = buildPublicAssets(path.join(__dirname, 'public'));
-function renderReleaseTemplate(template) {
-  return template
-    .replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME)
-    .replaceAll('__NV_VERSION__', APP_VERSION)
-    .replaceAll('__NV_ASSET_VERSION__', ASSET_STAMP);
-}
 app.get(['/','/index.html'], (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderReleaseTemplate(INDEX_TEMPLATE));
+  res.type('html').send(WEB_BUILD.index);
 });
 app.get('/sw.js', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Service-Worker-Allowed', '/');
-  res.type('application/javascript').send(renderReleaseTemplate(SW_TEMPLATE));
+  res.type('application/javascript').send(WEB_BUILD.serviceWorker);
 });
 /*
  * Placed after health and readiness and before everything else: those two have
@@ -934,22 +931,9 @@ app.use('/api', (req, res, next) => {
   });
 });
 
-app.use((req, res, next) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-  const asset = PUBLIC_ASSETS.get(req.path);
-  if (!asset || req.path === '/sw.js') return next();
-  res.setHeader('Content-Type', asset.type);
-  res.setHeader('Cache-Control', 'public, max-age=604800'); // safe: URLs are version-stamped
-  res.setHeader('ETag', asset.etag);
-  if (etagMatches(req.headers['if-none-match'], asset.etag)) return res.status(304).end();
-  res.setHeader('Content-Length', String(asset.body.length));
-  return res.end(req.method === 'HEAD' ? undefined : asset.body);
-});
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
-    else res.setHeader('Cache-Control', 'public, max-age=604800'); // safe: URLs are version-stamped
-  }
+app.use(express.static(WEB_ROOT, {
+  index: false,
+  setHeaders(res, filePath) { res.setHeader('Cache-Control', webCacheControl(WEB_ROOT, filePath)); }
 }));
 
 /* ---------------- encrypted cookie session ---------------- */
@@ -4704,7 +4688,7 @@ app.get('/api/workspace/findings', providerSessionAccess, capabilityAccess('find
 
 /*
  * Who owns what in a repository, by its CODEOWNERS file, for the findings
- * inbox to name beside each finding (public/codeowners.js parses and
+ * inbox to name beside each finding (packages/contracts/src/codeowners.js parses and
  * matches). Read from the default branch at the three places GitHub looks,
  * first found wins; patterns and owners only, bounded in size and lines.
  */
@@ -8858,7 +8842,8 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
  */
 app.get('/api/version', (req, res) => res.json({
   product: PRODUCT_NAME,
-  releaseTreeSha256: RELEASE_TREE_SHA256
+  releaseTreeSha256: RELEASE_TREE_SHA256,
+  servedAssetsSha256: WEB_BUILD.servedAssetsSha256
 }));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
@@ -8873,7 +8858,7 @@ app.get('*', (req, res) => {
     return res.status(404).type('text/plain').send('Not found\n');
   }
   res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderReleaseTemplate(INDEX_TEMPLATE));
+  res.type('html').send(WEB_BUILD.index);
 });
 startTempMaintenance();
 const httpServer = app.listen(PORT, () => console.log(`${PRODUCT_NAME} v${APP_VERSION} orbiting on :${PORT}`));

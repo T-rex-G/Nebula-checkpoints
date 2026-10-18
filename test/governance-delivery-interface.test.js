@@ -2,8 +2,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const ui = require('../public/governance-ui');
-const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const ui = require('../apps/web/src/features/governance/governance-ui');
+const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const twin = {
   schemaVersion: 1,
   scope: { owner: 'Acme', repo: 'Demo' },

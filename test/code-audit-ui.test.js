@@ -9,7 +9,7 @@
 const assert = require('assert');
 const { analyse } = require('../src/code-audit');
 const { checkSite } = require('../src/site-check');
-const ui = require('../public/code-audit-ui');
+const ui = require('../apps/web/src/features/uranus/code-audit-ui');
 
 (async () => {
   const files = [

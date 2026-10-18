@@ -53,7 +53,7 @@ const required = [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -61,7 +61,7 @@ const required = [
   'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js',
   'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
+  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'apps/web/src/features/governance/governance-ui.js',
   'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md',
   'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md',
   'src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js',
@@ -82,7 +82,8 @@ for (const value of ['node_modules/', '.env', '*.log', '.DS_Store', '__MACOSX/',
 const render = read('render.yaml');
 assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
 assert.match(render, /plan:\s*free/);
-assert.match(render, /buildCommand:\s*npm ci --omit=dev\s*$/m);
+assert.match(render, /buildCommand:\s*npm ci && npm run build && npm prune --omit=dev\s*$/m,
+  'the service builds the browser application, then drops the build tools from what it runs');
 assert(!/^databases:/m.test(render));
 assert(!render.includes('fromDatabase:'));
 assert(render.includes('NV_GOVERNANCE_AUDIT_SECRET'));
@@ -133,7 +134,18 @@ assert.deepStrictEqual(
   { ...pkg.dependencies, ...pkg.devDependencies },
   'the lockfile root must declare the same versions as package.json'
 );
-for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts/copy-vendor.js', 'scripts/verify.js']) {
+/*
+ * The page's DOMPurify is the pinned, patched package, bundled: the browser
+ * entry imports it by name, the installed copy is the pinned version, and the
+ * built entry carries that version's own licence header.
+ */
+assert(/from 'dompurify'/.test(read('apps/web/src/legacy/vendor-globals.js')), 'the page must bundle DOMPurify from its package');
+assert.strictEqual(JSON.parse(read('node_modules/dompurify/package.json')).version, '3.4.16', 'the installed DOMPurify is not the pinned one');
+{
+  const builtEntry = fs.readdirSync(path.join(root, 'dist', 'web', 'build')).find(file => /^index-.+\.js$/.test(file));
+  assert(builtEntry && read(`dist/web/build/${builtEntry}`).includes('DOMPurify 3.4.16'), 'the built page does not carry the pinned DOMPurify');
+}
+for (const source of ['server.js', 'scripts/copy-vendor.js']) {
   assert(read(source).includes('dompurify/3.4.16/purify.min.js'), `${source} has a stale DOMPurify asset path`);
 }
 assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.16/purify.min.js')));
@@ -231,7 +243,7 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr57)) {
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
 
 const uxArtifacts = [
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -243,7 +255,7 @@ const uxPrograms = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js'
 ];
 const uxSyntaxSources = [
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js'
 ];
@@ -462,7 +474,7 @@ for (const program of publicAlphaPrograms) {
   assert(programIndex > previousProgramIndex, `test:unit must run ${program} after ${releaseProgram}`);
   previousProgramIndex = programIndex;
 }
-for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'public/governance-ui.js', 'src/capability-registry.js']) {
+for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'apps/web/src/features/governance/governance-ui.js', 'src/capability-registry.js']) {
   assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
@@ -476,7 +488,7 @@ for (const artifact of [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
+  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'apps/web/src/features/governance/governance-ui.js',
   'src/control-catalog.js', 'src/governance-enforcement.js',
   'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql'
 ]) {
@@ -577,7 +589,7 @@ for (const forbidden of [
 ]) assert.strictEqual(shouldInclude(forbidden), false, forbidden);
 for (const allowed of [
   'server.js', '.env.example', '.gitignore', '.github/workflows/ci.yml',
-  'public/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
+  'apps/web/src/legacy/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
   ...task6Artifacts
 ]) assert.strictEqual(shouldInclude(allowed), true, allowed);
 
@@ -654,7 +666,7 @@ assert(read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(
  * Asserted against the file rather than a rendered page: a browser test waits
  * for the app to settle, and settling is precisely what hides this.
  */
-const shell = read('public/index.html');
+const shell = read('apps/web/index.html');
 const fabTag = shell.slice(shell.indexOf('id="paletteFab"'));
 assert(
   /^[^>]*\shidden[\s>]/.test(fabTag.slice(0, fabTag.indexOf('>') + 1)) ||

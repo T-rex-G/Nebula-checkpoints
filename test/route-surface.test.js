@@ -235,7 +235,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 185 to 187 adds the findings inbox and the CODEOWNERS read beside it. The
  * inbox reads the two stores and hands their rows to `src/findings-inbox.js`,
  * which decides every state and the order; the CODEOWNERS route reads one file
- * through the qualified file read and hands it to `public/codeowners.js`,
+ * through the qualified file read and hands it to `packages/contracts/src/codeowners.js`,
  * which parses and matches it the way GitHub documents. Both are tested on
  * their own, the store queries against a real database.
  */

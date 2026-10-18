@@ -9,7 +9,7 @@
  */
 
 const assert = require('assert');
-const posture = require('../public/security-posture');
+const posture = require('../apps/web/src/features/posture/security-posture');
 
 const repos = [
   { name: 'Shop', owner: { login: 'Acme' }, pushed_at: '2026-10-09T00:00:00Z' },

@@ -13,8 +13,8 @@
  *
  * Visible elements only: a panel React does not render until it is opened and
  * a panel the classic page kept in the DOM but hidden are the same thing to a
- * reader. Each view is read twice, 700 ms apart, and only what both readings
- * share is the contract, so a class an animation toggles is not mistaken for
+ * reader. Each view is read until two readings 700 ms apart agree, so a class
+ * an animation toggles or a request still landing is not mistaken for
  * structure.
  *
  * NV_DOM_CONTRACT_WRITE=1 records the current interface as the contract.
@@ -54,11 +54,26 @@ function readTokens() {
   return [...tokens].sort();
 }
 
+/*
+ * Read until the view stops changing: two consecutive readings 700 ms apart
+ * must agree, and what both share is the contract. A slow machine lets a late
+ * request land between two fixed samples; waiting for agreement does not.
+ */
 async function stableTokens(page) {
-  const first = await page.evaluate(readTokens);
-  await page.waitForTimeout(700);
-  const second = new Set(await page.evaluate(readTokens));
-  return first.filter(token => second.has(token));
+  const same = (left, right) => left.length === right.length && left.every((token, index) => token === right[index]);
+  let previous = await page.evaluate(readTokens);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await page.waitForTimeout(700);
+    const current = await page.evaluate(readTokens);
+    if (same(previous, current)) return current;
+    if (attempt === 11) {
+      /* Still moving after the budget: an animation that never stops. What the last two readings share is structure. */
+      const last = new Set(current);
+      return previous.filter(token => last.has(token));
+    }
+    previous = current;
+  }
+  return previous;
 }
 
 function deviationsFor(project, view) {

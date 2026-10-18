@@ -79,6 +79,6 @@ assert(/alphaRepositoryAccess/.test(route), 'the list route stays inside the rep
 /* The board reads a full page as "at least this many": its page size is the route's. */
 const page = route.match(/per_page=(\d+)/);
 assert(page, 'the list route names its page size');
-assert.strictEqual(Number(page[1]), require('../public/pull-board').LIST_PAGE, 'the board and the list route disagree about one page');
+assert.strictEqual(Number(page[1]), require('../apps/web/src/features/posture/pull-board').LIST_PAGE, 'the board and the list route disagree about one page');
 
 console.log('pull list tests passed');

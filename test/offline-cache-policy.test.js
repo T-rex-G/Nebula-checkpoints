@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const policy = require('../public/offline-cache-policy');
+const policy = require('../packages/contracts/src/offline-cache-policy');
 
 assert.strictEqual(policy.TTL_MS, 24 * 60 * 60 * 1000);
 assert.strictEqual(policy.MAX_ENTRIES, 100);
@@ -72,7 +72,7 @@ assert.strictEqual(policy.cacheNameForScope('bad'), '');
 assert.strictEqual(policy.isFresh(Date.now() - policy.TTL_MS + 1000, Date.now()), true);
 assert.strictEqual(policy.isFresh(Date.now() - policy.TTL_MS - 1000, Date.now()), false);
 
-const swSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'sw.js'), 'utf8');
+const swSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 assert(swSource.includes("key === 'nv-api-perm'"), 'service worker must delete the legacy shared private cache during activation');
 assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the earlier unscoped API cache during activation');
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),

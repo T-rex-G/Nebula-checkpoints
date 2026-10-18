@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const requiredFunctions = [
   'createGovernancePolicy', 'createGovernanceDraft', 'generateGovernanceBaseline',
   'editGovernanceDraft', 'validateGovernanceDraft', 'submitGovernanceDraft',

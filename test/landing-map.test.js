@@ -4,9 +4,10 @@
  * gives the picture back when it cannot or should not move.
  */
 const assert = require('node:assert/strict');
+const { loadsInShell } = require('./helpers/web-shell');
 const fs = require('node:fs');
 const path = require('node:path');
-const { meet, along, ease, rgb, createLandingMap, BUDGET } = require('../public/landing-map');
+const { meet, along, ease, rgb, createLandingMap, BUDGET } = require('../apps/web/src/visualizations/landing-map');
 
 /* ---- The geometry ------------------------------------------------------------------- */
 {
@@ -287,10 +288,9 @@ function harness({ context = true, display = 'block', layout = null } = {}) {
 
 /* ---- Delivery ---------------------------------------------------------------------- */
 const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-assert.match(html, /<script src="\/landing-map\.js\?v=__NV_ASSET_VERSION__"><\/script>/);
-assert.match(fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8'), /\/landing-map\.js\?v=__NV_ASSET_VERSION__/);
-const css = fs.readFileSync(path.join(root, 'public/style.css'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
+assert(loadsInShell('apps/web/src/visualizations/landing-map.js'), 'the landing map is part of the page and therefore of its precached entry');
+const css = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
 assert.match(css, /\.lp-frame-view\.has-fx \.lp-map-flows,\.lp-frame-view\.has-fx \.lp-map-arcs\{display:none\}/,
   'while the layer runs, the SVG must not draw the same motion underneath it');
 assert.match(css, /\.lp-map-fx\{[^}]*pointer-events:none/);

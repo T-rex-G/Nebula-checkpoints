@@ -15,78 +15,47 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const publicRoot = path.join(root, 'public');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-
-/* The allowlist is the only way a /vendor path reaches a file. */
-const allowlist = new Set(
-  (/const VENDOR_ALLOWLIST = new Set\(\[([\s\S]*?)\]\)/.exec(server)[1].match(/'([^']+)'/g) || [])
-    .map(entry => entry.slice(1, -1))
-);
-assert(allowlist.size >= 30, 'the vendor allowlist must be readable for this check to mean anything');
+const visualsRoot = path.join(root, 'apps', 'web', 'src', 'visualizations');
+const { builtShell } = require('./helpers/web-shell');
 
 const MODULES = ['nebula-galaxy.js', 'nebula-singularity.js'];
 
 /* The Trust core is SVG in both presets; the WebGL mark is retired, and the
    loader must not be able to reach for it. */
-assert(!fs.existsSync(path.join(publicRoot, 'nebula-mark-3d.js')), 'the retired WebGL mark is still shipped');
-assert(!/mark-3d/.test(fs.readFileSync(path.join(publicRoot, 'nebula-visuals.js'), 'utf8')),
+assert(!fs.existsSync(path.join(visualsRoot, 'nebula-mark-3d.js')), 'the retired WebGL mark is still shipped');
+assert(!/mark-3d/.test(fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8')),
   'the loader still knows how to fetch the retired WebGL mark');
 
+/*
+ * Each piece imports three.js by its package name, pinned in package.json, and
+ * the bundler resolves it: no import map, so no inline script and no relaxing
+ * of script-src. The library is its own chunk, reached only through the
+ * pieces' dynamic imports, so a page that never draws one never downloads it.
+ */
+const pinned = require('../package.json').dependencies.three;
+assert.strictEqual(pinned, '0.185.1', 'three.js must stay pinned to the version the artwork was written for');
 for (const name of MODULES) {
-  const source = fs.readFileSync(path.join(publicRoot, name), 'utf8');
+  const source = fs.readFileSync(path.join(visualsRoot, name), 'utf8');
   const imports = [...source.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map(match => match[1]);
-  assert(imports.length > 0, `${name} must import the library it draws with`);
-
-  for (const specifier of imports) {
-    /*
-     * A bare specifier would need an import map, an import map is an inline
-     * script, and an inline script needs script-src relaxed. The absolute
-     * path exists to avoid buying a policy exception with a convenience.
-     */
-    assert(
-      specifier.startsWith('/'),
-      `${name} imports the bare specifier ${specifier}, which only resolves behind an inline import map`
-    );
-    const served = path.join(publicRoot, specifier.replace(/^\//, ''));
-    assert(fs.existsSync(served), `${name} imports ${specifier}, which this origin does not serve`);
-
-    if (specifier.startsWith('/vendor/')) {
-      const asset = specifier.replace('/vendor/', '');
-      assert(allowlist.has(asset), `${specifier} is served from disk but the vendor route refuses it: ${asset}`);
-    }
-  }
+  assert.deepStrictEqual(imports, ['three'], `${name} must import only the library it draws with`);
+}
+{
+  const shell = builtShell();
+  const build = fs.readdirSync(path.join(root, 'dist', 'web', 'build'));
+  const library = build.filter(file => /^three\.module-.+\.js$/.test(file));
+  assert.strictEqual(library.length, 1, 'three.js must be one chunk of its own');
+  const entry = fs.readFileSync(path.join(root, 'dist', 'web', shell.entry.replace(/^\//, '')), 'utf8');
+  const staticImports = [...entry.matchAll(/(?:^|[;}])import\s*["'{*][^;]*?from\s*["']([^"']+)["']|(?:^|[;}])import\s*["']([^"']+)["']/g)]
+    .map(match => match[1] || match[2]);
+  assert(!staticImports.some(specifier => /three|nebula-galaxy|nebula-singularity/.test(specifier)),
+    'the entry must not import the artwork or three.js statically');
 }
 
-/*
- * three.js imports its own core by relative specifier, so the two files only
- * resolve as siblings. Copying one and not the other leaves a module that
- * loads and then fails on its own import.
- */
 {
-  const entry = path.join(publicRoot, 'vendor', 'three', '0.185.1', 'three.module.min.js');
-  assert(fs.existsSync(entry), 'the three.js entry module must be vendored');
-  const source = fs.readFileSync(entry, 'utf8');
-  const relative = [...source.matchAll(/["'](\.\/[^"']+\.js)["']/g)].map(match => match[1]);
-  assert(relative.length > 0, 'three.js must be the split build this check was written for');
-  for (const specifier of new Set(relative)) {
-    const sibling = path.resolve(path.dirname(entry), specifier);
-    assert(fs.existsSync(sibling), `three.js imports ${specifier}, which was not vendored beside it`);
-    const asset = path.relative(path.join(publicRoot, 'vendor'), sibling).split(path.sep).join('/');
-    assert(allowlist.has(asset), `three.js imports ${specifier}, which the vendor route refuses`);
-  }
-}
-
-/*
- * The download is the point of the loader. If anything could mount the artwork
- * without first establishing that the device can draw it, a reader without
- * WebGL would pay 750KB for a blank frame.
- */
-{
-  const loader = fs.readFileSync(path.join(publicRoot, 'nebula-visuals.js'), 'utf8');
+  const loader = fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8');
   const mount = loader.slice(loader.indexOf('async function mount('));
   const guard = mount.indexOf('supportsWebGL()');
-  const load = mount.indexOf('import(');
+  const load = mount.indexOf('MODULES[kind]()');
   assert(guard > -1 && load > -1, 'the loader must probe for WebGL and import behind that probe');
   assert(guard < load, 'the WebGL probe must be resolved before the module import is started');
   assert(
@@ -138,7 +107,7 @@ for (const name of MODULES) {
    * shell would defeat every check the loader makes and pull three.js into the
    * first paint.
    */
-  const app = fs.readFileSync(path.join(publicRoot, 'app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
   for (const name of MODULES) {
     assert(!app.includes(`/${name}`), `app.js must not load ${name} directly; the loader decides whether to`);
   }
@@ -146,7 +115,7 @@ for (const name of MODULES) {
 
 /* Decoration is never announced. */
 for (const name of MODULES) {
-  const source = fs.readFileSync(path.join(publicRoot, name), 'utf8');
+  const source = fs.readFileSync(path.join(visualsRoot, name), 'utf8');
   assert(
     source.includes("setAttribute('aria-hidden', 'true')"),
     `${name} draws decoration and must hide itself from assistive technology`
@@ -159,11 +128,10 @@ for (const name of MODULES) {
  * including the ones who never open a screen that draws them.
  */
 {
-  const worker = fs.readFileSync(path.join(publicRoot, 'sw.js'), 'utf8');
-  assert(worker.includes('/nebula-visuals.js?v='), 'the worker must precache the artwork loader');
-  const lists = worker.slice(0, worker.indexOf("addEventListener('install'"));
-  for (const heavy of ['three.module.min.js', 'nebula-galaxy.js', 'nebula-singularity.js']) {
-    assert(!lists.includes(heavy), `${heavy} must not be warmed on install; it is cached on first use`);
+  const shell = builtShell();
+  assert(shell.precaches(shell.entry), 'the worker must precache the entry, which holds the artwork loader');
+  for (const heavy of ['three.module-', 'nebula-galaxy-', 'nebula-singularity-']) {
+    assert(!shell.worker.includes(`/build/${heavy}`), `${heavy} must not be warmed on install; it is cached on first use`);
   }
 }
 
@@ -185,7 +153,7 @@ console.log('nebula visuals contract tests passed');
  * the absent read is the whole defect.
  */
 for (const file of MODULES) {
-  const source = fs.readFileSync(path.join(publicRoot, file), 'utf8');
+  const source = fs.readFileSync(path.join(visualsRoot, file), 'utf8');
   /*
    * Counted, not merely present. The first version of this guard matched
    * "data-motion" anywhere in the file -- which the observer's own
@@ -205,16 +173,22 @@ for (const file of MODULES) {
 }
 
 /*
- * Static files are cached for a week on the promise that their URL changes
- * with their contents. The artwork modules were imported by bare path, so a
- * phone kept drawing a stale galaxy -- still violet in the Obsidian preset --
- * long after the deploy that changed it. The loader stamps them with the build.
+ * Built files are cached for a year on the promise that their names change
+ * with their contents. The artwork modules were once imported by a bare path,
+ * so a phone kept drawing a stale galaxy -- still violet in the Obsidian
+ * preset -- long after the deploy that changed it. The loader now imports them
+ * through the build, which names each chunk by its content.
  */
 {
-  const loader = fs.readFileSync(path.join(publicRoot, 'nebula-visuals.js'), 'utf8');
-  assert(/dataset\.nvAssetVersion/.test(loader), 'the loader must read the build stamp from the document');
+  const loader = fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8');
+  const { webCacheControl } = require('../src/web-build');
+  const built = path.join(root, 'dist', 'web');
   for (const name of MODULES) {
-    assert(new RegExp(`versioned\\('/${name.replace('.', '\\.')}'\\)`).test(loader),
-      `${name} must be imported with the build stamp, or a cached copy outlives the deploy`);
+    assert(loader.includes(`import('./${name}')`), `${name} must be imported through the build, not by a fixed URL`);
+    const chunk = fs.readdirSync(path.join(built, 'build')).find(file => file.startsWith(`${name.replace(/\.js$/, '')}-`));
+    assert(chunk && /-[A-Za-z0-9_-]{8}\.js$/.test(chunk), `${name} must be built under a content-hashed name`);
+    assert.strictEqual(webCacheControl(built, path.join(built, 'build', chunk)), 'public, max-age=31536000, immutable');
   }
+  assert.strictEqual(webCacheControl(built, path.join(built, 'theme-boot.js')), 'no-cache',
+    'a file whose name does not change with its contents must be revalidated');
 }

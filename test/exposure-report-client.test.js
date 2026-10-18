@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { describeFinding, describeDisposition, safeDisplayPath } = require('../src/exposure-narration');
 const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
-const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+const app = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
 const dto = { describeFinding, describeDisposition, safeDisplayPath, EXPOSURE_VERIFIABLE_RULES: new Set() };
 vm.runInNewContext(server.slice(server.indexOf('function exposureFindingPayload('), server.indexOf('const EXPOSURE_VERIFIABLE_RULES')), dto);
 const secret = 'ghp_' + 'A'.repeat(36);

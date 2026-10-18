@@ -193,7 +193,7 @@ test('a client navigation to an HTTP error page cannot become a successful rende
 
 test('disposing a rendered form cancels a run acknowledged after disposal without target URLs in polls', async ({ page }) => {
   await page.setContent('<div id="isolated-rendered-root"></div>');
-  await page.addScriptTag({ path: require('path').join(__dirname, '../../public/rendered-audit-ui.js') });
+  await page.addScriptTag({ path: require('path').join(__dirname, '../../apps/web/src/features/parallax/rendered-audit-ui.js') });
   await page.evaluate(() => {
     window.renderedCalls = [];
     window.NebulaRenderedAudit.mount(document.querySelector('#isolated-rendered-root'), { download() {}, api: async (url, options = {}) => {
@@ -241,7 +241,7 @@ test('a failed cancellation stays explicit and can be retried', async ({ page })
 
 test('a failure the server reported for the run is shown, while an edge hiccup is retried', async ({ page }) => {
   await page.setContent('<div id="isolated-rendered-root"></div>');
-  await page.addScriptTag({ path: require('path').join(__dirname, '../../public/rendered-audit-ui.js') });
+  await page.addScriptTag({ path: require('path').join(__dirname, '../../apps/web/src/features/parallax/rendered-audit-ui.js') });
   await page.evaluate(() => {
     const coded = (status, code, message) => Object.assign(new Error(message), { status, code });
     window.renderedPolls = 0;

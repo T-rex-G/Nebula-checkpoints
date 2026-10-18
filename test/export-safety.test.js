@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { csvCell, activityCsv } = require('../public/export-safety');
+const { csvCell, activityCsv } = require('../apps/web/src/features/workbench/export-safety');
 
 assert.strictEqual(csvCell('plain'), '"plain"');
 assert.strictEqual(csvCell('hello,"world"'), '"hello,""world"""');

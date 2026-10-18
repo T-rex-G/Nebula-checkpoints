@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
 const start = source.indexOf('async function loadMoreGovernanceDecisions(');
 const end = source.indexOf('\nfunction governanceBasePath()', start);
 assert(start >= 0 && end > start, 'the actual client pagination function must be available');

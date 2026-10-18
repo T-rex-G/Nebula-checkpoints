@@ -1,14 +1,14 @@
 'use strict';
 
 /*
- * The pull-request board's decisions (public/pull-board.js), without a
+ * The pull-request board's decisions (apps/web/src/features/posture/pull-board.js), without a
  * browser: which repositories are read and how many at once, which column a
  * pull request lands in and in what order, what the first line says, and
  * what the card admits about the repositories it could not read.
  */
 
 const assert = require('assert');
-const Board = require('../public/pull-board');
+const Board = require('../apps/web/src/features/posture/pull-board');
 
 const NOW = Date.parse('2026-10-12T12:00:00Z');
 const daysAgo = days => new Date(NOW - days * 86400000).toISOString();

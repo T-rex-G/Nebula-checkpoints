@@ -1,7 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
 const ui = require('./semantic');
-const { assetStampFor } = require('../../src/asset-stamp');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
 
@@ -66,13 +65,14 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const keys = await page.evaluate(() => caches.keys());
-  /* Named by the release tree rather than the version string: two builds of
-     one version must not share a shell cache, or a returning browser keeps
-     older scripts behind newer markup. */
-  const { releaseTreeSha256 } = await page.evaluate(
-    () => fetch('/api/version').then(response => response.json())
-  );
-  expect(keys).toContain(`nv-static-v${assetStampFor(releaseTreeSha256)}`);
+  /* Named by a digest of the files it holds, which the build writes into the
+     worker: two builds share a shell cache only when they share those bytes,
+     so a returning browser never keeps older scripts behind newer markup. */
+  const worker = await page.evaluate(() => fetch('/sw.js').then(response => response.text()));
+  const shell = (/["'`](nv-static-[0-9a-f]{16})["'`]/.exec(worker) || [])[1];
+  expect(shell).toBeTruthy();
+  expect(keys).toContain(shell);
+  expect(keys.filter(key => key.startsWith('nv-static-'))).toEqual([shell]);
   expect(keys).not.toContain('nv-api-perm');
 });
 

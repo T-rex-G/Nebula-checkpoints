@@ -12,7 +12,7 @@
  */
 
 const assert = require('assert');
-const ui = require('../public/governance-ui');
+const ui = require('../apps/web/src/features/governance/governance-ui');
 
 const POLICY = '10000000-0000-4000-8000-000000000001';
 const ACTIVE = '20000000-0000-4000-8000-000000000002';

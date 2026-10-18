@@ -26,10 +26,11 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const motion = require('../public/overlay-motion');
-const appSource = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
-const cssSource = fs.readFileSync(path.join(root, 'public/style.css'), 'utf8');
-const htmlSource = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+const motion = require('../apps/web/src/components/overlay-motion');
+const appSource = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'), 'utf8');
+const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
+const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
+const { shellImports, builtShell } = require('./helpers/web-shell');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
 let failures = 0;
@@ -363,11 +364,13 @@ scrimIds.forEach(id => {
 check('app.js reaches the overlay rules through the shared module', () => {
   assert.ok(/NebulaOverlayMotion\.createOverlayMotion\(/.test(appSource),
     'app.js no longer builds its overlay helpers from the tested module, so these tests prove nothing about the page');
-  assert.ok(/\/overlay-motion\.js\?v=__NV_ASSET_VERSION__/.test(htmlSource),
-    'the page does not load overlay-motion.js, so app.js will throw on the first line that uses it');
-  const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-  assert.ok(/\/overlay-motion\.js\?v=__NV_ASSET_VERSION__/.test(sw),
-    'overlay-motion.js is not precached; offline, app.js would fail to parse and the whole app would be dead');
+  const order = shellImports();
+  const motionAt = order.indexOf('apps/web/src/components/overlay-motion.js');
+  assert.ok(motionAt !== -1 && motionAt < order.indexOf('apps/web/src/legacy/app.js'),
+    'the page does not load overlay-motion.js before app.js, so app.js will throw on the first line that uses it');
+  const shell = builtShell();
+  assert.ok(shell.precaches(shell.entry),
+    'the entry that carries overlay-motion.js is not precached; offline, the whole app would be dead');
 });
 
 /* ---------------- the stylesheet has to resolve ---------------- */
@@ -695,20 +698,21 @@ check('the landing scene draws itself rather than shipping a picture', () => {
    * drives it, or the driver finds no factory and hides the canvas on every
    * load.
    *
-   * Matched as a <script> tag, not as a filename. Reading the first mention
-   * of the file anywhere in the source finds a comment instead, which sits a
-   * thousand lines earlier than either tag and so reports the right order
-   * whatever the tags actually do -- this guard was written that way once,
-   * and swapping the two tags walked straight through it.
+   * Matched as an import of the entry, not as a filename. Reading the first
+   * mention of the file anywhere finds a comment instead, which reports the
+   * right order whatever the imports actually do -- this guard was written
+   * that way once, against the page's script tags, and swapping the two
+   * walked straight through it.
    */
-  const tagAt = name => htmlSource.indexOf(`<script src="/${name}?v=`);
+  const imports = shellImports();
+  const tagAt = name => imports.findIndex(entry => entry.endsWith(`/${name}`));
   const sceneAt = tagAt('vortex.js');
   const stageAt = tagAt('landing-stage.js');
   assert.ok(sceneAt !== -1, 'the vortex script is not in the document');
   assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
   assert.ok(sceneAt < stageAt,
     'landing-stage.js is parsed before vortex.js, so the factory is never there when it looks');
-  assert.ok(!fs.existsSync(path.join(root, 'public/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
+  assert.ok(!fs.existsSync(path.join(root, 'apps/web/src/visualizations/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
     'the plasma ring is back beside the vortex, so the landing ships two scenes and draws one');
   const shape = (tag[0].match(/data-vortex="([^"]*)"/) || [])[1];
   assert.ok(shape && Object.prototype.hasOwnProperty.call(loadVortex().PRESETS, shape),
@@ -723,7 +727,7 @@ check('the landing scene draws itself rather than shipping a picture', () => {
 function loadVortex() {
   const sandbox = {};
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8'), sandbox, { filename: 'public/vortex.js' });
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8'), sandbox, { filename: 'apps/web/src/visualizations/vortex.js' });
   return sandbox.NebulaVortex;
 }
 
@@ -737,7 +741,7 @@ function loadVortex() {
  * build() is the belt behind it.
  */
 check('the vortex cannot ask for more vertices than its index type can address', () => {
-  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8');
   assert.ok(/UNSIGNED_SHORT/.test(source),
     'the index type changed; this guard is measuring a limit that no longer applies');
   const vortex = loadVortex();
@@ -859,7 +863,7 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
     const f = vortex.FEATHER[side];
     assert.ok(f > 0 && f < 0.45, `the ${side} edge of the scene does not fade, or fades past its middle`);
   });
-  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8');
   assert.ok(/failIfMajorPerformanceCaveat/.test(source) && /swiftshader/i.test(source),
     'the scene no longer asks whether it would be drawn in software, so a runner without a GPU pays for multisampling');
 });
@@ -1007,7 +1011,7 @@ function runLandingStage(options) {
     }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8'), sandbox, { filename: 'public/landing-stage.js' });
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8'), sandbox, { filename: 'apps/web/src/visualizations/landing-stage.js' });
   /* An attribute changes; only the observers that asked for it hear about it. */
   const mutate = (target, attribute) => {
     const watch = mutations.get(target);
@@ -1232,7 +1236,7 @@ check('the scene follows the theme rather than reading it once at load', () => {
 check('no light box sits behind the vortex, and nothing moves one', () => {
   assert.ok(!/lp-glow/.test(htmlSource), 'the landing markup still carries the old bloom layer');
   assert.ok(!/\.lp-glow\b/.test(cssSource), 'the stylesheet still styles the old bloom layer');
-  const stage = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const stage = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8');
   assert.ok(!/--gx|--gy|lp-glow/.test(stage), 'the landing script still drives a pointer-following light');
   const lpRules = rules.filter(rule => eachSelector(rule).some(one => /(^|\s)\.lp$/.test(one.selector.trim())));
   /* The paint only: the same rule also carries colour tokens for the copy. */
@@ -1283,7 +1287,7 @@ check('the access flow survived being given a stage', () => {
  * word of it -- measured at 323px on a phone.
  */
 check('raising the gate does not scroll the page past its own headline', () => {
-  const alphaSource = fs.readFileSync(path.join(root, 'public/alpha-ui.js'), 'utf8');
+  const alphaSource = fs.readFileSync(path.join(root, 'apps/web/src/features/access/alpha-ui.js'), 'utf8');
   const focuses = [...alphaSource.matchAll(/invite\.focus\(([^)]*)\)/g)];
   assert.ok(focuses.length >= 1, 'nothing focuses the invitation any more');
   focuses.forEach(match => {
@@ -1580,7 +1584,7 @@ check('a layer on its way out stops taking presses', () => {
 /* ---------------- lifting a function out of the shell ---------------- */
 
 /*
- * public/app.js is a classic script, not a module: there is nothing to
+ * apps/web/src/legacy/app.js is a classic script, not a module: there is nothing to
  * require. These checks want behaviour rather than the shape of the text, so
  * the named function is cut out of the source and compiled on its own with
  * whatever it closes over passed in. A rewrite that keeps the words and loses
@@ -1963,7 +1967,7 @@ check('a reading is drawn as an arc, not filled in by a legend colour', () => {
    * fill-setting class. Read off the source that builds the ring rather than
    * off a list kept in step by hand.
    */
-  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  const pulseSource = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
   const classed = [...pulseSource.matchAll(/class:\s*[`'"]([^`'"]*(?:gauge-arc|donut-arc)[^`'"]*)[`'"]/g)]
     .map(match => match[1]);
   assert.ok(classed.length, 'nothing builds an arc any more');
@@ -1993,7 +1997,7 @@ check('a reading is drawn as an arc, not filled in by a legend colour', () => {
  * "not measured" apart from "measured and failing".
  */
 check('an unmeasured reading draws no arc at all', () => {
-  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  const pulseSource = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
   const at = pulseSource.indexOf('function gauge(');
   assert.ok(at >= 0, 'the gauge primitive is gone');
   const body = pulseSource.slice(at, pulseSource.indexOf('\n  }\n', at));
@@ -2124,7 +2128,7 @@ check('the motion itself is in the cascade, gated both ways', () => {
    * directly the reduced-motion and data-motion gates below stop applying to
    * it, because they are cascade rules.
    */
-  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8');
   const reaching = source.slice(source.indexOf('is-reaching'));
   assert.ok(!/\.style\./.test(reaching.slice(0, 400)),
     'the moment writes a style directly, which no motion setting can then turn off');
@@ -2186,7 +2190,7 @@ check('the landing page wears the product mark rather than one drawn in place', 
  */
 function runThemeBoot(options) {
   const settings = options || {};
-  const source = fs.readFileSync(path.join(root, 'public/theme-boot.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'apps/web/public/theme-boot.js'), 'utf8');
   const documentElement = { dataset: { theme: 'dark' } };
   const meta = { content: '' };
   const toggles = Array.from({ length: settings.toggles || 0 }, () => ({
@@ -2207,7 +2211,7 @@ function runThemeBoot(options) {
       : { getItem: key => key === 'nv_settings' ? (settings.motionSettings || null) : (key === 'nv_theme' ? (settings.stored || null) : null) }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(source, sandbox, { filename: 'public/theme-boot.js' });
+  vm.runInNewContext(source, sandbox, { filename: 'apps/web/public/theme-boot.js' });
   return {
     theme: () => documentElement.dataset.theme,
     motion: () => documentElement.dataset.motion,
@@ -2386,8 +2390,8 @@ check('the root element publishes no release version', () => {
   assert.ok(root, 'the root element is gone');
   assert.ok(!/data-nv-version/.test(root[0]),
     'the release version is back on the root element, where nothing reads it');
-  assert.ok(/data-nv-asset-version/.test(root[0]),
-    'the asset version is gone, and app.js reads it to stamp every asset URL');
+  assert.ok(!/data-nv-asset-version/.test(root[0]) && !/nvAssetVersion/.test(appSource),
+    'an asset stamp is back on the root element; the build names every file by its content instead');
 });
 
 /*
@@ -2408,7 +2412,7 @@ check('the overview charts draw in one hue per preset, never in status colours',
   const obsidian = cssSource.match(/\[data-design="obsidian"\]\{\s*--wp-series:([^;]+);/);
   assert.ok(obsidian, 'Obsidian has no series ink of its own, so its charts draw in Nebula violet');
   assert.ok(!/8b5cf6|9a77f7|7c3aed|a78bfa/i.test(obsidian[1]), 'Obsidian draws its charts in violet');
-  const pulse = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
+  const pulse = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
   assert.ok(!/'stop-color':\s*'#/.test(pulse), 'a chart gradient carries a colour of its own instead of the preset ink');
 });
 

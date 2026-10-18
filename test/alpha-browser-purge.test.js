@@ -6,9 +6,9 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const serviceWorker = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const serviceWorker = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 
 for (const label of [
   'Disconnect from Nebulaverse-X',
@@ -53,7 +53,7 @@ function functionSource(name) {
 
 function browserFunction(name, sandbox) {
   vm.runInNewContext(`${functionSource(name)}\nthis.target = ${name};`, sandbox, {
-    filename: 'public/app.js'
+    filename: 'apps/web/src/legacy/app.js'
   });
   return sandbox.target;
 }

@@ -105,6 +105,7 @@ jobs:
               { mode: 0o600 }
             );
           '
+      - run: npm run build
       - run: npm run test:runtime:matrix
       # Chromium is installed here for the qualifier below, which runs the
       # browser suite inside the extracted candidate.

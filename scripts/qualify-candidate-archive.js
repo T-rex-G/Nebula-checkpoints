@@ -521,6 +521,9 @@ const DEFAULT_TRUSTED_PROGRAM_PATHS = Object.freeze([
    * would still prove nothing.
    */
   'scripts/audit-production.js',
+  /* The page build and its configuration run before every server the gate starts. */
+  'scripts/build-web.js',
+  'apps/web/vite.config.js',
   'src/test-matrix.js',
   'src/governance-model.js'
 ]);
@@ -926,6 +929,17 @@ function qualifyCandidateArchive(options) {
     cwd: candidateRoot,
     env: environment,
     label: 'candidate reviewed vendor copy',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
+  });
+  /*
+   * The page is built from the candidate's own sources, as the host builds it
+   * (ADR-091). The archive carries sources and never a build, and the server
+   * refuses to start without one, so every program below needs it.
+   */
+  runCommand(process.execPath, ['scripts/build-web.js'], {
+    cwd: candidateRoot,
+    env: environment,
+    label: 'candidate web build',
     timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
   if (options.useFixtureCommands === true) {

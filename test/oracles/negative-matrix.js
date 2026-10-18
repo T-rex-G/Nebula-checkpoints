@@ -20,7 +20,7 @@ const { deriveKey, KEY_PURPOSES } = require('../../src/key-derivation');
 const { withLifetime } = require('../fixtures/local-session');
 const { serverEntry } = require('../helpers/server-entry');
 
-const SESSION_SECRET = ['oracle', 'matrix', '0123456789abcdef', '0123456789abcdef'].join('-');
+const MATRIX_SECRET = ['oracle', 'matrix', '0123456789abcdef', '0123456789abcdef'].join('-');
 const SNAPSHOT_SECRET = ['oracle', 'snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -39,7 +39,7 @@ function samplePath(routePath) {
 }
 
 function seal(value) {
-  const key = deriveKey(SESSION_SECRET, KEY_PURPOSES.SESSION_CONTENT);
+  const key = deriveKey(MATRIX_SECRET, KEY_PURPOSES.SESSION_CONTENT);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(JSON.stringify(withLifetime(value)), 'utf8'), cipher.final()]);
@@ -107,7 +107,7 @@ async function startServer(root) {
       ...process.env,
       PORT: String(port),
       NODE_ENV: 'production',
-      SESSION_SECRET,
+      SESSION_SECRET: MATRIX_SECRET,
       NV_SNAPSHOT_SIGNING_KEY_ID: 'oracle-snapshot-key',
       NV_SNAPSHOT_SIGNING_SECRET: SNAPSHOT_SECRET,
       DATABASE_URL: '',

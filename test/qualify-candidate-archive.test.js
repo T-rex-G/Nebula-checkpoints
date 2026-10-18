@@ -131,6 +131,7 @@ function stableJson(value) {
 const args = process.argv.slice(2);
 const reportIndex = args.indexOf('--report');
 if (!args.includes('--require-all') || !args.includes('--require-subject') || reportIndex < 0) process.exit(9);
+if (!fs.existsSync(path.join(__dirname, '..', 'web-build.marker'))) process.exit(8);
 const reportPath = path.resolve(args[reportIndex + 1]);
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 const reportCore = {
@@ -182,6 +183,12 @@ if (fs.existsSync(require('path').join(__dirname, 'tamper-matrix'))) {
   fs.writeFileSync(path.join(candidate, 'scripts', 'copy-vendor.js'), `'use strict';
 require('fs').writeFileSync(require('path').join(__dirname, '..', 'vendor-copy.marker'), 'copied\\n');
 `);
+  fs.writeFileSync(path.join(candidate, 'scripts', 'build-web.js'), `'use strict';
+const fs = require('fs');
+const path = require('path');
+if (!fs.existsSync(path.join(__dirname, '..', 'vendor-copy.marker'))) process.exit(7);
+fs.writeFileSync(path.join(__dirname, '..', 'web-build.marker'), 'built\\n');
+`);
   /*
    * A stand-in for the audit gate. The real one spawns npm against the public
    * registry, and a qualification test that needed the registry would be
@@ -217,6 +224,7 @@ const fixtureTrustedProgramPaths = Object.freeze([
   'scripts/test-matrix.js',
   'scripts/fake-browser.js',
   'scripts/copy-vendor.js',
+  'scripts/build-web.js',
   'scripts/audit-production.js'
 ]);
 
@@ -238,6 +246,8 @@ function fixtureClaimRequirements() {
     'scripts/copy-vendor.js',
     'scripts/check-secrets.js',
     'scripts/audit-production.js',
+    'scripts/build-web.js',
+    'apps/web/vite.config.js',
     'src/test-matrix.js',
     'src/governance-model.js',
     'test/example.test.js'
@@ -556,6 +566,8 @@ try {
   assert.strictEqual(result.subjectSha256, expectedSha256);
   assert.strictEqual(result.candidateRoot, path.join(extractDir, 'candidate-fixture'));
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'vendor-copy.marker')), true);
+  assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'web-build.marker')), true,
+    'the candidate must build its page before any program starts its server');
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'lifecycle.marker')), false);
   const auditInvocations = fs.readFileSync(
     path.join(result.candidateRoot, 'audit-invocations.jsonl'),

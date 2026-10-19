@@ -3,16 +3,12 @@
 const crypto = require('crypto');
 const { normalizePolicyScope } = require('./governance-model');
 
-const AUTHORIZATION_SCHEMA_VERSION = 1;
-const GOVERNANCE_ROLE_NAMES = Object.freeze([
-  'reader', 'author', 'reviewer', 'activator', 'administrator'
-]);
-const AUTH_METHODS = new Set(['token', 'oauth', 'github-app']);
-const EVIDENCE_STATUSES = new Set(['resolved', 'partial', 'unavailable']);
-const BASE_ROLES = new Set(['none', 'read', 'triage', 'write', 'maintain', 'admin']);
-const ACCESS_LEVEL_BY_ROLE = Object.freeze({ none: 0, read: 10, triage: 20, write: 30, maintain: 40, admin: 50 });
-const ACCESS_LEVELS = new Set(Object.values(ACCESS_LEVEL_BY_ROLE));
-const SENSITIVE_KEY_RX = /(?:accesstoken|refreshtoken|token|secret|password|privatekey|authorization|cookie)/i;
+/* The snapshot's shape and its guard are the actor contract; this module resolves one from the provider. */
+const actor = require('../packages/contracts/src/actor.ts');
+const { isPlainObject } = require('../packages/contracts/src/guards.ts');
+
+const { ACCESS_LEVEL_BY_ROLE, AUTHORIZATION_SCHEMA_VERSION, GOVERNANCE_ROLE_NAMES, rolesForLevel } = actor;
+const AUTH_METHODS = new Set(actor.AUTH_METHODS);
 const DEFAULT_CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 200;
 
@@ -29,217 +25,17 @@ function fail(message, code, status = 400) {
   throw new AuthorizationResolverError(message, code, status);
 }
 
-function isPlainObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function sensitiveKey(key) {
-  return SENSITIVE_KEY_RX.test(String(key || '').replace(/[^a-z0-9]/gi, ''));
-}
-
-function cloneCredentialFree(value, path = '$', depth = 0) {
-  if (depth > 8) fail(`${path} exceeds the authorization depth limit`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-  if (value === null || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail(`${path} contains a non-finite number`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-    return value;
-  }
-  if (typeof value === 'string') {
-    if (value.length > 4096 || /\0/.test(value)) fail(`${path} contains invalid text`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > 100) fail(`${path} contains too many items`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-    return value.map((entry, index) => cloneCredentialFree(entry, `${path}[${index}]`, depth + 1));
-  }
-  if (!isPlainObject(value)) fail(`${path} contains a non-JSON value`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const keys = Object.keys(value);
-  if (keys.length > 80) fail(`${path} contains too many fields`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const out = {};
-  for (const key of keys) {
-    if (!key || key.length > 120 || /[\0\r\n]/.test(key)) fail(`${path} contains an invalid field name`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-    if (sensitiveKey(key)) fail(`Sensitive field ${key} is not allowed in authorization evidence`, 'AUTHORIZATION_SENSITIVE_FIELD');
-    out[key] = cloneCredentialFree(value[key], `${path}.${key}`, depth + 1);
-  }
-  return out;
-}
-
-function deepFreeze(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const entry of Object.values(value)) deepFreeze(entry);
-  return Object.freeze(value);
-}
-
 function normalizeText(value, label, max = 200, allowEmpty = false) {
-  const text = String(value == null ? '' : value).trim();
-  if ((!allowEmpty && !text) || text.length > max || /[\0\r\n]/.test(text)) {
-    fail(`${label} is invalid`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  return text;
+  return actor.normalizeAuthorizationText(value, label, max, allowEmpty, fail);
 }
 
 function normalizeIdentityKey(value, label) {
-  const text = String(value || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(text)) fail(`${label} is invalid`, 'AUTHORIZATION_IDENTITY_INVALID');
-  return text;
+  return actor.normalizeAuthorizationIdentityKey(value, label, fail);
 }
 
-function normalizeIso(value, label) {
-  const text = normalizeText(value, label, 80);
-  const timestamp = new Date(text);
-  if (!Number.isFinite(timestamp.getTime()) || timestamp.toISOString() !== text) {
-    fail(`${label} is invalid`, 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  return text;
-}
-
-function normalizePermissions(value) {
-  if (!isPlainObject(value)) fail('Installation permissions are invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const out = {};
-  for (const key of Object.keys(value).sort()) {
-    const permission = String(value[key] || '');
-    if (!/^[a-z_]{1,80}$/.test(key) || !['read', 'write', 'admin'].includes(permission)) {
-      fail('Installation permissions are invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-    }
-    out[key] = permission;
-  }
-  return out;
-}
-
+/* A malformed snapshot is an AuthorizationResolverError; a malformed scope inside it stays governance's own. */
 function normalizeAuthorizationSnapshot(input) {
-  if (!isPlainObject(input)) fail('Authorization snapshot must be an object', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  cloneCredentialFree(input);
-  if (Number(input.schemaVersion) !== AUTHORIZATION_SCHEMA_VERSION) {
-    fail('Authorization snapshot schema is unsupported', 'AUTHORIZATION_SCHEMA_UNSUPPORTED');
-  }
-
-  const rawScope = input.scope;
-  if (!isPlainObject(rawScope)) fail('Authorization scope is required', 'AUTHORIZATION_SCOPE_INVALID');
-  const scope = normalizePolicyScope({
-    provider: rawScope.provider,
-    baseUrl: rawScope.authority ? `https://${rawScope.authority}` : undefined,
-    owner: rawScope.owner,
-    repo: rawScope.repo
-  });
-  if (scope.authority !== String(rawScope.authority || '').trim() ||
-      scope.scopeKey !== String(rawScope.scopeKey || '').trim()) {
-    fail('Authorization scope is inconsistent', 'AUTHORIZATION_SCOPE_INVALID');
-  }
-
-  const rawExecution = input.executionPrincipal;
-  if (!isPlainObject(rawExecution)) fail('Execution principal is required', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const executionKind = String(rawExecution.kind || '').trim();
-  if (!['user', 'installation'].includes(executionKind)) fail('Execution principal kind is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const authMethod = String(rawExecution.authMethod || '').trim();
-  if (!AUTH_METHODS.has(authMethod) || (executionKind === 'installation') !== (authMethod === 'github-app')) {
-    fail('Execution authentication method is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  const executionPrincipal = {
-    kind: executionKind,
-    identityKey: normalizeIdentityKey(rawExecution.identityKey, 'Execution identity'),
-    login: normalizeText(rawExecution.login, 'Execution login'),
-    authMethod
-  };
-  if (executionKind === 'installation') {
-    const installationId = Number(rawExecution.installationId);
-    if (!Number.isSafeInteger(installationId) || installationId <= 0) {
-      fail('Execution installation ID is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-    }
-    executionPrincipal.installationId = installationId;
-  }
-
-  const rawActor = input.governanceActor;
-  if (!isPlainObject(rawActor) || String(rawActor.kind || '') !== 'human') {
-    fail('Governance actor is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  const governanceActor = {
-    kind: 'human',
-    identityKey: normalizeIdentityKey(rawActor.identityKey, 'Governance identity'),
-    login: normalizeText(rawActor.login, 'Governance login'),
-    verified: rawActor.verified === true
-  };
-
-  const rawAccess = input.repositoryAccess;
-  if (!isPlainObject(rawAccess)) fail('Repository access is required', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const baseRole = String(rawAccess.baseRole || '').trim().toLowerCase();
-  const level = Number(rawAccess.level);
-  if (!BASE_ROLES.has(baseRole) || !ACCESS_LEVELS.has(level) || ACCESS_LEVEL_BY_ROLE[baseRole] !== level) {
-    fail('Repository access is inconsistent', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  const repositoryAccess = {
-    baseRole,
-    providerRole: normalizeText(rawAccess.providerRole, 'Provider role', 120),
-    level,
-    source: normalizeText(rawAccess.source, 'Authorization source', 120),
-    complete: rawAccess.complete === true
-  };
-
-  const rawRoles = input.governanceRoles;
-  if (!isPlainObject(rawRoles)) fail('Governance roles are required', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const governanceRoles = {};
-  const expectedRoles = rolesForLevel(level);
-  for (const role of GOVERNANCE_ROLE_NAMES) {
-    governanceRoles[role] = rawRoles[role] === true;
-    if (governanceRoles[role] !== expectedRoles[role]) {
-      fail('Governance roles are inconsistent with repository access', 'AUTHORIZATION_SNAPSHOT_INVALID');
-    }
-  }
-
-  let installationCapabilities = null;
-  if (input.installationCapabilities != null) {
-    const rawCapabilities = input.installationCapabilities;
-    if (!isPlainObject(rawCapabilities)) fail('Installation capabilities are invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-    const repositorySelection = String(rawCapabilities.repositorySelection || '');
-    if (!['all', 'selected'].includes(repositorySelection)) fail('Installation repository selection is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-    installationCapabilities = {
-      repositorySelected: rawCapabilities.repositorySelected === true,
-      repositorySelection,
-      permissions: normalizePermissions(rawCapabilities.permissions || {})
-    };
-  }
-  if ((executionKind === 'installation') !== (installationCapabilities !== null)) {
-    fail('Installation capabilities do not match the execution principal', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  if (executionKind === 'user' && (
-    executionPrincipal.identityKey !== governanceActor.identityKey ||
-    executionPrincipal.login.toLowerCase() !== governanceActor.login.toLowerCase()
-  )) {
-    fail('User execution and governance identities are inconsistent', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-
-  const rawEvidence = input.evidence;
-  if (!isPlainObject(rawEvidence)) fail('Authorization evidence is required', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const status = String(rawEvidence.status || '').trim();
-  if (!EVIDENCE_STATUSES.has(status)) fail('Authorization evidence status is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  const fetchedAt = normalizeIso(rawEvidence.fetchedAt, 'Authorization fetched timestamp');
-  const expiresAt = normalizeIso(rawEvidence.expiresAt, 'Authorization expiry timestamp');
-  if (new Date(expiresAt).getTime() <= new Date(fetchedAt).getTime()) {
-    fail('Authorization evidence expiry is invalid', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  const reasonCode = rawEvidence.reasonCode == null ? null : normalizeText(rawEvidence.reasonCode, 'Authorization reason code', 120);
-  if (status === 'resolved' && (
-    reasonCode !== null || !repositoryAccess.complete || !governanceActor.verified ||
-    (executionKind === 'installation' && !installationCapabilities.repositorySelected)
-  )) {
-    fail('Resolved authorization evidence is inconsistent', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-  if (status !== 'resolved' && (repositoryAccess.complete || Object.values(governanceRoles).some(Boolean))) {
-    fail('Incomplete authorization evidence cannot grant governance roles', 'AUTHORIZATION_SNAPSHOT_INVALID');
-  }
-
-  const snapshot = {
-    schemaVersion: AUTHORIZATION_SCHEMA_VERSION,
-    scope,
-    executionPrincipal,
-    governanceActor,
-    repositoryAccess,
-    governanceRoles,
-    installationCapabilities,
-    evidence: { status, fetchedAt, expiresAt, reasonCode }
-  };
-  return deepFreeze(snapshot);
+  return actor.normalizeAuthorizationSnapshot(input, { refuse: fail, normalizeScope: normalizePolicyScope });
 }
 
 function hashIdentity(value) {
@@ -292,18 +88,8 @@ function emptyRoles() {
   return { reader: false, author: false, reviewer: false, activator: false, administrator: false };
 }
 
-function rolesForLevel(level) {
-  return {
-    reader: level >= 10,
-    author: level >= 30,
-    reviewer: level >= 40,
-    activator: level >= 50,
-    administrator: level >= 50
-  };
-}
-
 function emptyAccess(source = 'provider.permission.unavailable') {
-  return { baseRole: 'none', providerRole: 'unknown', level: 0, source, complete: false };
+  return { baseRole: 'none', providerRole: 'unknown', level: ACCESS_LEVEL_BY_ROLE.none, source, complete: false };
 }
 
 function evidenceTimes(now, ttlMs) {
@@ -374,16 +160,11 @@ function githubAccess(response, expectedLogin, source) {
   const role = sanitizeProviderRole(response.role_name || permission);
   const returnedLogin = String(response.user && response.user.login || '').trim().toLowerCase();
   if (!['admin', 'write', 'read', 'none'].includes(permission) || returnedLogin !== expectedLogin.toLowerCase()) return null;
-  if (permission === 'admin') return { baseRole: 'admin', providerRole: role, level: 50, source, complete: true };
-  if (permission === 'write') {
-    const maintain = role === 'maintain';
-    return { baseRole: maintain ? 'maintain' : 'write', providerRole: role, level: maintain ? 40 : 30, source, complete: true };
-  }
-  if (permission === 'read') {
-    const triage = role === 'triage';
-    return { baseRole: triage ? 'triage' : 'read', providerRole: role, level: triage ? 20 : 10, source, complete: true };
-  }
-  return { baseRole: 'none', providerRole: role === 'unknown' ? 'none' : role, level: 0, source, complete: true };
+  const access = (baseRole, providerRole) => ({ baseRole, providerRole, level: ACCESS_LEVEL_BY_ROLE[baseRole], source, complete: true });
+  if (permission === 'admin') return access('admin', role);
+  if (permission === 'write') return access(role === 'maintain' ? 'maintain' : 'write', role);
+  if (permission === 'read') return access(role === 'triage' ? 'triage' : 'read', role);
+  return access('none', role === 'unknown' ? 'none' : role);
 }
 
 /*
@@ -401,7 +182,7 @@ function publicRepositoryAccess(repository, scope) {
   const name = String(repository.full_name || '').trim().toLowerCase();
   const visibility = repository.visibility == null ? (repository.private === false ? 'public' : '') : String(repository.visibility).toLowerCase();
   if (repository.private !== false || repository.internal === true || visibility !== 'public' || name !== expected) return null;
-  return { baseRole: 'read', providerRole: 'public', level: 10, source: 'github.repository.public', complete: true };
+  return { baseRole: 'read', providerRole: 'public', level: ACCESS_LEVEL_BY_ROLE.read, source: 'github.repository.public', complete: true };
 }
 function isPublicReaderAccess(snapshot) {
   return Boolean(snapshot && snapshot.repositoryAccess && PUBLIC_ACCESS_SOURCES.includes(snapshot.repositoryAccess.source));
@@ -412,7 +193,7 @@ function sanitizeProviderPermissions(value) {
   const out = {};
   for (const key of Object.keys(value).sort()) {
     const permission = String(value[key] || '');
-    if (!sensitiveKey(key) && /^[a-z_]{1,80}$/.test(key) && ['read', 'write', 'admin'].includes(permission)) out[key] = permission;
+    if (!actor.isSensitiveAuthorizationKey(key) && /^[a-z_]{1,80}$/.test(key) && ['read', 'write', 'admin'].includes(permission)) out[key] = permission;
   }
   return out;
 }

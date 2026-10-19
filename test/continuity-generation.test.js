@@ -259,6 +259,7 @@ try {
   fs.mkdirSync(path.join(archiveRoot, 'scripts'));
   fs.mkdirSync(path.join(archiveRoot, 'config'));
   fs.mkdirSync(path.join(archiveRoot, 'docs', 'current'), { recursive: true });
+  fs.mkdirSync(path.join(archiveRoot, 'packages', 'contracts', 'src'), { recursive: true });
   for (const relative of [
     'package.json',
     'WORK_CONTINUITY.json',
@@ -266,6 +267,10 @@ try {
     'src/capability-registry.js',
     'src/github-account-operations.js',
     'src/alpha-access.js',
+    /* The capability document's guard is a shared contract, in its own module scope. */
+    'packages/package.json',
+    'packages/contracts/src/capability.ts',
+    'packages/contracts/src/guards.ts',
     'config/public-alpha-capabilities.json',
     'scripts/generate-continuity-docs.js',
     'docs/current/PROJECT_STATE.md',

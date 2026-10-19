@@ -2,6 +2,8 @@
 
 const crypto = require('crypto');
 const { normalizeControlRefs, ControlMappingError } = require('./control-catalog');
+const { IDENTITY_KEY, POLICY_KEY, RECORD_ID } = require('../packages/contracts/src/ids.ts');
+const scopeContract = require('../packages/contracts/src/scope.ts');
 
 const GOVERNANCE_AUDIT_GENESIS = 'NEBULAVERSE-GOVERNANCE-GENESIS-V1';
 const POLICY_DOCUMENT_MAX_BYTES = 256 * 1024;
@@ -10,7 +12,6 @@ const MAX_JSON_DEPTH = 12;
 const MAX_ARRAY_ITEMS = 1000;
 const MAX_OBJECT_KEYS = 250;
 const MAX_RULES = 500;
-const PROVIDERS = new Set(['github']);
 const EFFECTS = new Set(['allow', 'deny', 'require-approval']);
 const SENSITIVE_KEY_RX = /^(?:access_?token|refresh_?token|token|client_?secret|secret|password|private_?key|authorization|authorization_?header|cookie|cookie_?value|session_?cookie)$/i;
 const SENSITIVE_SUFFIX_RX = /(?:_token|_secret|_password|_private_key)$/i;
@@ -26,6 +27,7 @@ class GovernanceError extends Error {
   }
 }
 
+/** @returns {never} */
 function fail(message, code, status = 400, details) {
   throw new GovernanceError(message, code, status, details);
 }
@@ -53,11 +55,7 @@ function sha256(value) {
 }
 
 function normalizeRequiredText(value, label, max = 200) {
-  const text = String(value == null ? '' : value).trim();
-  if (!text || text.length > max || /[\u0000-\u001f\u007f]/.test(text)) {
-    fail(`${label} is invalid`, 'GOVERNANCE_INPUT_INVALID');
-  }
-  return text;
+  return scopeContract.normalizeRequiredText(value, label, max, fail);
 }
 
 function normalizeOptionalText(value, label, max = 2000) {
@@ -70,51 +68,26 @@ function normalizeOptionalText(value, label, max = 2000) {
 
 function normalizeIdentityKey(value, label = 'identity key') {
   const text = String(value || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(text)) fail(`${label} is invalid`, 'GOVERNANCE_IDENTITY_INVALID');
+  if (!IDENTITY_KEY.test(text)) fail(`${label} is invalid`, 'GOVERNANCE_IDENTITY_INVALID');
   return text;
 }
 
 function normalizeUuid(value, label = 'identifier') {
   const text = String(value || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)) {
+  if (!RECORD_ID.test(text)) {
     fail(`${label} is invalid`, 'GOVERNANCE_ID_INVALID');
   }
   return text;
 }
 
+/* The repository a policy is about (packages/contracts/src/scope.ts), refused as a GovernanceError. */
 function normalizePolicyScope(input) {
-  if (!isPlainObject(input)) fail('Policy scope is required', 'GOVERNANCE_SCOPE_INVALID');
-  const provider = String(input.provider || '').trim().toLowerCase();
-  if (!PROVIDERS.has(provider)) fail('Policy provider is unsupported', 'GOVERNANCE_SCOPE_INVALID');
-  const owner = normalizeRequiredText(input.owner, 'Policy owner', 240);
-  const repo = normalizeRequiredText(input.repo, 'Policy repository', 160);
-  const ownerSegment = /^[A-Za-z0-9_.-]+$/;
-  const repoSegment = /^[A-Za-z0-9_.-]+$/;
-  if (!ownerSegment.test(owner) || owner.split('/').some(part => part === '.' || part === '..') || !repoSegment.test(repo) || repo === '.' || repo === '..') {
-    fail('Policy repository scope is invalid', 'GOVERNANCE_SCOPE_INVALID');
-  }
-
-  const rawBase = String(input.baseUrl || (input.authority ? `https://${input.authority}` : 'https://github.com')).trim();
-  let parsed;
-  try { parsed = new URL(rawBase); }
-  catch { fail('Policy provider authority is invalid', 'GOVERNANCE_SCOPE_INVALID'); }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.port ||
-      !['api.github.com', 'github.com'].includes(parsed.hostname.toLowerCase()) || parsed.pathname !== '/') {
-    fail('Policy provider authority must be GitHub', 'GOVERNANCE_SCOPE_INVALID');
-  }
-  const authority = 'github.com';
-  return {
-    provider,
-    authority,
-    owner,
-    repo,
-    scopeKey: `${provider}:${authority}:${owner.toLowerCase()}/${repo.toLowerCase()}`
-  };
+  return scopeContract.normalizePolicyScope(input, fail);
 }
 
 function normalizePolicyKey(value) {
   const key = String(value || '').trim().toLowerCase();
-  if (!/^[a-z][a-z0-9._-]{1,63}$/.test(key)) {
+  if (!POLICY_KEY.test(key)) {
     fail('Policy key must be a stable lower-case identifier', 'GOVERNANCE_POLICY_KEY_INVALID');
   }
   return key;

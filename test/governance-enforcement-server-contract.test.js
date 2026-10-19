@@ -8,7 +8,10 @@ assert(server.includes('createGovernanceRuntime'), 'server must create the runti
 assert(server.includes('policyEvaluator:'), 'mutation gateway must receive the policy evaluator');
 assert(server.includes("X-Nebulaverse-Policy-Outcome"), 'warning/observe outcome must be surfaced in bounded response headers');
 assert(server.includes('NV_GOVERNANCE_RUNTIME_FAILURE_MODE'), 'runtime failure mode must be explicit and validated');
-assert(gateway.includes('MUTATION_POLICY_INPUT_FORBIDDEN'), 'client/server descriptors must not inject policy decisions');
+for (const injected of ['policyDecision', 'controlMapping', 'enforcementMode']) {
+  assert.throws(() => require('../src/mutation-gateway').normalizeMutationDescriptor({ action: 'file.write', [injected]: {} }),
+    error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_POLICY_INPUT_FORBIDDEN', 'client/server descriptors must not inject policy decisions');
+}
 assert(gateway.includes('policy.evaluated'), 'gateway must emit policy evaluation evidence');
 assert(server.includes("/governance/decisions/verify"), 'server must expose decision-chain verification');
 assert(server.includes("/governance/decisions'"), 'server must expose bounded policy decision history');

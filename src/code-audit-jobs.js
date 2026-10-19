@@ -24,6 +24,7 @@
  */
 
 const crypto = require('crypto');
+const { JOB_ERROR_CODES, JOB_FIRST_STAGE, JOB_STAGES } = require('../packages/contracts/src/jobs.ts');
 
 const JOBS = Object.freeze({
   /* How long a finished audit is held for the page to collect. */
@@ -34,7 +35,7 @@ const JOBS = Object.freeze({
   maxRunning: 16
 });
 
-const STAGES = new Set(['queued', 'resolving', 'reading', 'rules', 'advisories', 'intel', 'analysing', 'patterns']);
+const STAGES = new Set(JOB_STAGES.audit);
 
 /*
  * A deployed-site check is the same kind of work -- a few dozen outbound
@@ -42,10 +43,10 @@ const STAGES = new Set(['queued', 'resolving', 'reading', 'rules', 'advisories',
  * the same kind of job, with its own stages, limits and words.
  */
 const SITE_JOBS = Object.freeze({ keepMs: 2 * 60 * 1000, maxRunMs: 90 * 1000, maxRunning: 8 });
-const SITE_STAGES = new Set(['page', 'transport', 'paths', 'pages', 'scripts', 'libraries', 'email']);
+const SITE_STAGES = new Set(JOB_STAGES.site);
 const KINDS = Object.freeze({
   audit: Object.freeze({
-    prefix: 'AUDIT', first: 'resolving', stages: STAGES, limits: JOBS,
+    codes: JOB_ERROR_CODES.audit, first: JOB_FIRST_STAGE.audit, stages: STAGES, limits: JOBS,
     safeState: 'Nothing was changed. The audit only reads.',
     gone: 'This audit is no longer held by the server. It may have restarted. Run the audit again.',
     inProgress: 'An audit of another repository is already running for this session. Wait for it to finish.',
@@ -53,7 +54,7 @@ const KINDS = Object.freeze({
     timeout: 'The audit ran past the time this server gives one. Run it again; a smaller branch finishes sooner.'
   }),
   rendered: Object.freeze({
-    prefix: 'RENDERED_AUDIT', first: 'launching', stages: new Set(['launching', 'desktop', 'mobile', 'accessibility', 'capturing']),
+    codes: JOB_ERROR_CODES.rendered, first: JOB_FIRST_STAGE.rendered, stages: new Set(JOB_STAGES.rendered),
     limits: Object.freeze({ keepMs: 120000, maxRunMs: 100000, maxRunning: 1 }),
     safeState: 'The browser only requested public resources. No forms were submitted.',
     gone: 'This rendered audit expired or the server restarted. Start it again.',
@@ -62,7 +63,7 @@ const KINDS = Object.freeze({
     timeout: 'The rendered audit exceeded its time limit.'
   }),
   site: Object.freeze({
-    prefix: 'SITE_CHECK', first: 'page', stages: SITE_STAGES, limits: SITE_JOBS,
+    codes: JOB_ERROR_CODES.site, first: JOB_FIRST_STAGE.site, stages: SITE_STAGES, limits: SITE_JOBS,
     safeState: 'Nothing was changed. The check only reads what any visitor can.',
     gone: 'This site check is no longer held by the server. It may have restarted. Check the site again.',
     inProgress: 'A check of another site is already running for this session. Wait for it to finish.',
@@ -89,7 +90,8 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   const words = KINDS[kind];
   if (!words) throw new TypeError(`Unknown job kind ${kind}`);
   limits = limits || words.limits;
-  const fail = (name, status) => jobError(`${words.prefix}_${name}`, words[{ RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout' }[name]], status, words.safeState);
+  /* Each failure's code is written out in the jobs contract (packages/contracts/src/jobs.ts). */
+  const failure = (name, status) => jobError(words.codes[name], words[{ RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout' }[name]], status, words.safeState);
   const jobs = new Map();
   // A cancelled or expired result is no longer visible, but its underlying
   // execution may still be shutting down. Keep that work in the capacity
@@ -153,16 +155,16 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     const same = Boolean(job) && job.owner === owner && job.repo === repo && job.ref === ref;
     if (run) {
       if (!job || job.id !== String(run) || !same) {
-        return { error: fail('RUN_GONE', 404) };
+        return { error: failure('RUN_GONE', 404) };
       }
       return answer(identity, job);
     }
     if (job && job.finishedAt === null) {
       if (same) return running202(job);
-      return { error: fail('IN_PROGRESS', 429) };
+      return { error: failure('IN_PROGRESS', 429) };
     }
     if (executing >= limits.maxRunning) {
-      return { error: fail('BUSY', 503) };
+      return { error: failure('BUSY', 503) };
     }
     const fresh = {
       id: randomId(), identity, owner, repo, ref, startedAt: now(), finishedAt: null,
@@ -171,7 +173,7 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     jobs.set(identity, fresh);
     const controller = fresh.controller;
     fresh.timer = setTimeout(() => {
-      settle(fresh, { error: fail('TIMEOUT', 504) });
+      settle(fresh, { error: failure('TIMEOUT', 504) });
       controller.abort();
     }, limits.maxRunMs);
     if (typeof fresh.timer.unref === 'function') fresh.timer.unref();

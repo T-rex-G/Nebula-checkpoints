@@ -30,6 +30,9 @@
 
 const crypto = require('crypto');
 const { RULE_NARRATION } = require('./exposure-narration');
+/* A scan's states are the jobs contract's; its coverage is evidence. */
+const { SCAN_STATES, TERMINAL_SCAN_STATES: TERMINAL_STATES } = require('../packages/contracts/src/jobs.ts');
+const { EXPOSURE_COVERAGE: COVERAGE } = require('../packages/contracts/src/evidence.ts');
 
 /*
  * The version of the scanning configuration -- the caps a scan runs under.
@@ -52,9 +55,6 @@ const EXPOSURE_CONFIG_VERSION = 4;
 const SCAN_MODES = Object.freeze(['tree', 'history']);
 const DECODINGS = Object.freeze(['base64']);
 
-const SCAN_STATES = Object.freeze(['queued', 'running', 'complete', 'partial', 'failed', 'canceled']);
-const TERMINAL_STATES = Object.freeze(['complete', 'partial', 'failed', 'canceled']);
-const COVERAGE = Object.freeze(['unknown', 'complete', 'partial']);
 const SKIPPED_REASONS = Object.freeze([
   'file-count-limit', 'byte-limit', 'time-limit', 'tree-truncated',
   'unreadable-files', 'canceled', 'transport-refused',

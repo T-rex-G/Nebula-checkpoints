@@ -7,6 +7,10 @@
  * may rely on.
  */
 
+import type { SourceState as EvidenceSourceState } from './evidence.ts';
+
+export const FINDINGS_CONTRACT_VERSION = 1;
+
 export const SEVERITIES = Object.freeze(['critical', 'serious', 'warning'] as const);
 export type Severity = (typeof SEVERITIES)[number];
 
@@ -62,7 +66,8 @@ export interface TriageVocabulary {
   readonly acceptDays: { readonly min: number; readonly max: number; readonly choices: readonly number[]; readonly default: number };
 }
 
-export type SourceState = 'measured' | 'unavailable';
+/* The inbox reads each store whole or not at all, so it never reports a partial source. */
+export type SourceState = Exclude<EvidenceSourceState, 'partial'>;
 
 export interface FindingsInbox {
   readonly available?: true;

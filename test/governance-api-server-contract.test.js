@@ -5,6 +5,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const gateway = fs.readFileSync(path.join(root, 'src', 'mutation-gateway.js'), 'utf8');
+/* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
+const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 assert(server.includes("require('./src/governance-api')"), 'server must load the governance API boundary');
 assert(server.includes("require('./src/governance-store')"), 'server must load the durable governance store');
@@ -37,7 +40,7 @@ const routes = [
 ];
 for (const route of routes) assert(server.includes(route), `missing governance route ${route}`);
 for (const action of ['governance.policy.create', 'governance.draft.create', 'governance.draft.update', 'governance.draft.submit', 'governance.reviewer.assign', 'governance.approval.decide']) {
-  assert(gateway.includes(`'${action}'`), `mutation gateway must register ${action}`);
+  assert(registered(action), `mutation gateway must register ${action}`);
   assert(server.includes(`governanceMutationContext('${action}'`), `server must enter the gateway for ${action}`);
 }
 assert(server.includes("governanceMutationContext('governance.approval.decide')"), 'Task 8 decisions must enter the mutation gateway');

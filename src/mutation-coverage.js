@@ -194,7 +194,9 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
 ]);
 
 function executionContractForAction(action) {
-  const found = ACTION_EXECUTION_CONTRACTS[String(action || '')];
+  /* Own entries only: an inherited name such as `constructor` is not a registered action. */
+  const name = String(action || '');
+  const found = Object.hasOwn(ACTION_EXECUTION_CONTRACTS, name) ? ACTION_EXECUTION_CONTRACTS[name] : undefined;
   if (!found) throw new MutationCoverageError('Mutation execution contract is not registered', 'MUTATION_EXECUTION_UNKNOWN');
   return found;
 }
@@ -294,7 +296,7 @@ function validateCoverageInventory(actions) {
     routeKeys.add(key);
   }
   for (const action of Object.keys(actions)) {
-    if (!ACTION_EXECUTION_CONTRACTS[action]) throw new MutationCoverageError(`Execution contract is missing: ${action}`, 'MUTATION_EXECUTION_MISSING');
+    if (!Object.hasOwn(ACTION_EXECUTION_CONTRACTS, action)) throw new MutationCoverageError(`Execution contract is missing: ${action}`, 'MUTATION_EXECUTION_MISSING');
   }
   return true;
 }

@@ -1,6 +1,11 @@
 /* Nebulaverse-X private offline cache policy — deterministic and testable. */
 
+export const OFFLINE_CACHE_CONTRACT_VERSION = 1;
+/* The cache's own schema, part of every cache name: raising it orphans every cache written under the old one. */
 export const CACHE_SCHEMA = 'v1';
+/* The binding the page asks for and the server confirms: whose cache, and which repository's. */
+export const OFFLINE_SCOPE_HEADER = 'x-nv-offline-scope';
+export const OFFLINE_REPO_HEADER = 'x-nv-offline-repo';
 export const TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_ENTRIES = 100;
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -49,8 +54,8 @@ export function classifyApiRequest(url: RequestUrl | null | undefined, method: u
   const pathname = url && url.pathname ? url.pathname : '';
   if (!pathname.startsWith('/api/')) return { mode: 'bypass' };
   if (SENSITIVE.some(rx => rx.test(pathname))) return { mode: 'network-only' };
-  const scope = readHeader(headers, 'x-nv-offline-scope');
-  const repoKey = readHeader(headers, 'x-nv-offline-repo');
+  const scope = readHeader(headers, OFFLINE_SCOPE_HEADER);
+  const repoKey = readHeader(headers, OFFLINE_REPO_HEADER);
   if (!validScope(scope) || !validRepoKey(repoKey)) return { mode: 'network-only' };
   if (!CACHEABLE.some(rx => rx.test(pathname))) return { mode: 'network-only' };
   return { mode: 'private-cache', scope, repoKey, cacheName: cacheNameForScope(scope) };
@@ -60,6 +65,6 @@ export function responseMatchesBinding(headers: unknown, decision: CacheDecision
   const reader = headers as Partial<HeaderReader> | null | undefined;
   if (!reader || typeof reader.get !== 'function' || !decision || decision.mode !== 'private-cache') return false;
   if (!validScope(decision.scope) || !validRepoKey(decision.repoKey)) return false;
-  return reader.get('x-nv-offline-scope') === decision.scope
-    && reader.get('x-nv-offline-repo') === decision.repoKey;
+  return reader.get(OFFLINE_SCOPE_HEADER) === decision.scope
+    && reader.get(OFFLINE_REPO_HEADER) === decision.repoKey;
 }

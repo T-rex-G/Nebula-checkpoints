@@ -1,0 +1,58 @@
+{
+  "actor.ts": {
+    "version": 1,
+    "shape": "77fbe629141919095d832b6365160179dde2a3f9352b0007e0ae16c7b869aacd"
+  },
+  "api-envelope.ts": {
+    "version": 1,
+    "shape": "264684779af56da61f65eb481dd2f614f8e8e38dc791003f104dcf4345a97525"
+  },
+  "capability.ts": {
+    "version": 1,
+    "shape": "a7dbcc0d7ffee9697ea9247f2b9c660f8dc093179add425541ab73b3ec40a2f7"
+  },
+  "codeowners.ts": {
+    "version": 1,
+    "shape": "04d4d1e5fd92e97ee81ff9ce27461c3534b487c0f7356fe2bc5fd5cd48e6e5ab"
+  },
+  "codes.ts": {
+    "version": 1,
+    "shape": "57fffc6293d720fa87611d8a9299375f955a14513d39be905f945fed56764297"
+  },
+  "evidence.ts": {
+    "version": 1,
+    "shape": "f845eeb027f7ce97b3ae402edf6fcb2047e50d5d91e2c0eaf45f77e69e53c19b"
+  },
+  "findings.ts": {
+    "version": 1,
+    "shape": "e3c65dcfb8741e7ee695a8c348cfcef81d720108ed27ab9af54f30f3fe5891d7"
+  },
+  "guards.ts": {
+    "version": 1,
+    "shape": "46e0cd3339ba8a79d9d58024617f84f9b95293c3cc826bfb2782a5e26cc30f49"
+  },
+  "ids.ts": {
+    "version": 1,
+    "shape": "e0e8bc5cba8b2291bb6c930489fb9a7d641e9a5002114866310e4d360c0c12bc"
+  },
+  "jobs.ts": {
+    "version": 1,
+    "shape": "5b628461bbb9fc9f82ab949f4e20a11281e586f0c1e5260da7bb33cbe63f9ca2"
+  },
+  "mutation.ts": {
+    "version": 1,
+    "shape": "56518f011895c1851492aca60166639c224d015a3ed2dcb9101f6ff52921b18b"
+  },
+  "offline-cache-policy.ts": {
+    "version": 1,
+    "shape": "e9d47a2edf9457bdaeab47b9b89c0dc09ab728d651d88e7b5ba8c556b1ad2415"
+  },
+  "scope.ts": {
+    "version": 1,
+    "shape": "dd97244709f09cdca9473826c8b3e3145a04d34aab2d3af2f61a2ddbcb59d838"
+  },
+  "upload-planning.ts": {
+    "version": 1,
+    "shape": "c814cf13232908d3b2873bd852b53e0cc45ac7825e1a8bf8ccfba10f9cc8843f"
+  }
+}

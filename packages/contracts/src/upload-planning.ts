@@ -7,6 +7,8 @@
  * the two drifting apart is exactly how a queue gets uploaded and then
  * refused.
  */
+export const UPLOAD_PLANNING_CONTRACT_VERSION = 1;
+
 export const MAX_BATCH_ITEMS = 100;
 
 export interface BatchGroup {

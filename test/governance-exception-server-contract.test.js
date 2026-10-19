@@ -3,7 +3,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-const gateway = fs.readFileSync(path.join(__dirname, '..', 'src', 'mutation-gateway.js'), 'utf8');
+/* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
+const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 for (const route of [
   '/governance/policies/:policyId/versions/:versionId/exceptions',
   '/governance/exceptions/:exceptionId',
@@ -11,7 +13,7 @@ for (const route of [
   '/governance/exceptions/:exceptionId/revoke'
 ]) assert(server.includes(route), `server must expose ${route}`);
 for (const action of ['governance.exception.request', 'governance.exception.decide', 'governance.exception.revoke']) {
-  assert(gateway.includes(`'${action}'`), `gateway must register ${action}`);
+  assert(registered(action), `gateway must register ${action}`);
   assert(server.includes(`governanceMutationContext('${action}')`), `server must route ${action} through gateway`);
 }
 assert(server.includes("governanceAccess('administrator')"), 'decisions and revocation must require administrator');

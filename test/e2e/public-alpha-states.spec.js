@@ -75,7 +75,7 @@ test('recoverable repository error shows safe state and next action', async ({ p
 });
 
 for (const [mutation, expectedText, verified] of [
-  ['blocked', 'blocked by policy', false],
+  ['blocked', 'blocked by the active policy', false],
   ['failed-unchanged', 'previously verified head', false],
   ['unknown', 'Do not retry', false],
   ['verified', 'Created verified.txt', true]

@@ -459,8 +459,9 @@ async function takeSafePassage(error, change) {
     });
   } catch (branchError) {
     /* The branch already existing is the expected shape of a second attempt at
-     * the same change, and is not a failure. */
-    if (branchError.status !== 422 && branchError.code !== 'BRANCH_EXISTS') {
+     * the same change, and is not a failure. GitHub answers it with 422; the
+     * name was checked before it was sent, so nothing else answers 422 here. */
+    if (branchError.status !== 422) {
       presentError(branchError);
       return true;
     }
@@ -4900,7 +4901,7 @@ async function verifyExposureFinding(fingerprint) {
     }
     announceExposure(verification && (body.narration || (exposureAnswerFresh(verification) ? EXPOSURE_VERIFICATION_FALLBACK[verification.state] : 'Previous verification expired or has no check time. Check again for current evidence.')) || 'The check finished.');
   } catch (error) {
-    current.error = error && error.code === 'GOV_ROLE_REQUIRED'
+    current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
       ? 'A governance administrator with permission from the credential owner must run this check.'
       : 'That credential could not be checked.';
     announceExposure(current.error);
@@ -5006,7 +5007,7 @@ async function probeExposureReadability(fingerprint) {
      * question, the other that the file holds no project to ask.
      */
     const code = error && error.code;
-    current.error = code === 'GOV_ROLE_REQUIRED'
+    current.error = code === 'GOVERNANCE_ROLE_REQUIRED'
       ? 'A governance administrator with permission from the project owner must run this probe.'
       : code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
       ? 'Only an anonymous key can be used to ask what the public can read.'

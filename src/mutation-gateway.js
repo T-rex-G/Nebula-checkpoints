@@ -6,14 +6,12 @@ const { normalizePolicyScope } = require('./governance-model');
 const { normalizeAuthorizationSnapshot } = require('./authorization-resolver');
 const { executionContractForAction, validateCoverageInventory } = require('./mutation-coverage');
 
-const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const ASSURANCE_LEVELS = new Set(['credential', 'oauth-session', 'github-app']);
-const SENSITIVE_KEY_RX = /(?:accesstoken|refreshtoken|token|secret|password|privatekey|authorization|cookie)/i;
-const MAX_METADATA_BYTES = 16 * 1024;
-const MAX_METADATA_DEPTH = 6;
-const MAX_METADATA_KEYS = 80;
-const MAX_METADATA_ARRAY = 100;
-const MAX_METADATA_STRING = 2048;
+/* What a descriptor is, the action catalogue and the descriptor's guard are the mutation contract. */
+const mutation = require('../packages/contracts/src/mutation.ts');
+const { deepFreeze } = require('../packages/contracts/src/guards.ts');
+
+const { MUTATION_ACTIONS } = mutation;
+const MUTATING_METHODS = new Set(mutation.MUTATING_METHODS);
 const OPERATION_ID_DOMAIN = 'nebulaverse-x.provider-write.operation-id.v1';
 const MAX_OPERATION_TARGET_BYTES = 64 * 1024;
 
@@ -26,117 +24,6 @@ class MutationGatewayError extends Error {
   }
 }
 
-function defineAction(category, risk, description, operations, stepUpAction = null, actorBinding = 'execution') {
-  return Object.freeze({ category, risk, description, operations: Object.freeze([...operations]), stepUpAction, actorBinding });
-}
-
-const CONTENT_OPERATIONS = Object.freeze([
-  'git.blob.create', 'git.tree.create', 'git.commit.create', 'git.refs.update',
-  'git-receive-pack', 'git-lfs.batch', 'git-lfs.upload', 'git-lfs.verify'
-]);
-
-const MUTATION_ACTIONS = Object.freeze({
-  'repository.create': defineAction('repository', 'high', 'Create a repository', ['repository.create']),
-  'repository.delete': defineAction('repository', 'critical', 'Delete a repository', ['repository.delete'], 'repository.delete'),
-  'branch.create': defineAction('branch', 'medium', 'Create a branch', ['git.refs.create']),
-  'branch.delete': defineAction('branch', 'high', 'Delete a branch', ['git.refs.delete']),
-  'branch.reset': defineAction('branch', 'critical', 'Force a branch reference to a commit', ['git.refs.update'], 'branch.reset'),
-  'file.write': defineAction('content', 'high', 'Create or update repository content', CONTENT_OPERATIONS),
-  'file.delete': defineAction('content', 'high', 'Delete repository content', CONTENT_OPERATIONS),
-  'file.rename': defineAction('content', 'high', 'Rename repository content', CONTENT_OPERATIONS),
-  'file.batch': defineAction('content', 'high', 'Apply a batch of content changes', CONTENT_OPERATIONS),
-  'file.upload': defineAction('content', 'high', 'Upload repository content', CONTENT_OPERATIONS),
-  'directory.move': defineAction('content', 'high', 'Move a repository directory', CONTENT_OPERATIONS),
-  'git.blob.create': defineAction('content', 'medium', 'Create a Git object blob', ['git.blob.create']),
-  'commit.revert': defineAction('history', 'high', 'Create a revert commit', CONTENT_OPERATIONS),
-  'commit.restore': defineAction('history', 'high', 'Restore repository content from history', ['git.commit.create', 'git.refs.update']),
-  'commit.restore-paths': defineAction('history', 'high', 'Restore selected paths from history', CONTENT_OPERATIONS),
-  'pull.create': defineAction('collaboration', 'medium', 'Create a pull or merge request', ['pull.create']),
-  'pull.merge': defineAction('collaboration', 'critical', 'Merge a pull or merge request', ['pull.merge'], 'pull.merge'),
-  'pull.review': defineAction('collaboration', 'medium', 'Submit a pull request review', ['pull.review']),
-  'issue.create': defineAction('collaboration', 'medium', 'Create an issue', ['issue.create']),
-  'issue.comment': defineAction('collaboration', 'medium', 'Comment on an issue', ['issue.comment']),
-  'issue.update': defineAction('collaboration', 'medium', 'Update issue state', ['issue.update']),
-  'repository.star': defineAction('user-preference', 'low', 'Star a repository', ['repository.star']),
-  'repository.unstar': defineAction('user-preference', 'low', 'Unstar a repository', ['repository.unstar']),
-  'workflow.rerun': defineAction('automation', 'high', 'Rerun an automation workflow', ['workflow.rerun']),
-  'release.create': defineAction('release', 'high', 'Create a release', ['release.create']),
-  'recovery.restore-refs': defineAction('recovery', 'critical', 'Restore repository references', ['git.refs.create', 'git.refs.update']),
-  'webhook.connect': defineAction('integration', 'high', 'Create a repository webhook', ['webhook.connect', 'webhook.disconnect']),
-  'webhook.disconnect': defineAction('integration', 'high', 'Delete a repository webhook', ['webhook.disconnect']),
-  'governance.policy.create': defineAction('governance', 'medium', 'Create repository governance policy metadata', [], null, 'governance'),
-  'governance.draft.create': defineAction('governance', 'medium', 'Create a repository governance policy draft', [], null, 'governance'),
-  'governance.draft.update': defineAction('governance', 'medium', 'Update a repository governance policy draft', [], null, 'governance'),
-  'governance.draft.submit': defineAction('governance', 'high', 'Submit a repository governance draft as an immutable version', [], null, 'governance'),
-  'governance.reviewer.assign': defineAction('governance', 'medium', 'Claim reviewer assignment for an immutable policy version', [], null, 'governance'),
-  'governance.approval.decide': defineAction('governance', 'high', 'Record an immutable governance review decision', [], null, 'governance'),
-  'governance.policy.activate': defineAction('governance', 'critical', 'Activate an approved evidence-backed policy version', [], null, 'governance'),
-  'governance.policy.rollback': defineAction('governance', 'critical', 'Rollback to a previously evidence-backed active policy version', [], null, 'governance'),
-  'governance.exception.request': defineAction('governance', 'high', 'Request a time-bounded policy exception or waiver', [], null, 'governance'),
-  'governance.exception.decide': defineAction('governance', 'critical', 'Approve or reject a time-bounded policy exception or waiver', [], null, 'governance'),
-  'governance.exception.revoke': defineAction('governance', 'critical', 'Revoke an approved policy exception or waiver', [], null, 'governance'),
-  /*
-   * The rest of a policy's life. Switching a policy off and archiving it are
-   * critical for the same reason activation is: they change what is enforced.
-   * Restoring and withdrawing change what can be enforced later; discarding a
-   * draft changes nothing anybody relies on yet.
-   */
-  'governance.policy.deactivate': defineAction('governance', 'critical', 'Switch off the active version of a repository governance policy', [], null, 'governance'),
-  'governance.policy.archive': defineAction('governance', 'critical', 'Archive a repository governance policy, switching it off first', [], null, 'governance'),
-  'governance.policy.restore': defineAction('governance', 'high', 'Restore an archived repository governance policy, switched off', [], null, 'governance'),
-  'governance.draft.discard': defineAction('governance', 'medium', 'Discard a repository governance policy draft', [], null, 'governance'),
-  'governance.version.withdraw': defineAction('governance', 'high', 'Withdraw a policy version that never took effect', [], null, 'governance'),
-  'governance.reset': defineAction('governance', 'critical', 'Switch off and archive every governance policy in a repository', [], null, 'governance'),
-  /*
-   * Exposure scanning. None of these performs a provider mutation -- the
-   * operations list is empty for every one -- but all of them are governed
-   * actions: they read somebody's repository, use a credential found inside
-   * it, or decide that a live exposure is acceptable.
-   *
-   * The bindings are the distinction that matters. Asking for a scan reads a
-   * repository the caller can already read, so it binds to whoever executes
-   * it. Accepting the risk of a live credential is a governance decision about
-   * somebody else's security, so it binds to a governance role -- a repository
-   * reader cannot wave away their own finding.
-   */
-  'exposure.scan.request': defineAction('exposure', 'medium', 'Request an exposure scan of a repository at a commit', []),
-  'exposure.scan.cancel': defineAction('exposure', 'low', 'Cancel an exposure scan in progress', []),
-  'exposure.credential.verify': defineAction('exposure', 'high', 'Ask the issuing provider whether a discovered credential is live', []),
-  'exposure.readability.probe': defineAction('exposure', 'high', 'Establish whether a discovered project is readable anonymously', []),
-  'exposure.finding.accept-risk': defineAction('exposure', 'critical', 'Accept the risk of an exposed credential', [], null, 'governance'),
-  'exposure.finding.export': defineAction('exposure', 'medium', 'Export exposure findings as evidence', []),
-  /*
-   * Clearing is the reader's own record, not anybody else's, and it binds to
-   * whoever executes it for that reason. It is medium rather than low because
-   * it is irreversible: the verification and readability history it removes
-   * was evidence, and the ledger entry this action writes is what remains.
-   */
-  'exposure.history.clear': defineAction('exposure', 'medium', 'Clear an identity\'s exposure history for a repository', []),
-  /*
-   * The same shape for repository audits: the reader's own record, bound to
-   * whoever executes it, and medium because the grades, findings and watch
-   * alerts it removes cannot be brought back.
-   */
-  'code-audit.history.clear': defineAction('code-audit', 'medium', 'Clear an identity\'s repository audit history for a repository', []),
-  /*
-   * A team's decision about one of its audit findings binds to a governance
-   * role, as accepting an exposure's risk does: it takes the finding out of
-   * the grade and out of the merge gate for everyone. It is high rather than
-   * critical because it can be read and taken back by any reviewer, and a
-   * risk accepted is accepted only until a date. Taking a decision back
-   * shows the finding again, which is never the dangerous direction.
-   */
-  'code-audit.finding.triage': defineAction('code-audit', 'high', 'Record a team decision about a repository audit finding', [], null, 'governance'),
-  'code-audit.finding.reopen': defineAction('code-audit', 'medium', 'Take back a team decision about a repository audit finding', [], null, 'governance'),
-  'governance.notification.preferences.update': defineAction('governance', 'low', 'Update repository governance notification preferences', [], null, 'governance'),
-  'governance.notification.read': defineAction('governance', 'low', 'Advance repository governance notification read state', [], null, 'governance'),
-  'governance.webhook.create': defineAction('governance', 'high', 'Create a signed governance webhook destination', [], null, 'governance'),
-  'governance.webhook.update': defineAction('governance', 'high', 'Update a signed governance webhook destination', [], null, 'governance'),
-  'governance.webhook.rotate': defineAction('governance', 'critical', 'Rotate a governance webhook signing secret', [], null, 'governance'),
-  'governance.webhook.delete': defineAction('governance', 'critical', 'Disable and delete a governance webhook destination', [], null, 'governance'),
-  'governance.audit.export.create': defineAction('governance', 'medium', 'Create a signed governance evidence export', [], null, 'governance')
-});
-
 validateCoverageInventory(MUTATION_ACTIONS);
 
 function fail(message, code, status = 403) {
@@ -147,50 +34,8 @@ function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 }
 
-function deepFreeze(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const item of Object.values(value)) deepFreeze(item);
-  return Object.freeze(value);
-}
-
-function cloneMetadata(value, path = '$', depth = 0) {
-  if (depth > MAX_METADATA_DEPTH) fail('Mutation metadata is nested too deeply', 'MUTATION_METADATA_INVALID', 400);
-  if (value == null || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail(`Mutation metadata at ${path} contains a non-finite number`, 'MUTATION_METADATA_INVALID', 400);
-    return value;
-  }
-  if (typeof value === 'string') {
-    if (value.length > MAX_METADATA_STRING || /[\0\r\n]/.test(value)) {
-      fail(`Mutation metadata at ${path} contains an invalid string`, 'MUTATION_METADATA_INVALID', 400);
-    }
-    return value;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > MAX_METADATA_ARRAY) fail('Mutation metadata array is too large', 'MUTATION_METADATA_INVALID', 400);
-    return value.map((item, index) => cloneMetadata(item, `${path}[${index}]`, depth + 1));
-  }
-  if (!isPlainObject(value)) fail(`Mutation metadata at ${path} must be JSON-compatible`, 'MUTATION_METADATA_INVALID', 400);
-  const keys = Object.keys(value);
-  if (keys.length > MAX_METADATA_KEYS) fail('Mutation metadata object has too many fields', 'MUTATION_METADATA_INVALID', 400);
-  const output = {};
-  for (const key of keys.sort()) {
-    if (!key || key.length > 100 || SENSITIVE_KEY_RX.test(key.replace(/[^a-z0-9]/gi, '').toLowerCase())) {
-      fail(`Sensitive or invalid mutation metadata field: ${key || '(empty)'}`, 'MUTATION_SENSITIVE_FIELD', 400);
-    }
-    output[key] = cloneMetadata(value[key], `${path}.${key}`, depth + 1);
-  }
-  return output;
-}
-
 function normalizeMetadata(input) {
-  if (input == null) return Object.freeze({});
-  if (!isPlainObject(input)) fail('Mutation metadata must be an object', 'MUTATION_METADATA_INVALID', 400);
-  const output = cloneMetadata(input);
-  if (Buffer.byteLength(JSON.stringify(output), 'utf8') > MAX_METADATA_BYTES) {
-    fail('Mutation metadata exceeds 16 KiB', 'MUTATION_METADATA_TOO_LARGE', 413);
-  }
-  return deepFreeze(output);
+  return mutation.normalizeMutationMetadata(input, fail);
 }
 
 function providerOperationId(input = {}) {
@@ -239,97 +84,18 @@ function providerOperationId(input = {}) {
   return hash.digest('hex');
 }
 
-function normalizeSecurity(input, definition) {
-  const security = input == null ? {} : input;
-  if (!isPlainObject(security)) fail('Mutation security context is invalid', 'MUTATION_SECURITY_INVALID', 400);
-  const stepUpAction = String(security.stepUpAction || '').trim();
-  const assurance = String(security.assurance || '').trim();
-  const authorizedAt = security.authorizedAt == null ? null : Number(security.authorizedAt);
-  if (definition.stepUpAction) {
-    if (stepUpAction !== definition.stepUpAction || !ASSURANCE_LEVELS.has(assurance) ||
-        !Number.isFinite(authorizedAt) || authorizedAt <= 0) {
-      fail('The required step-up authorization was not consumed before entering the mutation gateway', 'MUTATION_STEP_UP_REQUIRED');
-    }
-    return Object.freeze({ stepUpAction, assurance, authorizedAt });
-  }
-  if (stepUpAction || assurance || authorizedAt != null) {
-    if (stepUpAction && !MUTATION_ACTIONS[stepUpAction] && !['repository.delete', 'branch.reset', 'pull.merge'].includes(stepUpAction)) {
-      fail('Mutation step-up action is invalid', 'MUTATION_SECURITY_INVALID', 400);
-    }
-    if (assurance && !ASSURANCE_LEVELS.has(assurance)) fail('Mutation assurance is invalid', 'MUTATION_SECURITY_INVALID', 400);
-    if (authorizedAt != null && (!Number.isFinite(authorizedAt) || authorizedAt <= 0)) {
-      fail('Mutation step-up timestamp is invalid', 'MUTATION_SECURITY_INVALID', 400);
-    }
-    return Object.freeze({ stepUpAction: stepUpAction || null, assurance: assurance || null, authorizedAt });
-  }
-  return Object.freeze({ stepUpAction: null, assurance: null, authorizedAt: null });
-}
-
+/*
+ * The descriptor's guard, refusing with this module's error. The scope, the
+ * authorization snapshot and the execution contract each keep their own.
+ */
 function normalizeMutationDescriptor(input = {}) {
-  if (!isPlainObject(input)) fail('Mutation descriptor must be an object', 'MUTATION_DESCRIPTOR_INVALID', 400);
-  if (Object.prototype.hasOwnProperty.call(input, 'controlMapping') ||
-      Object.prototype.hasOwnProperty.call(input, 'policyDecision') ||
-      Object.prototype.hasOwnProperty.call(input, 'enforcementMode')) {
-    fail('Policy decisions and control mappings are derived inside the mutation gateway', 'MUTATION_POLICY_INPUT_FORBIDDEN', 400);
-  }
-  const action = String(input.action || '').trim().toLowerCase();
-  const definition = MUTATION_ACTIONS[action];
-  if (!definition) fail('Unknown repository mutation action', 'MUTATION_ACTION_UNKNOWN', 400);
-  const scope = normalizePolicyScope({
-    provider: input.provider,
-    baseUrl: input.baseUrl,
-    owner: input.owner,
-    repo: input.repo
+  return mutation.normalizeMutationDescriptor(input, {
+    refuse: fail,
+    normalizeScope: normalizePolicyScope,
+    normalizeAuthorization: normalizeAuthorizationSnapshot,
+    executionContract: executionContractForAction,
+    newMutationId: () => crypto.randomUUID()
   });
-  const actorIdentityKey = String(input.actorIdentityKey || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(actorIdentityKey)) fail('Mutation actor identity is invalid', 'MUTATION_ACTOR_INVALID', 400);
-  const actorLogin = String(input.actorLogin || '').trim();
-  if (!actorLogin || actorLogin.length > 200 || /[\0\r\n]/.test(actorLogin)) {
-    fail('Mutation actor login is invalid', 'MUTATION_ACTOR_INVALID', 400);
-  }
-  const method = String(input.method || '').trim().toUpperCase();
-  if (!MUTATING_METHODS.has(method)) fail('Mutation route method is invalid', 'MUTATION_METHOD_INVALID', 400);
-  const route = String(input.route || '').trim();
-  if (!route.startsWith('/api/') || route.length > 500 || /[\0\r\n]/.test(route)) {
-    fail('Mutation route is invalid', 'MUTATION_ROUTE_INVALID', 400);
-  }
-  const mutationId = String(input.mutationId || crypto.randomUUID()).trim().toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId)) {
-    fail('Mutation identifier is invalid', 'MUTATION_ID_INVALID', 400);
-  }
-  const authorization = normalizeAuthorizationSnapshot(input.authorization);
-  if (authorization.scope.scopeKey !== scope.scopeKey) {
-    fail('Authorization evidence does not match the mutation repository scope', 'MUTATION_AUTHORIZATION_SCOPE_MISMATCH');
-  }
-  if (definition.actorBinding === 'governance') {
-    if (authorization.governanceActor.login.toLowerCase() !== actorLogin.toLowerCase() ||
-        authorization.governanceActor.identityKey !== actorIdentityKey) {
-      fail('Authorization evidence does not match the governance mutation actor', 'MUTATION_AUTHORIZATION_ACTOR_MISMATCH');
-    }
-  } else if (authorization.executionPrincipal.login.toLowerCase() !== actorLogin.toLowerCase() ||
-      (authorization.executionPrincipal.kind === 'user' && authorization.executionPrincipal.identityKey !== actorIdentityKey)) {
-    fail('Authorization evidence does not match the mutation actor', 'MUTATION_AUTHORIZATION_ACTOR_MISMATCH');
-  }
-  const descriptor = {
-    mutationId,
-    action,
-    category: definition.category,
-    risk: definition.risk,
-    provider: scope.provider,
-    authority: scope.authority,
-    owner: scope.owner,
-    repo: scope.repo,
-    scopeKey: scope.scopeKey,
-    actorIdentityKey,
-    actorLogin,
-    method,
-    route,
-    metadata: normalizeMetadata(input.metadata),
-    execution: executionContractForAction(action),
-    security: normalizeSecurity(input.security, definition),
-    authorization
-  };
-  return deepFreeze(descriptor);
 }
 
 function decodePathPiece(value) {

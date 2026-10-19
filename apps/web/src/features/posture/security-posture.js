@@ -1,4 +1,5 @@
 import RepoInventory from '../repositories/repo-inventory.js';
+import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../../../packages/contracts/src/evidence.ts';
 /*
  * The security posture on the Overview.
  *
@@ -82,7 +83,9 @@ import RepoInventory from '../repositories/repo-inventory.js';
       .sort((a, b) => b.pushedAt - a.pushedAt || a.key.localeCompare(b.key));
     const covered = known.filter(entry => read.has(entry.key)).length;
     const sources = summary.sources || {};
-    const measured = sources.audit === 'measured' || sources.exposure === 'measured' || sources.exposure === 'partial';
+    /* Anything the audits or the exposure scans read makes the posture measured. Governance alone counts no finding. */
+    const reading = combineCompleteness([sources.audit, sources.exposure].map(word => completenessOf(COMPLETENESS_OF.source, word)));
+    const measured = reading === 'complete' || reading === 'partial';
     if (!listed.length) {
       return {
         state: measured ? 'empty' : 'unmeasured',

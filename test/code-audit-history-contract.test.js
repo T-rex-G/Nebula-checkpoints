@@ -67,10 +67,11 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
     const source = regex.source.replace(/\{0,213\}\$$/, '*$');
     assert(inSql(source) || inSql(pattern(regex)) || inSql(regex.source.slice(0, -1)), `SHAPE.${name} (${regex.source}) must be the pattern the migration checks`);
   }
-  const vocabulary = (constant, column) => {
-    const listed = [...storeSource.matchAll(new RegExp(`const ${constant} = Object\\.freeze\\(\\[([^\\]]+)\\]\\)`, 'g'))][0];
-    assert(listed, `missing ${constant}`);
-    const values = listed[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort();
+  /* A vocabulary the store takes from a shared contract is read from the contract itself. */
+  const vocabulary = (constant, column, shared = null) => {
+    const listed = shared ? null : [...storeSource.matchAll(new RegExp(`const ${constant} = Object\\.freeze\\(\\[([^\\]]+)\\]\\)`, 'g'))][0];
+    assert(shared || listed, `missing ${constant}`);
+    const values = shared ? [...shared].sort() : listed[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort();
     const checked = new RegExp(`${column} IN \\(([^)]+)\\)`).exec(sql);
     assert(checked, `missing constraint on ${column}`);
     assert.deepStrictEqual(checked[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort(), values, `${constant} and the ${column} constraint must agree`);
@@ -82,7 +83,8 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   vocabulary('REACH_TIERS', 'reach_tier');
   vocabulary('GRADES', 'grade');
   vocabulary('CAP_REASONS', 'cap_reason');
-  vocabulary('WATCH_STATES', 'watch_state');
+  vocabulary('WATCH_STATES', 'watch_state', require('../packages/contracts/src/evidence.ts').AUDIT_WATCH_STATES);
+  assert(storeSource.includes("const { AUDIT_WATCH_STATES: WATCH_STATES } = require('../packages/contracts/src/evidence.ts');"), 'the store reads its watch states from the evidence contract');
   vocabulary('WATCH_KEV', 'watch_kev');
   vocabulary('ALERT_KINDS', 'kind');
 }

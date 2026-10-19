@@ -17,8 +17,14 @@ assert(!server.includes('req.body.governanceRoles'), 'browser-supplied governanc
 assert(!server.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
 
 assert(gateway.includes("require('./authorization-resolver')"), 'mutation gateway must validate authorization snapshots');
-assert(gateway.includes('const authorization = normalizeAuthorizationSnapshot(input.authorization)'), 'gateway descriptor must normalize authorization evidence');
-assert(gateway.includes('security: normalizeSecurity(input.security, definition),\n    authorization'), 'gateway descriptor must retain normalized authorization evidence');
+/* The descriptor's guard is the mutation contract's; the gateway hands it the resolver's snapshot guard. */
+const descriptorContract = fs.readFileSync(path.join(root, 'packages', 'contracts', 'src', 'mutation.ts'), 'utf8');
+assert(gateway.includes('normalizeAuthorization: normalizeAuthorizationSnapshot'), 'gateway descriptor must normalize authorization evidence');
+assert.throws(() => require('../src/mutation-gateway').normalizeMutationDescriptor({
+  action: 'file.write', provider: 'github', owner: 'acme', repo: 'demo', actorIdentityKey: 'a'.repeat(64), actorLogin: 'alice',
+  method: 'PUT', route: '/api/repo/acme/demo/file', authorization: {}
+}), error => error.name === 'AuthorizationResolverError' && error.code === 'AUTHORIZATION_SCHEMA_UNSUPPORTED', 'gateway descriptor must normalize authorization evidence');
+assert(descriptorContract.includes('security: normalizeMutationSecurity(input.security, definition, refuse),\n    authorization'), 'gateway descriptor must retain normalized authorization evidence');
 
 /*
  * Reading a public repository makes nobody its collaborator. The reader

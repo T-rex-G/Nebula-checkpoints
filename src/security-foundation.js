@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { memorySingleUseStore } = require('./single-use-store');
+const { ASSURANCE_LEVELS } = require('../packages/contracts/src/mutation.ts');
 
 const TOKEN_VERSION = 1;
 const STEP_UP_ACTIONS = new Set([
@@ -197,7 +198,7 @@ function createStepUpGrant(secret, claims, options = {}) {
   const action = String(claims && claims.action || '');
   if (!STEP_UP_ACTIONS.has(action)) throw new SecurityTokenError('Unsupported step-up action', 'STEP_UP_ACTION_INVALID', 400);
   const assurance = String(claims && claims.assurance || '');
-  if (!['credential', 'oauth-session', 'github-app'].includes(assurance)) {
+  if (!/** @type {readonly string[]} */ (ASSURANCE_LEVELS).includes(assurance)) {
     throw new SecurityTokenError('Unsupported step-up assurance', 'STEP_UP_ASSURANCE_INVALID', 400);
   }
   const jti = String(options.jti || crypto.randomUUID());

@@ -100,7 +100,9 @@ function anonKeyFinding(overrides = {}) {
 
 async function mockExposure(page, {
   findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201,
-  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201
+  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201, verifyStatus = 201,
+  /* The refusals the server sends: governanceAccess('administrator') guards both checks. */
+  probeRefusal = { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
 } = {}) {
   const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [],
     currentScan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }),
@@ -150,10 +152,7 @@ async function mockExposure(page, {
     if (url.pathname.endsWith('/probe-readability') && request.method() === 'POST') {
       state.probeBodies.push(request.postDataJSON());
       if (probeStatus !== 201) {
-        return route.fulfill({
-          status: probeStatus,
-          json: { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
-        });
+        return route.fulfill({ status: probeStatus, json: probeRefusal });
       }
       return route.fulfill({
         status: 201,
@@ -194,6 +193,12 @@ async function mockExposure(page, {
     }
     if (url.pathname.endsWith('/verify') && request.method() === 'POST') {
       state.verifyBodies.push(request.postDataJSON());
+      if (verifyStatus !== 201) {
+        return route.fulfill({
+          status: verifyStatus,
+          json: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+        });
+      }
       return route.fulfill({
         status: 201,
         json: {
@@ -655,6 +660,38 @@ test('a refusal to accept says it is the role, not that something went wrong', a
   /* The finding is unchanged: a refused acceptance must not look accepted. */
   await expect(page.locator('.exposure-item').first()).toHaveAttribute('data-disposition', 'open');
   await expect(page.locator('.exposure-item-provenance')).toHaveCount(0);
+});
+
+test('a refusal to check a credential says it is the role, not that something went wrong', async ({ page }) => {
+  /* The same role as accepting: the server sends GOVERNANCE_ROLE_REQUIRED, and the reader is told who can do it. */
+  await mockExposure(page, { findings: [finding()], verifyStatus: 403 });
+  await openExposure(page);
+  await expandFindings(page);
+
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await verify.click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('#exposureProofLine')).not.toContainText(/could not be checked/i);
+  await expect(page.locator('.exposure-item-liveness')).toHaveCount(0);
+});
+
+test('a refusal to ask a project says it is the role, not that something went wrong', async ({ page }) => {
+  await mockExposure(page, {
+    findings: [anonKeyFinding()], probeStatus: 403,
+    probeRefusal: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+  });
+  await openExposure(page);
+  await expandFindings(page);
+
+  await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
+  await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
+  await page.locator('.exposure-probe').click();
+  await page.locator('.exposure-probe').click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('.exposure-item-readability')).toHaveCount(0);
 });
 
 test('an anonymous key is not reported as a leak, and asks the question instead', async ({ page }) => {

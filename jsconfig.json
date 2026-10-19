@@ -34,6 +34,9 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "resolveJsonModule": true,
+    // The shared contracts are TypeScript the server requires by their real
+    // names (packages/contracts/src/*.ts); they are read, never emitted.
+    "allowImportingTsExtensions": true,
     "types": ["node"],
     // Node's own modules are declared by @types/node. Without this, moduleResolution
     // finds the userland `events`, `punycode` and `string_decoder` packages that

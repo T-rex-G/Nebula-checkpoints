@@ -17,6 +17,8 @@
  */
 
 /* Where GitHub looks, in the order it looks. */
+export const CODEOWNERS_CONTRACT_VERSION = 1;
+
 export const LOCATIONS = Object.freeze(['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'] as const);
 export const MAX_RULES = 2000;
 const OWNER = /^(@[A-Za-z0-9][A-Za-z0-9-]{0,38}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?|[^\s@]{1,64}@[^\s@]{1,253})$/;
@@ -37,7 +39,7 @@ function escapeRegex(text: string): string {
   return text.replace(/[.+^${}()|[\]\\]/g, '\\$&');
 }
 
-export function patternRegex(raw: string): RegExp | null {
+function patternRegex(raw: string): RegExp | null {
   let pattern = raw;
   let anchored = false;
   if (pattern.startsWith('/')) { anchored = true; pattern = pattern.slice(1); }

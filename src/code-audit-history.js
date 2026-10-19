@@ -26,6 +26,7 @@ const { RULES, ENGINE, assertAuditActive } = require('./code-audit');
 const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('./code-audit-policy');
 const { TIERS } = require('./uranus-reach');
 const { standardsFor } = require('./security-standards');
+const { AUDIT_WATCH_STATES: WATCH_STATES } = require('../packages/contracts/src/evidence.ts');
 
 const LIMITS = Object.freeze({
   maxFindings: 1500,
@@ -52,7 +53,6 @@ const RISK_BANDS = Object.freeze(['urgent', 'high', 'moderate', 'low']);
 const REACH_TIERS = Object.freeze(['imported', 'named', 'bundled', 'transitive', 'installed', 'unknown', 'build', 'test', 'dev']);
 const GRADES = Object.freeze(['A', 'B', 'C', 'D', 'F']);
 const CAP_REASONS = Object.freeze(['critical', 'exploited']);
-const WATCH_STATES = Object.freeze(['ok', 'partial', 'unavailable']);
 const WATCH_KEV = Object.freeze(['ok', 'unavailable', 'not-needed']);
 const ALERT_KINDS = Object.freeze(['advisory', 'exploited']);
 const WAIVED = Object.freeze(['code', 'policy', 'triage']);

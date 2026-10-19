@@ -205,8 +205,8 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
   await expect(trigger).toBeFocused();
 
   await page.evaluate(() => window.NebulaTrustUI.presentError({
-    code: 'MUTATION_BLOCKED',
-    message: 'The controlled action was blocked by policy.',
+    code: 'POLICY_MUTATION_BLOCKED',
+    message: 'This mutation is blocked by the active policy',
     correlationId: 'fixture-focus-restoration',
     safeState: 'The sandbox repository remains unchanged.',
     nextAction: 'Review the policy decision.'

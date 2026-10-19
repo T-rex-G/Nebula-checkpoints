@@ -117,3 +117,40 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - two builds give one `servedAssetsSha256`.
 - **Gate B:** passed.
 - **Next:** the remaining C3 contracts, then C4 (the server's runtime and build identity in `/api/version`, the compiled-server CI job and the qualification double build).
+
+### C3 — The shared contracts
+
+- **Fourteen contracts** in `packages/contracts/src`, strict TypeScript and free of any platform's types.
+  - New:
+    - `guards` (the refusal every guard takes);
+    - `ids` (identifier formats, one name per meaning);
+    - `scope` (the repository a request is about);
+    - `actor` (the authorization snapshot: who acts, on whose authority, with what evidence);
+    - `capability`, `evidence` (completeness), `jobs` (polled jobs and scan states);
+    - `mutation` (the action catalogue and the descriptor), `api-envelope` (headers and the error body);
+    - `codes` (the code catalogue).
+  - Already there: `findings`, `codeowners`, `offline-cache-policy`, `upload-planning`.
+- **Ported, not copied.** Each validator moved from its server module into its contract with its messages, codes and statuses unchanged, and the server module now calls it. A guard refuses through the caller's own refusal, so every boundary keeps its error class. A bad scope inside an authorization snapshot is still governance's error, and the snapshot's own faults are still the resolver's.
+  - Moved: `normalizePolicyScope`, `normalizeAuthorizationSnapshot`, `validateCapabilityDocument`, `normalizeMutationDescriptor` with its metadata and step-up guards, and `publicErrorBody`.
+  - Also moved: the job stages and codes, the scan states and coverage, and the audit watch states.
+- **Versions** (ADR-090). Every contract declares a `…_CONTRACT_VERSION`, and its shape (types, vocabularies and signatures, without implementation) is recorded in `test/oracles/contract-shapes.json`. A shape that changes under the same version fails. Re-recording refuses an unbumped change.
+- **Codes.** `codes.ts` lists the 580 codes the system speaks: refusals, reasons and warnings. It also declares one family, `WEBHOOK_HTTP_<status>`. `test/codes.test.js` reads every code position in the source by syntax, resolving calls against the parameters they pass to, and holds the catalogue equal to what it finds. It also fails when:
+  - the page or the server waits for a code nothing produces;
+  - a composed code is undeclared;
+  - a browser mock sends a code the server never does.
+- **Completeness.** One scale (complete, partial, unknown, unavailable). Every part's own vocabulary is declared once and mapped to it, typed so that an unmapped word does not compile. The Overview posture now decides "measured" with it, identically for every answer the server can send.
+- **Adoption, enforced.** `test/oracles/contract-adoption.json` records two lists, and both may only shrink:
+  - 92 literal copies of contract-owned patterns and header names (`server.js` 19, the classic page 13, the rest in `src`). The server's go as Phase D dissolves `server.js`, the page's as Phase E dissolves the classic page.
+  - 39 exports still waiting for their consumer.
+- **Defects the port found, each fixed with a test that failed first:**
+  - *Inherited names were actions.* The catalogue was an ordinary object, so `constructor` and `__proto__` passed every "is this an action" lookup: the descriptor, exception requests, simulation scenarios, policy rules and the execution-contract lookup. Some of these names come from the client. The catalogue now has no prototype, and the execution contracts are read by own key.
+  - *A role refusal read as a failure.* Checking a credential or probing a project as a non-administrator showed "could not be checked" or "could not be asked". The page waited for `GOV_ROLE_REQUIRED`; the server sends `GOVERNANCE_ROLE_REQUIRED`. Two browser tests cover it.
+  - *A branch that could never run.* The page tolerated a `BRANCH_EXISTS` code nothing sends; the 422 it actually receives already covers it.
+  - *Mocks that production contradicts.* Nine browser-mock codes, and one status, were never what the server sends. For example, a policy block is `POLICY_MUTATION_BLOCKED` with 403, not `MUTATION_BLOCKED` with 409. Each now matches the server's real answer. The one deliberate fixture-only code is declared with its reason.
+- **Moved text, honest tests.** Seven source-text tests read text that moved into the contracts. Where the check could be behavioural it is now: action registration is an own-key lookup in the gateway's catalogue, and policy-input refusal and authorization normalization are calls with their codes and error classes asserted. The rest read the contract. `jsconfig.json` reads the `.ts` contracts the checked JavaScript requires.
+- **Checks:**
+  - unit gate (249 programs) green;
+  - typecheck under all four projects, lint, `verify.js`, syntax, secrets, docs and inventory green;
+  - two builds give one `servedAssetsSha256`;
+  - the full browser suite on both projects (see the commit).
+- **Next:** C4 (the server's runtime and build identity in `/api/version`, the compiled-server CI job, `apps/api/src/entrypoint.ts` and the qualification double build).

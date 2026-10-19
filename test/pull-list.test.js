@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * One open pull request as the list route answers it (src/pull-list.js).
+ * One open pull request as the list route answers it (the posture module's pull list).
  * The workbench's fields keep their names and meaning; the board's three
  * come from the list itself, read defensively, and nothing beyond them --
  * no body, no reviewer identity -- leaves the route.
@@ -10,7 +10,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { pullListItem, MAX_LABELS, MAX_LABEL_LENGTH } = require('../src/pull-list');
+const { pullListItem, MAX_LABELS, MAX_LABEL_LENGTH } = require('../apps/api/src/modules/posture/index.ts');
 
 /* A list entry in the shape GitHub documents for GET /repos/{owner}/{repo}/pulls. */
 const listed = {
@@ -69,6 +69,9 @@ assert.strictEqual(pullListItem({ number: 1, requested_reviewers: 'many', reques
 const many = pullListItem({ number: 2, labels: Array.from({ length: 20 }, (_, i) => ({ name: `label-${i}-${'x'.repeat(80)}` })) });
 assert.strictEqual(many.labels.length, MAX_LABELS);
 assert(many.labels.every(name => name.length <= MAX_LABEL_LENGTH));
+/* Two labels that read the same once cut to length are one name on the board. */
+const twins = pullListItem({ number: 3, labels: [{ name: `${'a'.repeat(MAX_LABEL_LENGTH)}-one` }, { name: `${'a'.repeat(MAX_LABEL_LENGTH)}-two` }, { name: 'b' }] });
+assert.deepStrictEqual(twins.labels, ['a'.repeat(MAX_LABEL_LENGTH), 'b']);
 
 /* The route answers through this function, so the board and the workbench read one shape. */
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');

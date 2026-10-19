@@ -360,3 +360,24 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - The package and release contracts, the verifier, the syntax manifest, `jsconfig` and the adoption record name the new paths or drop the old ones.
 - **Checks:** typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify green; every exposure program green, the PostgreSQL store included; the module boundaries; the full unit gate.
 - **Next:** D7 (Uranus).
+
+### D7a — Posture, the module Uranus stands on
+
+- **Why before Uranus.** The audit engine files every finding under the standards in `security-standards`, and the plan places that file in `modules/posture`, which D4–D9 did not schedule. Uranus could not become a module that imports CommonJS from `src/`, so posture converts first. Its six files depended on nothing.
+- **One module, behind its index.** `modules/posture`:
+  - `domain/`: the standards every finding is filed under, a credential's reach and the exposure summary, the security posture, the findings inbox, the pull-request board's item, and what GitHub's branch rules mean, control by control.
+  - `application/`: the posture reader and the branch protection reading, each typed against the ports the server hands it (the guarded provider transport, the database, the stores, a repository read).
+  - `persistence/`: the recovery points query, which the reader used to issue inline.
+  - The index exports them by name. Three generic names are qualified: `STANDARDS_MAP`, `INBOX_STATES` and `BRANCH_CONTROLS`. The server's five posture requires are one, and Uranus, the site check and the tests reach the module the same way.
+- **One way to read an untyped value.** `platform/values/fields.ts` holds `read`, `fieldsOf`, `listOf`, `ownEntry` and `dateFrom`, which posture uses and Uranus will. A value is read by name only when it is an object, and comes back `unknown`. They claim nothing the language does not guarantee, so posture adds no type assertion. Gate D moves the earlier modules' per-file helpers onto it.
+- **Defects the port found, each with a test that failed first against the original:**
+  - `standardsFor('constructor')`, or any name `Object.prototype` carries, threw `entry is not iterable`, because the table answered with a built-in. It now answers null, as for any rule it does not map.
+  - The findings inbox kept a severity named after an `Object.prototype` member as it was, and sorted it by `NaN`. Its tallies added a count to a built-in function, `"function Object() { [native code] }1"`, or lost it to `__proto__`. Severities are now the three it ranks. Each tally is built in a Map and returned with own keys only, so any word is counted like any other.
+  - A branch-rules provider named after an `Object.prototype` member had a reader. `constructor` returned its own argument and the reading failed with a TypeError, not the refusal an unknown provider gets. The readers are a Map, and such a provider is refused with 501 before anything is read.
+  - The pull-request board deduplicated label names before cutting them to length, so two labels that read the same once cut appeared twice. They are cut first.
+- **Behaviour otherwise unchanged.**
+  - Every file was compared with its original after its types were stripped. Each difference is listed here or is the same expression written so the checker can follow it.
+  - The SQL is unchanged.
+  - One difference is in input no store produces. A row that is not an object is skipped where the original threw on reading its fields, and a series that is not an array reads as empty. The exposure summary already skipped such rows.
+- **Checks:** typecheck, lint, the posture programs, the PostgreSQL posture test, the route surface, module boundaries, contracts, the package contract and the full unit gate.
+- **Next:** D7 (Uranus).

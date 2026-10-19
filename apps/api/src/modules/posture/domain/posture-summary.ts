@@ -1,4 +1,4 @@
-'use strict';
+import { isFields, listOf, read } from '../../../platform/values/fields.ts';
 
 /*
  * The workspace's security posture, as the Overview draws it.
@@ -17,27 +17,64 @@
  * findings" and "could not read the findings" are the opposite of each other.
  */
 
-const SEVERITIES = Object.freeze(['critical', 'serious', 'warning']);
+export const SEVERITIES = Object.freeze(['critical', 'serious', 'warning'] as const);
+export type Severity = (typeof SEVERITIES)[number];
 /* Exposure findings are their own category: a credential in the history is not a code finding. */
-const EXPOSURE_CATEGORY = 'leaked-credentials';
-const TOP_REPOSITORIES = 6;
+export const EXPOSURE_CATEGORY = 'leaked-credentials';
+export const TOP_REPOSITORIES = 6;
 
-function weeklySeries(weeks, entries) {
-  const counts = new Array(weeks).fill(0);
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    const index = Number(entry && entry.weeksAgo);
-    const count = Number(entry && entry.count);
-    if (Number.isSafeInteger(index) && index >= 0 && index < weeks && Number.isFinite(count) && count > 0) counts[index] += count;
+function isSeverity(value: unknown): value is Severity {
+  return SEVERITIES.some(severity => severity === value);
+}
+
+function weeklySeries(weeks: number, entries: readonly unknown[]): number[] {
+  const counts = new Array<number>(weeks).fill(0);
+  for (const entry of entries) {
+    const index = Number(read(entry, 'weeksAgo'));
+    const count = Number(read(entry, 'count'));
+    if (Number.isSafeInteger(index) && index >= 0 && index < weeks && Number.isFinite(count) && count > 0) counts[index] = (counts[index] ?? 0) + count;
   }
   return counts;
 }
 
-function emptyOpen() {
+export interface OpenTally {
+  critical: number;
+  serious: number;
+  warning: number;
+  total: number;
+}
+
+function emptyOpen(): OpenTally {
   return { critical: 0, serious: 0, warning: 0, total: 0 };
 }
 
-function repositoryKey(owner, repo) {
+function repositoryKey(owner: unknown, repo: unknown): string {
   return `${String(owner || '').toLowerCase()}/${String(repo || '').toLowerCase()}`;
+}
+
+interface AuditMark { at: unknown; ref: unknown; grade: unknown; score: unknown; complete: boolean }
+interface ExposureMark { at: unknown; partial: boolean }
+interface RepositoryEntry {
+  owner: unknown;
+  repo: unknown;
+  open: OpenTally;
+  audit: AuditMark | null;
+  exposure: ExposureMark | null;
+}
+
+export interface PostureInput {
+  readonly weeks?: unknown;
+  readonly now?: unknown;
+  readonly audit?: unknown;
+  readonly exposure?: unknown;
+  readonly exposureTrend?: unknown;
+  readonly merges?: unknown;
+}
+
+/* A series the stores answer as an array, or none. */
+function seriesOf(source: unknown, key: string): readonly unknown[] {
+  const value = read(source, key);
+  return Array.isArray(value) ? value : [];
 }
 
 /*
@@ -46,58 +83,72 @@ function repositoryKey(owner, repo) {
  * ExposureStore#workspaceTrend and `merges` is GovernanceStore#countMergeOutcomes
  * for the last seven days. Any of them may be null.
  */
-function summarizePosture(input = {}) {
-  const weeks = Number.isSafeInteger(input.weeks) && input.weeks >= 1 && input.weeks <= 52 ? input.weeks : 12;
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
-  const audit = input.audit && typeof input.audit === 'object' ? input.audit : null;
-  const exposure = input.exposure && input.exposure.available === true ? input.exposure : null;
-  const exposureTrend = input.exposureTrend && typeof input.exposureTrend === 'object' ? input.exposureTrend : null;
-  const merges = input.merges && typeof input.merges === 'object' ? input.merges : null;
+export function summarizePosture(input: PostureInput = {}) {
+  const weeks = typeof input.weeks === 'number' && Number.isSafeInteger(input.weeks) && input.weeks >= 1 && input.weeks <= 52 ? input.weeks : 12;
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+  const audit = isFields(input.audit) ? input.audit : null;
+  const exposure = isFields(input.exposure) && input.exposure.available === true ? input.exposure : null;
+  const exposureTrend = isFields(input.exposureTrend) ? input.exposureTrend : null;
+  const merges = isFields(input.merges) ? input.merges : null;
 
-  const repositories = new Map();
-  function repository(owner, repo) {
+  const repositories = new Map<string, RepositoryEntry>();
+  function repository(owner: unknown, repo: unknown): RepositoryEntry {
     const key = repositoryKey(owner, repo);
-    if (!repositories.has(key)) repositories.set(key, { owner, repo, open: emptyOpen(), audit: null, exposure: null });
-    return repositories.get(key);
+    let entry = repositories.get(key);
+    if (!entry) {
+      entry = { owner, repo, open: emptyOpen(), audit: null, exposure: null };
+      repositories.set(key, entry);
+    }
+    return entry;
   }
 
   const open = emptyOpen();
   const triaged = { acceptedRisk: 0, falsePositive: 0 };
-  const categories = new Map();
-  const count = (category, severity, amount) => {
-    if (!categories.has(category)) categories.set(category, emptyOpen());
-    const entry = categories.get(category);
+  const categories = new Map<string, OpenTally>();
+  const count = (category: string, severity: Severity, amount: number) => {
+    let entry = categories.get(category);
+    if (!entry) {
+      entry = emptyOpen();
+      categories.set(category, entry);
+    }
     entry[severity] += amount;
     entry.total += amount;
   };
 
   if (audit) {
-    for (const row of Array.isArray(audit.audits) ? audit.audits : []) {
+    for (const value of listOf(audit.audits)) {
+      if (!isFields(value)) continue;
+      const row = value;
       repository(row.owner, row.repo).audit = {
         at: row.auditedAt, ref: row.ref, grade: row.grade, score: row.score, complete: row.coverageComplete === true
       };
     }
-    for (const row of Array.isArray(audit.findings) ? audit.findings : []) {
+    for (const value of listOf(audit.findings)) {
+      if (!isFields(value)) continue;
+      const row = value;
       const amount = Number(row.count) || 0;
-      if (!amount || !SEVERITIES.includes(row.severity)) continue;
+      const severity = row.severity;
+      if (!amount || !isSeverity(severity)) continue;
       if (row.state === 'accepted-risk') { triaged.acceptedRisk += amount; continue; }
       if (row.state === 'false-positive') { triaged.falsePositive += amount; continue; }
       if (row.state !== 'open') continue;
       const entry = repository(row.owner, row.repo);
-      entry.open[row.severity] += amount;
+      entry.open[severity] += amount;
       entry.open.total += amount;
-      open[row.severity] += amount;
+      open[severity] += amount;
       open.total += amount;
-      count(String(row.category || 'other'), row.severity, amount);
+      count(String(row.category || 'other'), severity, amount);
     }
   }
 
   if (exposure) {
-    for (const row of Array.isArray(exposure.repositories) ? exposure.repositories : []) {
+    for (const value of listOf(exposure.repositories)) {
+      if (!isFields(value)) continue;
+      const row = value;
       const entry = repository(row.owner, row.repo);
       entry.exposure = { at: row.scannedAt || null, partial: row.partial === true };
       for (const severity of SEVERITIES) {
-        const amount = Number(row.open && row.open[severity]) || 0;
+        const amount = Number(read(row.open, severity)) || 0;
         if (!amount) continue;
         entry.open[severity] += amount;
         entry.open.total += amount;
@@ -110,14 +161,14 @@ function summarizePosture(input = {}) {
   if (exposureTrend) triaged.acceptedRisk += Number(exposureTrend.accepted) || 0;
 
   const opened = weeklySeries(weeks, [
-    ...(audit ? audit.opened || [] : []),
-    ...(exposureTrend ? exposureTrend.opened || [] : [])
+    ...(audit ? seriesOf(audit, 'opened') : []),
+    ...(exposureTrend ? seriesOf(exposureTrend, 'opened') : [])
   ]);
   const fixed = weeklySeries(weeks, [
-    ...(audit ? audit.fixed || [] : []),
-    ...(exposureTrend ? exposureTrend.fixed || [] : [])
+    ...(audit ? seriesOf(audit, 'fixed') : []),
+    ...(exposureTrend ? seriesOf(exposureTrend, 'fixed') : [])
   ]);
-  const trend = opened.map((_, index) => ({ weeksAgo: index, opened: opened[index], fixed: fixed[index] })).reverse();
+  const trend = opened.map((value, index) => ({ weeksAgo: index, opened: value, fixed: fixed[index] ?? 0 })).reverse();
   const openedTotal = opened.reduce((sum, value) => sum + value, 0);
   const fixedTotal = fixed.reduce((sum, value) => sum + value, 0);
 
@@ -158,5 +209,3 @@ function summarizePosture(input = {}) {
     }))
   };
 }
-
-module.exports = Object.freeze({ summarizePosture, EXPOSURE_CATEGORY, TOP_REPOSITORIES, SEVERITIES });

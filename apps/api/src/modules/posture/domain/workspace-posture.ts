@@ -1,7 +1,8 @@
-'use strict';
+import { dateFrom, fieldsOf, listOf } from '../../../platform/values/fields.ts';
 
 /*
- * The facts the overview scores, read rather than assumed.
+ * The facts the overview scores, read rather than assumed: what a credential
+ * can reach, and the leaked credentials Exposure has found.
  *
  * The overview used to score three things it had never looked at. The
  * credential was called "a personal access token: broader scope, revoked as a
@@ -32,19 +33,21 @@ const GITHUB_PREFIXES = Object.freeze([
 
 /* Scopes that reach beyond reading and writing code: administration of the
    account, its organisations, its keys or its hooks, and deleting repositories. */
-const GITHUB_BROAD_SCOPES = Object.freeze([
+export const GITHUB_BROAD_SCOPES: readonly string[] = Object.freeze([
   'admin:org', 'admin:enterprise', 'admin:repo_hook', 'admin:org_hook', 'admin:public_key',
   'admin:gpg_key', 'admin:ssh_signing_key', 'delete_repo', 'site_admin', 'user', 'write:packages',
   'delete:packages', 'workflow'
 ]);
 
-function githubTokenKind(token) {
+export type TokenKind = 'fine-grained' | 'classic' | 'oauth' | 'app-user' | 'installation' | 'unknown';
+
+export function githubTokenKind(token: unknown): TokenKind {
   const value = String(token || '');
   const match = GITHUB_PREFIXES.find(entry => value.startsWith(entry.prefix));
   return match ? match.kind : 'unknown';
 }
 
-function scopeList(header) {
+function scopeList(header: unknown): string[] {
   return String(header || '')
     .split(',')
     .map(scope => scope.trim())
@@ -52,12 +55,30 @@ function scopeList(header) {
     .slice(0, 40);
 }
 
-function isoDate(value) {
+function isoDate(value: unknown): string | null {
   if (!value) return null;
   /* GitHub writes "2026-10-31 09:30:00 UTC". */
   const normalised = String(value).trim().replace(/ UTC$/, 'Z').replace(' ', 'T');
   const parsed = Date.parse(normalised);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+export interface CredentialInput {
+  readonly provider?: unknown;
+  readonly authMethod?: unknown;
+  readonly token?: unknown;
+  readonly scopesHeader?: unknown;
+  readonly expiresHeader?: unknown;
+  readonly now?: unknown;
+}
+
+export interface CredentialPosture {
+  readonly kind: TokenKind;
+  /* 0 to 1, or null when the credential's reach could not be read. */
+  readonly rating: number | null;
+  readonly scopes: readonly string[];
+  readonly expiresAt: string | null;
+  readonly detail: string;
 }
 
 /*
@@ -66,9 +87,9 @@ function isoDate(value) {
  * -- not how strong a password is: a stolen fine-grained token that expires on
  * Friday is a smaller incident than a stolen classic one that never does.
  */
-function credentialPosture(input = {}) {
+export function credentialPosture(input: CredentialInput = {}): CredentialPosture {
   const provider = String(input.provider || 'github');
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
   if (provider === 'github' && input.authMethod === 'github-app') {
     return Object.freeze({
       kind: 'installation',
@@ -82,7 +103,7 @@ function credentialPosture(input = {}) {
     const kind = githubTokenKind(input.token);
     const scopes = scopeList(input.scopesHeader);
     const expiresAt = isoDate(input.expiresHeader);
-    const expired = expiresAt && Date.parse(expiresAt) <= now;
+    const expired = expiresAt !== null && Date.parse(expiresAt) <= now;
     const broad = scopes.filter(scope => GITHUB_BROAD_SCOPES.includes(scope));
     if (kind === 'fine-grained') {
       const rating = expired ? 0 : expiresAt ? 0.9 : 0.7;
@@ -123,125 +144,46 @@ function credentialPosture(input = {}) {
   });
 }
 
+export type Severity3 = 'critical' | 'serious' | 'warning';
+export type OpenCounts = Record<Severity3, number>;
+
+export interface RepositoryExposure {
+  readonly owner: unknown;
+  readonly repo: unknown;
+  readonly scannedAt: string | null;
+  readonly partial: boolean;
+  readonly open: Readonly<OpenCounts>;
+}
+
 /*
  * Open findings per repository, by severity, from rows of
  * { owner, repo, finishedAt, state, rule, count }. Severity comes from the
  * narration table the findings screen already uses, so the overview and the
  * screen can never call the same finding two different things.
  */
-function exposureSummary(rows, severityForRule) {
-  const byRepo = new Map();
-  for (const row of Array.isArray(rows) ? rows : []) {
-    if (!row || !row.owner || !row.repo) continue;
-    const key = `${row.owner}/${row.repo}`.toLowerCase();
-    if (!byRepo.has(key)) {
-      byRepo.set(key, {
+export function exposureSummary(rows: unknown, severityForRule: (rule: string) => unknown): readonly RepositoryExposure[] {
+  const byRepo = new Map<string, { owner: unknown; repo: unknown; scannedAt: string | null; partial: boolean; open: OpenCounts }>();
+  for (const value of listOf(rows)) {
+    const row = fieldsOf(value);
+    if (!value || !row.owner || !row.repo) continue;
+    const key = `${String(row.owner)}/${String(row.repo)}`.toLowerCase();
+    let entry = byRepo.get(key);
+    if (!entry) {
+      entry = {
         owner: row.owner, repo: row.repo,
-        scannedAt: row.finishedAt ? new Date(row.finishedAt).toISOString() : null,
+        scannedAt: row.finishedAt ? dateFrom(row.finishedAt).toISOString() : null,
         partial: row.state === 'partial',
         open: { critical: 0, serious: 0, warning: 0 }
-      });
+      };
+      byRepo.set(key, entry);
     }
-    const entry = byRepo.get(key);
     const count = Number(row.count) || 0;
     if (!row.rule || !count) continue;
-    const severity = severityForRule(row.rule);
-    const bucket = severity === 'critical' ? 'critical' : severity === 'serious' ? 'serious' : 'warning';
+    const severity = severityForRule(String(row.rule));
+    const bucket: Severity3 = severity === 'critical' ? 'critical' : severity === 'serious' ? 'serious' : 'warning';
     entry.open[bucket] += count;
   }
   return Object.freeze([...byRepo.values()].map(entry => Object.freeze({
     ...entry, open: Object.freeze(entry.open)
   })));
 }
-
-/*
- * The reader behind GET /api/workspace/posture. Four independent readings,
- * each allowed to fail on its own: a database that is down makes recovery and
- * exposure unavailable, not the credential; a provider that will not describe
- * its token makes the credential unmeasured, not the database.
- *
- * Every provider request goes through the transports the server hands in --
- * the same guarded ones every other route uses -- and the token never leaves
- * this function except as the kind its prefix names.
- */
-function createPostureReader(deps) {
-  const {
-    gh, dbReady, pool, identityKey, normalizePolicyScope, exposureStore, severityOf,
-    databaseConfigured, maintenance, hostedAlpha
-  } = deps;
-
-  async function credential(account) {
-    const provider = account.provider || 'github';
-    try {
-      if (provider === 'github' && account.authMethod !== 'github-app') {
-        const response = await gh(account, '/user', { raw: true, timeoutMs: 8000 });
-        const scopesHeader = response.ok ? response.headers.get('x-oauth-scopes') : '';
-        const expiresHeader = response.ok ? response.headers.get('github-authentication-token-expiration') : '';
-        if (response.body) await response.body.cancel();
-        return credentialPosture({ provider, token: account.token, scopesHeader, expiresHeader });
-      }
-      return credentialPosture({ provider, authMethod: account.authMethod });
-    } catch {
-      return credentialPosture({ provider: 'unknown' });
-    }
-  }
-
-  async function recovery(account) {
-    if (!(await dbReady())) return { available: false, repositories: [] };
-    const rows = await pool().query(
-      `SELECT owner, repo, max(created_at) AS latest, count(*) AS points FROM nv_recovery_snapshots
-        WHERE provider=$1 AND identity_key=$2
-        GROUP BY owner, repo ORDER BY max(created_at) DESC LIMIT 500`,
-      [account.provider || 'github', identityKey(account)]
-    );
-    return {
-      available: true,
-      repositories: rows.rows.map(row => ({
-        owner: row.owner,
-        repo: row.repo,
-        latestAt: row.latest ? new Date(row.latest).toISOString() : null,
-        points: Number(row.points) || 0
-      }))
-    };
-  }
-
-  async function exposure(account) {
-    if (!databaseConfigured || !(await dbReady())) return { available: false, repositories: [] };
-    const provider = account.provider || 'github';
-    /* The same authority the exposure routes key their rows by. */
-    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
-    const rows = await exposureStore().workspaceSummary({ provider, authority, identityKey: identityKey(account) });
-    return { available: true, repositories: exposureSummary(rows, severityOf) };
-  }
-
-  async function read(account) {
-    if (!account || (account.provider || 'github') !== 'github') {
-      throw Object.assign(new Error('Workspace posture requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
-    }
-    const settle = promise => promise.then(value => value, () => null);
-    const [credentialReading, recoveryReading, exposureReading, databaseReady] = await Promise.all([
-      credential(account),
-      settle(recovery(account)),
-      settle(exposure(account)),
-      databaseConfigured ? settle(dbReady()) : Promise.resolve(false)
-    ]);
-    const database = databaseConfigured ? (databaseReady ? 'ready' : 'unavailable') : 'not-configured';
-    return {
-      credential: credentialReading,
-      recovery: recoveryReading || { available: false, repositories: [] },
-      exposure: exposureReading || { available: false, repositories: [] },
-      boundary: {
-        state: maintenance || (hostedAlpha && database !== 'ready') ? 'degraded' : 'online',
-        database,
-        maintenance: Boolean(maintenance)
-      }
-    };
-  }
-
-  return Object.freeze({ read });
-}
-
-module.exports = Object.freeze({
-  GITHUB_BROAD_SCOPES,
-  githubTokenKind, credentialPosture, exposureSummary, createPostureReader
-});

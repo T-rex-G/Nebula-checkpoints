@@ -117,7 +117,13 @@ for (const file of [
   'packages/contracts/src/offline-cache-policy.ts', 'apps/web/src/features/workbench/archive-safety.js', 'apps/web/src/features/workbench/export-safety.js',
   'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'apps/web/src/legacy/app.js', 'apps/web/src/features/governance/governance-ui.js', 'apps/web/src/visualizations/neural.js', 'apps/web/src/features/uranus/code-audit-ui.js',
-  'src/code-audit.js', 'src/workspace-posture.js'
+  'src/code-audit.js',
+  'apps/api/src/platform/values/fields.ts', 'apps/api/src/modules/posture/index.ts',
+  'apps/api/src/modules/posture/domain/security-standards.ts', 'apps/api/src/modules/posture/domain/workspace-posture.ts',
+  'apps/api/src/modules/posture/domain/posture-summary.ts', 'apps/api/src/modules/posture/domain/findings-inbox.ts',
+  'apps/api/src/modules/posture/domain/pull-list.ts', 'apps/api/src/modules/posture/domain/branch-rules.ts',
+  'apps/api/src/modules/posture/application/posture-reader.ts', 'apps/api/src/modules/posture/application/branch-protection.ts',
+  'apps/api/src/modules/posture/persistence/recovery-points.ts'
 ]) {
   assertParses(file);
 }

@@ -2,8 +2,8 @@
  * The findings inbox, decided before it is drawn: every open finding across
  * the workspace, in one list a person can work through.
  *
- * The server decides what each finding is (src/findings-inbox.js); this
- * decides what is on screen. Filters live in the address, so a filtered view
+ * The server decides what each finding is (the posture module's inbox,
+ * modules/posture/domain/findings-inbox.ts); this decides what is on screen. Filters live in the address, so a filtered view
  * can be reloaded, bookmarked and sent to someone. Owners come from each
  * repository's CODEOWNERS file, fetched only for the repositories on screen.
  * Decisions go through each repository's own triage route, one finding at a

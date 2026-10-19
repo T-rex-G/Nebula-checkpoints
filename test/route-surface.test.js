@@ -175,9 +175,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  *
  * 166 to 167 adds the workspace posture read the overview scores. The handler
  * is one call: the credential classification, the recovery and exposure
- * summaries and the boundary state are all in `src/workspace-posture.js`,
- * tested there, and the exposure query is in the store, tested against a real
- * database.
+ * summaries and the boundary state are all in the posture module
+ * (`apps/api/src/modules/posture`), tested there, and the exposure query is
+ * in the store, tested against a real database.
  *
  * 167 to 168 adds the repository audit. The handler opens a guarded read
  * session, calls one function and closes the session; which files are read,
@@ -198,7 +198,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * handler binds a reader to the open repository and calls one function; which
  * provider paths are read, how classic protection and rulesets combine, and
  * why a hidden detail is unknown rather than on are in
- * `src/branch-protection.js`, tested there provider by provider.
+ * `apps/api/src/modules/posture/application/branch-protection.ts`, tested there provider by provider.
  *
  * 172 to 176 adds the kept audits: a branch's history, one past audit's
  * findings, the watch over its components, and the clear. Each handler is one
@@ -229,12 +229,12 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 184 to 185 adds the Overview's security posture: one read across the audit
  * history, the exposure scans and the governance decisions the identity
  * already holds. The handler calls the three stores and hands what they
- * returned to `src/posture-summary.js`, which decides every figure and is
+ * returned to `apps/api/src/modules/posture/domain/posture-summary.ts`, which decides every figure and is
  * tested on its own; the store queries are tested against a real database.
  */
 /*
  * 185 to 187 adds the findings inbox and the CODEOWNERS read beside it. The
- * inbox reads the two stores and hands their rows to `src/findings-inbox.js`,
+ * inbox reads the two stores and hands their rows to `apps/api/src/modules/posture/domain/findings-inbox.ts`,
  * which decides every state and the order; the CODEOWNERS route reads one file
  * through the qualified file read and hands it to `packages/contracts/src/codeowners.ts`,
  * which parses and matches it the way GitHub documents. Both are tested on

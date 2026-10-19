@@ -9,7 +9,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const posture = require('../src/workspace-posture');
+const posture = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-09-26T12:00:00.000Z');
 /* Prefixes split, so the release gate's secret scan has nothing to match. */

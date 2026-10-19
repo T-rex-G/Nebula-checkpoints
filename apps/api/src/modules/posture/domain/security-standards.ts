@@ -1,4 +1,4 @@
-'use strict';
+import { ownEntry } from '../../../platform/values/fields.ts';
 
 /*
  * Where each rule sits in the vocabularies a security team already reports
@@ -29,9 +29,9 @@
  * (published 15 December 2025).
  */
 
-const OWASP_EDITION = '2025';
+export const OWASP_EDITION = '2025';
 
-const OWASP_2025 = Object.freeze({
+export const OWASP_2025 = Object.freeze({
   A01: 'Broken Access Control',
   A02: 'Security Misconfiguration',
   A03: 'Software Supply Chain Failures',
@@ -44,8 +44,10 @@ const OWASP_2025 = Object.freeze({
   A10: 'Mishandling of Exceptional Conditions'
 });
 
+export type OwaspCategory = keyof typeof OWASP_2025;
+
 /* Each category's "List of Mapped CWEs", as OWASP publishes it. */
-const OWASP_2025_CWES = Object.freeze({
+export const OWASP_2025_CWES: Readonly<Record<OwaspCategory, readonly number[]>> = Object.freeze({
   A01: Object.freeze([22, 23, 36, 59, 61, 65, 200, 201, 219, 276, 281, 282, 283, 284, 285, 352, 359, 377, 379, 402, 424, 425, 441, 497, 538, 540, 548, 552, 566, 601, 615, 639, 668, 732, 749, 862, 863, 918, 922, 1275]),
   A02: Object.freeze([5, 11, 13, 15, 16, 260, 315, 489, 526, 547, 611, 614, 776, 942, 1004, 1174]),
   A03: Object.freeze([447, 1035, 1104, 1329, 1357, 1395]),
@@ -59,13 +61,13 @@ const OWASP_2025_CWES = Object.freeze({
 });
 
 /* The 2025 CWE Top 25, by CWE number. */
-const CWE_TOP25_2025 = Object.freeze({
+export const CWE_TOP25_2025: Readonly<Record<string, number>> = Object.freeze({
   79: 1, 89: 2, 352: 3, 862: 4, 787: 5, 22: 6, 416: 7, 125: 8, 78: 9, 94: 10,
   120: 11, 434: 12, 476: 13, 121: 14, 502: 15, 122: 16, 863: 17, 20: 18, 284: 19, 200: 20,
   306: 21, 918: 22, 77: 23, 639: 24, 770: 25
 });
 
-const CWE_NAMES = Object.freeze({
+export const CWE_NAMES: Readonly<Record<string, string>> = Object.freeze({
   22: 'Path Traversal',
   78: 'OS Command Injection',
   79: 'Cross-site Scripting',
@@ -126,11 +128,15 @@ const CWE_NAMES = Object.freeze({
   1427: 'Improper Neutralization of Input Used for LLM Prompting'
 });
 
+/* How a rule's category was chosen; see the header. */
+export type OwaspBasis = 'cwe' | 'text' | 'scope';
+type Placement = readonly [cwe: number, owasp: OwaspCategory | null, basis?: Exclude<OwaspBasis, 'cwe'>];
+
 /*
  * rule: [CWE, OWASP 2025 category, basis]. The basis is 'cwe' unless stated;
  * see the header for what each basis means.
  */
-const MAP = Object.freeze({
+export const MAP: Readonly<Record<string, Placement>> = Object.freeze({
   /* Supply chain in the repository's own scripts and workflows. */
   'SUP-001': [829, 'A08'], 'SUP-002': [494, 'A08'], 'SUP-003': [506, 'A08'], 'SUP-004': [506, 'A08'],
   'SUP-005': [506, 'A08'], 'SUP-006': [829, 'A08'], 'SUP-007': [829, 'A08'], 'SUP-008': [829, 'A08'],
@@ -190,23 +196,29 @@ const MAP = Object.freeze({
   'WEB-037': [693, 'A02', 'text']
 });
 
-/* The labels for one rule, or null when the rule is not mapped. */
-function standardsFor(rule) {
-  const entry = MAP[rule];
+export interface Standards {
+  readonly cwe: string;
+  readonly cweName: string | null;
+  readonly owasp: string | null;
+  readonly owaspName: string | null;
+  readonly owaspBasis: OwaspBasis | null;
+  readonly top25: { readonly rank: number; readonly year: 2025 } | null;
+}
+
+/* The labels for one rule, or null when the rule is not mapped. A name inherited from Object.prototype is not a rule. */
+export function standardsFor(rule: string): Standards | null {
+  const entry = ownEntry(MAP, rule);
   if (!entry) return null;
   const [cwe, owasp, basis = 'cwe'] = entry;
-  const rank = CWE_TOP25_2025[cwe] || null;
+  const rank = ownEntry(CWE_TOP25_2025, String(cwe)) || null;
   return Object.freeze({
     cwe: `CWE-${cwe}`,
-    cweName: CWE_NAMES[cwe] || null,
+    cweName: ownEntry(CWE_NAMES, String(cwe)) || null,
     owasp: owasp ? `${owasp}:${OWASP_EDITION}` : null,
     owaspName: owasp ? OWASP_2025[owasp] : null,
     owaspBasis: owasp ? basis : null,
-    top25: rank ? Object.freeze({ rank, year: 2025 }) : null
+    top25: rank ? Object.freeze({ rank, year: 2025 as const }) : null
   });
 }
 
-module.exports = Object.freeze({
-  standardsFor, OWASP_EDITION, OWASP_2025, OWASP_2025_CWES, CWE_TOP25_2025, CWE_NAMES,
-  MAP, MAPPED_RULES: Object.freeze(Object.keys(MAP))
-});
+export const MAPPED_RULES: readonly string[] = Object.freeze(Object.keys(MAP));

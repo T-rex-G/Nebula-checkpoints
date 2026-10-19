@@ -181,7 +181,6 @@ const {
 const { exploitedInProduction } = require('./src/uranus-reach');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
-const { readBranchProtection } = require('./src/branch-protection');
 const { securityContact } = require('./src/public-assets');
 const {
   DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker, resolveExposureSession: resolveStoredExposureSession,
@@ -197,10 +196,9 @@ const {
   OPERATIONS: READABILITY_OPERATIONS,
   discoverProject, probeAnonymousReadability, signReadabilityAuthorization
 } = readabilityProbe;
-const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
-const { summarizePosture } = require('./src/posture-summary');
-const { pullListItem } = require('./src/pull-list');
-const { buildInbox } = require('./src/findings-inbox');
+const {
+  createPostureReader, exposureSummary, summarizePosture, pullListItem, buildInbox, readBranchProtection
+} = require('./apps/api/src/modules/posture/index.ts');
 const codeowners = require('./packages/contracts/src/codeowners.ts');
 const {
   createSnapshotSignatures,
@@ -4604,7 +4602,8 @@ app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
 
 /*
  * What the overview scores, read rather than assumed. Every decision lives in
- * src/workspace-posture.js; this passes it the transports and stores it reads.
+ * the posture module's reader; this passes it the transports and stores it
+ * reads.
  */
 let _postureReader = null;
 function postureReader() {
@@ -4629,7 +4628,7 @@ app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) 
 /*
  * The security posture on the Overview: what the audit history, the exposure
  * scans and the governance decisions already hold for this identity, read
- * together (src/posture-summary.js). Nothing is fetched from the provider.
+ * together (the posture module's summary). Nothing is fetched from the provider.
  * Without a database there is nothing to read, and the page is told so
  * rather than shown a clean workspace; a store that fails leaves its own part
  * unmeasured and the rest standing.
@@ -4661,7 +4660,7 @@ app.get('/api/workspace/security-posture', providerSessionAccess, capabilityAcce
 });
 
 /*
- * The findings inbox (src/findings-inbox.js): every open finding across the
+ * The findings inbox (the posture module's inbox): every open finding across the
  * workspace, from the audit history and the exposure scans this identity
  * holds, with its state and a team's decision where one applies. Nothing is
  * fetched from the provider; a path from an exposure scan is masked as the
@@ -8278,8 +8277,9 @@ app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaReposit
 
 /*
  * What the provider enforces on a branch, beside Nebulaverse-X's own
- * safeguards. Read-only: every path and every judgement is in
- * src/branch-protection.js; this binds its reader to the open repository.
+ * safeguards. Read-only: every path and every judgement is in the posture
+ * module's branch protection reading; this binds its reader to the open
+ * repository.
  */
 app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');

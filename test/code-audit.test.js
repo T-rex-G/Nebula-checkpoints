@@ -646,7 +646,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
 
 /* ---- Standards and waivers ---------------------------------------------------------- */
 {
-  const { MAPPED_RULES, standardsFor } = require('../src/security-standards');
+  const { MAPPED_RULES, standardsFor } = require('../apps/api/src/modules/posture/index.ts');
   /* A licence is a term of use, not a weakness: those rules are the only ones no CWE describes, and are left unfiled on purpose. */
   const unmapped = Object.keys(audit.RULES).filter(rule => !MAPPED_RULES.includes(rule));
   assert.deepStrictEqual(unmapped, Object.keys(audit.RULES).filter(rule => audit.RULES[rule].category === 'licences'), 'every security rule sits under a CWE, so a team can file it');

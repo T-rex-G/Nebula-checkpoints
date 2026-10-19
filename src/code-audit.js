@@ -70,7 +70,7 @@
 const crypto = require('crypto');
 const { detectInText, RULE_NARRATION } = require('../apps/api/src/modules/quasar/index.ts');
 const POPULAR = require('./popular-packages');
-const { standardsFor } = require('./security-standards');
+const { standardsFor } = require('../apps/api/src/modules/posture/index.ts');
 const { analyseFlows } = require('./uranus-flow');
 const { opensWith, lexJs, lexPyTokens } = require('./uranus-lex');
 const { analyseSurface, reachOf } = require('./uranus-surface');

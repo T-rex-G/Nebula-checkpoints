@@ -11,7 +11,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { summarizePosture, EXPOSURE_CATEGORY, TOP_REPOSITORIES } = require('../src/posture-summary');
+const { summarizePosture, EXPOSURE_CATEGORY, TOP_REPOSITORIES } = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 const audit = {

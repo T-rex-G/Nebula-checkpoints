@@ -1,8 +1,8 @@
 /*
  * A finding as the workspace inbox carries it (GET /api/workspace/findings).
  *
- * The server builds these in src/findings-inbox.js from two stores -- kept
- * audits and exposure scans -- and the page draws them. The shape is one
+ * The server builds these in modules/posture/domain/findings-inbox.ts from
+ * two stores -- kept audits and exposure scans -- and the page draws them. The shape is one
  * contract between the two: what the server promises to send and all the page
  * may rely on.
  */

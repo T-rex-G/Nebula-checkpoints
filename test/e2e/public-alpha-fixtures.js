@@ -965,7 +965,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * summary and a ruleset, the classic details hidden.
      */
     if (pathname === '/api/repo/sandbox/demo/branch-protection' && method === 'GET') {
-      const { readBranchProtection } = require('../../src/branch-protection');
+      const { readBranchProtection } = require('../../apps/api/src/modules/posture/index.ts');
       const routes = {
         '': { default_branch: 'main' },
         '/branches/main': { protected: true, protection: { required_status_checks: { contexts: ['ci'] } } },

@@ -11,7 +11,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { buildInbox, STATES, EXPOSURE_KIND } = require('../src/findings-inbox');
+const { buildInbox, INBOX_STATES: STATES, EXPOSURE_KIND } = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -105,6 +105,30 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
   const half = buildInbox({ audit, exposure: null, now: NOW });
   assert.deepStrictEqual(half.sources, { audit: 'measured', exposure: 'unavailable' });
   assert.strictEqual(half.truncated, false);
+}
+
+/*
+ * Severity and kind are the data's own words. A name inherited from
+ * Object.prototype is not a severity, and as a kind it is counted like any
+ * other word rather than added to a built-in function or lost.
+ */
+{
+  const inherited = buildInbox({
+    now: NOW,
+    audit: { findings: [
+      { owner: 'acme', repo: 'api', id: 'f1', rule: 'SEC-001', severity: 'toString', category: 'constructor' },
+      { owner: 'acme', repo: 'api', id: 'f2', rule: 'SEC-001', severity: 'critical', category: '__proto__' }
+    ] },
+    exposure: { findings: [
+      { scope: { owner: 'acme', repo: 'api' }, fingerprint: 'e'.repeat(64), rule: 'github-pat', disposition: 'open' }
+    ] },
+    severityOf: () => 'constructor'
+  });
+  assert.deepStrictEqual(inherited.findings.map(item => item.severity), ['critical', 'serious', 'warning']);
+  assert.deepStrictEqual(inherited.counts.bySeverity, { critical: 1, serious: 1, warning: 1 });
+  assert.strictEqual(Object.getOwnPropertyDescriptor(inherited.counts.byKind, 'constructor').value, 1);
+  assert.strictEqual(Object.getOwnPropertyDescriptor(inherited.counts.byKind, '__proto__').value, 1);
+  assert.strictEqual(Object.getPrototypeOf(inherited.counts.byKind), Object.prototype, 'a count never replaces the prototype');
 }
 
 /* The routes: gated, uncached, credential-free, provider-free where they should be. */

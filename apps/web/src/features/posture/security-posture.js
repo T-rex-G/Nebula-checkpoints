@@ -11,7 +11,8 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
  * looked at at all.
  *
  * Every figure comes from GET /api/workspace/security-posture, which reads
- * what the stores already hold (src/posture-summary.js decides the numbers).
+ * what the stores already hold (the posture module's summary,
+ * modules/posture/domain/posture-summary.ts, decides the numbers).
  * Nothing here computes a finding. What it adds is the one thing the server
  * cannot know: the repositories in the inventory that neither system has
  * read, because the inventory is the browser's.

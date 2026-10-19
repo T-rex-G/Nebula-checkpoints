@@ -308,3 +308,17 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
 - **Found, and closed next:** the qualifier compares only the programs it runs. What those programs load is not compared: the platform release helpers the web build uses, the persistence platform the database drills use, and the restore drill's backup format and harness. A tampered archive could change them and still qualify. This gap predates the mission and was widened by C4 and D1. The next commit closes it.
 - **Checks:** typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify green; every governance program green, PostgreSQL included; the boundary fixture under both runtimes; the full unit gate.
 - **Next:** the qualifier closure, then D6 (Quasar).
+
+### Qualifier — what a qualification program loads is compared with it
+
+- **The defect.** The candidate qualifier compared the programs it runs, and the tests, byte for byte against the trusted tree. It did not compare what those programs load, or how their requires resolve. Each of these passed the old check, and the test that pins each one failed on the old qualifier:
+  - *A tampered helper.* The web build runs from the candidate, and its release helpers (`web-build`, `directory-digest`, `version`) and the public asset list were never read. An archive could change how its own page was built and still qualify.
+  - *A file placed in front of another.* The matrix launcher requires `../src/test-matrix`. A candidate file named `src/test-matrix`, with no extension, is loaded in place of the trusted `.js`.
+  - *An added spec.* Only the trusted tree's tests were listed, so a spec the candidate added ran in the browser matrix unread.
+- **The fix.**
+  - Every local file the trusted programs load is followed from their sources: `require`, `import … from`, `export … from`, `import '…'` and `import()`. The sources are read in the trusted tree, and each file found is compared like the programs. The closure is derived, not listed, so a new dependency is compared the day it is added.
+  - Each specifier in a compared file is resolved in both trees by the CommonJS rules Node applies: the path, then `.js`, `.json` and `.node`, then a directory's index. The two answers must be the same file. A directory that declares its own package is refused rather than followed.
+  - The tests and the drills' harnesses (`test/` and `ci/`) are compared whole. A file the candidate adds there is refused before anything runs.
+  - What the tests load from the product is the product under test, so it is not part of the comparison.
+- **On the real tree** the closure adds the three release helpers, the public asset list and the secret scanner, and a tree compared with itself passes.
+- **Next:** D6 (Quasar).

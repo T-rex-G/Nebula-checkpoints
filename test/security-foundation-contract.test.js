@@ -8,7 +8,7 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
-assert(server.includes("require('./src/security-foundation')"), 'server must use the centralized security foundation module');
+assert(server.includes("require('./apps/api/src/platform/authorization/security-foundation.ts')"), 'server must use the centralized security foundation module');
 assert(server.includes("req.headers['sec-fetch-site']") && server.includes("req.headers.origin"), 'unsafe API requests must reject cross-site browser origins');
 assert(server.includes("app.get('/api/security/csrf'"), 'authenticated clients need a CSRF token endpoint');
 assert(server.includes("app.post('/api/security/step-up'"), 'sensitive actions need a step-up grant endpoint');

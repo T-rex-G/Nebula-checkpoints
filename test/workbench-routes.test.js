@@ -22,7 +22,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
+const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
 const port = 18000 + Math.floor(Math.random() * 1000);

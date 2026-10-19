@@ -1,6 +1,4 @@
-'use strict';
-
-const crypto = require('crypto');
+import { createHash } from 'node:crypto';
 
 /*
  * Effective repository path sets for governed mutations.
@@ -22,31 +20,43 @@ const crypto = require('crypto');
  * never really made.
  */
 
-const MAX_PATH_SET_ITEMS = 100;
-const MAX_PATH_SET_BYTES = 8 * 1024;
+export const MAX_PATH_SET_ITEMS = 100;
+export const MAX_PATH_SET_BYTES = 8 * 1024;
 const MAX_PATH_LENGTH = 1000;
 
-class ProtectedPathError extends Error {
-  constructor(message, code, status = 400) {
+/* Field order is the order the properties were always set in. */
+export class ProtectedPathError extends Error {
+  override readonly name = 'ProtectedPathError';
+  readonly code: string;
+  readonly status: number;
+  /* The refusal happens before the gateway reaches a provider, so the caller
+   * can be told plainly that nothing was changed. */
+  readonly providerChanged = false;
+  readonly safeState = 'The repository was not changed.';
+  readonly nextAction = 'Split this change into smaller commits and try again.';
+
+  constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'ProtectedPathError';
     this.code = code;
     this.status = status;
-    /* The refusal happens before the gateway reaches a provider, so the caller
-     * can be told plainly that nothing was changed. */
-    this.providerChanged = false;
-    this.safeState = 'The repository was not changed.';
-    this.nextAction = 'Split this change into smaller commits and try again.';
   }
 }
 
-const PATH_COVERAGE = Object.freeze({
+export const PATH_COVERAGE = Object.freeze({
   EXACT: 'exact',
   SUBTREE: 'subtree',
   UNBOUNDED: 'unbounded'
-});
+} as const);
 
-function semantics(coverage, sources, summary) {
+export type PathCoverage = (typeof PATH_COVERAGE)[keyof typeof PATH_COVERAGE];
+
+export interface PathSemantics {
+  readonly coverage: PathCoverage;
+  readonly sources: readonly string[];
+  readonly summary: string;
+}
+
+function semantics(coverage: PathCoverage, sources: readonly string[], summary: string): PathSemantics {
   return Object.freeze({ coverage, sources: Object.freeze([...sources]), summary });
 }
 
@@ -55,7 +65,7 @@ function semantics(coverage, sources, summary) {
  * set is knowable at the moment the gateway decides. `sources` are the metadata
  * fields the paths are read from.
  */
-const ACTION_PATH_SEMANTICS = Object.freeze({
+export const ACTION_PATH_SEMANTICS: Readonly<Record<string, PathSemantics>> = Object.freeze({
   'file.write': semantics(PATH_COVERAGE.EXACT, ['path'], 'Writes one file'),
   'file.delete': semantics(PATH_COVERAGE.EXACT, ['path'], 'Deletes one file'),
   'file.upload': semantics(PATH_COVERAGE.EXACT, ['path'], 'Uploads one file'),
@@ -73,7 +83,7 @@ const ACTION_PATH_SEMANTICS = Object.freeze({
  * The same normalisation the batch contract applies, so a path reaches a policy
  * rule in the one shape glob patterns are written against.
  */
-function normalizeRepositoryPath(value) {
+export function normalizeRepositoryPath(value: unknown): string {
   if (typeof value !== 'string') return '';
   const candidate = value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').trim();
   if (!candidate || candidate.length > MAX_PATH_LENGTH) return '';
@@ -82,8 +92,8 @@ function normalizeRepositoryPath(value) {
   return candidate;
 }
 
-function collectSourceValues(metadata, sources) {
-  const values = [];
+function collectSourceValues(metadata: Readonly<Record<string, unknown>>, sources: readonly string[]): unknown[] {
+  const values: unknown[] = [];
   for (const source of sources) {
     const value = metadata[source];
     if (Array.isArray(value)) values.push(...value);
@@ -92,7 +102,7 @@ function collectSourceValues(metadata, sources) {
   return values;
 }
 
-function assertPathSetFits(paths) {
+function assertPathSetFits(paths: readonly string[]): void {
   if (paths.length > MAX_PATH_SET_ITEMS) {
     throw new ProtectedPathError(
       `A governed mutation may carry at most ${MAX_PATH_SET_ITEMS} paths; split this change into smaller commits`,
@@ -113,14 +123,21 @@ function assertPathSetFits(paths) {
  * The path facts to merge into a mutation's metadata. Returns an empty object
  * for actions with no path semantics, so unrelated mutations are untouched.
  */
-function pathFactsForAction(action, metadata = {}) {
-  const definition = ACTION_PATH_SEMANTICS[String(action || '')];
+export interface PathFacts {
+  readonly paths?: string[];
+  readonly pathCoverage?: PathCoverage;
+}
+
+export function pathFactsForAction(action: unknown, metadata: unknown = {}): PathFacts {
+  /* Own entries only: an inherited name such as `constructor` is not an action with paths. */
+  const name = String(action || '');
+  const definition = Object.hasOwn(ACTION_PATH_SEMANTICS, name) ? ACTION_PATH_SEMANTICS[name] : undefined;
   if (!definition) return {};
   if (definition.coverage === PATH_COVERAGE.UNBOUNDED) {
     return { paths: [], pathCoverage: PATH_COVERAGE.UNBOUNDED };
   }
 
-  const source = metadata && typeof metadata === 'object' ? metadata : {};
+  const source: Readonly<Record<string, unknown>> = metadata && typeof metadata === 'object' ? metadata as Readonly<Record<string, unknown>> : {};
   const values = collectSourceValues(source, definition.sources);
   const normalized = values.map(normalizeRepositoryPath);
   const paths = [...new Set(normalized.filter(Boolean))].sort();
@@ -154,17 +171,17 @@ function pathFactsForAction(action, metadata = {}) {
  * narrow instead of leaving the operator to discover it.
  * ------------------------------------------------------------------ */
 
-const MAX_DECLARATIONS = 32;
+export const MAX_DECLARATIONS = 32;
 const DECLARATION_EFFECTS = new Set(['deny', 'require-approval']);
 
-function declarationFail(message) {
+function declarationFail(message: string): never {
   throw new ProtectedPathError(message, 'PROTECTED_PATH_DECLARATION_INVALID', 400);
 }
 
 /* A pattern is a repository path that may use glob wildcards. It is normalised
  * the same way a path is, so a rule and the mutation it judges are written in
  * one shape. */
-function normalizeProtectedPattern(value) {
+export function normalizeProtectedPattern(value: unknown): string {
   if (typeof value !== 'string') return '';
   const candidate = value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/').trim();
   if (!candidate || candidate.length > MAX_PATH_LENGTH) return '';
@@ -173,7 +190,7 @@ function normalizeProtectedPattern(value) {
   return candidate;
 }
 
-function hasWildcard(segment) {
+function hasWildcard(segment: string): boolean {
   return segment.includes('*') || segment.includes('?');
 }
 
@@ -185,7 +202,7 @@ function hasWildcard(segment) {
  * the middle of a pattern leaves directories that match nothing in the pattern
  * but still contain what it protects.
  */
-function subtreeNarrowable(pattern) {
+function subtreeNarrowable(pattern: string): boolean {
   const segments = pattern.split('/');
   const wildcardAt = segments.findIndex(hasWildcard);
   if (wildcardAt === -1) return true;
@@ -193,23 +210,23 @@ function subtreeNarrowable(pattern) {
 }
 
 /* Every directory a move of which would carry the protected pattern with it. */
-function ancestorPathsFor(pattern) {
+function ancestorPathsFor(pattern: string): string[] {
   if (!subtreeNarrowable(pattern)) return [];
   const segments = pattern.split('/');
   const wildcardAt = segments.findIndex(hasWildcard);
   /* A literal pattern names a leaf; its own last segment is not a directory
    * above it. A `**` pattern's literal part is all directory. */
   const directorySegments = wildcardAt === -1 ? segments.slice(0, -1) : segments.slice(0, wildcardAt);
-  const ancestors = [];
+  const ancestors: string[] = [];
   for (let index = 0; index < directorySegments.length; index += 1) {
     ancestors.push(directorySegments.slice(0, index + 1).join('/'));
   }
   return ancestors;
 }
 
-function ruleIdFor(pattern, action, branch) {
+function ruleIdFor(pattern: string, action: string, branch: string): string {
   const seed = branch ? `${pattern}\n${branch}` : pattern;
-  const digest = crypto.createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 8);
+  const digest = createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 8);
   return `protected-path-${digest}-${action}`;
 }
 
@@ -217,27 +234,35 @@ function ruleIdFor(pattern, action, branch) {
  * asked for it, so it is emitted once per effect and branch rather than once
  * per pattern. A branch-scoped identifier is hashed because the readable form
  * would outgrow the sixty-four characters a policy rule id allows. */
-function wholeActionRuleId(effect, action, branch) {
+function wholeActionRuleId(effect: string, action: string, branch: string): string {
   if (!branch) return `protected-path-guard-${effect}-${action}`;
-  const digest = crypto.createHash('sha256').update(`${effect}\n${branch}`, 'utf8').digest('hex').slice(0, 10);
+  const digest = createHash('sha256').update(`${effect}\n${branch}`, 'utf8').digest('hex').slice(0, 10);
   return `protected-path-guard-${digest}-${action}`;
 }
 
-function readableList(values) {
-  if (values.length === 1) return values[0];
+function readableList(values: readonly string[]): string {
+  if (values.length === 1) return values[0] ?? '';
   return `${values.slice(0, -1).join(', ')} and ${values[values.length - 1]}`;
 }
 
-function normalizeDeclarations(input) {
+export interface ProtectedPathDeclaration {
+  readonly pattern: string;
+  readonly effect: string;
+  readonly branch: string;
+  readonly guardWholeActions: boolean;
+}
+
+function normalizeDeclarations(input: unknown): ProtectedPathDeclaration[] {
   if (!Array.isArray(input) || input.length < 1) {
     declarationFail('At least one protected path must be declared');
   }
   if (input.length > MAX_DECLARATIONS) {
     declarationFail(`At most ${MAX_DECLARATIONS} protected paths can be declared in one policy`);
   }
-  const seen = new Set();
-  return input.map(raw => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) declarationFail('Each protected path must be an object');
+  const seen = new Set<string>();
+  return (input as readonly unknown[]).map((entry): ProtectedPathDeclaration => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) declarationFail('Each protected path must be an object');
+    const raw = entry as Readonly<Record<string, unknown>>;
     const pattern = normalizeProtectedPattern(raw.pattern);
     if (!pattern) declarationFail(`Protected path pattern is invalid: ${String(raw.pattern || '').slice(0, 120) || '(empty)'}`);
     if (seen.has(pattern)) declarationFail(`Protected path ${pattern} is declared more than once`);
@@ -266,30 +291,50 @@ function normalizeDeclarations(input) {
  * Expand declarations into policy rules and a plain statement of what the
  * expansion covers. Returns { rules, coverage }.
  */
-function expandProtectedPaths(declarationsInput) {
+export interface ProtectedPathRule {
+  readonly id: string;
+  readonly action: string;
+  readonly effect: string;
+  readonly description: string;
+  conditions?: Readonly<Record<string, unknown>>;
+}
+
+export interface ProtectedPathCoverage {
+  readonly pattern: string;
+  readonly effect: string;
+  readonly branch: string;
+  readonly guardWholeActions: boolean;
+  readonly narrowable: boolean;
+  readonly ancestorPaths: readonly string[];
+  readonly narrowedActions: readonly string[];
+  readonly wholeActionGuards: readonly string[];
+  readonly limits: readonly string[];
+}
+
+export function expandProtectedPaths(declarationsInput: unknown): Readonly<{ rules: readonly ProtectedPathRule[]; coverage: readonly ProtectedPathCoverage[] }> {
   const declarations = normalizeDeclarations(declarationsInput);
-  const rules = [];
-  const coverage = [];
-  const wholeActionRules = new Map();
+  const rules: ProtectedPathRule[] = [];
+  const coverage: ProtectedPathCoverage[] = [];
+  const wholeActionRules = new Map<string, ProtectedPathRule>();
 
   for (const declaration of declarations) {
     const { pattern, effect, branch, guardWholeActions } = declaration;
     const branchCondition = branch ? { branch } : {};
     const ancestorPaths = ancestorPathsFor(pattern);
     const narrowable = subtreeNarrowable(pattern);
-    const narrowedActions = [];
-    const wholeActionGuards = [];
-    const limits = [];
+    const narrowedActions: string[] = [];
+    const wholeActionGuards: string[] = [];
+    const limits: string[] = [];
 
-    const addRule = (action, conditions, description) => {
-      const rule = { id: ruleIdFor(pattern, action, branch), action, effect, description };
+    const addRule = (action: string, conditions: Readonly<Record<string, unknown>>, description: string): void => {
+      const rule: ProtectedPathRule = { id: ruleIdFor(pattern, action, branch), action, effect, description };
       rule.conditions = { ...conditions, ...branchCondition };
       rules.push(rule);
     };
-    const addWholeActionRule = (action, description) => {
+    const addWholeActionRule = (action: string, description: string): void => {
       const id = wholeActionRuleId(effect, action, branch);
       if (wholeActionRules.has(id)) return;
-      const rule = { id, action, effect, description };
+      const rule: ProtectedPathRule = { id, action, effect, description };
       if (branch) rule.conditions = { ...branchCondition };
       wholeActionRules.set(id, rule);
       rules.push(rule);
@@ -332,7 +377,7 @@ function expandProtectedPaths(declarationsInput) {
       limits.push(note);
     }
     const unbounded = Object.keys(ACTION_PATH_SEMANTICS)
-      .filter(action => ACTION_PATH_SEMANTICS[action].coverage === PATH_COVERAGE.UNBOUNDED)
+      .filter(action => ACTION_PATH_SEMANTICS[action]?.coverage === PATH_COVERAGE.UNBOUNDED)
       .sort();
     limits.push(guardWholeActions
       ? `${readableList(unbounded)} are gated as whole actions: they can change any path, so they cannot be narrowed to ${pattern}.`
@@ -359,15 +404,3 @@ function expandProtectedPaths(declarationsInput) {
   return Object.freeze({ rules: Object.freeze(rules), coverage: Object.freeze(coverage) });
 }
 
-module.exports = Object.freeze({
-  ProtectedPathError,
-  PATH_COVERAGE,
-  ACTION_PATH_SEMANTICS,
-  MAX_PATH_SET_ITEMS,
-  MAX_PATH_SET_BYTES,
-  normalizeRepositoryPath,
-  pathFactsForAction,
-  MAX_DECLARATIONS,
-  normalizeProtectedPattern,
-  expandProtectedPaths
-});

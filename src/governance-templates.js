@@ -9,7 +9,7 @@ const {
   policyDocumentHash,
   stableJson
 } = require('./governance-model');
-const { expandProtectedPaths } = require('./protected-paths');
+const { expandProtectedPaths } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
 const TEMPLATE_CATALOG_VERSION = '1.3.0';

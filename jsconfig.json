@@ -79,12 +79,9 @@
     "src/governance-model.js",
     "src/governance-templates.js",
     "src/live-stream.js",
-    "src/mutation-coverage.js",
-    "src/protected-paths.js",
     "src/provider-credentials.js",
     "src/provider-disconnect.js",
     "src/secret-scanner.js",
-    "src/security-foundation.js",
     "src/staging-validation.js",
     "src/supabase-key-kinds.js",
     "src/work-continuity.js"

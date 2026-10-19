@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { createMutationGateway, normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { deriveControlMapping } = require('../src/control-catalog');
 const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
 const { spawnSync } = require('child_process');
@@ -49,7 +49,7 @@ const port = evaluate => ({ evaluate, verify: normalizePolicyDecision });
  */
 {
   const probe = spawnSync(process.execPath, ['-e', `
-    require(${JSON.stringify(path.join(__dirname, '..', 'src', 'mutation-gateway.js'))});
+    require(${JSON.stringify(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'))});
     const loaded = Object.keys(require.cache).map(file => require('path').basename(file));
     console.log(JSON.stringify(loaded.filter(name => /^governance-(?:enforcement|simulation|exceptions)/.test(name))));
   `], { encoding: 'utf8' });

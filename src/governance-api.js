@@ -10,7 +10,7 @@ const {
 const {
   GOVERNANCE_ROLE_NAMES,
   normalizeAuthorizationSnapshot
-} = require('./authorization-resolver');
+} = require('../apps/api/src/platform/authorization/authorization-resolver.ts');
 const { simulatePolicyImpact, normalizeSimulationRequest } = require('./governance-simulation');
 const { listPolicyTemplates, getPolicyTemplate, generateRepositoryBaseline } = require('./governance-templates');
 const { buildPolicyDigitalTwinReadModel, normalizeDigitalTwinOptions } = require('./governance-digital-twin');

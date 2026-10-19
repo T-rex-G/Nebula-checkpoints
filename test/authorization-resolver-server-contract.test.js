@@ -5,9 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const gateway = fs.readFileSync(path.join(root, 'src', 'mutation-gateway.js'), 'utf8');
+const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 
-assert(server.includes("require('./src/authorization-resolver')"), 'server must load the authorization resolver');
+assert(server.includes("require('./apps/api/src/platform/authorization/authorization-resolver.ts')"), 'server must load the authorization resolver');
 assert(server.includes('createAuthorizationResolver({'), 'server must create one authorization resolver');
 assert(server.includes('async function resolveMutationAuthorization('), 'server must expose one mutation authorization boundary');
 assert(server.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
@@ -16,11 +16,11 @@ assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*gh\(account, 
 assert(!server.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
 assert(!server.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
 
-assert(gateway.includes("require('./authorization-resolver')"), 'mutation gateway must validate authorization snapshots');
+assert(gateway.includes("from '../authorization/authorization-resolver.ts'"), 'mutation gateway must validate authorization snapshots');
 /* The descriptor's guard is the mutation contract's; the gateway hands it the resolver's snapshot guard. */
 const descriptorContract = fs.readFileSync(path.join(root, 'packages', 'contracts', 'src', 'mutation.ts'), 'utf8');
 assert(gateway.includes('normalizeAuthorization: normalizeAuthorizationSnapshot'), 'gateway descriptor must normalize authorization evidence');
-assert.throws(() => require('../src/mutation-gateway').normalizeMutationDescriptor({
+assert.throws(() => require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts').normalizeMutationDescriptor({
   action: 'file.write', provider: 'github', owner: 'acme', repo: 'demo', actorIdentityKey: 'a'.repeat(64), actorLogin: 'alice',
   method: 'PUT', route: '/api/repo/acme/demo/file', authorization: {}
 }), error => error.name === 'AuthorizationResolverError' && error.code === 'AUTHORIZATION_SCHEMA_UNSUPPORTED', 'gateway descriptor must normalize authorization evidence');

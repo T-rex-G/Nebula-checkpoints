@@ -13,13 +13,13 @@
 const assert = require('assert');
 
 let protectedPaths = {};
-try { protectedPaths = require('../src/protected-paths'); } catch { /* asserted below */ }
+try { protectedPaths = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts'); } catch { /* asserted below */ }
 for (const name of ['PATH_COVERAGE', 'ACTION_PATH_SEMANTICS', 'pathFactsForAction', 'ProtectedPathError']) {
   assert(protectedPaths[name], `${name} must be implemented`);
 }
 
 const { PATH_COVERAGE, ACTION_PATH_SEMANTICS, pathFactsForAction } = protectedPaths;
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { evaluatePolicyDocument } = require('../src/governance-simulation');
 
 assert(Object.isFrozen(PATH_COVERAGE), 'path coverage vocabulary must be immutable');
@@ -103,6 +103,11 @@ for (const [action, base] of allowed) {
 
 /* The exact set is reported as exact, and stays sorted and de-duplicated so the
  * decision record is stable for the same mutation. */
+/* An inherited name is not an action with paths: it has no facts, where it once threw a TypeError. */
+for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+  assert.deepStrictEqual(pathFactsForAction(inherited, { path: 'a.txt' }), {}, `${inherited} has no path facts`);
+}
+
 const renameFacts = pathFactsForAction('file.rename', { from: 'b/two.txt', to: 'a/one.txt' });
 assert.strictEqual(renameFacts.pathCoverage, PATH_COVERAGE.EXACT);
 assert.deepStrictEqual(renameFacts.paths, ['a/one.txt', 'b/two.txt']);
@@ -357,7 +362,7 @@ assert(
  * silently dropped array would undo all of it.
  * ------------------------------------------------------------------ */
 
-const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { createMutationGateway, normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
 const { policyDocumentHash } = require('../src/governance-model');
 void createGovernanceRuntime;

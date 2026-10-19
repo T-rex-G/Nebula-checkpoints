@@ -3,9 +3,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const server = fs.readFileSync('server.js', 'utf8');
-const coverage = fs.readFileSync('src/mutation-coverage.js', 'utf8');
+const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'utf8');
 /* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 assert(server.includes("require('./src/governance-webhook-worker')"));

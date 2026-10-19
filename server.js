@@ -135,30 +135,30 @@ const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files
 const {
   createCsrfToken, verifyCsrfToken, createStepUpGrant, verifyStepUpGrant,
   normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp, scopeHash
-} = require('./src/security-foundation');
+} = require('./apps/api/src/platform/authorization/security-foundation.ts');
 const {
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
 } = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./apps/api/src/platform/crypto/key-derivation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
-const { createLocalSessionPolicy } = require('./src/local-session-policy');
+const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
 const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
 const { resolveProviderAccount } = require('./src/provider-credentials');
-const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./src/authorization-resolver');
+const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
-const { createMutationGateway, normalizeMutationDescriptor } = require('./src/mutation-gateway');
-const { normalizeFileBatch, summarizeBatchItems } = require('./src/mutation-coverage');
-const { pathFactsForAction } = require('./src/protected-paths');
-const { offerSafePassage } = require('./src/safe-passage');
+const { createMutationGateway, normalizeMutationDescriptor } = require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { normalizeFileBatch, summarizeBatchItems } = require('./apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
+const { pathFactsForAction } = require('./apps/api/src/platform/mutation-gateway/protected-paths.ts');
+const { offerSafePassage } = require('./apps/api/src/platform/mutation-gateway/safe-passage.ts');
 const {
   selectRepositories: selectActivityRepositories,
   feed: buildActivityFeed
 } = require('./src/activity-feed');
-const { createGovernanceRuntime } = require('./src/governance-enforcement');
+const { activePolicySetStepEvaluator, createGovernanceRuntime } = require('./src/governance-enforcement');
 const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
@@ -2827,10 +2827,12 @@ async function safePassageFor(req, action, descriptor, error) {
       descriptor: normalized,
       blockCode: error.code,
       content: body.content,
-      scope: normalized.authorization.scope,
-      activePolicies: resolved.activePolicies,
-      activeExceptions: resolved.activeExceptions,
-      evaluatedAt: resolved.resolvedAt
+      evaluateStep: activePolicySetStepEvaluator({
+        scope: normalized.authorization.scope,
+        activePolicies: resolved.activePolicies,
+        activeExceptions: resolved.activeExceptions,
+        evaluatedAt: resolved.resolvedAt
+      })
     });
     return offer && offer.available ? offer : null;
   } catch (offerError) {

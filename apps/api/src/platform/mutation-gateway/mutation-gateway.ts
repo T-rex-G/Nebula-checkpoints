@@ -1,24 +1,34 @@
-'use strict';
-
-const crypto = require('crypto');
-const { AsyncLocalStorage } = require('async_hooks');
-const { normalizePolicyScope } = require('./governance-model');
-const { normalizeAuthorizationSnapshot } = require('./authorization-resolver');
-const { executionContractForAction, validateCoverageInventory } = require('./mutation-coverage');
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash, randomUUID } from 'node:crypto';
+import { normalizeAuthorizationSnapshot } from '../authorization/authorization-resolver.ts';
+import { normalizeRepositoryScope } from '../authorization/repository-scope.ts';
+import { executionContractForAction, validateCoverageInventory } from './mutation-coverage.ts';
 
 /* What a descriptor is, the action catalogue and the descriptor's guard are the mutation contract. */
-const mutation = require('../packages/contracts/src/mutation.ts');
-const { deepFreeze } = require('../packages/contracts/src/guards.ts');
+import * as mutation from '../../../../../packages/contracts/src/mutation.ts';
+import type {
+  MutationDescriptor,
+  PolicyEvaluator,
+  VerifiedPolicyDecision
+} from '../../../../../packages/contracts/src/mutation.ts';
+import { deepFreeze } from '../../../../../packages/contracts/src/guards.ts';
+import { isMutationId } from '../../../../../packages/contracts/src/ids.ts';
+import type { JsonObject } from '../../../../../packages/contracts/src/guards.ts';
+
+export { MUTATION_ACTIONS } from '../../../../../packages/contracts/src/mutation.ts';
 
 const { MUTATION_ACTIONS, POLICY_OUTCOMES } = mutation;
-const MUTATING_METHODS = new Set(mutation.MUTATING_METHODS);
+const MUTATING_METHODS = new Set<string>(mutation.MUTATING_METHODS);
 const OPERATION_ID_DOMAIN = 'nebulaverse-x.provider-write.operation-id.v1';
 const MAX_OPERATION_TARGET_BYTES = 64 * 1024;
 
-class MutationGatewayError extends Error {
-  constructor(message, code, status = 403) {
+export class MutationGatewayError extends Error {
+  override readonly name = 'MutationGatewayError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 403) {
     super(message);
-    this.name = 'MutationGatewayError';
     this.code = code;
     this.status = status;
   }
@@ -26,19 +36,20 @@ class MutationGatewayError extends Error {
 
 validateCoverageInventory(MUTATION_ACTIONS);
 
-function fail(message, code, status = 403) {
+function fail(message: string, code: string, status = 403): never {
   throw new MutationGatewayError(message, code, status);
 }
 
-function isPlainObject(value) {
+function isPlainObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
 }
 
-function normalizeMetadata(input) {
+function normalizeMetadata(input: unknown): Readonly<JsonObject> {
   return mutation.normalizeMutationMetadata(input, fail);
 }
+export { normalizeMetadata as normalizeMutationMetadata };
 
-function providerOperationId(input = {}) {
+export function providerOperationId(input: unknown = {}): string {
   if (!isPlainObject(input)) fail('Provider operation identity is invalid', 'MUTATION_OPERATION_ID_INVALID', 400);
   const mutationId = String(input.mutationId || '').trim().toLowerCase();
   const providerWriteIndex = Number(input.providerWriteIndex);
@@ -48,7 +59,7 @@ function providerOperationId(input = {}) {
   const transport = String(input.transport || 'api').trim().toLowerCase();
   const apiPath = String(input.apiPath || '').trim();
   if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(mutationId) ||
+    !isMutationId(mutationId) ||
     !Number.isSafeInteger(providerWriteIndex) ||
     providerWriteIndex < 1 ||
     !MUTATING_METHODS.has(method) ||
@@ -61,7 +72,7 @@ function providerOperationId(input = {}) {
   ) {
     fail('Provider operation identity is invalid', 'MUTATION_OPERATION_ID_INVALID', 400);
   }
-  const hash = crypto.createHash('sha256');
+  const hash = createHash('sha256');
   for (const [label, value] of [
     ['domain', OPERATION_ID_DOMAIN],
     ['mutationId', mutationId],
@@ -71,7 +82,7 @@ function providerOperationId(input = {}) {
     ['scopeKey', scopeKey],
     ['transport', transport],
     ['apiPath', apiPath]
-  ]) {
+  ] as const) {
     const labelBytes = Buffer.from(label, 'utf8');
     const valueBytes = Buffer.from(value, 'utf8');
     const lengths = Buffer.allocUnsafe(8);
@@ -88,24 +99,29 @@ function providerOperationId(input = {}) {
  * The descriptor's guard, refusing with this module's error. The scope, the
  * authorization snapshot and the execution contract each keep their own.
  */
-function normalizeMutationDescriptor(input = {}) {
+export function normalizeMutationDescriptor(input: unknown = {}): MutationDescriptor {
   return mutation.normalizeMutationDescriptor(input, {
     refuse: fail,
-    normalizeScope: normalizePolicyScope,
+    normalizeScope: normalizeRepositoryScope,
     normalizeAuthorization: normalizeAuthorizationSnapshot,
     executionContract: executionContractForAction,
-    newMutationId: () => crypto.randomUUID()
+    newMutationId: () => randomUUID()
   });
 }
 
-function decodePathPiece(value) {
+function decodePathPiece(value: unknown): string {
   try { return decodeURIComponent(String(value || '')); }
-  catch { fail('Provider mutation target is malformed', 'MUTATION_TARGET_INVALID', 400); }
+  catch { return fail('Provider mutation target is malformed', 'MUTATION_TARGET_INVALID', 400); }
 }
 
-function parseProviderRepositoryTarget(providerInput, apiPathInput) {
+export interface RepositoryTarget {
+  readonly owner: unknown;
+  readonly repo: unknown;
+}
+
+export function parseProviderRepositoryTarget(providerInput: unknown, apiPathInput: unknown): RepositoryTarget | null {
   const provider = String(providerInput || '').trim().toLowerCase();
-  const apiPath = String(apiPathInput || '').split('?', 1)[0];
+  const apiPath = String(apiPathInput || '').split('?', 1)[0] ?? '';
   if (provider === 'github') {
     const repo = apiPath.match(/^\/repos\/([^/]+)\/([^/]+)/);
     if (repo) return { owner: decodePathPiece(repo[1]), repo: decodePathPiece(repo[2]) };
@@ -115,13 +131,13 @@ function parseProviderRepositoryTarget(providerInput, apiPathInput) {
   return null;
 }
 
-function classifyProviderOperation(providerInput, apiPathInput, methodInput, transportInput) {
+export function classifyProviderOperation(providerInput: unknown, apiPathInput: unknown, methodInput: unknown, transportInput: unknown): string | null {
   const transport = String(transportInput || '').trim();
   const provider = String(providerInput || '').trim().toLowerCase();
   if (provider !== 'github') return null;
   if (transport) return transport;
   const method = String(methodInput || '').trim().toUpperCase();
-  const apiPath = String(apiPathInput || '').split('?', 1)[0];
+  const apiPath = String(apiPathInput || '').split('?', 1)[0] ?? '';
   if (provider === 'github') {
     if (method === 'POST' && apiPath === '/user/repos') return 'repository.create';
     const star = apiPath.match(/^\/user\/starred\/[^/]+\/[^/]+$/);
@@ -151,7 +167,10 @@ function classifyProviderOperation(providerInput, apiPathInput, methodInput, tra
   return null;
 }
 
-function publicEvent(type, descriptor, extra = {}) {
+/* What the gateway tells the event sink: the descriptor's public facts and the step's own. */
+export type GatewayEvent = Readonly<Record<string, unknown>> & { readonly type: string };
+
+function publicEvent(type: string, descriptor: MutationDescriptor, extra: Readonly<Record<string, unknown>> = {}): GatewayEvent {
   return Object.freeze({
     type,
     mutationId: descriptor.mutationId,
@@ -173,36 +192,79 @@ function publicEvent(type, descriptor, extra = {}) {
  * root. The gateway imports no policy module, so the security core is not part
  * of a dependency cycle with the policy engine it consults.
  */
-function requirePolicyEvaluator(policyEvaluator) {
+function requirePolicyEvaluator(policyEvaluator: unknown): PolicyEvaluator | null {
   if (policyEvaluator == null) return null;
-  if (typeof policyEvaluator !== 'object' || typeof policyEvaluator.evaluate !== 'function' || typeof policyEvaluator.verify !== 'function') {
+  const port = policyEvaluator as Partial<PolicyEvaluator>;
+  if (typeof policyEvaluator !== 'object' || typeof port.evaluate !== 'function' || typeof port.verify !== 'function') {
     throw new TypeError('Mutation gateway policyEvaluator must provide evaluate(descriptor) and verify(decision, descriptor)');
   }
-  return policyEvaluator;
+  return port as PolicyEvaluator;
 }
 
-function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = {}) {
+/* The descriptor a handler runs under, with the policy decision when one was asked for. */
+export type MutationContext = MutationDescriptor & { readonly policyDecision?: VerifiedPolicyDecision };
+
+/* A provider write as the transport is about to send it. */
+export interface ProviderWriteTarget {
+  readonly method?: unknown;
+  readonly provider?: unknown;
+  readonly owner?: unknown;
+  readonly repo?: unknown;
+  readonly apiPath?: unknown;
+  readonly baseUrl?: unknown;
+  readonly transport?: unknown;
+  readonly body?: unknown;
+}
+
+export interface AuthorizedProviderWrite extends MutationContext {
+  readonly providerWrite: { readonly index: number; readonly operation: string; readonly operationId: string };
+}
+
+export interface ExecutionSnapshot {
+  readonly providerWriteCount: number;
+  readonly operationIds: readonly string[];
+}
+
+export interface MutationGateway {
+  run<T>(input: unknown, callback: () => T | Promise<T>): Promise<T>;
+  current(): MutationContext | null;
+  executionSnapshot(): ExecutionSnapshot | null;
+  assertProviderMutation(target?: ProviderWriteTarget): AuthorizedProviderWrite;
+}
+
+export interface MutationGatewayOptions {
+  readonly eventSink?: unknown;
+  readonly policyEvaluator?: unknown;
+}
+
+interface ActiveMutation {
+  readonly descriptor: MutationContext;
+  readonly runtime: { providerWriteCount: number; readonly operationIds: string[] };
+}
+
+export function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput }: MutationGatewayOptions = {}): MutationGateway {
   if (eventSink != null && typeof eventSink !== 'function') throw new TypeError('Mutation gateway eventSink must be a function');
+  const sink = eventSink as ((event: GatewayEvent) => unknown) | null | undefined;
   const policyEvaluator = requirePolicyEvaluator(evaluatorInput);
-  const storage = new AsyncLocalStorage();
-  const emit = event => {
-    if (!eventSink) return;
+  const storage = new AsyncLocalStorage<ActiveMutation>();
+  const emit = (event: GatewayEvent): void => {
+    if (!sink) return;
     try {
-      const pending = eventSink(event);
-      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      const pending = sink(event) as { readonly catch?: unknown } | null | undefined;
+      if (pending && typeof pending.catch === 'function') (pending as Promise<unknown>).catch(() => {});
     } catch {}
   };
 
-  function activeStore() {
+  function activeStore(): ActiveMutation | null {
     return storage.getStore() || null;
   }
 
-  function current() {
+  function current(): MutationContext | null {
     const active = activeStore();
     return active ? active.descriptor : null;
   }
 
-  function executionSnapshot() {
+  function executionSnapshot(): ExecutionSnapshot | null {
     const active = activeStore();
     if (!active) return null;
     return Object.freeze({
@@ -211,18 +273,18 @@ function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = 
     });
   }
 
-  async function run(input, callback) {
+  async function run<T>(input: unknown, callback: () => T | Promise<T>): Promise<T> {
     if (typeof callback !== 'function') throw new TypeError('Mutation gateway run requires a callback');
     if (current()) fail('Nested mutation gateway contexts are not allowed', 'MUTATION_CONTEXT_NESTED', 409);
     const descriptor = normalizeMutationDescriptor(input);
     emit(publicEvent('mutation.entered', descriptor));
     try {
-      let context = descriptor;
+      let context: MutationContext = descriptor;
       if (policyEvaluator) {
         const rawDecision = await policyEvaluator.evaluate(descriptor);
-        const policyDecision = policyEvaluator.verify(rawDecision, descriptor);
+        const policyDecision = policyEvaluator.verify(rawDecision, descriptor) as VerifiedPolicyDecision | null | undefined;
         /* An outcome the gateway does not know is not permission: it is refused, never read as "not block". */
-        if (!policyDecision || typeof policyDecision !== 'object' || !POLICY_OUTCOMES.includes(policyDecision.enforcementOutcome)) {
+        if (!policyDecision || typeof policyDecision !== 'object' || !(POLICY_OUTCOMES as readonly unknown[]).includes(policyDecision.enforcementOutcome)) {
           fail('Policy evaluation is unavailable', 'POLICY_EVALUATION_UNAVAILABLE', 503);
         }
         context = deepFreeze({ ...descriptor, policyDecision });
@@ -244,16 +306,16 @@ function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = 
           const unavailable = [
             'POLICY_EVALUATION_UNAVAILABLE',
             'POLICY_UNSUPPORTED_ACTIVE_RULES'
-          ].includes(policyDecision.blockCode);
+          ].includes(policyDecision.blockCode as string);
           fail(policyDecision.blockCode === 'POLICY_UNSUPPORTED_ACTIVE_RULES'
             ? 'Policy evaluation cannot safely evaluate the active rules'
             : unavailable ? 'Policy evaluation is unavailable' :
             policyDecision.blockCode === 'POLICY_APPROVAL_REQUIRED' ? 'This mutation requires approval under the active policy' :
               'This mutation is blocked by the active policy',
-          policyDecision.blockCode, unavailable ? 503 : 403);
+          policyDecision.blockCode as string, unavailable ? 503 : 403);
         }
       }
-      const runtime = { providerWriteCount: 0, operationIds: [] };
+      const runtime = { providerWriteCount: 0, operationIds: [] as string[] };
       const result = await storage.run({ descriptor: context, runtime }, callback);
       emit(publicEvent('mutation.completed', descriptor, {
         providerWriteCount: runtime.providerWriteCount,
@@ -261,22 +323,23 @@ function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = 
       }));
       return result;
     } catch (error) {
+      const code = error && (error as { readonly code?: unknown }).code;
       emit(publicEvent('mutation.failed', descriptor, {
-        errorCode: String(error && error.code || 'MUTATION_HANDLER_FAILED').slice(0, 100)
+        errorCode: String(code || 'MUTATION_HANDLER_FAILED').slice(0, 100)
       }));
       throw error;
     }
   }
 
-  function assertProviderMutation(target = {}) {
+  function assertProviderMutation(target: ProviderWriteTarget = {}): AuthorizedProviderWrite {
     const active = activeStore();
     const descriptor = active && active.descriptor;
-    if (!descriptor) fail('Outbound provider writes must pass through the central mutation gateway', 'MUTATION_GATEWAY_REQUIRED');
+    if (!active || !descriptor) return fail('Outbound provider writes must pass through the central mutation gateway', 'MUTATION_GATEWAY_REQUIRED');
     const method = String(target.method || '').trim().toUpperCase();
     if (!MUTATING_METHODS.has(method)) fail('Provider mutation method is invalid', 'MUTATION_METHOD_INVALID', 400);
     const provider = String(target.provider || '').trim().toLowerCase();
     if (provider !== descriptor.provider) fail('Provider write does not match the active mutation context', 'MUTATION_PROVIDER_MISMATCH');
-    let parsed = target.owner && target.repo
+    let parsed: RepositoryTarget | null = target.owner && target.repo
       ? { owner: target.owner, repo: target.repo }
       : parseProviderRepositoryTarget(provider, target.apiPath);
     if (!parsed && descriptor.action === 'repository.create') {
@@ -285,14 +348,14 @@ function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = 
       if (repositoryName) parsed = { owner: descriptor.owner, repo: repositoryName };
     }
     if (!parsed) {
-      fail('Provider write target could not be matched to the active repository scope', 'MUTATION_TARGET_UNRESOLVED');
+      return fail('Provider write target could not be matched to the active repository scope', 'MUTATION_TARGET_UNRESOLVED');
     }
-    const scope = normalizePolicyScope({ provider, baseUrl: target.baseUrl, owner: parsed.owner, repo: parsed.repo });
+    const scope = normalizeRepositoryScope({ provider, baseUrl: target.baseUrl, owner: parsed.owner, repo: parsed.repo });
     if (scope.scopeKey !== descriptor.scopeKey) {
       fail('Provider write target does not match the active mutation repository', 'MUTATION_SCOPE_MISMATCH');
     }
     const operation = classifyProviderOperation(provider, target.apiPath, method, target.transport);
-    if (!operation) fail('Provider write operation is not registered in the mutation gateway', 'MUTATION_OPERATION_UNREGISTERED');
+    if (!operation) return fail('Provider write operation is not registered in the mutation gateway', 'MUTATION_OPERATION_UNREGISTERED');
     const definition = MUTATION_ACTIONS[descriptor.action];
     if (!definition.operations.includes(operation)) {
       fail('Provider write operation does not match the active mutation action', 'MUTATION_ACTION_MISMATCH');
@@ -324,14 +387,3 @@ function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = 
 
   return Object.freeze({ run, current, executionSnapshot, assertProviderMutation });
 }
-
-module.exports = Object.freeze({
-  MutationGatewayError,
-  MUTATION_ACTIONS,
-  normalizeMutationDescriptor,
-  normalizeMutationMetadata: normalizeMetadata,
-  providerOperationId,
-  parseProviderRepositoryTarget,
-  classifyProviderOperation,
-  createMutationGateway
-});

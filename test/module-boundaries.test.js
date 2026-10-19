@@ -14,6 +14,9 @@
  *    and the shared contracts import neither.
  *  - A module of the server is reached through its index only, and its domain
  *    layer imports no transport, persistence or process package.
+ *  - The platform imports only the platform and the shared contracts: the
+ *    modules stand on it, so it depends on none of them, nor on the server
+ *    code still in src/.
  *  - No dependency cycle anywhere in the backend: one graph over server.js,
  *    src, apps and packages, so a cycle that runs through a TypeScript module
  *    and back into the CommonJS server is seen as well.
@@ -224,6 +227,9 @@ for (const file of scoped) {
     if (name.startsWith('packages/') && to.startsWith('apps/')) violations.push(`${name}: the contracts import ${to}`);
     if (name.startsWith('apps/web/') && to.startsWith('apps/api/')) violations.push(`${name}: the page imports the server (${to})`);
     if (name.startsWith('apps/api/') && to.startsWith('apps/web/')) violations.push(`${name}: the server imports the page (${to})`);
+    if (name.startsWith('apps/api/src/platform/') && !/^(?:apps\/api\/src\/platform\/|packages\/contracts\/src\/)/.test(to) && to !== 'package.json') {
+      violations.push(`${name}: the platform imports ${to}; it may import only the platform and the contracts`);
+    }
     const fromModule = /^apps\/api\/src\/modules\/([^/]+)\//.exec(name);
     const toModule = /^apps\/api\/src\/modules\/([^/]+)\/(.+)$/.exec(to);
     if (toModule && (!fromModule || fromModule[1] !== toModule[1]) && toModule[2] !== 'index.ts') {

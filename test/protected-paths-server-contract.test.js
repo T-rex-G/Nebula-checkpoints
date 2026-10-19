@@ -13,12 +13,12 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const coverage = fs.readFileSync(path.join(root, 'src', 'mutation-coverage.js'), 'utf8');
+const coverage = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-coverage.ts'), 'utf8');
 
-const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../src/protected-paths');
-const { MUTATION_ROUTE_INVENTORY } = require('../src/mutation-coverage');
+const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
+const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 
-assert(server.includes("require('./src/protected-paths')"), 'server must load the effective path set module');
+assert(server.includes("require('./apps/api/src/platform/mutation-gateway/protected-paths.ts')"), 'server must load the effective path set module');
 assert(
   server.includes('...pathFactsForAction(action, base)'),
   'every mutation descriptor must carry the effective path set of its action'

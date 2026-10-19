@@ -200,9 +200,9 @@ const descriptorDependencies = { executionContract: () => ({}), newMutationId: (
 for (const action of ['constructor', '__proto__']) {
   assert.throws(() => mutation.normalizeMutationDescriptor({ action }, descriptorDependencies), error => error.code === 'MUTATION_ACTION_UNKNOWN');
 }
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 assert.throws(() => normalizeMutationDescriptor({ action: 'constructor' }), error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_ACTION_UNKNOWN' && error.status === 400);
-const { executionContractForAction } = require('../src/mutation-coverage');
+const { executionContractForAction } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 assert.throws(() => executionContractForAction('constructor'), error => error.code === 'MUTATION_EXECUTION_UNKNOWN');
 const exceptions = require('../src/governance-exceptions');
 const exceptionRequest = Object.values(exceptions).find(value => typeof value === 'function' && value.name === 'normalizeExceptionRequest');

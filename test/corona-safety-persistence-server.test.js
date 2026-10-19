@@ -13,7 +13,7 @@ const vm = require('vm');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
+const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.join(__dirname, '..');
 const adminUrl = process.env.NV_TEST_DATABASE_URL;

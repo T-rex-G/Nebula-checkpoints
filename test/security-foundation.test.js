@@ -4,7 +4,7 @@ const assert = require('assert');
 const path = require('path');
 
 let security = {};
-try { security = require(path.join('..', 'src', 'security-foundation')); } catch {}
+try { security = require(path.join('..', 'apps', 'api', 'src', 'platform', 'authorization', 'security-foundation.ts')); } catch {}
 
 for (const name of [
   'createCsrfToken', 'verifyCsrfToken', 'createStepUpGrant', 'verifyStepUpGrant',

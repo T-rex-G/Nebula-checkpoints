@@ -10,7 +10,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { createCsrfToken } = require('../src/security-foundation');
+const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');

@@ -7,7 +7,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
-assert(server.includes("require('./src/mutation-gateway')"), 'server must load the central mutation gateway');
+assert(server.includes("require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts')"), 'server must load the central mutation gateway');
 assert(server.includes('mutationGateway.assertProviderMutation'), 'provider writes must be checked by the gateway');
 assert(server.includes('function mutationContext('), 'server must expose one mutation route context middleware');
 assert(!server.includes("case 'issue.create': return { title:"), 'mutation descriptors must not retain issue titles or other free-form content');

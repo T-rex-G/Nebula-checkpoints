@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * Safe Passage — the route to approval, offered at the moment of refusal.
  *
@@ -24,43 +22,94 @@
  * and only if the policy permits all of them. A refusal that is a deny has no
  * compliant route by definition and is never given one. This is verified here
  * rather than promised, because a helpful-looking hole is still a hole.
+ *
+ * The policy itself is handed in. The caller gives a step evaluator that
+ * judges a descriptor by the policy set that refused the original; this module
+ * imports no policy engine, so the platform does not depend on the module that
+ * governs it.
  */
 
-const crypto = require('crypto');
-const { normalizeMutationDescriptor, MUTATION_ACTIONS } = require('./mutation-gateway');
-const { evaluateActivePolicySet } = require('./governance-enforcement');
-const { pathFactsForAction } = require('./protected-paths');
+import { createHash } from 'node:crypto';
+import { normalizeMutationDescriptor } from './mutation-gateway.ts';
+import { pathFactsForAction } from './protected-paths.ts';
+import { isMutationAction } from '../../../../../packages/contracts/src/mutation.ts';
+import type { MutationDescriptor } from '../../../../../packages/contracts/src/mutation.ts';
 
-const APPROVAL_BLOCK_CODE = 'POLICY_APPROVAL_REQUIRED';
+export const APPROVAL_BLOCK_CODE = 'POLICY_APPROVAL_REQUIRED';
 const BRANCH_PREFIX = 'safe-passage';
 const MAX_CONTENT_BYTES = 40 * 1024 * 1024;
 
-class SafePassageError extends Error {
-  constructor(message, code, status = 400) {
+export class SafePassageError extends Error {
+  override readonly name = 'SafePassageError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'SafePassageError';
     this.code = code;
     this.status = status;
   }
 }
 
-const SAFE_PASSAGE_KIND = Object.freeze({ PULL_REQUEST: 'pull-request' });
+export const SAFE_PASSAGE_KIND = Object.freeze({ PULL_REQUEST: 'pull-request' } as const);
 
 /* Only the actions whose whole payload the gateway is holding when it refuses.
  * A streamed upload or a native push is not one of them, and claiming a route
  * for work this module cannot actually carry would be the same lie as a
  * narrowed path set. */
-const ROUTABLE_ACTIONS = Object.freeze(['file.write']);
+export const ROUTABLE_ACTIONS: readonly string[] = Object.freeze(['file.write']);
 
-function unavailable(reason, extra = {}) {
+/* What the policy says of one step: permitted only when both are 'allow'. */
+export interface StepDecision {
+  readonly effectiveEffect: unknown;
+  readonly enforcementOutcome: unknown;
+}
+
+/* Judges one step of the route by the active policy set that refused the original, writing nothing. */
+export type StepEvaluator = (descriptor: MutationDescriptor) => StepDecision;
+
+export interface RouteStep {
+  readonly action: string;
+  readonly method: string;
+  readonly route: string;
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
+export interface SafePassageUnavailable {
+  readonly available: false;
+  readonly reason: string;
+  readonly refusedStep: string | null;
+  readonly evaluated?: boolean;
+}
+
+export interface SafePassageOffer {
+  readonly available: true;
+  readonly kind: (typeof SAFE_PASSAGE_KIND)['PULL_REQUEST'];
+  readonly baseBranch: string;
+  readonly branch: string;
+  readonly path: string;
+  readonly contentHash: string;
+  readonly steps: readonly RouteStep[];
+  readonly summary: string;
+}
+
+export interface SafePassageInput {
+  readonly descriptor?: MutationDescriptor | null;
+  readonly blockCode?: unknown;
+  readonly content?: unknown;
+  readonly evaluateStep?: StepEvaluator;
+}
+
+function unavailable(reason: string, extra: { readonly refusedStep?: string; readonly evaluated?: boolean } = {}): SafePassageUnavailable {
   return Object.freeze({ available: false, reason, refusedStep: null, ...extra });
 }
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(value, typeof value === 'string' ? 'utf8' : undefined).digest('hex');
+function sha256(value: string | Buffer): string {
+  const hash = createHash('sha256');
+  return (typeof value === 'string' ? hash.update(value, 'utf8') : hash.update(value)).digest('hex');
 }
 
-function contentHashOf(content) {
+function contentHashOf(content: unknown): string {
   if (typeof content === 'string') {
     if (Buffer.byteLength(content, 'utf8') > MAX_CONTENT_BYTES) return '';
     return sha256(content);
@@ -74,14 +123,14 @@ function contentHashOf(content) {
 
 /* The same refused change offers the same branch every time, so retrying a
  * blocked write does not scatter branches across the repository. */
-function branchFor(baseBranch, path, contentHash) {
+export function branchFor(baseBranch: string, path: string, contentHash: string): string {
   return `${BRANCH_PREFIX}/${sha256(`${baseBranch}\n${path}\n${contentHash}`).slice(0, 12)}`;
 }
 
 /* Hypothetical descriptors need an identifier of the right shape. It is derived
  * so the offer is stable, and it is never persisted: these mutations are being
  * asked about, not performed. */
-function syntheticMutationId(seed) {
+function syntheticMutationId(seed: string): string {
   const digest = sha256(seed);
   return [
     digest.slice(0, 8), digest.slice(8, 12),
@@ -90,7 +139,7 @@ function syntheticMutationId(seed) {
   ].join('-');
 }
 
-function stepsFor({ baseBranch, branch, path }) {
+function stepsFor({ baseBranch, branch, path }: { readonly baseBranch: string; readonly branch: string; readonly path: string }): readonly RouteStep[] {
   return [
     {
       action: 'branch.create',
@@ -122,9 +171,13 @@ function stepsFor({ baseBranch, branch, path }) {
  * at the moment, which is why the effective effect is checked alongside the
  * enforcement outcome.
  */
-function firstRefusedStep({ descriptor, steps, scope, activePolicies, activeExceptions, evaluatedAt }) {
+function firstRefusedStep({ descriptor, steps, evaluateStep }: {
+  readonly descriptor: MutationDescriptor;
+  readonly steps: readonly RouteStep[];
+  readonly evaluateStep: StepEvaluator;
+}): { readonly action: string; readonly evaluated: boolean } | null {
   for (const step of steps) {
-    let decision;
+    let decision: StepDecision;
     try {
       const stepDescriptor = normalizeMutationDescriptor({
         mutationId: syntheticMutationId(`${descriptor.mutationId}\n${step.action}`),
@@ -139,9 +192,7 @@ function firstRefusedStep({ descriptor, steps, scope, activePolicies, activeExce
         metadata: step.metadata,
         authorization: descriptor.authorization
       });
-      decision = evaluateActivePolicySet({
-        scope, descriptor: stepDescriptor, activePolicies, activeExceptions, evaluatedAt
-      });
+      decision = evaluateStep(stepDescriptor);
     } catch {
       /* A step this module cannot even pose as a question is a step it cannot
        * stand behind. It is reported as unevaluated rather than as refused:
@@ -149,7 +200,7 @@ function firstRefusedStep({ descriptor, steps, scope, activePolicies, activeExce
        * policy decision would put words in the policy's mouth. */
       return { action: step.action, evaluated: false };
     }
-    if (decision.effectiveEffect !== 'allow' || decision.enforcementOutcome !== 'allow') {
+    if (!decision || decision.effectiveEffect !== 'allow' || decision.enforcementOutcome !== 'allow') {
       return { action: step.action, evaluated: true };
     }
   }
@@ -159,11 +210,11 @@ function firstRefusedStep({ descriptor, steps, scope, activePolicies, activeExce
 /*
  * The offer, or an explicit statement of why there is none.
  */
-function offerSafePassage(input = {}) {
+export function offerSafePassage(input: SafePassageInput = {}): SafePassageOffer | SafePassageUnavailable {
   const descriptor = input && input.descriptor;
   const blockCode = String(input.blockCode || '').trim();
 
-  if (!descriptor || !MUTATION_ACTIONS[descriptor.action]) {
+  if (!descriptor || !isMutationAction(descriptor.action)) {
     return unavailable('This mutation cannot be routed.');
   }
   if (blockCode !== APPROVAL_BLOCK_CODE) {
@@ -190,16 +241,15 @@ function offerSafePassage(input = {}) {
     return unavailable('The refused content could not be carried, so no route is offered.');
   }
 
+  /* With nothing to judge the route by, there is no route: a wiring defect, said loudly. */
+  const evaluateStep = input.evaluateStep;
+  if (typeof evaluateStep !== 'function') {
+    throw new TypeError('Safe Passage needs evaluateStep(descriptor) to judge the route by the active policy set');
+  }
+
   const branch = branchFor(baseBranch, path, contentHash);
   const steps = stepsFor({ baseBranch, branch, path });
-  const refusal = firstRefusedStep({
-    descriptor,
-    steps,
-    scope: input.scope,
-    activePolicies: Array.isArray(input.activePolicies) ? input.activePolicies : [],
-    activeExceptions: Array.isArray(input.activeExceptions) ? input.activeExceptions : [],
-    evaluatedAt: input.evaluatedAt
-  });
+  const refusal = firstRefusedStep({ descriptor, steps, evaluateStep });
   if (refusal) {
     return unavailable(
       refusal.evaluated
@@ -220,12 +270,3 @@ function offerSafePassage(input = {}) {
     summary: `This change needs approval on ${baseBranch}. It can go to ${branch} and open a pull request for review instead.`
   });
 }
-
-module.exports = Object.freeze({
-  SafePassageError,
-  SAFE_PASSAGE_KIND,
-  ROUTABLE_ACTIONS,
-  APPROVAL_BLOCK_CODE,
-  branchFor,
-  offerSafePassage
-});

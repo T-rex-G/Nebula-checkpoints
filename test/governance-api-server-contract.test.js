@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const gateway = fs.readFileSync(path.join(root, 'src', 'mutation-gateway.js'), 'utf8');
+const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 /* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 assert(server.includes("require('./src/governance-api')"), 'server must load the governance API boundary');

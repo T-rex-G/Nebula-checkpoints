@@ -20,7 +20,7 @@ for (const name of ['MAX_BATCH_ITEMS', 'planBatchCommits']) {
 }
 const { MAX_BATCH_ITEMS, planBatchCommits } = planning;
 
-const { ACTION_EXECUTION_CONTRACTS, normalizeFileBatch } = require('../src/mutation-coverage');
+const { ACTION_EXECUTION_CONTRACTS, normalizeFileBatch } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 
 /* The drift guard. The browser plans against this number before it uploads
  * anything, so if the server's own limit moves and this one does not, the queue

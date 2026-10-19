@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 let mutation = {};
-try { mutation = require('../src/mutation-gateway'); } catch {}
+try { mutation = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts'); } catch {}
 
 for (const name of [
   'MutationGatewayError', 'MUTATION_ACTIONS', 'normalizeMutationDescriptor',

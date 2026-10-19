@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 /* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 for (const route of [
   '/governance/policies/:policyId/versions/:versionId/exceptions',

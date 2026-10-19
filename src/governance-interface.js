@@ -1,6 +1,6 @@
 'use strict';
 
-const { normalizeAuthorizationSnapshot } = require('./authorization-resolver');
+const { normalizeAuthorizationSnapshot } = require('../apps/api/src/platform/authorization/authorization-resolver.ts');
 
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;

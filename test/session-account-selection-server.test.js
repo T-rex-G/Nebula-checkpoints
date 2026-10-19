@@ -24,7 +24,7 @@ const { Client } = require('pg');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { createCsrfToken } = require('../src/security-foundation');
+const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.join(__dirname, '..');
 const adminUrl = process.env.NV_TEST_DATABASE_URL;

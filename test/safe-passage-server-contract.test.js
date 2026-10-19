@@ -18,9 +18,9 @@ const store = fs.readFileSync(path.join(root, 'src', 'governance-store.js'), 'ut
 const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
 const { GovernanceStore } = require('../src/governance-store');
-const { offerSafePassage, ROUTABLE_ACTIONS } = require('../src/safe-passage');
+const { offerSafePassage, ROUTABLE_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/safe-passage.ts');
 
-assert(server.includes("require('./src/safe-passage')"), 'server must load the safe passage module');
+assert(server.includes("require('./apps/api/src/platform/mutation-gateway/safe-passage.ts')"), 'server must load the safe passage module');
 assert(
   server.includes('const passage = await safePassageFor(req, action, descriptor, error);'),
   'the refusal path must consult safe passage before answering'

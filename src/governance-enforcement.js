@@ -595,12 +595,22 @@ function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new 
   });
 }
 
+/*
+ * The step evaluator Safe Passage is handed: each step of a proposed route
+ * judged by the active policy set that refused the original, through the same
+ * evaluation, recording nothing. The platform asks; governance answers.
+ */
+function activePolicySetStepEvaluator({ scope, activePolicies, activeExceptions, evaluatedAt } = {}) {
+  return descriptor => evaluateActivePolicySet({ scope, descriptor, activePolicies, activeExceptions, evaluatedAt });
+}
+
 module.exports = Object.freeze({
   GovernanceEnforcementError,
   POLICY_DECISION_GENESIS,
   normalizeEnforcementMode,
   descriptorEvidenceHash,
   evaluateActivePolicySet,
+  activePolicySetStepEvaluator,
   normalizePolicyDecision,
   createGovernanceRuntime
 });

@@ -2,7 +2,7 @@
 const assert = require('assert');
 const { evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
 const { policyDocumentHash } = require('../src/governance-model');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { normalizeExceptionTarget } = require('../src/governance-exceptions');
 
 const authorization = {

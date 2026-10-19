@@ -14,7 +14,7 @@ const {
   createStepUpGrant,
   normalizeStepUpRequest,
   scopeHash
-} = require('../src/security-foundation');
+} = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
 const port = 31800 + Math.floor(Math.random() * 800);

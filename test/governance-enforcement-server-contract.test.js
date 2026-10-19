@@ -3,13 +3,13 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-const gateway = fs.readFileSync(path.join(__dirname, '..', 'src', 'mutation-gateway.js'), 'utf8');
+const gateway = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 assert(server.includes('createGovernanceRuntime'), 'server must create the runtime policy evaluator');
 assert(server.includes('policyEvaluator:'), 'mutation gateway must receive the policy evaluator');
 assert(server.includes("X-Nebulaverse-Policy-Outcome"), 'warning/observe outcome must be surfaced in bounded response headers');
 assert(server.includes('NV_GOVERNANCE_RUNTIME_FAILURE_MODE'), 'runtime failure mode must be explicit and validated');
 for (const injected of ['policyDecision', 'controlMapping', 'enforcementMode']) {
-  assert.throws(() => require('../src/mutation-gateway').normalizeMutationDescriptor({ action: 'file.write', [injected]: {} }),
+  assert.throws(() => require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts').normalizeMutationDescriptor({ action: 'file.write', [injected]: {} }),
     error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_POLICY_INPUT_FORBIDDEN', 'client/server descriptors must not inject policy decisions');
 }
 assert(gateway.includes('policy.evaluated'), 'gateway must emit policy evaluation evidence');

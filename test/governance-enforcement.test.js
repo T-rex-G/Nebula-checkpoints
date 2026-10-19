@@ -6,7 +6,7 @@ for (const name of ['GovernanceEnforcementError', 'evaluateActivePolicySet', 'no
   assert(runtime[name], `${name} must be implemented`);
 }
 const { evaluateActivePolicySet, normalizePolicyDecision, createGovernanceRuntime } = runtime;
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { policyDocumentHash } = require('../src/governance-model');
 
 const authorization = {

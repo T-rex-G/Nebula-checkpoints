@@ -1,85 +1,108 @@
-'use strict';
-
-const crypto = require('crypto');
-const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
-const { ASSURANCE_LEVELS } = require('../packages/contracts/src/mutation.ts');
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { memorySingleUseStore } from '../rate-limit/single-use-store.ts';
+import { ASSURANCE_LEVELS } from '../../../../../packages/contracts/src/mutation.ts';
+import { isCommitSha } from '../../../../../packages/contracts/src/ids.ts';
 
 const TOKEN_VERSION = 1;
-const STEP_UP_ACTIONS = new Set([
+const STEP_UP_ACTION_NAMES = Object.freeze([
   'repository.delete',
   'branch.reset',
   'pull.merge',
   'sessions.revoke-others',
   'governance.reset'
-]);
+] as const);
+export type StepUpActionName = (typeof STEP_UP_ACTION_NAMES)[number];
+const STEP_UP_ACTIONS = new Set<string>(STEP_UP_ACTION_NAMES);
+const isStepUpAction = (value: string): value is StepUpActionName => STEP_UP_ACTIONS.has(value);
 const MERGE_METHODS = new Set(['merge', 'squash', 'rebase']);
 
-class SecurityTokenError extends Error {
-  constructor(message, code, status = 403) {
+export class SecurityTokenError extends Error {
+  override readonly name = 'SecurityTokenError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 403) {
     super(message);
-    this.name = 'SecurityTokenError';
     this.code = code;
     this.status = status;
   }
 }
 
-function stableValue(value) {
+/* A token's claims, and anything a caller hands in as claims or bindings. */
+type Claims = Readonly<Record<string, unknown>>;
+
+/*
+ * Sorted keys, nothing else: undefined and toJSON are left to JSON.stringify.
+ * Scope hashes are bound into signed grants, so this stays byte for byte; the
+ * server's other canonical-JSON copies differ, and Phase G unifies them only
+ * with proof that no recorded value moves.
+ */
+function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+    const record = value as Claims;
+    return Object.fromEntries(Object.keys(record).sort().map(key => [key, stableValue(record[key])]));
   }
   return value;
 }
 
-function stableJson(value) {
+function stableJson(value: unknown): string {
   return JSON.stringify(stableValue(value));
 }
 
-function scopeHash(scope) {
-  return crypto.createHash('sha256').update(stableJson(scope)).digest('base64url');
+export function scopeHash(scope: unknown): string {
+  return createHash('sha256').update(stableJson(scope)).digest('base64url');
 }
 
-function sign(secret, encodedPayload) {
-  return crypto.createHmac('sha256', String(secret)).update(encodedPayload).digest('base64url');
+function sign(secret: unknown, encodedPayload: string): string {
+  return createHmac('sha256', String(secret)).update(encodedPayload).digest('base64url');
 }
 
-function safeEqual(left, right) {
+function safeEqual(left: unknown, right: unknown): boolean {
   const a = Buffer.from(String(left || ''), 'utf8');
   const b = Buffer.from(String(right || ''), 'utf8');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/**
- * @param {string} secret
- * @param {string} kind
- * @param {Record<string, unknown>} claims
- * @param {{ now?: number, ttlMs?: number, nonce?: string }} [options]
- */
-function createToken(secret, kind, claims, { now = Date.now(), ttlMs, nonce } = {}) {
-  if (!secret || !Number.isFinite(ttlMs) || ttlMs <= 0) throw new TypeError('A secret and positive token lifetime are required');
+export interface TokenOptions {
+  readonly now?: number;
+  readonly ttlMs?: number;
+  readonly nonce?: string;
+}
+
+/* What a verified token carries: the fixed claims, then whatever it was issued with. */
+export interface TokenPayload extends Claims {
+  readonly v: number;
+  readonly kind: string;
+  readonly iat: number;
+  readonly exp: number;
+}
+
+function createToken(secret: unknown, kind: string, claims: Claims, { now = Date.now(), ttlMs, nonce }: TokenOptions = {}): string {
+  if (!secret || !Number.isFinite(ttlMs) || (ttlMs as number) <= 0) throw new TypeError('A secret and positive token lifetime are required');
   const issuedAt = Math.floor(Number(now));
   const payload = {
     v: TOKEN_VERSION,
     kind,
     iat: issuedAt,
-    exp: issuedAt + Math.floor(ttlMs),
-    nonce: String(nonce || crypto.randomBytes(18).toString('base64url')),
+    exp: issuedAt + Math.floor(ttlMs as number),
+    nonce: String(nonce || randomBytes(18).toString('base64url')),
     ...claims
   };
   const encoded = Buffer.from(stableJson(payload), 'utf8').toString('base64url');
   return `${encoded}.${sign(secret, encoded)}`;
 }
 
-function decodeToken(secret, token, expectedKind, { now = Date.now() } = {}) {
+function decodeToken(secret: unknown, token: unknown, expectedKind: string, { now = Date.now() }: { readonly now?: number } = {}): TokenPayload {
   const raw = String(token || '');
   const codePrefix = expectedKind === 'csrf' ? 'CSRF' : 'STEP_UP';
   if (!raw || raw.length > 4096) throw new SecurityTokenError(`${expectedKind} token is missing or malformed`, `${codePrefix}_INVALID`);
   const pieces = raw.split('.');
-  if (pieces.length !== 2 || !pieces[0] || !pieces[1]) throw new SecurityTokenError(`${expectedKind} token is malformed`, `${codePrefix}_INVALID`);
   const [encoded, signature] = pieces;
+  if (pieces.length !== 2 || !encoded || !signature) throw new SecurityTokenError(`${expectedKind} token is malformed`, `${codePrefix}_INVALID`);
   if (!safeEqual(signature, sign(secret, encoded))) throw new SecurityTokenError(`${expectedKind} token signature is invalid`, `${codePrefix}_INVALID`);
-  let payload;
-  try { payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); }
+  let payload: TokenPayload | null;
+  try { payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as TokenPayload | null; }
   catch { throw new SecurityTokenError(`${expectedKind} token payload is invalid`, `${codePrefix}_INVALID`); }
   if (!payload || payload.v !== TOKEN_VERSION || payload.kind !== expectedKind || !Number.isFinite(payload.iat) || !Number.isFinite(payload.exp)) {
     throw new SecurityTokenError(`${expectedKind} token claims are invalid`, `${codePrefix}_INVALID`);
@@ -91,24 +114,25 @@ function decodeToken(secret, token, expectedKind, { now = Date.now() } = {}) {
   return payload;
 }
 
-function requireContext(context, prefix) {
+/* The session and the identity a token is bound to; a type, so it is also a set of claims. */
+export type TokenBindings = {
+  readonly sessionBinding: string;
+  readonly identityKey: string;
+};
+
+function requireContext(context: Claims | null | undefined, prefix: string): TokenBindings {
   const sessionBinding = String(context && context.sessionBinding || '');
   const identityKey = String(context && context.identityKey || '');
   if (!sessionBinding || !identityKey) throw new TypeError(`${prefix} requires session and identity bindings`);
   return { sessionBinding, identityKey };
 }
 
-/**
- * @param {string} secret
- * @param {Record<string, unknown>} context
- * @param {{ now?: number, ttlMs?: number, nonce?: string }} [options]
- */
-function createCsrfToken(secret, context, options = {}) {
+export function createCsrfToken(secret: unknown, context: Claims | null | undefined, options: TokenOptions = {}): string {
   const bindings = requireContext(context, 'CSRF token');
   return createToken(secret, 'csrf', bindings, { ...options, ttlMs: options.ttlMs || 30 * 60 * 1000 });
 }
 
-function verifyCsrfToken(secret, token, context, options = {}) {
+export function verifyCsrfToken(secret: unknown, token: unknown, context: Claims | null | undefined, options: { readonly now?: number } = {}): TokenPayload {
   const bindings = requireContext(context, 'CSRF verification');
   const payload = decodeToken(secret, token, 'csrf', options);
   if (!safeEqual(payload.sessionBinding, bindings.sessionBinding) || !safeEqual(payload.identityKey, bindings.identityKey)) {
@@ -117,13 +141,13 @@ function verifyCsrfToken(secret, token, context, options = {}) {
   return payload;
 }
 
-function cleanProvider(value) {
+function cleanProvider(value: unknown): string {
   const provider = String(value || 'github').toLowerCase();
   if (!['github'].includes(provider)) throw new SecurityTokenError('Unsupported provider for step-up authorization', 'STEP_UP_SCOPE_INVALID', 400);
   return provider;
 }
 
-function cleanRepoPart(value, field) {
+function cleanRepoPart(value: unknown, field: string): string {
   const text = String(value || '').trim().toLowerCase();
   if (!text || text.length > 100 || !/^[a-z0-9_.-]+$/.test(text)) {
     throw new SecurityTokenError(`Invalid ${field} in step-up scope`, 'STEP_UP_SCOPE_INVALID', 400);
@@ -131,7 +155,7 @@ function cleanRepoPart(value, field) {
   return text;
 }
 
-function cleanBranch(value) {
+function cleanBranch(value: unknown): string {
   const text = String(value || '').trim();
   if (!text || text.length > 255 || /[\0-\x1f\x7f]/.test(text)) {
     throw new SecurityTokenError('Invalid branch in step-up scope', 'STEP_UP_SCOPE_INVALID', 400);
@@ -139,85 +163,97 @@ function cleanBranch(value) {
   return text;
 }
 
-function cleanSha(value, required = true) {
+function cleanSha(value: unknown, required = true): string {
   const text = String(value || '').trim().toLowerCase();
   if (!text && !required) return '';
-  if (!/^[0-9a-f]{40}$/.test(text)) throw new SecurityTokenError('Invalid commit SHA in step-up scope', 'STEP_UP_SCOPE_INVALID', 400);
+  if (!isCommitSha(text)) throw new SecurityTokenError('Invalid commit SHA in step-up scope', 'STEP_UP_SCOPE_INVALID', 400);
   return text;
 }
 
-function normalizeStepUpRequest(action, requestedScope, context = {}) {
-  const normalizedAction = String(action || '').trim();
-  if (!STEP_UP_ACTIONS.has(normalizedAction)) {
-    throw new SecurityTokenError('Unsupported step-up action', 'STEP_UP_ACTION_INVALID', 400);
-  }
-  const source = requestedScope && typeof requestedScope === 'object' ? requestedScope : {};
-  const provider = cleanProvider(context.provider);
-  let scope;
-  if (normalizedAction === 'repository.delete') {
-    scope = { provider, owner: cleanRepoPart(source.owner, 'owner'), repo: cleanRepoPart(source.repo, 'repository') };
-  } else if (normalizedAction === 'branch.reset') {
-    scope = {
-      provider,
-      owner: cleanRepoPart(source.owner, 'owner'),
-      repo: cleanRepoPart(source.repo, 'repository'),
-      branch: cleanBranch(source.branch),
-      targetSha: cleanSha(source.targetSha),
-      expectedHeadSha: cleanSha(source.expectedHeadSha, false)
-    };
-  } else if (normalizedAction === 'pull.merge') {
-    const pullNumber = Number(source.pullNumber);
-    const method = String(source.method || 'merge').toLowerCase();
-    if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0 || pullNumber > 2_147_483_647 || !MERGE_METHODS.has(method)) {
-      throw new SecurityTokenError('Invalid pull request merge scope', 'STEP_UP_SCOPE_INVALID', 400);
-    }
-    scope = {
-      provider,
-      owner: cleanRepoPart(source.owner, 'owner'),
-      repo: cleanRepoPart(source.repo, 'repository'),
-      pullNumber,
-      method
-    };
-  } else if (normalizedAction === 'governance.reset') {
-    scope = { provider, owner: cleanRepoPart(source.owner, 'owner'), repo: cleanRepoPart(source.repo, 'repository') };
-  } else if (normalizedAction === 'sessions.revoke-others') {
-    const identityKey = String(context.identityKey || '');
-    if (!identityKey) throw new SecurityTokenError('Active identity is required', 'STEP_UP_SCOPE_INVALID', 400);
-    scope = { provider, identityKey };
-  }
-  return { action: normalizedAction, scope };
+/* The exact thing a step-up grant authorizes; its hash is what the grant is bound to. */
+export type StepUpScope = Readonly<Record<string, string | number>> & { readonly provider: string };
+
+export interface StepUpRequest {
+  readonly action: StepUpActionName;
+  readonly scope: StepUpScope;
 }
 
-/**
- * @param {string} secret
- * @param {{ action?: string, assurance?: string, scope?: Record<string, unknown> }} claims
- * @param {{ now?: number, ttlMs?: number, nonce?: string, jti?: string }} [options]
- */
-function createStepUpGrant(secret, claims, options = {}) {
+/* Each action's scope, cleaned field by field in the order its refusals have always been reported. */
+function stepUpScopeFor(action: StepUpActionName, source: Claims, provider: string, context: Claims): StepUpScope {
+  switch (action) {
+    case 'repository.delete':
+    case 'governance.reset':
+      return { provider, owner: cleanRepoPart(source.owner, 'owner'), repo: cleanRepoPart(source.repo, 'repository') };
+    case 'branch.reset':
+      return {
+        provider,
+        owner: cleanRepoPart(source.owner, 'owner'),
+        repo: cleanRepoPart(source.repo, 'repository'),
+        branch: cleanBranch(source.branch),
+        targetSha: cleanSha(source.targetSha),
+        expectedHeadSha: cleanSha(source.expectedHeadSha, false)
+      };
+    case 'pull.merge': {
+      const pullNumber = Number(source.pullNumber);
+      const method = String(source.method || 'merge').toLowerCase();
+      if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0 || pullNumber > 2_147_483_647 || !MERGE_METHODS.has(method)) {
+        throw new SecurityTokenError('Invalid pull request merge scope', 'STEP_UP_SCOPE_INVALID', 400);
+      }
+      return {
+        provider,
+        owner: cleanRepoPart(source.owner, 'owner'),
+        repo: cleanRepoPart(source.repo, 'repository'),
+        pullNumber,
+        method
+      };
+    }
+    case 'sessions.revoke-others': {
+      const identityKey = String(context.identityKey || '');
+      if (!identityKey) throw new SecurityTokenError('Active identity is required', 'STEP_UP_SCOPE_INVALID', 400);
+      return { provider, identityKey };
+    }
+  }
+}
+
+export function normalizeStepUpRequest(action: unknown, requestedScope: unknown, context: Claims = {}): StepUpRequest {
+  const normalizedAction = String(action || '').trim();
+  if (!isStepUpAction(normalizedAction)) {
+    throw new SecurityTokenError('Unsupported step-up action', 'STEP_UP_ACTION_INVALID', 400);
+  }
+  const source = requestedScope && typeof requestedScope === 'object' ? requestedScope as Claims : {};
+  const provider = cleanProvider(context.provider);
+  return { action: normalizedAction, scope: stepUpScopeFor(normalizedAction, source, provider, context) };
+}
+
+export interface StepUpGrantOptions extends TokenOptions {
+  readonly jti?: string;
+}
+
+export function createStepUpGrant(secret: unknown, claims: Claims | null | undefined, options: StepUpGrantOptions = {}): string {
   const bindings = requireContext(claims, 'Step-up grant');
   const action = String(claims && claims.action || '');
   if (!STEP_UP_ACTIONS.has(action)) throw new SecurityTokenError('Unsupported step-up action', 'STEP_UP_ACTION_INVALID', 400);
   const assurance = String(claims && claims.assurance || '');
-  if (!/** @type {readonly string[]} */ (ASSURANCE_LEVELS).includes(assurance)) {
+  if (!(ASSURANCE_LEVELS as readonly string[]).includes(assurance)) {
     throw new SecurityTokenError('Unsupported step-up assurance', 'STEP_UP_ASSURANCE_INVALID', 400);
   }
-  const jti = String(options.jti || crypto.randomUUID());
+  const jti = String(options.jti || randomUUID());
   return createToken(secret, 'step-up', {
     ...bindings,
     action,
-    scopeHash: scopeHash(claims.scope || {}),
+    scopeHash: scopeHash(claims?.scope || {}),
     assurance,
     jti
   }, { ...options, ttlMs: options.ttlMs || 5 * 60 * 1000 });
 }
 
-function verifyStepUpGrant(secret, token, expected, options = {}) {
+export function verifyStepUpGrant(secret: unknown, token: unknown, expected: Claims | null | undefined, options: { readonly now?: number } = {}): TokenPayload {
   const bindings = requireContext(expected, 'Step-up verification');
   const payload = decodeToken(secret, token, 'step-up', options);
-  const expectedScopeHash = scopeHash(expected.scope || {});
+  const expectedScopeHash = scopeHash(expected?.scope || {});
   if (!safeEqual(payload.sessionBinding, bindings.sessionBinding) ||
       !safeEqual(payload.identityKey, bindings.identityKey) ||
-      !safeEqual(payload.action, String(expected.action || '')) ||
+      !safeEqual(payload.action, String(expected?.action || '')) ||
       !safeEqual(payload.scopeHash, expectedScopeHash)) {
     throw new SecurityTokenError('Step-up grant does not match this sensitive action', 'STEP_UP_SCOPE_MISMATCH');
   }
@@ -248,28 +284,66 @@ function verifyStepUpGrant(secret, token, expected, options = {}) {
  * interleave, and the store is the thing that makes it atomic: a table does it
  * with an insert whose conflict means "already used".
  */
-const REPLAY_STORE_UNAVAILABLE = 'STEP_UP_STORE_UNAVAILABLE';
+export const REPLAY_STORE_UNAVAILABLE = 'STEP_UP_STORE_UNAVAILABLE';
 
-function replayStoreFor(store, maxEntries) {
+/* One claim on a single-use guard: true for the one caller that made it. */
+export interface ReplayClaim {
+  readonly kind: 'step-up';
+  readonly key: string;
+  readonly expiresAt: number;
+  readonly now: number;
+}
+export interface ReplayStore {
+  consumeOnce(claim: ReplayClaim): boolean | Promise<boolean>;
+}
+
+function replayStoreFor(store: unknown, maxEntries: number): ReplayStore {
   /* One in-process adapter, shared with the server's other single-use guards,
      so the meaning of a claim cannot drift between them. */
   if (store instanceof Map) return memorySingleUseStore(store, { maxEntries });
-  if (store && typeof store.consumeOnce === 'function') return store;
+  if (store && typeof (store as Partial<ReplayStore>).consumeOnce === 'function') return store as ReplayStore;
   throw new TypeError('The step-up replay store must be a Map or implement consumeOnce()');
 }
 
-/**
+/*
  * The pending grant a session is holding: the identifiers the claim has to
  * match, and the moment past which it is no longer a grant at all.
- * @typedef {{ jti?: string, action?: string, scopeHash?: string, expiresAt?: number, assurance?: string }} PendingStepUp
- *
- * @param {{ stepUp?: PendingStepUp|null }} securityState
- * @param {Record<string, unknown>} claims
- * @param {{ action?: string, scope?: Record<string, unknown> }} operation
- * @param {{ now?: number, replayStore?: unknown, maxReplayEntries?: number }} [options]
- * @returns {Promise<{ action: unknown, assurance: unknown, authorizedAt: unknown }>}
  */
-async function consumePendingStepUp(securityState, claims, operation, { now = Date.now(), replayStore, maxReplayEntries = 5000 } = {}) {
+export interface PendingStepUp {
+  readonly jti?: string;
+  readonly action?: string;
+  readonly scopeHash?: string;
+  readonly expiresAt?: number;
+  readonly assurance?: string;
+}
+
+export interface SessionSecurityState {
+  stepUp?: PendingStepUp | null;
+}
+
+export interface StepUpOperation {
+  readonly action?: unknown;
+  readonly scope?: unknown;
+}
+
+export interface ConsumeOptions {
+  readonly now?: number;
+  readonly replayStore?: unknown;
+  readonly maxReplayEntries?: number;
+}
+
+export interface ConsumedStepUp {
+  readonly action: unknown;
+  readonly assurance: unknown;
+  readonly authorizedAt: unknown;
+}
+
+export async function consumePendingStepUp(
+  securityState: SessionSecurityState | null | undefined,
+  claims: Claims | null | undefined,
+  operation: StepUpOperation | null | undefined,
+  { now = Date.now(), replayStore, maxReplayEntries = 5000 }: ConsumeOptions = {}
+): Promise<ConsumedStepUp> {
   if (!securityState || typeof securityState !== 'object') {
     throw new TypeError('A mutable session security state is required');
   }
@@ -292,17 +366,17 @@ async function consumePendingStepUp(securityState, claims, operation, { now = Da
     safeEqual(pending.action, operation && operation.action) &&
     safeEqual(pending.scopeHash, expectedScopeHash) &&
     Number(pending.expiresAt || 0) >= currentTime;
-  if (!valid) {
+  if (!valid || !pending) {
     throw new SecurityTokenError('Step-up authorization is missing, expired, or already used', 'STEP_UP_REPLAY');
   }
 
   if (store) {
-    let claimed;
+    let claimed: boolean;
     try {
       claimed = await store.consumeOnce({
         kind: 'step-up',
         key: grantId,
-        expiresAt: Math.max(Number(claims.exp || 0), Number(pending.expiresAt || 0)),
+        expiresAt: Math.max(Number(claims?.exp || 0), Number(pending.expiresAt || 0)),
         now: currentTime
       });
     } catch (error) {
@@ -328,13 +402,23 @@ async function consumePendingStepUp(securityState, claims, operation, { now = Da
      an authorization that was never spent. */
   securityState.stepUp = null;
   return {
-    action: operation.action,
-    assurance: claims.assurance,
-    authorizedAt: claims.iat
+    action: operation?.action,
+    assurance: claims?.assurance,
+    authorizedAt: claims?.iat
   };
 }
 
-function sensitiveOperationFor(request = {}) {
+/* The parts of a request that decide whether it needs a step-up grant. */
+export interface SensitiveRequest {
+  readonly method?: unknown;
+  readonly path?: unknown;
+  readonly params?: Claims | null;
+  readonly body?: Claims | null;
+  readonly provider?: unknown;
+  readonly identityKey?: unknown;
+}
+
+export function sensitiveOperationFor(request: SensitiveRequest = {}): StepUpRequest | null {
   const method = String(request.method || '').toUpperCase();
   const path = String(request.path || '');
   const params = request.params || {};
@@ -365,16 +449,3 @@ function sensitiveOperationFor(request = {}) {
   }
   return null;
 }
-
-module.exports = Object.freeze({
-  SecurityTokenError,
-  createCsrfToken,
-  verifyCsrfToken,
-  createStepUpGrant,
-  verifyStepUpGrant,
-  normalizeStepUpRequest,
-  sensitiveOperationFor,
-  consumePendingStepUp,
-  REPLAY_STORE_UNAVAILABLE,
-  scopeHash
-});

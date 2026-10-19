@@ -1,45 +1,55 @@
-'use strict';
+import { createHash } from 'node:crypto';
+import { deepFreeze } from '../../../../../packages/contracts/src/guards.ts';
+import type { ExecutionContract } from '../../../../../packages/contracts/src/mutation.ts';
 
-const crypto = require('crypto');
+export const MAX_FILE_BATCH_ITEMS = 100;
+export const MAX_FILE_BATCH_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
-const MAX_FILE_BATCH_ITEMS = 100;
-const MAX_FILE_BATCH_PAYLOAD_BYTES = 2 * 1024 * 1024;
+/* Field order is the order the properties were always set in: name, code, status. */
+export class MutationCoverageError extends Error {
+  override readonly name = 'MutationCoverageError';
+  readonly code: string;
+  readonly status: number;
 
-class MutationCoverageError extends Error {
-  constructor(message, code, status = 400) {
+  constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'MutationCoverageError';
     this.code = code;
     this.status = status;
   }
 }
+/* The module's exports were frozen whole, the class with them. */
+Object.freeze(MutationCoverageError);
 
-function deepFreeze(value) {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  for (const child of Object.values(value)) deepFreeze(child);
-  return Object.freeze(value);
-}
-
-function stableJson(value) {
+/*
+ * This module's canonical JSON, kept byte for byte: batch ids and hashes are
+ * recorded as evidence, so they must not move. Of the server's eight copies of
+ * the idea, three variants differ on undefined and on objects with toJSON; they
+ * are unified only with proof over every input each one hashes (the mission
+ * ledger, D3: carried to Phase G).
+ */
+export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+    const record = value as Readonly<Record<string, unknown>>;
+    return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
-function hash(value) {
-  return crypto.createHash('sha256').update(stableJson(value)).digest('hex');
+function hash(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex');
 }
 
-function contract(mode, maxItems, maxProviderWrites, atomicity, partialFailure = false, maxPayloadBytes = 0) {
-  return deepFreeze({ mode, maxItems, maxProviderWrites, atomicity, partialFailure, maxPayloadBytes });
+type ContractMode = ExecutionContract['mode'];
+
+function contract(mode: ContractMode, maxItems: number, maxProviderWrites: number, atomicity: string, partialFailure = false, maxPayloadBytes = 0): ExecutionContract {
+  return deepFreeze({ mode, maxItems, maxProviderWrites, atomicity, partialFailure, maxPayloadBytes }) as ExecutionContract;
 }
 
 const DEFAULT_SINGLE = contract('single', 1, 1, 'single-side-effect');
 const DEFAULT_GOVERNANCE = contract('single', 1, 0, 'application-transaction');
 
-const ACTION_EXECUTION_CONTRACTS = deepFreeze({
+export const ACTION_EXECUTION_CONTRACTS: Readonly<Record<string, ExecutionContract>> = deepFreeze({
   'repository.create': DEFAULT_SINGLE,
   'repository.delete': DEFAULT_SINGLE,
   'branch.create': DEFAULT_SINGLE,
@@ -111,13 +121,20 @@ const ACTION_EXECUTION_CONTRACTS = deepFreeze({
   'governance.audit.export.create': DEFAULT_GOVERNANCE
 });
 
-function route(method, routePath, action) {
+export interface InventoriedRoute {
+  readonly method: string;
+  readonly route: string;
+  readonly action: string;
+  readonly execution: ExecutionContract;
+}
+
+function route(method: string, routePath: string, action: string): InventoriedRoute {
   const execution = ACTION_EXECUTION_CONTRACTS[action];
   if (!execution) throw new Error(`Missing execution contract for ${action}`);
   return deepFreeze({ method, route: routePath, action, execution });
 }
 
-const MUTATION_ROUTE_INVENTORY = deepFreeze([
+export const MUTATION_ROUTE_INVENTORY: readonly InventoriedRoute[] = deepFreeze([
   route('POST', '/api/repos', 'repository.create'),
   route('DELETE', '/api/repo/:owner/:repo', 'repository.delete'),
   route('POST', '/api/repo/:owner/:repo/branches', 'branch.create'),
@@ -193,7 +210,7 @@ const MUTATION_ROUTE_INVENTORY = deepFreeze([
   route('POST', '/api/repo/:owner/:repo/governance/exports', 'governance.audit.export.create')
 ]);
 
-function executionContractForAction(action) {
+export function executionContractForAction(action: unknown): ExecutionContract {
   /* Own entries only: an inherited name such as `constructor` is not a registered action. */
   const name = String(action || '');
   const found = Object.hasOwn(ACTION_EXECUTION_CONTRACTS, name) ? ACTION_EXECUTION_CONTRACTS[name] : undefined;
@@ -201,7 +218,7 @@ function executionContractForAction(action) {
   return found;
 }
 
-function normalizeBatchPath(value) {
+function normalizeBatchPath(value: unknown): string {
   const path = String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   if (!path || path.length > 1000 || path.split('/').some(piece => !piece || piece === '.' || piece === '..') || /[\0\r\n]/.test(path)) {
     throw new MutationCoverageError('Batch item path is invalid', 'MUTATION_BATCH_ITEM_INVALID');
@@ -209,15 +226,31 @@ function normalizeBatchPath(value) {
   return path;
 }
 
-function normalizeFileBatch(input) {
+export interface FileBatchItem {
+  readonly op: 'put' | 'delete';
+  readonly path: string;
+  readonly sha?: string;
+  readonly content?: string;
+}
+
+export interface FileBatch {
+  readonly items: readonly FileBatchItem[];
+  readonly itemIds: readonly string[];
+  readonly batchHash: string;
+  readonly payloadBytes: number;
+  readonly summary: { readonly itemCount: number; readonly itemIds: readonly string[]; readonly batchHash: string; readonly payloadBytes: number; readonly paths: readonly string[] };
+}
+
+export function normalizeFileBatch(input: unknown): FileBatch {
   if (!Array.isArray(input) || input.length < 1 || input.length > MAX_FILE_BATCH_ITEMS) {
     throw new MutationCoverageError('File batch requires between 1 and 100 operations', 'MUTATION_BATCH_SIZE');
   }
-  const paths = new Set();
-  const items = input.map((raw, index) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  const paths = new Set<string>();
+  const items = input.map((entry: unknown, index): FileBatchItem => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new MutationCoverageError(`Batch item ${index + 1} is invalid`, 'MUTATION_BATCH_ITEM_INVALID');
     }
+    const raw = entry as Readonly<Record<string, unknown>>;
     const op = String(raw.op || '').trim().toLowerCase();
     if (op !== 'put' && op !== 'delete') {
       throw new MutationCoverageError(`Batch item ${index + 1} has an unknown operation`, 'MUTATION_BATCH_ITEM_INVALID');
@@ -226,7 +259,7 @@ function normalizeFileBatch(input) {
     const key = path.toLowerCase();
     if (paths.has(key)) throw new MutationCoverageError('Batch targets must be unique', 'MUTATION_BATCH_DUPLICATE_TARGET');
     paths.add(key);
-    const item = { op, path };
+    const item: { op: 'put' | 'delete'; path: string; sha?: string; content?: string } = { op, path };
     if (op === 'put') {
       if (raw.sha) {
         const sha = String(raw.sha).trim().toLowerCase();
@@ -263,10 +296,10 @@ function normalizeFileBatch(input) {
   });
 }
 
-function summarizeBatchItems(actionInput, itemsInput) {
+export function summarizeBatchItems(actionInput: unknown, itemsInput: unknown): Readonly<{ itemCount: number; itemIds: readonly string[]; batchHash: string }> {
   const action = String(actionInput || '');
   const contractValue = executionContractForAction(action);
-  const items = Array.isArray(itemsInput) ? itemsInput : [];
+  const items: readonly unknown[] = Array.isArray(itemsInput) ? itemsInput : [];
   if (!items.length || items.length > contractValue.maxItems) {
     throw new MutationCoverageError(`Mutation batch requires between 1 and ${contractValue.maxItems} items`, 'MUTATION_BATCH_SIZE');
   }
@@ -274,9 +307,10 @@ function summarizeBatchItems(actionInput, itemsInput) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       throw new MutationCoverageError(`Mutation batch item ${index + 1} is invalid`, 'MUTATION_BATCH_ITEM_INVALID');
     }
-    const copy = {};
-    for (const key of Object.keys(item).sort()) {
-      const value = item[key];
+    const copy: Record<string, unknown> = {};
+    const record = item as Readonly<Record<string, unknown>>;
+    for (const key of Object.keys(record).sort()) {
+      const value = record[key];
       if (value == null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') copy[key] = value;
       else throw new MutationCoverageError(`Mutation batch item ${index + 1} is not scalar`, 'MUTATION_BATCH_ITEM_INVALID');
     }
@@ -286,11 +320,11 @@ function summarizeBatchItems(actionInput, itemsInput) {
   return deepFreeze({ itemCount: normalized.length, itemIds, batchHash: hash({ action, items: normalized }) });
 }
 
-function validateCoverageInventory(actions) {
+export function validateCoverageInventory(actions: unknown): true {
   if (!actions || typeof actions !== 'object') throw new MutationCoverageError('Mutation action registry is required', 'MUTATION_COVERAGE_INVALID');
   const routeKeys = new Set();
   for (const item of MUTATION_ROUTE_INVENTORY) {
-    if (!actions[item.action]) throw new MutationCoverageError(`Mutation inventory action is missing: ${item.action}`, 'MUTATION_COVERAGE_ACTION_MISSING');
+    if (!(actions as Readonly<Record<string, unknown>>)[item.action]) throw new MutationCoverageError(`Mutation inventory action is missing: ${item.action}`, 'MUTATION_COVERAGE_ACTION_MISSING');
     const key = `${item.method} ${item.route}`;
     if (routeKeys.has(key)) throw new MutationCoverageError(`Duplicate mutation route inventory entry: ${key}`, 'MUTATION_COVERAGE_DUPLICATE');
     routeKeys.add(key);
@@ -301,15 +335,3 @@ function validateCoverageInventory(actions) {
   return true;
 }
 
-module.exports = deepFreeze({
-  MutationCoverageError,
-  MAX_FILE_BATCH_ITEMS,
-  MAX_FILE_BATCH_PAYLOAD_BYTES,
-  MUTATION_ROUTE_INVENTORY,
-  ACTION_EXECUTION_CONTRACTS,
-  executionContractForAction,
-  normalizeFileBatch,
-  summarizeBatchItems,
-  validateCoverageInventory,
-  stableJson
-});

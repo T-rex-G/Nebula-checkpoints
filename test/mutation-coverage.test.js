@@ -1,11 +1,11 @@
 'use strict';
 const assert = require('assert');
 let coverage = {};
-try { coverage = require('../src/mutation-coverage'); } catch {}
+try { coverage = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts'); } catch {}
 for (const name of ['MUTATION_ROUTE_INVENTORY','ACTION_EXECUTION_CONTRACTS','executionContractForAction','normalizeFileBatch','summarizeBatchItems','validateCoverageInventory']) {
   assert(coverage[name], `${name} must be implemented`);
 }
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const {
   MUTATION_ROUTE_INVENTORY, ACTION_EXECUTION_CONTRACTS, executionContractForAction,
   normalizeFileBatch, summarizeBatchItems, validateCoverageInventory

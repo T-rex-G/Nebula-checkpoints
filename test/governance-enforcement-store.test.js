@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
 const { GovernanceStore } = require('../src/governance-store');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { policyDocumentHash } = require('../src/governance-model');
 
 const authorization = {

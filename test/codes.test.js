@@ -38,8 +38,8 @@ const CATALOGUE = path.join(root, 'packages/contracts/src/codes.ts');
 
 /* Codes composed from parts: each with every code it can become, or the family it belongs to. */
 const COMPOSED = Object.freeze({
-  'src/security-foundation.js `${codePrefix}_INVALID`': { codes: ['CSRF_INVALID', 'STEP_UP_INVALID'] },
-  'src/security-foundation.js `${codePrefix}_EXPIRED`': { codes: ['CSRF_EXPIRED', 'STEP_UP_EXPIRED'] },
+  'apps/api/src/platform/authorization/security-foundation.ts `${codePrefix}_INVALID`': { codes: ['CSRF_INVALID', 'STEP_UP_INVALID'] },
+  'apps/api/src/platform/authorization/security-foundation.ts `${codePrefix}_EXPIRED`': { codes: ['CSRF_EXPIRED', 'STEP_UP_EXPIRED'] },
   /* The status a webhook destination answered with, when it was not a success. */
   'src/governance-webhook-worker.js `WEBHOOK_HTTP_${statusCode}`': { family: 'WEBHOOK_HTTP', pattern: '^WEBHOOK_HTTP_[1-5][0-9]{2}$' }
 });

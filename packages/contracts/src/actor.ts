@@ -171,7 +171,7 @@ function normalizePermissions(value: unknown, refuse: Refuse): Record<string, In
 export interface SnapshotOptions {
   /* Refuses a malformed snapshot. The server passes its AuthorizationResolverError. */
   readonly refuse?: Refuse;
-  /* Normalises the scope. The server passes governance's own, so a bad scope keeps its GovernanceError. */
+  /* Normalises the scope. The server passes the platform's scope reader, which refuses with a 400. */
   readonly normalizeScope?: (input: JsonObject) => RepositoryScope;
 }
 

@@ -6,7 +6,7 @@ for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTRO
   assert(controls[name], `${name} must be implemented`);
 }
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(CONTROL_CATALOG.version, '1.7.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
@@ -136,7 +136,7 @@ for (const action of EXPOSURE_ACTIONS) {
  * finding is in.
  */
 {
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['exposure.finding.accept-risk'].actorBinding, 'governance');
   assert.strictEqual(actions['exposure.finding.accept-risk'].risk, 'critical');
   /* Using a discovered credential is the highest-risk thing this feature
@@ -174,7 +174,7 @@ for (const action of EXPOSURE_ACTIONS) {
     'unmapped',
     'a policy approved against 1.3.0 never covered clearing a history'
   );
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['exposure.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['exposure.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['exposure.history.clear'].operations, []);
@@ -199,7 +199,7 @@ for (const action of EXPOSURE_ACTIONS) {
   const after = new Set(current.actionMappings.map(item => item.action));
   assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), LIFECYCLE, '1.5.0 adds exactly the lifecycle actions');
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   for (const action of LIFECYCLE) {
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.5.0', policyEvaluations: [] }).status, 'mapped');
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.4.0', policyEvaluations: [] }).status, 'unmapped',
@@ -231,7 +231,7 @@ for (const action of EXPOSURE_ACTIONS) {
     'unmapped',
     'a policy approved against 1.5.0 never covered clearing an audit history'
   );
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['code-audit.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['code-audit.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['code-audit.history.clear'].operations, []);
@@ -251,7 +251,7 @@ for (const action of EXPOSURE_ACTIONS) {
   const TRIAGE = ['code-audit.finding.reopen', 'code-audit.finding.triage'];
   assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), TRIAGE, '1.7.0 adds exactly the triage actions');
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   for (const action of TRIAGE) {
     assert.strictEqual(deriveControlMapping({ action, policyEvaluations: [] }).status, 'mapped');
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.6.0', policyEvaluations: [] }).status, 'unmapped',

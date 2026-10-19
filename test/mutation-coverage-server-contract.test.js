@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const { MUTATION_ROUTE_INVENTORY } = require('../src/mutation-coverage');
+const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 for (const item of MUTATION_ROUTE_INVENTORY) {
   const needle = `app.${item.method.toLowerCase()}('${item.route}'`;
   const index = server.indexOf(needle);

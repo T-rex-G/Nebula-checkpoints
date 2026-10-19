@@ -235,6 +235,23 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - the decision-mismatch and fail-closed cases now run through the port as the server wires it.
 - **Next:** D3 (`platform/authorization` and `platform/mutation-gateway` to TypeScript). The gateway's remaining reach into Kepler is `governance-model`'s scope normalizer, chosen for its error class. D3 settles it while converting the gateway.
 
+### D3 — The authorization and mutation-gateway platform in strict TypeScript
+
+- **Moved, typed strictly, behaviour unchanged.** `platform/authorization` holds the authorization resolver, the security foundation (CSRF and step-up tokens, the replay guard) and the local session policy. `platform/mutation-gateway` holds the gateway, its coverage inventory, the protected path sets and Safe Passage. CommonJS callers require them by path.
+- **The platform no longer depends on Kepler.**
+  - *The scope.* The resolver and the gateway read a repository scope through governance's reader, borrowed for its error class. `platform/authorization/repository-scope.ts` reads it by the scope contract's rules and refuses with the same codes and messages and the same 400, as a `ContractError`. Nothing maps a refusal by its class, and a test pins the code, message and status.
+  - *Safe Passage.* It required governance enforcement to judge each step of the route it offers. It is now handed a step evaluator, as the gateway is handed its policy port. Kepler supplies it (`activePolicySetStepEvaluator`): the same active policy set, the same evaluation, nothing recorded. Without an evaluator Safe Passage throws rather than offer a route it could not judge, and an evaluator that answers nothing refuses the route.
+  - *A rule keeps it so.* `test/module-boundaries.test.js` now refuses any platform import outside the platform and the contracts. The rule was shown to catch a planted import of `src/governance-model.js`.
+- **Copies replaced by the contract's names.** The gateway's mutation-id pattern and the step-up commit-SHA pattern are now `isMutationId` and `isCommitSha`. Two copies are gone, and four waiting exports gained a consumer; the adoption record says so.
+- **Defects the port found, each with a test that failed first:**
+  - *Inherited names had path facts.* `pathFactsForAction('constructor')` and its kin threw a TypeError from a missing source list. Lookups are now by own key, and such a name has no facts.
+- **Kept exactly:**
+  - Error objects keep their own-property order (name, code, status, then the protected-path refusal's three facts).
+  - Each step-up action cleans its scope fields in the order its refusals were always reported. The action list is now a typed table, and the scope builder covers every action or does not compile.
+  - The security foundation's canonical JSON, bound into signed step-up grants, stays byte for byte. The server has eight such copies in three variants, differing on undefined and on objects with `toJSON`. **Carried to Phase G:** unify them only with proof over every value each one hashes.
+- **Checks:** typecheck under all four projects and lint green; every unit program that touches these modules green; Playwright loads every browser and integration spec.
+- **Next:** D4 (the identity-access and GitHub provider modules, behind their indexes).
+
 ### Qualifier — a failing browser slice names its tests
 
 - **The defect.** On C4 the alpha17 candidate gate failed in browser slice 4/4, and its message named only a web server warning. Each slice ran with the blob reporter alone, which writes nothing readable, and a failure was described by the slice's stderr, which holds only the server's warnings. The failing tests were not named anywhere a reader could see.

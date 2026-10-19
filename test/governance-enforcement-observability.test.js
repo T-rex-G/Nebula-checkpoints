@@ -3,7 +3,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { GovernanceStore } = require('../src/governance-store');
 const { evaluateActivePolicySet, POLICY_DECISION_GENESIS } = require('../src/governance-enforcement');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { stableJson } = require('../src/governance-model');
 
 const secret = 'policy-observability-secret-0123456789abcdef';

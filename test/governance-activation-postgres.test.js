@@ -8,7 +8,7 @@ const { Client, Pool } = require('pg');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { GovernanceStore } = require('../src/governance-store');
 const { createGovernanceApiService } = require('../src/governance-api');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { createGovernanceRuntime } = require('../src/governance-enforcement');
 
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();

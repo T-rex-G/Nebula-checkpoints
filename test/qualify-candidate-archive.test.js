@@ -10,6 +10,7 @@ const {
   assertPinnedNodeVersion,
   assertTrustedQualificationPrograms,
   AUTOMATED_CLAIM_REQUIREMENTS,
+  browserSliceFailureDetail,
   buildPackageManagerEnvironment,
   buildQualificationEnvironment,
   deriveTrustedAutomatedClaims,
@@ -39,6 +40,33 @@ assert.throws(
   /synthetic stalled qualifier command timed out after 50 ms/,
   'every qualifier child process must have an explicit finite timeout'
 );
+/*
+ * A failing browser slice is reported by the tests that failed. Its stderr
+ * holds only the web server's warnings, so a message built from stderr named
+ * a warning and hid the failure; the slice's own summary is what is shown.
+ */
+const failingSlice = [
+  'process.stderr.write("[WebServer] (node:1) Warning: The NO_COLOR env is ignored\\n");',
+  'console.log("\\u001b[31m  1) [desktop] \\u203a test/e2e/a.spec.js:3:1 \\u203a the drawer closes\\u001b[39m");',
+  'console.log("    Error: expect(locator).toBeHidden() failed");',
+  'console.log("  1 failed");',
+  'console.log("    [desktop] \\u203a test/e2e/a.spec.js:3:1 \\u203a the drawer closes");',
+  'console.log("  40 passed (2.0m)");',
+  'process.exit(1);'
+].join('');
+assert.throws(
+  () => runCommand(process.execPath, ['-e', failingSlice], {
+    label: 'synthetic browser slice',
+    failureDetail: browserSliceFailureDetail
+  }),
+  error => /synthetic browser slice failed/.test(error.message) &&
+    /1 failed\n\s+\[desktop\] \u203a test\/e2e\/a\.spec\.js:3:1 \u203a the drawer closes/.test(error.message) &&
+    /toBeHidden\(\) failed/.test(error.message) &&
+    !/\u001b/.test(error.message),
+  'a failing slice names its failed tests, without terminal colour codes'
+);
+assert.strictEqual(browserSliceFailureDetail({ stdout: '', stderr: 'only a warning' }), 'only a warning',
+  'a slice that printed no summary still reports what it wrote');
 const processVersionDescriptor = Object.getOwnPropertyDescriptor(process, 'version');
 try {
   Object.defineProperty(process, 'version', { ...processVersionDescriptor, value: 'v22.23.0' });

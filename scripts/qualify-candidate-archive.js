@@ -318,10 +318,26 @@ function runCommand(command, args, options = {}) {
   }
   const allowedStatuses = new Set(options.allowedStatuses || [0]);
   if (result.error || !allowedStatuses.has(result.status)) {
-    const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 4000);
+    const detail = String(
+      (typeof options.failureDetail === 'function' && !result.error ? options.failureDetail(result) : '') ||
+      result.stderr || result.stdout || result.error?.message || ''
+    ).trim().slice(0, 4000);
     fail(`${options.label || command} failed${detail ? `: ${detail}` : ''}`);
   }
   return String(result.stdout || '');
+}
+
+/*
+ * What a failing browser slice is reported by: the tests that failed. The
+ * slice's stderr holds only the web server's warnings, so the default detail
+ * named a warning and hid the failure. The line reporter ends its output with
+ * the failed and flaky tests by name, after each one's error, so the end of
+ * its output, without terminal colour codes, is the detail.
+ */
+function browserSliceFailureDetail(result) {
+  const stdout = String(result && result.stdout || '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim();
+  if (stdout) return stdout.slice(-4000);
+  return String(result && result.stderr || '').trim();
 }
 
 function buildQualificationEnvironment(baseEnv, workspace, subjectSha256) {
@@ -1031,12 +1047,13 @@ function qualifyCandidateArchive(options) {
     for (let slice = 1; slice <= CANDIDATE_BROWSER_SLICES; slice += 1) {
       const sliceDir = path.join(blobRoot, `slice-${slice}`);
       runCommand(process.execPath, [
-        playwrightCli, 'test', '--config', path.join(candidateRoot, 'playwright.config.js'), '--reporter=blob'
+        playwrightCli, 'test', '--config', path.join(candidateRoot, 'playwright.config.js'), '--reporter=blob,line'
       ], {
         cwd: candidateRoot,
         env: { ...browserEnvironment, NV_E2E_SHARD: `${slice}/${CANDIDATE_BROWSER_SLICES}`, PLAYWRIGHT_BLOB_OUTPUT_DIR: sliceDir },
         label: `trusted browser matrix slice ${slice}/${CANDIDATE_BROWSER_SLICES}`,
-        timeoutMs: COMMAND_TIMEOUTS_MS.browserSlice
+        timeoutMs: COMMAND_TIMEOUTS_MS.browserSlice,
+        failureDetail: browserSliceFailureDetail
       });
       const reports = fs.readdirSync(sliceDir).filter(name => name.endsWith('.zip'));
       if (reports.length !== 1) fail(`trusted browser matrix slice ${slice} did not write exactly one report`);
@@ -1159,6 +1176,7 @@ module.exports = Object.freeze({
   MINIMUM_BROWSER_TESTS,
   COMMAND_TIMEOUTS_MS,
   runCommand,
+  browserSliceFailureDetail,
   hashFile,
   filesEqual,
   validateArchiveEntries,

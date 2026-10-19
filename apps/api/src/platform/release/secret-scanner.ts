@@ -1,60 +1,26 @@
-'use strict';
+/*
+ * The release gate's secret scan: whether a tracked file carries a
+ * credential, by the rules in secret-rules.ts.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { RULES } from './secret-rules.ts';
 
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+export { RULES, type SecretRule } from './secret-rules.ts';
 
-const MAX_FILE_BYTES = 16 * 1024 * 1024;
+export const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILES = 100_000;
-const MAX_DIRECTORY_DEPTH = 64;
+export const MAX_DIRECTORY_DEPTH = 64;
 const EXCLUDED_DIRECTORIES = Object.freeze([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'out',
   'coverage', 'playwright-report', 'test-results', '.cache', '.npm'
 ]);
-const RULES = Object.freeze([
-  Object.freeze({
-    rule: 'private-key',
-    regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
-  }),
-  Object.freeze({
-    rule: 'github-token',
-    regex: /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/
-  }),
-  Object.freeze({
-    rule: 'gitlab-token',
-    regex: /\b(?:glpat|gloas|gldt|glrt|glrtr|glcbt|glptt|glft|glimt|glagent|glwt|glsoat|glffct)-[A-Za-z0-9_-]{12,}\b/
-  }),
-  Object.freeze({
-    rule: 'aws-access-key',
-    regex: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/
-  }),
-  Object.freeze({
-    rule: 'slack-token',
-    regex: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/
-  }),
-  Object.freeze({
-    rule: 'authenticated-url',
-    regex: /\b(?:https?|postgres(?:ql)?):\/\/[^\s/:@]+:[^\s@/]{16,}@[^\s]+/i
-  }),
-  Object.freeze({
-    /*
-     * A secret does not stop being one because it is serialized on the way
-     * out, so the first alternative steps over a JSON.stringify( prefix. It
-     * admits only a quoted literal, which is the whole distinction worth
-     * drawing: stringifying process.env, a variable, or an object expression
-     * exposes nothing and is ordinary code, and flagging it would turn this
-     * gate into noise operators learn to scroll past.
-     */
-    rule: 'contextual-provider-secret',
-    regex: /\b(?:GITEA_(?:TOKEN|API_KEY)|GITHUB_APP_(?:CLIENT_SECRET|PRIVATE_KEY_BASE64|WEBHOOK_SECRET)|NPM_TOKEN|NEON_(?:API_KEY|TOKEN)|NV_SNAPSHOT_(?:SIGNING_SECRET|RETIRED_KEYS_JSON|LEGACY_KEYS_JSON)|OAUTH_(?:CLIENT_)?SECRET|SESSION_SECRET)\b[ \t]*[:=][ \t]*(?:JSON\.stringify\([ \t]*["'][A-Za-z0-9_~.+\/-]{20,}["']|["']?(?!process\.env\b|\$\{)(?:[A-Za-z0-9_~.+\/-]{20,}|[\[{][^\r\n]{20,})["']?)/i
-  })
-]);
-
-function fail(message) {
+function fail(message: string): never {
   throw new TypeError(message);
 }
 
-function normalizeRelative(relative) {
+function normalizeRelative(relative: unknown): string {
   const value = String(relative || '').replace(/\\/g, '/');
   if (
     !value ||
@@ -65,7 +31,7 @@ function normalizeRelative(relative) {
   return value;
 }
 
-function gitTrackedFiles(root) {
+function gitTrackedFiles(root: string): string[] | null {
   const topLevel = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     cwd: root,
     encoding: 'utf8'
@@ -88,9 +54,9 @@ function gitTrackedFiles(root) {
   return files.sort();
 }
 
-function walkArchiveFiles(root) {
-  const files = [];
-  function visit(directory, prefix = '', depth = 0) {
+function walkArchiveFiles(root: string): string[] {
+  const files: string[] = [];
+  function visit(directory: string, prefix = '', depth = 0): void {
     if (depth > MAX_DIRECTORY_DEPTH) fail('archive directory nesting exceeds the safe limit');
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       if (entry.name.startsWith('._')) continue;
@@ -109,12 +75,12 @@ function walkArchiveFiles(root) {
   return files.sort();
 }
 
-function discoverReleasableTextFiles(rootDirectory) {
+export function discoverReleasableTextFiles(rootDirectory: string): string[] {
   const root = fs.realpathSync(path.resolve(rootDirectory));
   return gitTrackedFiles(root) || walkArchiveFiles(root);
 }
 
-function decodeText(buffer) {
+function decodeText(buffer: Buffer): string | null {
   if (buffer.includes(0)) return null;
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
@@ -123,20 +89,31 @@ function decodeText(buffer) {
   }
 }
 
-function scanFiles(options = {}) {
+export interface SecretFinding {
+  readonly path: string;
+  readonly rule: string;
+  readonly line: number;
+}
+
+export interface ScanOptions {
+  readonly root?: string;
+  readonly files?: readonly unknown[];
+}
+
+export function scanFiles(options: ScanOptions = {}): readonly SecretFinding[] {
   const root = fs.realpathSync(path.resolve(options.root || process.cwd()));
   const files = Array.isArray(options.files)
     ? options.files.map(normalizeRelative)
     : discoverReleasableTextFiles(root);
   if (files.length > MAX_FILES || new Set(files).size !== files.length) fail('secret scan file inventory is invalid');
-  const findings = [];
+  const findings: SecretFinding[] = [];
   for (const relative of [...files].sort()) {
     const absolute = path.join(root, relative);
-    let metadata;
+    let metadata: fs.Stats;
     try {
       metadata = fs.lstatSync(absolute);
     } catch (error) {
-      fail(`secret scan cannot read tracked file metadata: ${relative}: ${error.code || 'unknown error'}`);
+      fail(`secret scan cannot read tracked file metadata: ${relative}: ${String((error as { readonly code?: unknown } | null)?.code || 'unknown error')}`);
     }
     if (metadata.isSymbolicLink() || !metadata.isFile()) continue;
     if (metadata.size > MAX_FILE_BYTES) fail(`secret scan file exceeds the safe size limit: ${relative}`);
@@ -154,11 +131,3 @@ function scanFiles(options = {}) {
   return Object.freeze(findings.sort((left, right) =>
     left.path.localeCompare(right.path) || left.line - right.line || left.rule.localeCompare(right.rule)));
 }
-
-module.exports = Object.freeze({
-  MAX_FILE_BYTES,
-  MAX_DIRECTORY_DEPTH,
-  RULES,
-  discoverReleasableTextFiles,
-  scanFiles
-});

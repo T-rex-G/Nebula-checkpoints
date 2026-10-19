@@ -1,10 +1,31 @@
-'use strict';
-
-const { detectInHunks, detectInPath, detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require('./exposure-detection');
-const { archiveKind } = require('./exposure-archives');
-const { BINARY_EXTENSIONS, extensionOf } = require('./exposure-reader');
-const { buildFindings, fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('./exposure-findings');
-const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-store');
+import {
+  DETECTION_ENGINE_VERSION,
+  RULES_VERSION,
+  detectInHunks,
+  detectInPath,
+  detectInText,
+  type DetectionResult
+} from '../domain/exposure-detection.ts';
+import { archiveKind } from '../domain/exposure-archives.ts';
+import { FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, type Finding } from '../domain/exposure-findings.ts';
+import { BINARY_EXTENSIONS, extensionOf } from '../client/exposure-reader.ts';
+import type {
+  ArchiveRead,
+  BlobText,
+  ChangedFile,
+  CommitChanges,
+  Hunk,
+  ReaderTransport,
+  SkippedEntry,
+  TreeFile,
+  listCommits,
+  readArchive,
+  readBlob,
+  readCommitChanges,
+  readTree
+} from '../client/exposure-reader.ts';
+import { EXPOSURE_CONFIG_VERSION, MAX_FINDINGS_PER_SCAN, type ScanRecord } from '../persistence/exposure-store.ts';
+import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 
 /*
  * Running a scan: one process, one free web service, repositories nobody here
@@ -60,9 +81,22 @@ const { MAX_FINDINGS_PER_SCAN, EXPOSURE_CONFIG_VERSION } = require('./exposure-s
  * for changes the provider sent no patch for, archives are opened, and the
  * wall clock is twice as long to fit both.
  */
-const EXPOSURE_BUDGET_VERSION = 4;
+export const EXPOSURE_BUDGET_VERSION = 4;
 
-const DEFAULT_BUDGETS = Object.freeze({
+/* The ceilings one scan runs under. */
+export interface Budgets {
+  readonly maxFiles: number;
+  readonly maxBytes: number;
+  readonly maxWallClockMs: number;
+  readonly maxCommits: number;
+  readonly maxHistoryBlobReads: number;
+  readonly flushEveryFindings: number;
+  readonly renewEveryFiles: number;
+  readonly accessCheckIntervalMs: number;
+  readonly readConcurrency: number;
+}
+
+export const DEFAULT_BUDGETS: Budgets = Object.freeze({
   /* Files read per scan. The tree may hold more; this is what gets opened. */
   maxFiles: 2_000,
   /* Total decoded bytes scanned, so a repository of large text files cannot
@@ -103,18 +137,29 @@ const DEFAULT_BUDGETS = Object.freeze({
   readConcurrency: 6
 });
 
-const COMMIT_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 const MAX_ARCHIVES_IN_FLIGHT = 2;
 /* The reader's word for a file that is not text, spelled once here rather than
    requiring the reader -- the worker receives a reader, it does not pick one. */
 const SKIP_BINARY = 'binary';
 
-function boundedInteger(value, fallback, min, max) {
-  return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
 }
 
-function budgetsFrom(input) {
-  const source = input && typeof input === 'object' ? input : {};
+/* A Git object id: SHA-1 or SHA-256, lower-case hex. */
+function isObjectId(value: string): boolean {
+  return isCommitSha(value) || isSha256Hex(value);
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+}
+
+function budgetsFrom(input: unknown): Budgets {
+  const source: Fields = input && typeof input === 'object' ? input as Fields : {};
   return Object.freeze({
     maxFiles: boundedInteger(source.maxFiles, DEFAULT_BUDGETS.maxFiles, 1, 100_000),
     /*
@@ -146,31 +191,130 @@ function budgetsFrom(input) {
  * after I/O callbacks, so a pending response is written before the next file
  * is opened.
  */
-function yieldToEventLoop() {
-  return new Promise(resolve => setImmediate(resolve));
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => { setImmediate(resolve); });
 }
 
-function errorCode(error) {
-  return String((error && error.code) || '');
+function errorCode(error: unknown): string {
+  return String((error && read(error, 'code')) || '');
 }
 
-function createExposureRunner(options = {}) {
-  const store = options.store;
-  const reader = options.reader;
+/* What the worker needs of the store: a claim, its renewal, the writes, and the end of a scan. */
+export interface ScanStore {
+  claimScan(input: { readonly now: number; readonly leaseMs: number }): Promise<{ readonly scan: ScanRecord; readonly claimOwner: string } | null>;
+  renewClaim(input: { readonly scanId: unknown; readonly claimOwner: string; readonly leaseMs: number; readonly now: number }): Promise<boolean>;
+  recordObservations(input: { readonly scanId: unknown; readonly claimOwner: string; readonly findings: readonly ObservedFinding[]; readonly now: number }): Promise<unknown>;
+  finalizeScan(input: { readonly scanId: unknown; readonly claimOwner: string; readonly now: number } & ScanOutcome): Promise<unknown>;
+}
+
+/* The provider reads a scan makes. A reader without the optional ones scans the tree alone. */
+export interface ScanReader {
+  readonly readTree: typeof readTree;
+  readonly readBlob: typeof readBlob;
+  readonly readArchive?: typeof readArchive;
+  readonly listCommits?: typeof listCommits;
+  readonly readCommitChanges?: typeof readCommitChanges;
+}
+
+/* Who may read the repository right now: a live session's token, or nothing. */
+export type SessionResolver = (input: { readonly scope: unknown; readonly requestedBy: unknown; readonly scanId: unknown }) =>
+  Promise<{ readonly token?: unknown } | null | undefined>;
+
+/* A connection pool for one scan, closed when the scan ends. */
+export interface ScanConnections {
+  readonly request?: ReaderTransport;
+  close?(): void;
+}
+
+export interface ExposureRunnerOptions {
+  readonly store?: ScanStore | null;
+  readonly reader?: ScanReader | null;
+  readonly sessionResolver?: SessionResolver | null;
+  readonly fingerprintKey?: unknown;
+  readonly budgets?: unknown;
+  readonly now?: (() => number) | null;
+  readonly createTransport?: (() => ScanConnections | null | undefined) | null;
+  readonly leaseMs?: unknown;
+}
+
+export interface ExposureWorkerOptions extends ExposureRunnerOptions {
+  readonly intervalMs?: unknown;
+  readonly autoStart?: boolean;
+}
+
+/* Where a sighting was: in the tree, or in the commit that added it. */
+interface Provenance {
+  readonly inTree: boolean;
+  readonly introducedCommit?: string;
+  readonly introducedAt?: string | null;
+}
+
+/* A finding as the store takes it: the sanitized finding and where it was seen. */
+export type ObservedFinding = Readonly<Finding & Provenance>;
+
+/* How a scan ended, as the store records it. */
+interface ScanOutcome {
+  readonly state: 'complete' | 'partial' | 'failed';
+  readonly coverage: 'complete' | 'partial' | 'unknown';
+  readonly skippedReason: string | null;
+  readonly filesScanned: number;
+  readonly bytesScanned: number;
+  readonly filesTotal?: number;
+  readonly filesSkippedBinary?: number;
+  readonly filesSkippedOther?: number;
+  readonly commitsTotal?: number | null;
+  readonly commitsScanned?: number | null;
+  readonly commitsSkipped?: number | null;
+  readonly archivesScanned?: number;
+  readonly archiveMembersScanned?: number;
+}
+
+/* A read started ahead of the scan, and how it settled. */
+type Settled<T> = { readonly value: T } | { readonly error: unknown };
+
+interface TreeRead {
+  readonly entry: TreeFile;
+  readonly settled: Promise<Settled<BlobText | ArchiveRead>>;
+}
+
+interface HistoryRead {
+  readonly settled: Promise<Settled<CommitChanges>>;
+}
+
+/* A read's outcome held as a value, so a read nobody looks at again can never reject unobserved. */
+function settle<T>(read: Promise<T>): Promise<Settled<T>> {
+  return Promise.resolve(read).then(value => ({ value }), (error: unknown) => ({ error }));
+}
+
+function requireStore(store: ScanStore | null | undefined): ScanStore {
   if (!store || typeof store.claimScan !== 'function') throw new TypeError('An exposure runner requires a store');
+  return store;
+}
+
+function requireReader(reader: ScanReader | null | undefined): ScanReader {
   if (!reader || typeof reader.readTree !== 'function' || typeof reader.readBlob !== 'function') {
     throw new TypeError('An exposure runner requires a provider reader');
   }
-  const sessionResolver = options.sessionResolver;
+  return reader;
+}
+
+function requireSessionResolver(sessionResolver: SessionResolver | null | undefined): SessionResolver {
   if (typeof sessionResolver !== 'function') {
     throw new TypeError('An exposure runner requires a session resolver');
   }
+  return sessionResolver;
+}
+
+export function createExposureRunner(options: ExposureRunnerOptions = {}) {
+  const store = requireStore(options.store);
+  const reader = requireReader(options.reader);
+  const sessionResolver = requireSessionResolver(options.sessionResolver);
   const fingerprintKey = options.fingerprintKey;
   if (!Buffer.isBuffer(fingerprintKey) && typeof fingerprintKey !== 'string') {
     throw new TypeError('An exposure runner requires a derived fingerprint key');
   }
   const budgets = budgetsFrom(options.budgets);
-  const now = typeof options.now === 'function' ? options.now : Date.now;
+  const now: () => number = typeof options.now === 'function' ? options.now : Date.now;
   /*
    * A connection pool for one scan, when the caller can supply one. It is
    * opened when a scan starts and closed when it ends, whatever the outcome,
@@ -201,7 +345,7 @@ function createExposureRunner(options = {}) {
      * for a tree nobody authorised.
      */
     const commitSha = String(scan && scan.commitSha || '').toLowerCase();
-    if (!COMMIT_PATTERN.test(commitSha)) {
+    if (!isObjectId(commitSha)) {
       await finalize(scan, claimOwner, {
         state: 'failed', coverage: 'unknown', skippedReason: 'transport-refused',
         filesScanned: 0, bytesScanned: 0
@@ -215,7 +359,7 @@ function createExposureRunner(options = {}) {
      * produced it; resolving at execution means a disconnect or a revocation
      * simply stops the next scan.
      */
-    let session;
+    let session: Awaited<ReturnType<SessionResolver>>;
     try {
       session = await sessionResolver({ scope: scan.scope, requestedBy: scan.requestedBy, scanId: scan.scanId });
     } catch {
@@ -234,11 +378,11 @@ function createExposureRunner(options = {}) {
     let filesScanned = 0;
     let bytesScanned = 0;
     let skippedAny = false;
-    let budgetReason = null;
-    let pending = [];
+    let budgetReason: string | null = null;
+    let pending: ObservedFinding[] = [];
     /* Credentials, not sightings: one seen in the tree and in the commit that
        added it is one credential against the ceiling. */
-    const seenFingerprints = new Set();
+    const seenFingerprints = new Set<string>();
     /* What was not read, and why, so a report can say so in numbers. */
     let filesTotal = 0;
     let filesSkippedBinary = 0;
@@ -246,25 +390,28 @@ function createExposureRunner(options = {}) {
     let archivesScanned = 0;
     let archiveMembersScanned = 0;
     const history = scan.scanMode === 'history';
-    let commitsTotal = history ? 0 : null;
-    let commitsScanned = history ? 0 : null;
-    let commitsSkipped = history ? 0 : null;
+    /* Counted for a history scan only; a tree scan records none. */
+    let commitsTotal = 0;
+    let commitsScanned = 0;
+    let commitsSkipped = 0;
     let lastCheckAt = 0;
     let dispatchedSinceCheck = 0;
 
-    async function checkAccess() {
+    async function checkAccess(): Promise<void> {
       const held = await store.renewClaim({ scanId: scan.scanId, claimOwner, leaseMs, now: now() });
       if (!held) {
         throw Object.assign(new Error('Scan claim is no longer held'), { code: 'EXPOSURE_SCAN_NOT_OWNED' });
       }
-      let current;
+      let current: Awaited<ReturnType<SessionResolver>>;
       try {
         current = await sessionResolver({ scope: scan.scope, requestedBy: scan.requestedBy, scanId: scan.scanId });
       } catch { current = null; }
-      if (!current || !current.token) {
+      /* The same test the scan started with: a token is a string, or there is none. */
+      const renewed = current && typeof current.token === 'string' ? current.token : '';
+      if (!renewed) {
         throw Object.assign(new Error('Scan authorization was revoked'), { code: 'EXPOSURE_AUTHORIZATION_REVOKED' });
       }
-      token = current.token;
+      token = renewed;
       lastCheckAt = now();
       dispatchedSinceCheck = 0;
     }
@@ -275,8 +422,8 @@ function createExposureRunner(options = {}) {
      * revoked session is noticed within that bound, and no read is ever started
      * after one has been noticed. Every write still checks unconditionally.
      */
-    let checking = null;
-    async function checkAccessIfDue() {
+    let checking: Promise<void> | null = null;
+    async function checkAccessIfDue(): Promise<void> {
       /* Reads waiting on a check share it, and none starts until it has passed. */
       if (checking) return checking;
       if (dispatchedSinceCheck >= budgets.renewEveryFiles
@@ -286,12 +433,12 @@ function createExposureRunner(options = {}) {
       }
     }
 
-    function countSkip(reason) {
+    function countSkip(reason: unknown): void {
       if (reason === SKIP_BINARY) filesSkippedBinary += 1;
       else filesSkippedOther += 1;
     }
 
-    async function flush() {
+    async function flush(): Promise<boolean> {
       if (!pending.length) return true;
       await checkAccess();
       const batch = pending;
@@ -305,7 +452,7 @@ function createExposureRunner(options = {}) {
      * says where this sighting was: in the tree, or in the commit that added
      * it -- which the store merges when a credential is both.
      */
-    async function admit(detection, filePath, provenance, commit = commitSha) {
+    async function admit(detection: DetectionResult, filePath: string, provenance: Provenance, commit: string = commitSha): Promise<boolean> {
       const built = buildFindings({
         detection, path: filePath, scope: scan.scope, commit, hmacKey: fingerprintKey,
         keyVersion: scan.fingerprintKeyVersion
@@ -327,18 +474,18 @@ function createExposureRunner(options = {}) {
       return true;
     }
 
-    function outOfTime() {
+    function outOfTime(): boolean {
       return now() - startedAt >= budgets.maxWallClockMs;
     }
 
-    async function beforeHistoryPage() {
+    async function beforeHistoryPage(): Promise<void> {
       if (outOfTime()) {
         throw Object.assign(new Error('Scan time budget was exhausted'), { code: 'EXPOSURE_TIME_LIMIT' });
       }
       await checkAccessIfDue();
     }
 
-    function reserveBytes(count) {
+    function reserveBytes(count: number): boolean {
       if (outOfTime()) {
         skippedAny = true;
         budgetReason = budgetReason || 'time-limit';
@@ -353,9 +500,9 @@ function createExposureRunner(options = {}) {
       return true;
     }
 
-    function scanText(text, path) {
+    function scanText(text: string): DetectionResult | null {
       if (!reserveBytes(Buffer.byteLength(text, 'utf8'))) return null;
-      const detection = detectInText({ text, path, maxDecodedBytes: budgets.maxBytes - bytesScanned });
+      const detection = detectInText({ text, maxDecodedBytes: budgets.maxBytes - bytesScanned });
       bytesScanned += detection.decodedBytes || 0;
       if (!detection.scanned || detection.truncated) skippedAny = true;
       return detection;
@@ -363,10 +510,13 @@ function createExposureRunner(options = {}) {
 
     const connections = createTransport ? createTransport() : null;
     const transport = connections && typeof connections.request === 'function' ? connections.request : undefined;
-    /* Reads already started when the scan stops. Each is wrapped so it can
-       never reject unobserved; they are simply not looked at. */
-    const inflight = [];
-    const canOpenArchives = typeof reader.readArchive === 'function';
+    /* Reads already started when the scan stops: the tree's, then history's.
+       Each is wrapped so it can never reject unobserved; they are simply not
+       looked at. */
+    const treeReads: TreeRead[] = [];
+    const historyReads: HistoryRead[] = [];
+    const openArchive = typeof reader.readArchive === 'function' ? reader.readArchive.bind(reader) : null;
+    const canOpenArchives = openArchive !== null;
     const IN_TREE = Object.freeze({ inTree: true });
 
     /*
@@ -374,11 +524,11 @@ function createExposureRunner(options = {}) {
      * it; the credential containers in it found by name. Anything it could not
      * read makes the scan partial, like a file in the tree would.
      */
-    async function admitArchive(opened, provenance, commit) {
+    async function admitArchive(opened: ArchiveRead, provenance: Provenance, commit: string): Promise<boolean> {
       archivesScanned += 1;
       if (opened.truncated || opened.membersSkipped) skippedAny = true;
       for (const member of opened.members) {
-        const detection = scanText(member.text, member.path);
+        const detection = scanText(member.text);
         if (!detection) return false;
         archiveMembersScanned += 1;
         if (detection.candidates.length && !(await admit(detection, member.path, provenance, commit))) return false;
@@ -397,7 +547,7 @@ function createExposureRunner(options = {}) {
         skippedAny = true;
         budgetReason = tree.skippedReason || 'tree-truncated';
       }
-      const skipped = Array.isArray(tree.skipped) ? tree.skipped : [];
+      const skipped: readonly SkippedEntry[] = Array.isArray(tree.skipped) ? tree.skipped : [];
       if (skipped.length) skippedAny = true;
       filesTotal = tree.entries.length + skipped.length;
       for (const item of skipped) countSkip(item && item.reason);
@@ -429,8 +579,8 @@ function createExposureRunner(options = {}) {
       let dispatchedBytes = 0;
       let dispatching = !stopped;
 
-      const fill = async () => {
-        while (dispatching && inflight.length < budgets.readConcurrency && next < entries.length) {
+      const fill = async (): Promise<void> => {
+        while (dispatching && treeReads.length < budgets.readConcurrency && next < entries.length) {
           if (dispatched >= budgets.maxFiles) {
             budgetReason = 'file-count-limit';
             skippedAny = true;
@@ -444,6 +594,7 @@ function createExposureRunner(options = {}) {
             break;
           }
           const entry = entries[next];
+          if (!entry) break;
           /*
            * An archive read holds its response, its bytes and what it inflates
            * to at once -- tens of megabytes at the ceilings -- so no more than
@@ -451,7 +602,7 @@ function createExposureRunner(options = {}) {
            * waits for an earlier read to be consumed; nothing is skipped.
            */
           if (entry.archive && canOpenArchives
-            && inflight.filter(item => item.entry.archive).length >= MAX_ARCHIVES_IN_FLIGHT) {
+            && treeReads.filter(item => item.entry.archive).length >= MAX_ARCHIVES_IN_FLIGHT) {
             break;
           }
           const declared = Number.isInteger(entry.size) && entry.size > 0 ? entry.size : 0;
@@ -472,31 +623,34 @@ function createExposureRunner(options = {}) {
           dispatched += 1;
           dispatchedSinceCheck += 1;
           dispatchedBytes += declared;
-          const read = entry.archive && canOpenArchives
-            ? reader.readArchive({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport })
+          const started: Promise<BlobText | ArchiveRead> = entry.archive && openArchive
+            ? openArchive({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport })
             : reader.readBlob({ scope: scan.scope, sha: entry.sha, path: entry.path, token, transport });
-          inflight.push({ entry, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
+          treeReads.push({ entry, settled: settle(started) });
         }
       };
 
       await fill();
-      while (inflight.length) {
+      while (treeReads.length) {
         /*
          * Yield first. A budget check that runs before the loop has handed
          * control back is a budget check inside a block that has already
          * stalled the process.
          */
         await yieldToEventLoop();
-        const { entry, settled } = inflight.shift();
+        const taken = treeReads.shift();
+        if (!taken) break;
+        const { entry, settled } = taken;
         const outcome = await settled;
-        if (outcome.error) throw outcome.error;
-        const blob = outcome.blob;
-        if (entry.archive && canOpenArchives && !blob.skip && Array.isArray(blob.members)) {
+        if ('error' in outcome) throw outcome.error;
+        const blob = outcome.value;
+        const blobText = 'text' in blob ? blob.text : undefined;
+        if (entry.archive && canOpenArchives && !blob.skip && 'members' in blob && Array.isArray(blob.members)) {
           /* An archive that opened counts as a file read; what is inside it
              is counted separately, so the tree's numbers still add up. */
           filesScanned += 1;
           if (!(await admitArchive(blob, IN_TREE, commitSha))) { dispatching = false; break; }
-        } else if (blob.skip || typeof blob.text !== 'string') {
+        } else if (blob.skip || typeof blobText !== 'string') {
           skippedAny = true;
           countSkip(entry.archive && !canOpenArchives ? SKIP_BINARY : blob.skip);
         } else {
@@ -505,7 +659,7 @@ function createExposureRunner(options = {}) {
            * add up: read, plus binary, plus other, plus any a ceiling stopped
            * before, is the whole tree.
            */
-          const detection = scanText(blob.text, entry.path);
+          const detection = scanText(blobText);
           if (!detection) { dispatching = false; break; }
           filesScanned += 1;
           /*
@@ -524,7 +678,7 @@ function createExposureRunner(options = {}) {
       }
       /* Files the scan never started, because a ceiling came first. */
       if (next < entries.length) skippedAny = true;
-      inflight.length = 0;
+      treeReads.length = 0;
 
       /*
        * History, after the tree: the current files are what a reader acts on
@@ -533,12 +687,13 @@ function createExposureRunner(options = {}) {
        * introduced it; each commit's changes read ahead with the same bounded
        * concurrency and consumed in order.
        */
-      const historyReadable = typeof reader.listCommits === 'function' && typeof reader.readCommitChanges === 'function';
-      if (history && historyReadable && budgetReason !== 'finding-limit' && !outOfTime()) {
+      const listHistory = typeof reader.listCommits === 'function' ? reader.listCommits.bind(reader) : null;
+      const readChanges = typeof reader.readCommitChanges === 'function' ? reader.readCommitChanges.bind(reader) : null;
+      if (history && listHistory && readChanges && budgetReason !== 'finding-limit' && !outOfTime()) {
         await checkAccess();
-        let listing;
+        let listing: Awaited<ReturnType<typeof listCommits>> | null;
         try {
-          listing = await reader.listCommits({
+          listing = await listHistory({
             scope: scan.scope, commitSha, token, transport,
             maxCommits: budgets.maxCommits, beforePage: beforeHistoryPage
           });
@@ -560,8 +715,8 @@ function createExposureRunner(options = {}) {
           let cursor = 0;
           let historyDispatching = true;
           let blobReads = 0;
-          const historyFill = async () => {
-            while (historyDispatching && inflight.length < budgets.readConcurrency && cursor < commits.length) {
+          const historyFill = async (): Promise<void> => {
+            while (historyDispatching && historyReads.length < budgets.readConcurrency && cursor < commits.length) {
               if (outOfTime()) {
                 budgetReason = budgetReason || 'time-limit';
                 skippedAny = true;
@@ -570,28 +725,29 @@ function createExposureRunner(options = {}) {
               }
               await checkAccessIfDue();
               const item = commits[cursor];
+              if (!item) break;
               cursor += 1;
               dispatchedSinceCheck += 1;
               /* Merge conflict resolutions can introduce bytes in neither
                  parent. Read the provider's first-parent diff for merges too. */
-              const read = reader.readCommitChanges({
+              const started = readChanges({
                 scope: scan.scope, sha: item.sha, token, transport, beforePage: beforeHistoryPage
               });
-              inflight.push({ entry: item, settled: Promise.resolve(read).then(blob => ({ blob }), error => ({ error })) });
+              historyReads.push({ settled: settle(started) });
             }
           };
 
           /* A change the provider sent without a patch, read from its blob. */
-          const admitWholeFile = async (file, provenance, commit) => {
+          const admitWholeFile = async (file: ChangedFile, provenance: Provenance, commit: string): Promise<boolean> => {
             if (!file.blobSha) { skippedAny = true; return true; }
             const kind = archiveKind(file.path);
             const pathDetection = detectInPath({ path: file.path, sha: file.blobSha });
             if (pathDetection.candidates.length) return admit(pathDetection, file.path, provenance, commit);
             if (blobReads >= budgets.maxHistoryBlobReads) { skippedAny = true; return true; }
-            if (kind && canOpenArchives) {
+            if (kind && openArchive) {
               blobReads += 1;
               await checkAccessIfDue();
-              const opened = await reader.readArchive({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
+              const opened = await openArchive({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
               if (opened.skip || !Array.isArray(opened.members)) { skippedAny = true; return true; }
               return admitArchive(opened, provenance, commit);
             }
@@ -602,17 +758,18 @@ function createExposureRunner(options = {}) {
             const blob = await reader.readBlob({ scope: scan.scope, sha: file.blobSha, path: file.path, token, transport });
             if (blob.skip === SKIP_BINARY) return true;
             if (blob.skip || typeof blob.text !== 'string') { skippedAny = true; return true; }
-            const detection = scanText(blob.text, file.path);
+            const detection = scanText(blob.text);
             if (!detection) return false;
             return detection.candidates.length ? admit(detection, file.path, provenance, commit) : true;
           };
 
           await historyFill();
-          while (inflight.length) {
+          while (historyReads.length) {
             await yieldToEventLoop();
-            const { entry: item, settled } = inflight.shift();
-            const outcome = await settled;
-            if (outcome.error) {
+            const taken = historyReads.shift();
+            if (!taken) break;
+            const outcome = await taken.settled;
+            if ('error' in outcome) {
               const reason = errorCode(outcome.error) === 'EXPOSURE_TIME_LIMIT' ? 'time-limit'
                 : errorCode(outcome.error) === 'EXPOSURE_RATE_LIMITED' ? 'rate-limited' : null;
               if (reason) {
@@ -620,12 +777,12 @@ function createExposureRunner(options = {}) {
                 skippedAny = true;
                 budgetReason = budgetReason || reason;
                 historyDispatching = false;
-                inflight.length = 0;
+                historyReads.length = 0;
                 break;
               }
               throw outcome.error;
             }
-            const changes = outcome.blob;
+            const changes = outcome.value;
             if (changes.skip) {
               commitsSkipped += 1;
               skippedAny = true;
@@ -633,7 +790,7 @@ function createExposureRunner(options = {}) {
               continue;
             }
             if (changes.truncated || changes.unsafePaths) skippedAny = true;
-            const provenance = Object.freeze({
+            const provenance: Provenance = Object.freeze({
               inTree: false, introducedCommit: changes.sha, introducedAt: changes.committedAt || null
             });
             let keepGoing = true;
@@ -644,14 +801,15 @@ function createExposureRunner(options = {}) {
                 keepGoing = false;
                 break;
               }
-              if (Array.isArray(file.hunks)) {
+              const hunks: readonly Hunk[] | null = Array.isArray(file.hunks) ? file.hunks : null;
+              if (hunks) {
                 /* Context participates in detection too, so charge all bytes
                    handed to the detector, before it sees them. */
-                const size = file.hunks.reduce((total, hunk) => total +
+                const size = hunks.reduce((total, hunk) => total +
                   (hunk.lines.some(line => line.added)
                     ? Buffer.byteLength(hunk.lines.map(line => String(line.text || '')).join('\n'), 'utf8') : 0), 0);
                 if (!reserveBytes(size)) { keepGoing = false; break; }
-                const detection = detectInHunks({ hunks: file.hunks, maxDecodedBytes: budgets.maxBytes - bytesScanned });
+                const detection = detectInHunks({ hunks, maxDecodedBytes: budgets.maxBytes - bytesScanned });
                 bytesScanned += detection.decodedBytes || 0;
                 if (detection.truncated) skippedAny = true;
                 if (detection.candidates.length && !(await admit(detection, file.path, provenance, changes.sha))) {
@@ -663,7 +821,7 @@ function createExposureRunner(options = {}) {
                 break;
               }
             }
-            if (!keepGoing) { historyDispatching = false; inflight.length = 0; break; }
+            if (!keepGoing) { historyDispatching = false; historyReads.length = 0; break; }
             commitsScanned += 1;
             await historyFill();
           }
@@ -699,9 +857,9 @@ function createExposureRunner(options = {}) {
         filesTotal,
         filesSkippedBinary,
         filesSkippedOther,
-        commitsTotal,
-        commitsScanned,
-        commitsSkipped,
+        commitsTotal: history ? commitsTotal : null,
+        commitsScanned: history ? commitsScanned : null,
+        commitsSkipped: history ? commitsSkipped : null,
         archivesScanned,
         archiveMembersScanned
       });
@@ -743,14 +901,15 @@ function createExposureRunner(options = {}) {
     } finally {
       /* Reads still in flight finish into nothing, and no socket outlives
          the scan. */
-      inflight.length = 0;
+      treeReads.length = 0;
+      historyReads.length = 0;
       if (connections && typeof connections.close === 'function') {
         try { connections.close(); } catch { /* closing is best effort */ }
       }
     }
   }
 
-  async function finalize(scan, claimOwner, outcome) {
+  async function finalize(scan: ScanRecord, claimOwner: string, outcome: ScanOutcome): Promise<void> {
     try {
       await store.finalizeScan({ scanId: scan.scanId, claimOwner, now: now(), ...outcome });
     } catch (error) {
@@ -771,13 +930,16 @@ function createExposureRunner(options = {}) {
  * sized for one and two concurrent scans would spend twice the budget the
  * service has.
  */
-function startExposureWorker(options = {}) {
+export type ExposureRunner = ReturnType<typeof createExposureRunner>;
+type RunResult = Awaited<ReturnType<ExposureRunner['runOnce']>>;
+
+export function startExposureWorker(options: ExposureWorkerOptions = {}) {
   const runner = createExposureRunner(options);
   const intervalMs = boundedInteger(options.intervalMs, 15_000, 250, 10 * 60 * 1000);
   const stats = { started: 0, completed: 0, failed: 0 };
   let stopped = false;
-  let inFlight = null;
-  let timer = null;
+  let inFlight: Promise<RunResult> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   async function run() {
     if (stopped) return Object.freeze({ stopped: true });
@@ -801,7 +963,7 @@ function startExposureWorker(options = {}) {
    * should drain one after another, not one per poll interval. An idle tick
    * waits the full interval, so an empty queue costs one query per interval.
    */
-  function schedule(delayMs = intervalMs) {
+  function schedule(delayMs: number = intervalMs): void {
     if (stopped) return;
     timer = setTimeout(async () => {
       let claimed = false;
@@ -821,7 +983,7 @@ function startExposureWorker(options = {}) {
    * abandoned mid-write is recoverable -- its lease expires and another worker
    * reclaims it -- but finishing the one in hand is cheaper than redoing it.
    */
-  function stop() {
+  function stop(): Promise<unknown> {
     stopped = true;
     if (timer) clearTimeout(timer);
     timer = null;
@@ -830,10 +992,3 @@ function startExposureWorker(options = {}) {
 
   return Object.freeze({ run, stop, stats: () => Object.freeze({ ...stats }) });
 }
-
-module.exports = Object.freeze({
-  DEFAULT_BUDGETS,
-  EXPOSURE_BUDGET_VERSION,
-  createExposureRunner,
-  startExposureWorker
-});

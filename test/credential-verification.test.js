@@ -45,7 +45,7 @@ const {
   verificationFreshness,
   verifyCandidates,
   verifyCredential
-} = require('../src/credential-verification');
+} = require('../apps/api/src/modules/quasar/index.ts').credentialVerifier;
 
 /*
  * Synthetic values, shaped like the real thing so the detection rules match
@@ -138,8 +138,11 @@ const refusingTransport = () => {
       DEFAULT_TRANSPORT, guardedFetch,
       'the default transport must be the guarded one itself, not a lookalike with the same shape'
     );
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'credential-verification.js'), 'utf8');
-    for (const forbidden of [/require\('https'\)/, /require\('http'\)/, /require\('net'\)/, /\bfetch\s*\(/, /https\.request/]) {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'credential-verification.ts'), 'utf8');
+    for (const forbidden of [
+      /require\('https'\)/, /require\('http'\)/, /require\('net'\)/, /from '(?:node:)?(?:https?|net)'/,
+      /\bfetch\s*\(/, /https\.request/
+    ]) {
       assert.strictEqual(
         forbidden.test(source), false,
         `this module must not reach the network itself: ${forbidden}`
@@ -747,10 +750,12 @@ const refusingTransport = () => {
   /* Reason codes are a closed vocabulary, and every one is reachable. */
   {
     assert(Object.isFrozen(REASONS));
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'credential-verification.js'), 'utf8');
-    const declaration = source.match(/const REASONS = Object\.freeze\(\{[\s\S]*?\n\}\);/);
+    /* Declared in the domain, which narration and the store read too; produced by the verifier. */
+    const vocabulary = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'verification-outcomes.ts'), 'utf8');
+    const declaration = vocabulary.match(/export const REASONS = Object\.freeze\(\{[\s\S]*?\n\} as const\);/);
     assert(declaration, 'the reason vocabulary must be declared in one place');
-    const used = source.replace(declaration[0], '');
+    const used = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'credential-verification.ts'), 'utf8');
+    assert(!/export const REASONS = /.test(used), 'and only there');
     for (const key of Object.keys(REASONS)) {
       assert(
         used.includes(`REASONS.${key}`),
@@ -870,7 +875,7 @@ const refusingTransport = () => {
    */
   {
     const { ALL_FIXTURES } = require('./fixtures/exposure-rule-fixtures');
-    const { detectInText } = require('../src/exposure-detection');
+    const { detectInText } = require('../apps/api/src/modules/quasar/index.ts');
     const SUCCESS = {
       'openai-api-key': { object: 'list', data: [] },
       'anthropic-api-key': { data: [], has_more: false },
@@ -986,6 +991,26 @@ const refusingTransport = () => {
     assert.strictEqual((await ask('xai-api-key', 400, { error: 'Incorrect API key provided: xa***' })).state, 'rejected');
     assert.strictEqual((await ask('npm-token', 200, {})).reason, REASONS.MALFORMED_IDENTITY_RESPONSE,
       'a 200 without the identity it promises is not a confirmation');
+  }
+
+  /*
+   * The adapters are a table keyed by rule, and a rule named like something
+   * every object inherits is not one of them. Reading it as one handed a
+   * candidate to a built-in function as though it were an adapter, and the
+   * run failed on it instead of recording an unsupported class.
+   */
+  {
+    for (const rule of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const candidate = candidateFor(rule, 'ghp_' + 'A'.repeat(36));
+      assert.strictEqual(adapterForCandidate(candidate), null, rule);
+      const transport = fixtureTransport();
+      const record = await verifyCredential({
+        candidate, authorization: null, authorizationKey, subjectKey, actorLogin: 'alice', now: NOW, transport
+      });
+      assert.strictEqual(record.state, VERIFICATION_STATES.UNVERIFIABLE, rule);
+      assert.strictEqual(record.reason, REASONS.UNSUPPORTED_CREDENTIAL_CLASS, rule);
+      assert.strictEqual(transport.calls.length, 0, `${rule}: nothing is asked`);
+    }
   }
 
   console.log('credential verification tests passed');

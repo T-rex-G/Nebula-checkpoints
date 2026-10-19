@@ -1,9 +1,7 @@
-'use strict';
-
 /*
  * What kind of Supabase key a string is, and nothing else.
  *
- * This lives apart from `src/anonymous-readability-probe.js` for one reason
+ * This lives apart from the readability probe (`client/anonymous-readability-probe.ts`) for one reason
  * that is worth stating: telling an anonymous key from a service-role key is
  * knowledge about text, and the probe module is knowledge about contacting a
  * service. The scanner needs the first and must never acquire the second --
@@ -16,14 +14,15 @@
  * than growing a second one that drifts.
  */
 
-const KEY_KINDS = Object.freeze({
+export const KEY_KINDS = Object.freeze({
   ANON: 'anon',
   PUBLISHABLE: 'publishable',
   SERVICE_ROLE: 'service-role',
   SECRET: 'secret',
   USER_SESSION: 'user-session',
   UNKNOWN: 'unknown'
-});
+} as const);
+export type KeyKind = (typeof KEY_KINDS)[keyof typeof KEY_KINDS];
 
 /*
  * The shape a key can have, used both to find one in a file and to bound what
@@ -34,22 +33,22 @@ const KEY_KINDS = Object.freeze({
  * `\b` does not treat as a boundary, and `\b` after a trailing `-` would
  * refuse a perfectly ordinary key.
  */
-const KEY_PATTERN = /(?<![A-Za-z0-9_.-])(?:sb_(?:publishable|secret)_[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})(?![A-Za-z0-9_-])/;
+export const KEY_PATTERN = /(?<![A-Za-z0-9_.-])(?:sb_(?:publishable|secret)_[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})(?![A-Za-z0-9_-])/;
 
 /* A JWT nobody should be decoding in one gulp. A key is short; anything this
    long is not one, and the decode is skipped rather than attempted. */
-const MAX_KEY_LENGTH = 8 * 1024;
+export const MAX_KEY_LENGTH = 8 * 1024;
 
-function text(value) {
+function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function claimsOf(token) {
+function claimsOf(token: string): Readonly<Record<string, unknown>> | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null;
+    const payload: unknown = JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString('utf8'));
+    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Readonly<Record<string, unknown>> : null;
   } catch {
     return null;
   }
@@ -66,7 +65,12 @@ function claimsOf(token) {
  * answers as a person, so a row proves that person can read, which is not the
  * question.
  */
-function classifyKey(key) {
+export interface KeyClassification {
+  readonly kind: KeyKind;
+  readonly usable: boolean;
+}
+
+export function classifyKey(key: unknown): KeyClassification {
   const token = text(key);
   if (!token || token.length > MAX_KEY_LENGTH) return Object.freeze({ kind: KEY_KINDS.UNKNOWN, usable: false });
   if (/^sb_secret_/.test(token)) return Object.freeze({ kind: KEY_KINDS.SECRET, usable: false });
@@ -84,5 +88,3 @@ function classifyKey(key) {
   if (role) return Object.freeze({ kind: KEY_KINDS.USER_SESSION, usable: false });
   return Object.freeze({ kind: KEY_KINDS.UNKNOWN, usable: false });
 }
-
-module.exports = Object.freeze({ KEY_KINDS, KEY_PATTERN, MAX_KEY_LENGTH, classifyKey });

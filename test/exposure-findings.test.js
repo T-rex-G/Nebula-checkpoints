@@ -24,15 +24,15 @@ const fs = require('fs');
 const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { adapterForCandidate } = require('../src/credential-verification');
-const { detectInText } = require('../src/exposure-detection');
+const { adapterForCandidate } = require('../apps/api/src/modules/quasar/index.ts').credentialVerifier;
+const { detectInText } = require('../apps/api/src/modules/quasar/index.ts');
 const {
   FINGERPRINT_KEY_VERSION,
   buildFindings,
   fingerprintFor,
   reconcileFindings,
   revealForVerification
-} = require('../src/exposure-findings');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const TOKEN_A = `gh${'p'}_${'A'.repeat(36)}`;
 const TOKEN_B = `gh${'p'}_${'A'.repeat(35)}B`;
@@ -423,7 +423,7 @@ function findingsFor(text, overrides = {}) {
 
 {
   assert(Number.isInteger(FINGERPRINT_KEY_VERSION) && FINGERPRINT_KEY_VERSION >= 1);
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-findings.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'exposure-findings.ts'), 'utf8');
   for (const forbidden of [/\.normalize\(/, /\.toLowerCase\(\)/, /\.toUpperCase\(\)/]) {
     assert.strictEqual(
       forbidden.test(source), false,

@@ -3,7 +3,7 @@
 /*
  * Where repository audits are kept, and the watch over what they found.
  *
- * The rule is the one `src/exposure-store.js` follows: the server stores what
+ * The rule is the one the exposure store follows: the server stores what
  * it learned about a repository and never any part of the repository itself.
  * An audit result in memory carries source-derived text -- a trace through
  * the code with a note at each step, a fix prompt that names the file, advisory

@@ -28,7 +28,7 @@ const {
   ExposureStore,
   ExposureStoreError,
   MAX_OCCURRENCES
-} = require('../src/exposure-store');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -170,6 +170,29 @@ async function claim(store, now = T0) {
       assert.equal((await right.listFindingsPage({ ...input, cursor: page.nextCursor })).findings.length, 50);
       await pool.query("DELETE FROM nv_exposure_scans WHERE repo_name='Paging'");
       await pool.query("DELETE FROM nv_exposure_findings WHERE repo_name='Paging'");
+    }
+
+    /*
+     * A rule's severity is the narration table's own entry. A rule named like
+     * something every object inherits counts as serious -- as the query that
+     * filters by severity already counts it -- and adds no key of its own to
+     * the tally.
+     */
+    {
+      const oddScope = { ...scope, repo: 'Inherited' };
+      const requested = await store.requestScan(scanRequest({ scope: oddScope, idempotencyKey: 'inherited-rules-01' }));
+      const held = await claim(store);
+      await store.recordObservations({
+        scanId: requested.scan.scanId, claimOwner: held.claimOwner, now: T0 + 1000,
+        findings: ['constructor', 'toString', '__proto__'].map(rule => findingFixture(`inherited-${rule}`, { rule }))
+      });
+      await store.finalizeScan({ scanId: requested.scan.scanId, claimOwner: held.claimOwner, state: 'complete', coverage: 'complete', now: T0 + 2000 });
+      const input = { scope: oddScope, identityKey: IDENTITY, currentGeneration: true };
+      const page = await store.listFindingsPage(input);
+      assert.deepEqual(page.counts.bySeverity, { critical: 0, serious: 3, warning: 0 });
+      assert.equal((await store.listFindingsPage({ ...input, severity: 'serious' })).total, 3);
+      await pool.query("DELETE FROM nv_exposure_scans WHERE repo_name='Inherited'");
+      await pool.query("DELETE FROM nv_exposure_findings WHERE repo_name='Inherited'");
     }
 
     /* ---- Idempotency, and the difference from a conflicting scan --------- */

@@ -68,8 +68,7 @@
  */
 
 const crypto = require('crypto');
-const { detectInText } = require('./exposure-detection');
-const { RULE_NARRATION } = require('./exposure-narration');
+const { detectInText, RULE_NARRATION } = require('../apps/api/src/modules/quasar/index.ts');
 const POPULAR = require('./popular-packages');
 const { standardsFor } = require('./security-standards');
 const { analyseFlows } = require('./uranus-flow');

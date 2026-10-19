@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * Where a scan and its findings are kept.
  *
@@ -28,11 +26,17 @@
  * anyone with a clone. `removed-from-tree` says exactly that much and no more.
  */
 
-const crypto = require('crypto');
-const { RULE_NARRATION } = require('./exposure-narration');
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { RULE_NARRATION } from '../domain/exposure-narration.ts';
+import { VERIFICATION_FRESHNESS_MS } from '../domain/verification-outcomes.ts';
 /* A scan's states are the jobs contract's; its coverage is evidence. */
-const { SCAN_STATES, TERMINAL_SCAN_STATES: TERMINAL_STATES } = require('../packages/contracts/src/jobs.ts');
-const { EXPOSURE_COVERAGE: COVERAGE } = require('../packages/contracts/src/evidence.ts');
+import { SCAN_STATES, TERMINAL_SCAN_STATES as TERMINAL_STATES } from '../../../../../../packages/contracts/src/jobs.ts';
+import { EXPOSURE_COVERAGE as COVERAGE } from '../../../../../../packages/contracts/src/evidence.ts';
+import type { Severity } from '../../../../../../packages/contracts/src/findings.ts';
+import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { errorCode, type PoolClient, type QueryOutcome, type Row, type TransactionalPool } from '../../../platform/persistence/queryable.ts';
+
+export { COVERAGE, SCAN_STATES, TERMINAL_STATES };
 
 /*
  * The version of the scanning configuration -- the caps a scan runs under.
@@ -48,14 +52,14 @@ const { EXPOSURE_COVERAGE: COVERAGE } = require('../packages/contracts/src/evide
  * 3: a scan can read history under a commit ceiling, archives are opened
  * under member and size ceilings, and the wall clock is longer to fit both.
  */
-const EXPOSURE_CONFIG_VERSION = 4;
+export const EXPOSURE_CONFIG_VERSION = 4;
 
 /* A scan of the tree at one commit, or of that tree and every commit's
    changes reachable from it. */
-const SCAN_MODES = Object.freeze(['tree', 'history']);
-const DECODINGS = Object.freeze(['base64']);
+export const SCAN_MODES = Object.freeze(['tree', 'history'] as const);
+export const DECODINGS = Object.freeze(['base64'] as const);
 
-const SKIPPED_REASONS = Object.freeze([
+export const SKIPPED_REASONS = Object.freeze([
   'file-count-limit', 'byte-limit', 'time-limit', 'tree-truncated',
   'unreadable-files', 'canceled', 'transport-refused',
   /*
@@ -68,8 +72,9 @@ const SKIPPED_REASONS = Object.freeze([
   /* History stopped at its commit ceiling, or the provider asked for fewer
      requests. Either way what was read is kept and coverage says partial. */
   'commit-limit', 'rate-limited'
-]);
-const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-risk', 'removed-from-tree']);
+] as const);
+export const DISPOSITIONS = Object.freeze(['open', 'credential-rejected', 'accepted-risk', 'removed-from-tree'] as const);
+export type Disposition = (typeof DISPOSITIONS)[number];
 
 const DEFAULT_LEASE_MS = 60_000;
 const MAX_LEASE_MS = 10 * 60 * 1000;
@@ -79,25 +84,82 @@ const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
  * window: an attempt that outlived its deadline is not a rejection, it is an
  * answer nobody should still be relying on.
  */
-const DEFAULT_VERIFICATION_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_VERIFICATION_FRESHNESS_MS = VERIFICATION_FRESHNESS_MS;
 /*
  * Shorter than a verification's, and on purpose. Whether a token still works
  * changes when somebody revokes it; whether a table is readable changes when
  * somebody edits a policy, which is a far more ordinary thing to do in an
  * afternoon. A readability answer from yesterday is history, not news.
  */
-const DEFAULT_PROBE_FRESHNESS_MS = 60 * 60 * 1000;
-const MAX_OCCURRENCES = 20;
-const MAX_FINDINGS_PER_SCAN = 500;
+export const DEFAULT_PROBE_FRESHNESS_MS = 60 * 60 * 1000;
+export const MAX_OCCURRENCES = 20;
+export const MAX_FINDINGS_PER_SCAN = 500;
 const MAX_LIST_LIMIT = 200;
 const DEFAULT_SWEEP_BATCH = 200;
 const MAX_SWEEP_BATCH = 2000;
-const DEFAULT_CURSOR_KEY = crypto.randomBytes(32);
+const DEFAULT_CURSOR_KEY = randomBytes(32);
 
-function findingsFilters(input) {
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A repository at a provider, as every row here is keyed. */
+export interface ExposureScope {
+  readonly provider: string;
+  readonly authority: string;
+  readonly owner: string;
+  readonly repo: string;
+}
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+/* An object's fields, or none when it is not an object. */
+function fieldsOf(value: unknown): Fields {
+  return value && typeof value === 'object' ? value as Fields : {};
+}
+
+/* A list from an input or an answer, or none. */
+function listOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/* A row inside an aggregate the database built: an object, or nothing to read. */
+function isRow(value: unknown): value is Row {
+  return Boolean(value) && typeof value === 'object';
+}
+
+/* The rows a statement answered with. An answer without them is a failure, as it always was. */
+function rowsOf(result: QueryOutcome): readonly Row[] {
+  const rows = result.rows;
+  if (!rows) throw new TypeError('the database answered without rows');
+  return rows;
+}
+
+/* The row a statement that always returns one returned (an aggregate with no FROM). */
+function onlyRow(result: QueryOutcome): Row {
+  const row = rowsOf(result)[0];
+  if (!row) throw new TypeError('the database returned no row');
+  return row;
+}
+
+/* A rule's severity from the narration table. Only a rule the table lists: an inherited key is not a severity. */
+function severityOf(severities: Readonly<Record<string, Severity>>, rule: string): Severity {
+  return (Object.hasOwn(severities, rule) && severities[rule]) || 'serious';
+}
+
+interface FindingsFilters {
+  readonly dispositions: readonly Disposition[];
+  readonly query: string;
+  readonly severity: string;
+  readonly where: string;
+}
+
+function findingsFilters(input: Fields): FindingsFilters {
   try {
-  const dispositions = Array.isArray(input.dispositions) && input.dispositions.length
-    ? [...new Set(input.dispositions.map(value => requireMember(value, DISPOSITIONS, 'Disposition')))].sort()
+  const asked = listOf(input.dispositions);
+  const dispositions = asked.length
+    ? [...new Set(asked.map(value => requireMember(value, DISPOSITIONS, 'Disposition')))].sort()
     : DISPOSITIONS.slice().sort();
   const query = text(input.query).toLowerCase().replace(/\s+/g, ' ');
   if (query.length > 512) throw new TypeError('Finding query must be at most 512 characters');
@@ -111,92 +173,115 @@ function findingsFilters(input) {
   }
 }
 
-function cursorSignature(payload, key) {
-  return crypto.createHmac('sha256', key).update(payload).digest('base64url');
+function cursorSignature(payload: string, key: Buffer): string {
+  return createHmac('sha256', key).update(payload).digest('base64url');
 }
 
-function encodeFindingsCursor(value, key) {
+/* A page's place in a findings view: signed, bound to the view, and to the evidence it was read from. */
+interface FindingsCursor {
+  readonly version: 1;
+  readonly binding: string;
+  readonly revision: string;
+  readonly snapshot: string;
+  readonly at: string;
+  readonly fingerprint: string;
+}
+
+/* A page's place in one scan's report. */
+type ReportCursor = Omit<FindingsCursor, 'at'>;
+
+function encodeFindingsCursor(value: Fields, key: Buffer): string {
   const payload = Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${payload}.${cursorSignature(payload, key)}`;
 }
 
-function decodeFindingsCursor(value, key, binding) {
+/* A cursor's payload, once its signature is checked: what it says, still to be read field by field. */
+function signedPayload(value: unknown, key: Buffer, invalid: string): unknown {
   if (typeof value !== 'string' || value.length > 4096 || !/^[\w-]+\.[\w-]+$/.test(value)) {
-    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+    fail(invalid, 'EXPOSURE_CURSOR_INVALID', 400);
   }
-  const [payload, signature] = value.split('.');
+  /* The shape above has exactly one dot, so both halves are there. */
+  const [payload = '', signature = ''] = value.split('.');
   const expected = cursorSignature(payload, key);
-  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    fail(invalid, 'EXPOSURE_CURSOR_INVALID', 400);
   }
-  let cursor;
-  try { cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch {
-    fail('That findings cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return parsed;
+  } catch {
+    return fail(invalid, 'EXPOSURE_CURSOR_INVALID', 400);
   }
-  if (!cursor || cursor.version !== 1 || cursor.binding !== binding
-      || !Number.isFinite(Date.parse(cursor.snapshot)) || !Number.isFinite(Date.parse(cursor.at))
-      || !/^[0-9a-f]{64}$/.test(cursor.fingerprint) || !/^[0-9a-f]{32}$/.test(cursor.revision)) {
-    fail('That findings cursor does not match this view', 'EXPOSURE_CURSOR_INVALID', 400);
-  }
-  return cursor;
 }
 
-function decodeReportCursor(value, key, binding) {
-  if (typeof value !== 'string' || value.length > 4096 || !/^[\w-]+\.[\w-]+$/.test(value)) {
-    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+function decodeFindingsCursor(value: unknown, key: Buffer, binding: string): FindingsCursor {
+  const cursor = signedPayload(value, key, 'That findings cursor is not valid');
+  const snapshot = read(cursor, 'snapshot');
+  const at = read(cursor, 'at');
+  const fingerprint = read(cursor, 'fingerprint');
+  const revision = read(cursor, 'revision');
+  if (!cursor || read(cursor, 'version') !== 1 || read(cursor, 'binding') !== binding
+      || typeof snapshot !== 'string' || !Number.isFinite(Date.parse(snapshot))
+      || typeof at !== 'string' || !Number.isFinite(Date.parse(at))
+      || typeof fingerprint !== 'string' || !isSha256Hex(fingerprint)
+      || typeof revision !== 'string' || !/^[0-9a-f]{32}$/.test(revision)) {
+    return fail('That findings cursor does not match this view', 'EXPOSURE_CURSOR_INVALID', 400);
   }
-  const [payload, signature] = value.split('.');
-  const expected = cursorSignature(payload, key);
-  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
+  return { version: 1, binding, revision, snapshot, at, fingerprint };
+}
+
+function decodeReportCursor(value: unknown, key: Buffer, binding: string): ReportCursor {
+  const cursor = signedPayload(value, key, 'That report cursor is not valid');
+  const snapshot = read(cursor, 'snapshot');
+  const fingerprint = read(cursor, 'fingerprint');
+  const revision = read(cursor, 'revision');
+  if (!cursor || read(cursor, 'version') !== 1 || read(cursor, 'binding') !== binding
+    || typeof snapshot !== 'string' || !Number.isFinite(Date.parse(snapshot))
+    || typeof fingerprint !== 'string' || !isSha256Hex(fingerprint)
+    || typeof revision !== 'string' || !/^[0-9a-f]{32}$/.test(revision)) {
+    return fail('That report cursor does not match this scan', 'EXPOSURE_CURSOR_INVALID', 400);
   }
-  let cursor;
-  try { cursor = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch {
-    fail('That report cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
-  }
-  if (!cursor || cursor.version !== 1 || cursor.binding !== binding
-    || !Number.isFinite(Date.parse(cursor.snapshot)) || !/^[0-9a-f]{64}$/.test(cursor.fingerprint)
-    || !/^[0-9a-f]{32}$/.test(cursor.revision)) {
-    fail('That report cursor does not match this scan', 'EXPOSURE_CURSOR_INVALID', 400);
-  }
-  if (Date.now() - Date.parse(cursor.snapshot) > 20 * 60 * 1000) {
+  if (Date.now() - Date.parse(snapshot) > 20 * 60 * 1000) {
     fail('This report view expired. Refresh the report.', 'EXPOSURE_CURSOR_STALE', 409);
   }
-  return cursor;
+  return { version: 1, binding, revision, snapshot, fingerprint };
 }
 
-class ExposureStoreError extends Error {
-  constructor(message, code = 'EXPOSURE_STORE_UNAVAILABLE', status = 503) {
+export class ExposureStoreError extends Error {
+  override readonly name = 'ExposureStoreError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code = 'EXPOSURE_STORE_UNAVAILABLE', status = 503) {
     super(message);
-    this.name = 'ExposureStoreError';
     this.code = code;
     this.status = status;
   }
 }
 
-function fail(message, code, status) {
+function fail(message: string, code?: string, status?: number): never {
   throw new ExposureStoreError(message, code, status);
 }
 
-function text(value) {
+function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function requireText(value, label, max) {
+function requireText(value: unknown, label: string, max: number): string {
   const out = text(value);
   if (!out || out.length > max) throw new TypeError(`${label} is required and must be at most ${max} characters`);
   return out;
 }
 
-function requirePath(value) {
+function requirePath(value: unknown): string {
   if (typeof value !== 'string' || !value.length || value.length > 1024) {
     throw new TypeError('Finding path is required and must be at most 1024 characters');
   }
   return value;
 }
 
-function requireScope(scope) {
-  const source = scope && typeof scope === 'object' ? scope : {};
+function requireScope(scope: unknown): ExposureScope {
+  const source = fieldsOf(scope);
   return Object.freeze({
     provider: requireText(source.provider, 'Scan provider', 40),
     authority: requireText(source.authority, 'Scan authority', 255),
@@ -205,42 +290,43 @@ function requireScope(scope) {
   });
 }
 
-function requireDigest(value, label) {
+function requireDigest(value: unknown, label: string): string {
   const out = text(value).toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(out)) throw new TypeError(`${label} must be a sha-256 digest`);
+  if (!isSha256Hex(out)) throw new TypeError(`${label} must be a sha-256 digest`);
   return out;
 }
 
-function requireCommit(value) {
+function requireCommit(value: unknown): string {
   const out = text(value).toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(out)) throw new TypeError('Scan commit must be a 40-character object id');
+  if (!isCommitSha(out)) throw new TypeError('Scan commit must be a 40-character object id');
   return out;
 }
 
-function requireVersion(value, label) {
-  if (!Number.isInteger(value) || value < 1) throw new TypeError(`${label} must be a positive integer`);
+function requireVersion(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) throw new TypeError(`${label} must be a positive integer`);
   return value;
 }
 
-function requireMember(value, allowed, label) {
+function requireMember<Word extends string>(value: unknown, allowed: readonly Word[], label: string): Word {
   const out = text(value);
-  if (!allowed.includes(out)) throw new TypeError(`${label} must be one of ${allowed.join(', ')}`);
-  return out;
+  const member = allowed.find(word => word === out);
+  if (member === undefined) throw new TypeError(`${label} must be one of ${allowed.join(', ')}`);
+  return member;
 }
 
-function boundedInteger(value, fallback, min, max) {
-  return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
 }
 
 /* Lock the repository/identity admission gap, including an empty scan set.
    The namespace separates this advisory key from unrelated store locks. */
-function historyScopeLockKey(scope, identityKey) {
-  return crypto.createHash('sha256').update(JSON.stringify([
+function historyScopeLockKey(scope: ExposureScope, identityKey: string): string {
+  return createHash('sha256').update(JSON.stringify([
     'exposure-history-scope-v1', scope.provider, scope.authority, scope.owner, scope.repo, identityKey
   ])).digest().readBigInt64BE(0).toString();
 }
 
-function instant(value, label) {
+function instant(value: unknown, label: string): Date {
   const ms = value instanceof Date ? value.getTime() : Number(value);
   if (!Number.isFinite(ms)) throw new TypeError(`${label} must be a time`);
   return new Date(ms);
@@ -253,8 +339,8 @@ function instant(value, label) {
  * and woke up finalising a job somebody else now owns matches zero rows, with
  * no heartbeat to trust and no clock comparison to get wrong.
  */
-function claimToken() {
-  return crypto.randomBytes(16).toString('hex');
+function claimToken(): string {
+  return randomBytes(16).toString('hex');
 }
 
 /* ---- Serializers ------------------------------------------------------- */
@@ -263,12 +349,11 @@ function claimToken() {
  * Named columns only. Spreading a row would publish whatever the schema grows
  * next, and the whole privacy claim here is about what does not leave.
  */
-function iso(value) {
+function iso(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : (value == null ? null : String(value));
 }
 
-function scanFromRow(row) {
-  if (!row) return null;
+function scanOf(row: Row) {
   return Object.freeze({
     scanId: row.scan_id,
     scope: Object.freeze({
@@ -307,8 +392,13 @@ function scanFromRow(row) {
   });
 }
 
-function findingFromRow(row) {
-  if (!row) return null;
+export type ScanRecord = ReturnType<typeof scanOf>;
+
+function scanFromRow(row: Row | null | undefined): ScanRecord | null {
+  return row ? scanOf(row) : null;
+}
+
+function findingOf(row: Row) {
   return Object.freeze({
     fingerprint: row.fingerprint,
     scope: Object.freeze({
@@ -329,10 +419,15 @@ function findingFromRow(row) {
   });
 }
 
-function observationFromRow(row) {
-  if (!row) return null;
-  const lines = Array.isArray(row.occurrence_lines) ? row.occurrence_lines : [];
-  const columns = Array.isArray(row.occurrence_columns) ? row.occurrence_columns : [];
+export type FindingRecord = ReturnType<typeof findingOf>;
+
+function findingFromRow(row: Row | null | undefined): FindingRecord | null {
+  return row ? findingOf(row) : null;
+}
+
+function observationOf(row: Row) {
+  const lines = listOf(row.occurrence_lines);
+  const columns = listOf(row.occurrence_columns);
   return Object.freeze({
     scanId: row.scan_id,
     fingerprint: row.fingerprint,
@@ -363,8 +458,13 @@ function observationFromRow(row) {
   });
 }
 
-function verificationFromRow(row) {
-  if (!row) return null;
+export type ObservationRecord = ReturnType<typeof observationOf>;
+
+function observationFromRow(row: unknown): ObservationRecord | null {
+  return isRow(row) ? observationOf(row) : null;
+}
+
+function verificationOf(row: Row) {
   return Object.freeze({
     verificationId: row.verification_id,
     fingerprint: row.fingerprint,
@@ -382,8 +482,9 @@ function verificationFromRow(row) {
   });
 }
 
-function readabilityProbeFromRow(row) {
-  if (!row) return null;
+export type VerificationRecord = ReturnType<typeof verificationOf>;
+
+function readabilityProbeOf(row: Row) {
   return Object.freeze({
     probeId: row.probe_id,
     fingerprint: row.fingerprint,
@@ -403,33 +504,50 @@ function readabilityProbeFromRow(row) {
   });
 }
 
+export type ReadabilityProbeRecord = ReturnType<typeof readabilityProbeOf>;
+
+function verificationFromRow(row: Row | null | undefined): VerificationRecord | null {
+  return row ? verificationOf(row) : null;
+}
+
+function readabilityProbeFromRow(row: Row | null | undefined): ReadabilityProbeRecord | null {
+  return row ? readabilityProbeOf(row) : null;
+}
+
+/* A stored time handed to Date as JavaScript would hand it; callers check what comes back. */
+function dateOf(value: unknown): Date {
+  return new Date(value as string | number | Date);
+}
+
 /* ---- Input normalisation ----------------------------------------------- */
 
 /*
- * The findings a scan writes are the sanitized objects `exposure-findings.js`
+ * The findings a scan writes are the sanitized objects `domain/exposure-findings.ts`
  * produces. Re-validated here anyway: this is the boundary where they stop
  * being a value in a process and start being a row, and a value that arrives
  * as a parameter has not been checked just because it arrived as a parameter.
  */
-function normalizeFinding(finding) {
-  const source = finding && typeof finding === 'object' ? finding : {};
-  const occurrences = Array.isArray(source.occurrences) ? source.occurrences : [];
+function normalizeFinding(finding: unknown) {
+  const source = fieldsOf(finding);
+  const occurrences = listOf(source.occurrences);
   if (!occurrences.length) throw new TypeError('A finding must carry at least one location');
   if (occurrences.length > MAX_OCCURRENCES) throw new TypeError('A finding carries more locations than the schema admits');
 
-  const lines = [];
-  const columns = [];
+  const lines: number[] = [];
+  const columns: number[] = [];
   for (const occurrence of occurrences) {
-    const line = occurrence && occurrence.line;
-    const column = occurrence && occurrence.column;
-    if (!Number.isInteger(line) || line < 1 || !Number.isInteger(column) || column < 1) {
+    const line = occurrence && read(occurrence, 'line');
+    const column = occurrence && read(occurrence, 'column');
+    if (typeof line !== 'number' || !Number.isInteger(line) || line < 1
+      || typeof column !== 'number' || !Number.isInteger(column) || column < 1) {
       throw new TypeError('A location must be a positive line and column');
     }
     lines.push(line);
     columns.push(column);
   }
 
-  const occurrenceCount = Number.isInteger(source.occurrenceCount) ? source.occurrenceCount : lines.length;
+  const counted = source.occurrenceCount;
+  const occurrenceCount = typeof counted === 'number' && Number.isInteger(counted) ? counted : lines.length;
   if (occurrenceCount < lines.length) throw new TypeError('A location count cannot be smaller than the locations');
 
   const placeholder = requireText(source.placeholder, 'Finding placeholder', 80);
@@ -466,7 +584,7 @@ function normalizeFinding(finding) {
  * history must -- a credential found nowhere is not a finding. `decodedFrom`
  * is a word from a closed set, never what was decoded.
  */
-function normalizeProvenance(source) {
+function normalizeProvenance(source: Fields) {
   const inTree = source.inTree !== false;
   const introducedCommit = source.introducedCommit == null || source.introducedCommit === ''
     ? null
@@ -483,14 +601,14 @@ function normalizeProvenance(source) {
 }
 
 /*
- * A verification record from `credential-verification.js`, reduced to the
+ * A verification record from `client/credential-verification.ts`, reduced to the
  * bounded fields the schema admits. Notably absent: any response text, any
  * transport error message, any provider login. The subject arrives already
  * digested and is stored as the digest.
  */
-function normalizeVerification(verification) {
+function normalizeVerification(verification: unknown) {
   if (verification == null) return null;
-  const source = verification && typeof verification === 'object' ? verification : {};
+  const source = fieldsOf(verification);
   const state = requireMember(source.state, ['verified', 'rejected', 'unverifiable'], 'Verification state');
   const reason = text(source.reason);
   if (!/^[a-z][a-z0-9-]{2,63}$/.test(reason)) throw new TypeError('Verification reason must be a bounded reason code');
@@ -507,14 +625,14 @@ function normalizeVerification(verification) {
     freshnessDeadline: source.freshnessDeadline
       ? instant(Date.parse(text(source.freshnessDeadline)) || source.freshnessDeadline, 'Verification deadline')
       : null,
-    retryAfterMs: Number.isFinite(source.retryAfterMs)
+    retryAfterMs: typeof source.retryAfterMs === 'number' && Number.isFinite(source.retryAfterMs)
       ? Math.min(Math.max(Math.round(source.retryAfterMs), 1000), 3_600_000)
       : null
   };
 }
 
 /*
- * An observation from `anonymous-readability-probe.js`, reduced to the bounded
+ * An observation from `client/anonymous-readability-probe.ts`, reduced to the bounded
  * fields the schema admits. Notably absent: the key, the response body and
  * anything from inside a row. `rowCount` is a count the prober capped at one
  * and is the whole payload -- "a row came back" is the entire finding, and
@@ -525,9 +643,9 @@ function normalizeVerification(verification) {
  * typed. It was never asked, `reason` says so, and a column constrained to
  * hold only askable names could not hold it anyway.
  */
-function normalizeReadabilityProbe(observation) {
+function normalizeReadabilityProbe(observation: unknown) {
   if (observation == null) return null;
-  const source = observation && typeof observation === 'object' ? observation : {};
+  const source = fieldsOf(observation);
   const state = requireMember(source.state, ['readable', 'denied', 'unverifiable'], 'Probe state');
   const reason = text(source.reason);
   if (!/^[a-z][a-z0-9-]{2,63}$/.test(reason)) throw new TypeError('Probe reason must be a bounded reason code');
@@ -535,14 +653,14 @@ function normalizeReadabilityProbe(observation) {
   if (projectRef && !/^[a-z]{20}$/.test(projectRef)) throw new TypeError('Probe project reference must be twenty lowercase letters');
   const relation = text(source.relation);
   const relationStorable = /^[a-z_][a-z0-9_]{0,62}$/.test(relation);
-  const projection = (Array.isArray(source.projection) ? source.projection : []).map(text);
+  const projection = listOf(source.projection).map(column => text(column));
   const projectionStorable = projection.length > 0 && projection.length <= 8
     && projection.every(column => /^[a-z_][a-z0-9_]{0,62}$/.test(column));
   const testedRole = text(source.testedRole);
   if (testedRole && !['anon', 'publishable'].includes(testedRole)) {
     throw new TypeError('Probe tested role must be the anonymous role');
   }
-  const rowCount = Number.isInteger(source.rowCount) ? source.rowCount : 0;
+  const rowCount = typeof source.rowCount === 'number' && Number.isInteger(source.rowCount) ? source.rowCount : 0;
   if (rowCount < 0 || rowCount > 1) throw new TypeError('A probe asks for one row and counts at most one');
   /*
    * The schema says a row was seen exactly when the state is `readable`, so a
@@ -569,24 +687,34 @@ function normalizeReadabilityProbe(observation) {
 
 /* ---- The store --------------------------------------------------------- */
 
-class ExposureStore {
-  constructor(options = {}) {
+export interface ExposureStoreOptions {
+  readonly pool?: TransactionalPool | null;
+  readonly cursorKey?: string | Buffer | null;
+  readonly sweepBatch?: unknown;
+}
+
+export class ExposureStore {
+  readonly pool: TransactionalPool;
+  readonly cursorKey: Buffer;
+  readonly sweepBatch: number;
+
+  constructor(options: ExposureStoreOptions = {}) {
     const pool = options && options.pool;
     if (!pool || typeof pool.query !== 'function' || typeof pool.connect !== 'function') {
       throw new TypeError('ExposureStore requires a pg-compatible pool');
     }
     this.pool = pool;
-    this.cursorKey = crypto.createHmac('sha256', options.cursorKey || DEFAULT_CURSOR_KEY)
+    this.cursorKey = createHmac('sha256', options.cursorKey || DEFAULT_CURSOR_KEY)
       .update('exposure-findings-cursor-v1').digest();
     this.sweepBatch = boundedInteger(options.sweepBatch, DEFAULT_SWEEP_BATCH, 1, MAX_SWEEP_BATCH);
   }
 
-  async #transaction(work, label) {
-    let client;
+  async #transaction<T>(work: (client: PoolClient) => Promise<T>, label: string): Promise<T> {
+    let client: PoolClient;
     try {
       client = await this.pool.connect();
     } catch (error) {
-      fail(`Exposure storage is unavailable: ${(error && error.code) || 'connect failed'}`);
+      fail(`Exposure storage is unavailable: ${String(errorCode(error) || 'connect failed')}`);
     }
     try {
       await client.query('BEGIN');
@@ -596,17 +724,17 @@ class ExposureStore {
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch { /* the connection is going away anyway */ }
       if (error instanceof ExposureStoreError || error instanceof TypeError) throw error;
-      return fail(`Exposure storage could not ${label}: ${(error && error.code) || 'query failed'}`);
+      return fail(`Exposure storage could not ${label}: ${String(errorCode(error) || 'query failed')}`);
     } finally {
       if (typeof client.release === 'function') client.release();
     }
   }
 
-  async #query(sql, params, label) {
+  async #query(sql: string, params: readonly unknown[], label: string): Promise<QueryOutcome> {
     try {
       return await this.pool.query(sql, params);
     } catch (error) {
-      return fail(`Exposure storage could not ${label}: ${(error && error.code) || 'query failed'}`);
+      return fail(`Exposure storage could not ${label}: ${String(errorCode(error) || 'query failed')}`);
     }
   }
 
@@ -622,7 +750,7 @@ class ExposureStore {
    * constraint in the conflict clause would have made the other an exception
    * instead of an answer.
    */
-  async requestScan(input = {}) {
+  async requestScan(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const requestedBy = requireText(input.requestedBy, 'Scan actor', 255);
@@ -631,7 +759,7 @@ class ExposureStore {
     const keyId = input.fingerprintKeyId == null ? null : requireDigest(input.fingerprintKeyId, 'Fingerprint key id');
     const idempotencyKey = requireText(input.idempotencyKey, 'Scan idempotency key', 200);
     if (idempotencyKey.length < 8) throw new TypeError('Scan idempotency key must be at least 8 characters');
-    const scanId = text(input.scanId) || crypto.randomUUID();
+    const scanId = text(input.scanId) || randomUUID();
     const now = instant(input.now == null ? Date.now() : input.now, 'Scan time');
     const retainUntil = input.retainUntil == null
       ? new Date(now.getTime() + DEFAULT_RETENTION_MS)
@@ -673,8 +801,9 @@ class ExposureStore {
           versions.config, idempotencyKey, retainUntil, now, keyId, scanMode
         ]
       );
-      if (inserted.rows.length) {
-        return Object.freeze({ scan: scanFromRow(inserted.rows[0]), created: true });
+      const created = rowsOf(inserted)[0];
+      if (created) {
+        return Object.freeze({ scan: scanOf(created), created: true });
       }
 
       const existing = await client.query(
@@ -683,8 +812,9 @@ class ExposureStore {
             AND idempotency_key=$5 AND identity_key=$6`,
         [scope.provider, scope.authority, scope.owner, scope.repo, idempotencyKey, identityKey]
       );
-      if (existing.rows.length) {
-        return Object.freeze({ scan: scanFromRow(existing.rows[0]), created: false });
+      const repeated = rowsOf(existing)[0];
+      if (repeated) {
+        return Object.freeze({ scan: scanOf(repeated), created: false });
       }
       return fail(
         'This repository already has a scan in progress',
@@ -715,7 +845,7 @@ class ExposureStore {
    * notice that it died -- no heartbeat to trust, no `finally` block to hope
    * ran.
    */
-  async claimScan(input = {}) {
+  async claimScan(input: Fields = {}) {
     const now = instant(input.now == null ? Date.now() : input.now, 'Claim time');
     const leaseMs = boundedInteger(input.leaseMs, DEFAULT_LEASE_MS, 1000, MAX_LEASE_MS);
     const owner = claimToken();
@@ -738,12 +868,13 @@ class ExposureStore {
       [owner, now, leaseMs],
       'claim a scan'
     );
-    if (!claimed.rows.length) return null;
-    return Object.freeze({ scan: scanFromRow(claimed.rows[0]), claimOwner: owner });
+    const row = rowsOf(claimed)[0];
+    if (!row) return null;
+    return Object.freeze({ scan: scanOf(row), claimOwner: owner });
   }
 
   /* Extending a lease, only for the holder of the token. */
-  async renewClaim(input = {}) {
+  async renewClaim(input: Fields = {}) {
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const claimOwner = requireText(input.claimOwner, 'Claim token', 200);
     const now = instant(input.now == null ? Date.now() : input.now, 'Renew time');
@@ -756,7 +887,7 @@ class ExposureStore {
       [scanId, claimOwner, now, leaseMs],
       'renew a claim'
     );
-    return renewed.rows.length > 0;
+    return rowsOf(renewed).length > 0;
   }
 
   /*
@@ -770,7 +901,7 @@ class ExposureStore {
    * is a statement that the credential is no longer in the tree and is simply
    * false once it is seen again.
    */
-  async recordObservations(input = {}) {
+  async recordObservations(input: Fields = {}) {
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const claimOwner = requireText(input.claimOwner, 'Claim token', 200);
     const now = instant(input.now == null ? Date.now() : input.now, 'Observation time');
@@ -787,14 +918,14 @@ class ExposureStore {
           FOR UPDATE`,
         [scanId, claimOwner, now]
       );
-      if (!owned.rows.length) {
+      const scan = rowsOf(owned)[0];
+      if (!scan) {
         fail('This scan is not held by this worker', 'EXPOSURE_SCAN_NOT_OWNED', 409);
       }
-      const scan = owned.rows[0];
       const existing = await client.query(
         'SELECT fingerprint FROM nv_exposure_observations WHERE scan_id=$1', [scanId]
       );
-      const fingerprints = new Set(existing.rows.map(row => row.fingerprint));
+      const fingerprints = new Set(rowsOf(existing).map(row => row.fingerprint));
       for (const finding of normalized) fingerprints.add(finding.fingerprint);
       if (fingerprints.size > MAX_FINDINGS_PER_SCAN) {
         fail('A scan may not exceed its finding ceiling', 'EXPOSURE_FINDING_LIMIT', 409);
@@ -906,7 +1037,7 @@ class ExposureStore {
              VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING commit_sha`,
             [scanId, finding.fingerprint, finding.introducedCommit]
           );
-          if (sighting.rows.length) {
+          if (rowsOf(sighting).length) {
             await client.query(
               `UPDATE nv_exposure_observations SET history_commits=(
                  SELECT count(*)::integer FROM nv_exposure_history_sightings
@@ -916,7 +1047,8 @@ class ExposureStore {
             );
           }
         }
-        if (observation.rows.length && observation.rows[0].inserted) written += 1;
+        const outcome = rowsOf(observation)[0];
+        if (outcome && outcome.inserted) written += 1;
       }
       return Object.freeze({ recorded: written, submitted: normalized.length });
     }, 'record observations');
@@ -927,7 +1059,7 @@ class ExposureStore {
    * only ones that can be written, so a caller cannot record a partial scan
    * that claims complete coverage.
    */
-  async finalizeScan(input = {}) {
+  async finalizeScan(input: Fields = {}) {
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const claimOwner = requireText(input.claimOwner, 'Claim token', 200);
     const state = requireMember(input.state, TERMINAL_STATES, 'Terminal scan state');
@@ -937,9 +1069,10 @@ class ExposureStore {
       : requireMember(input.skippedReason, SKIPPED_REASONS, 'Skipped reason');
     const now = instant(input.now == null ? Date.now() : input.now, 'Finish time');
     const filesScanned = boundedInteger(input.filesScanned, 0, 0, 2_000_000_000);
-    const bytesScanned = Number.isFinite(input.bytesScanned) ? Math.max(0, Math.round(input.bytesScanned)) : 0;
+    const bytes = input.bytesScanned;
+    const bytesScanned = typeof bytes === 'number' && Number.isFinite(bytes) ? Math.max(0, Math.round(bytes)) : 0;
     const parentScanId = text(input.parentScanId) || null;
-    const count = value => (Number.isInteger(value) ? boundedInteger(value, 0, 0, 2_000_000_000) : null);
+    const count = (value: unknown): number | null => (Number.isInteger(value) ? boundedInteger(value, 0, 0, 2_000_000_000) : null);
     const filesTotal = count(input.filesTotal);
     const filesSkippedBinary = count(input.filesSkippedBinary);
     const filesSkippedOther = count(input.filesSkippedOther);
@@ -972,16 +1105,17 @@ class ExposureStore {
       ],
       'finalize a scan'
     );
-    if (!finalized.rows.length) {
+    const row = rowsOf(finalized)[0];
+    if (!row) {
       return fail('This scan is not held by this worker', 'EXPOSURE_SCAN_NOT_OWNED', 409);
     }
-    return scanFromRow(finalized.rows[0]);
+    return scanOf(row);
   }
 
   /* Cancellation is the reader's, so it does not need a claim -- but it does
      need the identity boundary, and it leaves coverage as whatever was
      actually achieved rather than claiming anything. */
-  async cancelScan(input = {}) {
+  async cancelScan(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
@@ -996,7 +1130,7 @@ class ExposureStore {
       [scanId, identityKey, now, scope.provider, scope.authority, scope.owner, scope.repo],
       'cancel a scan'
     );
-    return scanFromRow(canceled.rows[0] || null);
+    return scanFromRow(rowsOf(canceled)[0] || null);
   }
 
   /*
@@ -1009,7 +1143,7 @@ class ExposureStore {
    * because "nothing was resolved" and "we could not tell" look identical from
    * the outside and only one of them is worth showing a reader.
    */
-  async concludeRemovedFromTree(input = {}) {
+  async concludeRemovedFromTree(input: Fields = {}) {
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const now = instant(input.now == null ? Date.now() : input.now, 'Conclusion time');
@@ -1019,10 +1153,10 @@ class ExposureStore {
         'SELECT * FROM nv_exposure_scans WHERE scan_id=$1 AND identity_key=$2',
         [scanId, identityKey]
       );
-      if (!loaded.rows.length) {
+      const scan = rowsOf(loaded)[0];
+      if (!scan) {
         return Object.freeze({ concluded: false, reason: 'scan-not-found', removed: 0 });
       }
-      const scan = loaded.rows[0];
 
       /* Only a scan that finished, and finished having read everything. */
       if (scan.state !== 'complete') {
@@ -1039,10 +1173,10 @@ class ExposureStore {
         'SELECT * FROM nv_exposure_scans WHERE scan_id=$1',
         [scan.parent_scan_id]
       );
-      if (!parentRows.rows.length) {
+      const parent = rowsOf(parentRows)[0];
+      if (!parent) {
         return Object.freeze({ concluded: false, reason: 'no-comparable-predecessor', removed: 0 });
       }
-      const parent = parentRows.rows[0];
       if (parent.identity_key !== scan.identity_key) {
         return Object.freeze({ concluded: false, reason: 'identity-mismatch', removed: 0 });
       }
@@ -1101,8 +1235,8 @@ class ExposureStore {
       return Object.freeze({
         concluded: true,
         reason: null,
-        removed: removed.rows.length,
-        fingerprints: Object.freeze(removed.rows.map(row => row.fingerprint))
+        removed: rowsOf(removed).length,
+        fingerprints: Object.freeze(rowsOf(removed).map(row => row.fingerprint))
       });
     }, 'conclude removal');
   }
@@ -1112,7 +1246,7 @@ class ExposureStore {
    * is actually over, and it is the provider's word rather than ours -- so it
    * is recorded without an actor, because nobody here decided it.
    */
-  async markCredentialRejected(input = {}) {
+  async markCredentialRejected(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
     const identityKey = requireDigest(input.identityKey, 'Finding identity');
@@ -1127,7 +1261,7 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, now, identityKey],
       'record a rejected credential'
     );
-    return findingFromRow(updated.rows[0] || null);
+    return findingFromRow(rowsOf(updated)[0] || null);
   }
 
   /*
@@ -1143,14 +1277,14 @@ class ExposureStore {
    * overturned by a later provider answer, and a provider saying no to an
    * accepted risk is simply good news recorded in the attempt history.
    */
-  async recordVerification(input = {}) {
+  async recordVerification(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Verification identity');
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
     const requestedBy = requireText(input.requestedBy, 'Verification actor', 255);
     const attempt = normalizeVerification(input.record);
     if (!attempt) throw new TypeError('A verification attempt requires a record');
-    const verificationId = text(input.verificationId) || crypto.randomUUID();
+    const verificationId = text(input.verificationId) || randomUUID();
     const adapterVersion = Number.isInteger(input.adapterVersion) ? input.adapterVersion : null;
     const targetId = text(input.targetId) || null;
     const authorizationId = text(input.authorizationId) || null;
@@ -1170,7 +1304,7 @@ class ExposureStore {
           FOR UPDATE`,
         [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey]
       );
-      if (!owned.rows.length) {
+      if (!rowsOf(owned).length) {
         fail('That finding does not exist for this identity', 'EXPOSURE_FINDING_NOT_FOUND', 404);
       }
 
@@ -1208,7 +1342,7 @@ class ExposureStore {
            RETURNING *`,
           [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
         );
-        finding = findingFromRow(moved.rows[0] || null);
+        finding = findingFromRow(rowsOf(moved)[0] || null);
       } else if (attempt.state === 'verified') {
         /*
          * A newer live verdict invalidates a machine rejection, never a
@@ -1263,10 +1397,10 @@ class ExposureStore {
            RETURNING finding.*`,
           [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, attempt.observedAt, identityKey]
         );
-        finding = findingFromRow(moved.rows[0] || null);
+        finding = findingFromRow(rowsOf(moved)[0] || null);
       }
       return Object.freeze({
-        verification: verificationFromRow(inserted.rows[0]),
+        verification: verificationFromRow(rowsOf(inserted)[0]),
         finding
       });
     }, 'record a verification');
@@ -1278,7 +1412,7 @@ class ExposureStore {
    * revocation worked, and keeping only the latest answer would throw that
    * away.
    */
-  async listVerifications(input = {}) {
+  async listVerifications(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Verification identity');
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
@@ -1292,7 +1426,7 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey, limit],
       'list verifications'
     );
-    return Object.freeze(found.rows.map(verificationFromRow));
+    return Object.freeze(rowsOf(found).map(row => verificationOf(row)));
   }
 
   /*
@@ -1310,14 +1444,14 @@ class ExposureStore {
    * role can reach says nothing about whether this particular key still works,
    * so inferring a disposition from it would be inventing a fact.
    */
-  async recordReadabilityProbe(input = {}) {
+  async recordReadabilityProbe(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Probe identity');
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
     const requestedBy = requireText(input.requestedBy, 'Probe actor', 255);
     const attempt = normalizeReadabilityProbe(input.record);
     if (!attempt) throw new TypeError('A readability probe requires an observation');
-    const probeId = text(input.probeId) || crypto.randomUUID();
+    const probeId = text(input.probeId) || randomUUID();
     const authorizationId = text(input.authorizationId) || null;
     const freshnessDeadline = attempt.freshnessDeadline
       || new Date(attempt.observedAt.getTime() + DEFAULT_PROBE_FRESHNESS_MS);
@@ -1330,7 +1464,7 @@ class ExposureStore {
           FOR UPDATE`,
         [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey]
       );
-      if (!owned.rows.length) {
+      if (!rowsOf(owned).length) {
         fail('That finding does not exist for this identity', 'EXPOSURE_FINDING_NOT_FOUND', 404);
       }
       const inserted = await client.query(
@@ -1349,7 +1483,7 @@ class ExposureStore {
           attempt.observedAt, freshnessDeadline
         ]
       );
-      return Object.freeze({ probe: readabilityProbeFromRow(inserted.rows[0]) });
+      return Object.freeze({ probe: readabilityProbeFromRow(rowsOf(inserted)[0]) });
     }, 'record a readability probe');
   }
 
@@ -1367,13 +1501,13 @@ class ExposureStore {
    * sequence -- which is what proves a revocation or a policy change landed --
    * stays behind the history reads, where a reader asks for one finding.
    */
-  async latestAnswers(input = {}) {
+  async latestAnswers(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Answer identity');
     const fingerprints = [...new Set(
       (Array.isArray(input.fingerprints) ? input.fingerprints : [])
         .map(value => text(value).toLowerCase())
-        .filter(value => /^[0-9a-f]{64}$/.test(value))
+        .filter(isSha256Hex)
     )].slice(0, MAX_LIST_LIMIT);
     if (!fingerprints.length) {
       return Object.freeze({ verifications: Object.freeze({}), probes: Object.freeze({}) });
@@ -1397,12 +1531,12 @@ class ExposureStore {
         'read the latest readability probes'
       )
     ]);
-    const index = (rows, map) => Object.freeze(Object.fromEntries(
-      rows.map(row => [row.fingerprint, map(row)])
+    const index = <T>(rows: readonly Row[], map: (row: Row) => T): Readonly<Record<string, T>> => Object.freeze(Object.fromEntries(
+      rows.map(row => [String(row.fingerprint), map(row)])
     ));
     return Object.freeze({
-      verifications: index(verifications.rows, verificationFromRow),
-      probes: index(probes.rows, readabilityProbeFromRow)
+      verifications: index(rowsOf(verifications), verificationOf),
+      probes: index(rowsOf(probes), readabilityProbeOf)
     });
   }
 
@@ -1412,13 +1546,13 @@ class ExposureStore {
    * place, so its row holds no line; the scans that saw it do. Without this
    * the list could say what was found but not on which line.
    */
-  async latestLocations(input = {}) {
+  async latestLocations(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Location identity');
     const fingerprints = [...new Set(
       (Array.isArray(input.fingerprints) ? input.fingerprints : [])
         .map(value => text(value).toLowerCase())
-        .filter(value => /^[0-9a-f]{64}$/.test(value))
+        .filter(isSha256Hex)
     )].slice(0, MAX_LIST_LIMIT);
     if (!fingerprints.length) return Object.freeze({});
     const found = await this.#query(
@@ -1431,9 +1565,9 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, fingerprints],
       'read the latest finding locations'
     );
-    return Object.freeze(Object.fromEntries(found.rows.map(row => {
-      const observation = observationFromRow(row);
-      return [observation.fingerprint, Object.freeze({
+    return Object.freeze(Object.fromEntries(rowsOf(found).map(row => {
+      const observation = observationOf(row);
+      return [String(observation.fingerprint), Object.freeze({
         occurrences: observation.occurrences,
         occurrenceCount: observation.occurrenceCount,
         truncated: observation.truncated,
@@ -1451,7 +1585,7 @@ class ExposureStore {
    * too: "readable on Tuesday, denied on Friday" is what shows somebody's
    * policy change landed, and it is the only evidence that it did.
    */
-  async listReadabilityProbes(input = {}) {
+  async listReadabilityProbes(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Probe identity');
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
@@ -1465,11 +1599,11 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, identityKey, limit],
       'list readability probes'
     );
-    return Object.freeze(found.rows.map(readabilityProbeFromRow));
+    return Object.freeze(rowsOf(found).map(row => readabilityProbeOf(row)));
   }
 
   /* A person decided. It records who, and the schema insists on that. */
-  async acceptRisk(input = {}) {
+  async acceptRisk(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
     const identityKey = requireDigest(input.identityKey, 'Finding identity');
@@ -1484,7 +1618,7 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, fingerprint, now, actor, identityKey],
       'accept a risk'
     );
-    return findingFromRow(updated.rows[0] || null);
+    return findingFromRow(rowsOf(updated)[0] || null);
   }
 
   /*
@@ -1493,7 +1627,7 @@ class ExposureStore {
    * could hold without owning, so "fetch then compare" is one forgotten
    * comparison away from being a cross-tenant read.
    */
-  async getScan(input = {}) {
+  async getScan(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
@@ -1503,10 +1637,10 @@ class ExposureStore {
       [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo],
       'read a scan'
     );
-    return scanFromRow(found.rows[0] || null);
+    return scanFromRow(rowsOf(found)[0] || null);
   }
 
-  async getFinding(input = {}) {
+  async getFinding(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');
     const fingerprint = requireDigest(input.fingerprint, 'Finding fingerprint');
@@ -1517,7 +1651,7 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, fingerprint],
       'read a finding'
     );
-    return findingFromRow(found.rows[0] || null);
+    return findingFromRow(rowsOf(found)[0] || null);
   }
 
   /*
@@ -1531,7 +1665,7 @@ class ExposureStore {
    * so neither does the score. Counts and rule names only: no path, no
    * placeholder, nothing a repository chose.
    */
-  async workspaceSummary(input = {}) {
+  async workspaceSummary(input: Fields = {}) {
     const provider = requireText(input.provider, 'Scan provider', 40);
     const authority = requireText(input.authority, 'Scan authority', 255);
     const identityKey = requireDigest(input.identityKey, 'Summary identity');
@@ -1559,11 +1693,11 @@ class ExposureStore {
       [provider, authority, identityKey, MAX_LIST_LIMIT * 5],
       'summarise the workspace'
     );
-    return Object.freeze(found.rows.map(row => Object.freeze({
+    return Object.freeze(rowsOf(found).map(row => Object.freeze({
       owner: row.owner,
       repo: row.repo,
       state: row.state,
-      finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
+      finishedAt: row.finished_at ? dateOf(row.finished_at).toISOString() : null,
       rule: row.rule || null,
       count: Number(row.open_count) || 0
     })));
@@ -1578,12 +1712,13 @@ class ExposureStore {
    * stand. The same latest scans, and the same version match, as the summary
    * above, so the two can never disagree about which findings exist.
    */
-  async workspaceTrend(input = {}) {
+  async workspaceTrend(input: Fields = {}) {
     const provider = requireText(input.provider, 'Scan provider', 40);
     const authority = requireText(input.authority, 'Scan authority', 255);
     const identityKey = requireDigest(input.identityKey, 'Summary identity');
-    const weeks = Number.isSafeInteger(input.weeks) && input.weeks >= 1 && input.weeks <= 52 ? input.weeks : 12;
-    const now = new Date(Number.isFinite(input.now) ? input.now : Date.now()).toISOString();
+    const asked = input.weeks;
+    const weeks = typeof asked === 'number' && Number.isSafeInteger(asked) && asked >= 1 && asked <= 52 ? asked : 12;
+    const now = new Date(typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now()).toISOString();
     const found = await this.#query(
       `WITH latest AS (
          SELECT DISTINCT ON (lower(owner_login), lower(repo_name))
@@ -1609,10 +1744,10 @@ class ExposureStore {
       [provider, authority, identityKey, MAX_LIST_LIMIT * 5, now, weeks],
       'summarise the workspace trend'
     );
-    const opened = new Map();
-    const fixed = new Map();
+    const opened = new Map<number, number>();
+    const fixed = new Map<number, number>();
     let accepted = 0;
-    for (const row of found.rows) {
+    for (const row of rowsOf(found)) {
       const count = Number(row.n) || 0;
       const openedAgo = Number(row.opened_ago);
       if (openedAgo >= 0 && openedAgo < weeks) opened.set(openedAgo, (opened.get(openedAgo) || 0) + count);
@@ -1622,7 +1757,7 @@ class ExposureStore {
         fixed.set(settledAgo, (fixed.get(settledAgo) || 0) + count);
       }
     }
-    const series = map => Object.freeze([...map.entries()]
+    const series = (map: ReadonlyMap<number, number>) => Object.freeze([...map.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([weeksAgo, count]) => Object.freeze({ weeksAgo, count })));
     return Object.freeze({ weeks, opened: series(opened), fixed: series(fixed), accepted });
@@ -1637,7 +1772,7 @@ class ExposureStore {
    * the same findings. Bounded, oldest first, with `truncated` when there were
    * more.
    */
-  async workspaceFindings(input = {}) {
+  async workspaceFindings(input: Fields = {}) {
     const provider = requireText(input.provider, 'Scan provider', 40);
     const authority = requireText(input.authority, 'Scan authority', 255);
     const identityKey = requireDigest(input.identityKey, 'Summary identity');
@@ -1664,12 +1799,12 @@ class ExposureStore {
       'list the workspace findings'
     );
     return Object.freeze({
-      truncated: found.rows.length > limit,
-      findings: Object.freeze(found.rows.slice(0, limit).map(findingFromRow))
+      truncated: rowsOf(found).length > limit,
+      findings: Object.freeze(rowsOf(found).slice(0, limit).map(row => findingOf(row)))
     });
   }
 
-  async listFindings(input = {}) {
+  async listFindings(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');
     const limit = boundedInteger(input.limit, 50, 1, MAX_LIST_LIMIT);
@@ -1704,13 +1839,13 @@ class ExposureStore {
         input.currentGeneration === true],
       'list findings'
     );
-    return Object.freeze(found.rows.map(findingFromRow));
+    return Object.freeze(rowsOf(found).map(row => findingOf(row)));
   }
 
   /* One statement sees a consistent generation, locations, counts and page.
      The signed cursor binds the viewer and filters. If evidence changes between
      pages we refuse a mixed report, instead of silently dropping or duplicating rows. */
-  async listFindingsPage(input = {}) {
+  async listFindingsPage(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Finding identity');
     const filters = findingsFilters(input);
@@ -1720,7 +1855,7 @@ class ExposureStore {
     if (cursor && Date.now() - Date.parse(cursor.snapshot) > 20 * 60 * 1000) {
       fail('This findings view expired. Refresh the findings and try again.', 'EXPOSURE_CURSOR_STALE', 409);
     }
-    const severities = Object.fromEntries(Object.entries(RULE_NARRATION).map(([rule, entry]) => [rule, entry.severity]));
+    const severities: Readonly<Record<string, Severity>> = Object.fromEntries(Object.entries(RULE_NARRATION).map(([rule, entry]) => [rule, entry.severity]));
     const found = await this.#query(
       `WITH generation AS (
          SELECT rules_version, engine_version, fingerprint_key_version, scan_id FROM nv_exposure_scans
@@ -1768,21 +1903,21 @@ class ExposureStore {
         filters.query.split(' ').filter(Boolean), cursor ? cursor.at : null, cursor ? cursor.fingerprint : null, limit + 1],
       'page findings'
     );
-    const row = found.rows[0];
+    const row = onlyRow(found);
     if (cursor && cursor.revision !== row.revision) {
       fail('The findings changed while paging. Refresh to read one consistent view.', 'EXPOSURE_CURSOR_STALE', 409);
     }
-    const items = row.items || [];
+    const items = listOf(row.items).filter(isRow);
     const hasMore = items.length > limit;
     const page = items.slice(0, limit);
     const last = page[page.length - 1];
-    const byRule = row.by_rule || {};
-    const bySeverity = { critical: 0, serious: 0, warning: 0 };
-    for (const [rule, count] of Object.entries(byRule)) bySeverity[severities[rule] || 'serious'] += Number(count);
+    const byRule = fieldsOf(row.by_rule);
+    const bySeverity: Record<Severity, number> = { critical: 0, serious: 0, warning: 0 };
+    for (const [rule, count] of Object.entries(byRule)) bySeverity[severityOf(severities, rule)] += Number(count);
     return {
       findings: page.map(item => {
         const observation = observationFromRow(item.observation);
-        return { ...findingFromRow(item), ...(observation ? {
+        return { ...findingOf(item), ...(observation ? {
           occurrences: observation.occurrences, occurrenceCount: observation.occurrenceCount,
           truncated: observation.truncated, inTree: observation.inTree,
           introducedCommit: observation.introducedCommit, introducedAt: observation.introducedAt,
@@ -1792,11 +1927,11 @@ class ExposureStore {
       total: row.total, counts: { all: row.all_count, byRule, bySeverity, byDisposition: row.by_disposition || {} },
       hasMore,
       nextCursor: hasMore ? encodeFindingsCursor({ version: 1, binding, revision: row.revision,
-        snapshot: cursor ? cursor.snapshot : new Date().toISOString(), at: last.cursor_at, fingerprint: last.fingerprint }, this.cursorKey) : null
+        snapshot: cursor ? cursor.snapshot : new Date().toISOString(), at: read(last, 'cursor_at'), fingerprint: read(last, 'fingerprint') }, this.cursorKey) : null
     };
   }
 
-  async listObservations(input = {}) {
+  async listObservations(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
@@ -1811,7 +1946,7 @@ class ExposureStore {
       [scanId, identityKey, limit, scope.provider, scope.authority, scope.owner, scope.repo],
       'list observations'
     );
-    return Object.freeze(found.rows.map(observationFromRow));
+    return Object.freeze(rowsOf(found).map(row => observationOf(row)));
   }
 
   /*
@@ -1820,21 +1955,21 @@ class ExposureStore {
    * last row a caller saw rather than by offset, so a scan finishing while
    * somebody pages does not shift every later page by one.
    */
-  async listScans(input = {}) {
+  async listScans(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const limit = boundedInteger(input.limit, 20, 1, MAX_LIST_LIMIT);
     const before = input.before && typeof input.before === 'object' ? input.before : null;
+    let cursorAt: Date | null = null;
+    let cursorId: string | null = null;
     /*
      * A cursor arrives from a query string, so it is checked here rather than
      * handed to the database to reject: a malformed one is the caller's
      * mistake and says so, instead of surfacing as a server error.
      */
-    let cursorAt = null;
-    let cursorId = null;
     if (before) {
-      const at = Date.parse(text(before.createdAt));
-      const id = text(before.scanId).toLowerCase();
+      const at = Date.parse(text(read(before, 'createdAt')));
+      const id = text(read(before, 'scanId')).toLowerCase();
       if (!Number.isFinite(at) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
         fail('That history cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
       }
@@ -1854,8 +1989,8 @@ class ExposureStore {
       [scope.provider, scope.authority, scope.owner, scope.repo, identityKey, cursorAt, cursorId, limit],
       'list scans'
     );
-    return Object.freeze(found.rows.map(row => Object.freeze({
-      ...scanFromRow(row),
+    return Object.freeze(rowsOf(found).map(row => Object.freeze({
+      ...scanOf(row),
       findingCount: Number(row.finding_count) || 0
     })));
   }
@@ -1866,7 +2001,7 @@ class ExposureStore {
    * it. Rules rather than severities: severity is the narration table's, and
    * this file does not keep a second copy of it.
    */
-  async scanRuleCounts(input = {}) {
+  async scanRuleCounts(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const scanIds = [...new Set((Array.isArray(input.scanIds) ? input.scanIds : [])
@@ -1887,7 +2022,7 @@ class ExposureStore {
       [scanIds, identityKey, scope.provider, scope.authority, scope.owner, scope.repo],
       'count findings by rule'
     );
-    return Object.freeze(found.rows.map(row => Object.freeze({
+    return Object.freeze(rowsOf(found).map(row => Object.freeze({
       scanId: row.scan_id, rule: row.rule, total: Number(row.total) || 0
     })));
   }
@@ -1899,15 +2034,15 @@ class ExposureStore {
    * Joined on the scan's own identity, so a report can never show somebody
    * else's copy of a finding.
    */
-  async scanReport(input = {}) {
+  async scanReport(input: Fields = {}) {
     return (await this.#scanReport(input, false)).observations;
   }
 
-  async scanReportPage(input = {}) {
+  async scanReportPage(input: Fields = {}) {
     return this.#scanReport(input, true);
   }
 
-  async #scanReport(input, paged) {
+  async #scanReport(input: Fields, paged: boolean) {
     const scope = requireScope(input.scope);
     const scanId = requireText(input.scanId, 'Scan id', 64);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
@@ -1933,7 +2068,7 @@ class ExposureStore {
         WHERE observation.scan_id=$1 AND scan.identity_key=$2
           AND scan.provider=$3 AND scan.authority=$4 AND scan.owner_login=$5 AND scan.repo_name=$6
         `;
-    const parameters = [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo, paged ? limit + 1 : limit];
+    const parameters: unknown[] = [scanId, identityKey, scope.provider, scope.authority, scope.owner, scope.repo, paged ? limit + 1 : limit];
     if (paged) parameters.push(cursor ? cursor.fingerprint : '');
     const found = await this.#query(paged
       ? `WITH report AS MATERIALIZED (${query})
@@ -1949,14 +2084,14 @@ class ExposureStore {
      * is left out: every newer scan of the repository moves it on shared
      * findings, and a finished scan's report must still page to the end.
      */
-    const revision = paged ? found.rows[0].revision : null;
+    const revision = paged ? onlyRow(found).revision : null;
     if (cursor && cursor.revision !== revision) {
       fail('This scan report changed while paging. Refresh the report.', 'EXPOSURE_CURSOR_STALE', 409);
     }
-    const rows = paged ? (found.rows[0].items || []) : found.rows;
+    const rows: readonly Row[] = paged ? listOf(onlyRow(found).items).filter(isRow) : rowsOf(found);
     const hasMore = paged && rows.length > limit;
     const observations = Object.freeze(rows.slice(0, limit).map(row => Object.freeze({
-      observation: observationFromRow(row),
+      observation: observationOf(row),
       /* Named column by column, like every other row that leaves here. */
       finding: findingFromRow({
         provider: row.finding_provider,
@@ -1978,10 +2113,11 @@ class ExposureStore {
         last_observed_at: row.last_observed_at
       })
     })));
+    const lastSeen = observations[observations.length - 1];
     return Object.freeze({ observations, complete: !hasMore,
       nextCursor: hasMore ? encodeFindingsCursor({ version: 1, binding, revision,
         snapshot: cursor ? cursor.snapshot : new Date().toISOString(),
-        fingerprint: observations[observations.length - 1].observation.fingerprint }, this.cursorKey) : null });
+        fingerprint: lastSeen && lastSeen.observation.fingerprint }, this.cursorKey) : null });
   }
 
   /*
@@ -2002,7 +2138,7 @@ class ExposureStore {
    * written by the route, not here -- so clearing the evidence of a decision
    * never clears the evidence of the clear.
    */
-  async clearHistory(input = {}) {
+  async clearHistory(input: Fields = {}) {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Clear identity');
     return this.#transaction(async client => {
@@ -2014,7 +2150,7 @@ class ExposureStore {
           FOR UPDATE`,
         [scope.provider, scope.authority, scope.owner, scope.repo, identityKey]
       );
-      if (active.rows.length) {
+      if (rowsOf(active).length) {
         fail('A scan is in progress; cancel it before clearing', 'EXPOSURE_SCAN_ACTIVE', 409);
       }
       const scans = await client.query(
@@ -2031,7 +2167,7 @@ class ExposureStore {
          RETURNING fingerprint`,
         [scope.provider, scope.authority, scope.owner, scope.repo, identityKey]
       );
-      return Object.freeze({ scans: scans.rows.length, findings: findings.rows.length });
+      return Object.freeze({ scans: rowsOf(scans).length, findings: rowsOf(findings).length });
     }, 'clear exposure history');
   }
 
@@ -2042,7 +2178,7 @@ class ExposureStore {
    * scan therefore ages out what was seen where without forgetting that a
    * credential was ever exposed.
    */
-  async sweepExpiredScans(input = {}) {
+  async sweepExpiredScans(input: Fields = {}) {
     const now = instant(input.now == null ? Date.now() : input.now, 'Sweep time');
     const limit = boundedInteger(input.limit, this.sweepBatch, 1, MAX_SWEEP_BATCH);
     const deleted = await this.#query(
@@ -2057,23 +2193,6 @@ class ExposureStore {
       [now, limit],
       'sweep expired scans'
     );
-    return deleted.rows.length;
+    return rowsOf(deleted).length;
   }
 }
-
-module.exports = Object.freeze({
-  DECODINGS,
-  SCAN_MODES,
-  COVERAGE,
-  DEFAULT_PROBE_FRESHNESS_MS,
-  DEFAULT_VERIFICATION_FRESHNESS_MS,
-  DISPOSITIONS,
-  EXPOSURE_CONFIG_VERSION,
-  ExposureStore,
-  ExposureStoreError,
-  MAX_FINDINGS_PER_SCAN,
-  MAX_OCCURRENCES,
-  SCAN_STATES,
-  SKIPPED_REASONS,
-  TERMINAL_STATES
-});

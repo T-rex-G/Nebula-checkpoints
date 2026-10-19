@@ -168,7 +168,6 @@ const {
   selectRepositories: selectActivityRepositories,
   feed: buildActivityFeed
 } = require('./src/activity-feed');
-const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const { auditRepository, assertAuditActive } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
@@ -184,23 +183,20 @@ const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { readBranchProtection } = require('./src/branch-protection');
 const { securityContact } = require('./src/public-assets');
-const { resolveExposureSession: resolveStoredExposureSession } = require('./src/exposure-session');
-const { RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText } = require('./src/exposure-detection');
-
-const { RULE_NARRATION, describeDisposition, describeFinding, describeProbe, describeVerification, safeDisplayPath } = require('./src/exposure-narration');
 const {
-  FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, revealForVerification
-} = require('./src/exposure-findings');
-
+  DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker, resolveExposureSession: resolveStoredExposureSession,
+  RULES_VERSION, DETECTION_ENGINE_VERSION, detectInText,
+  RULE_NARRATION, describeDisposition, describeFinding, describeProbe, describeVerification, safeDisplayPath,
+  FINGERPRINT_KEY_VERSION, buildFindings, fingerprintKeyId, revealForVerification,
+  credentialVerifier, readabilityProbe, exposureReader, ExposureStore, EXPOSURE_CONFIG_VERSION
+} = require('./apps/api/src/modules/quasar/index.ts');
 const {
   ADAPTERS: VERIFICATION_ADAPTERS, adapterForCandidate, signVerificationAuthorization, verifyCredential
-} = require('./src/credential-verification');
+} = credentialVerifier;
 const {
   OPERATIONS: READABILITY_OPERATIONS,
   discoverProject, probeAnonymousReadability, signReadabilityAuthorization
-} = require('./src/anonymous-readability-probe');
-const exposureReader = require('./src/exposure-reader');
-const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('./src/exposure-store');
+} = readabilityProbe;
 const { createPostureReader, exposureSummary } = require('./src/workspace-posture');
 const { summarizePosture } = require('./src/posture-summary');
 const { pullListItem } = require('./src/pull-list');

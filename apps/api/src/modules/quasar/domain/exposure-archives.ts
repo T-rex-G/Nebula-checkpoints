@@ -1,7 +1,5 @@
-'use strict';
-
-const crypto = require('crypto');
-const zlib = require('zlib');
+import { createHash } from 'node:crypto';
+import { gunzipSync, inflateRawSync } from 'node:zlib';
 
 /*
  * Reading inside an archive without unpacking it anywhere.
@@ -26,7 +24,7 @@ const zlib = require('zlib');
  */
 
 /* What an archive is, by name. Office documents and Python wheels are zips. */
-const ZIP_EXTENSIONS = new Set([
+export const ZIP_EXTENSIONS: ReadonlySet<string> = new Set([
   'zip', 'jar', 'war', 'ear', 'whl', 'nupkg', 'apk', 'aab', 'xpi', 'vsix',
   'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'epub'
 ]);
@@ -36,29 +34,32 @@ const ZIP_EXTENSIONS = new Set([
  * fetched as base64 inside JSON, so the compressed ceiling is a third below
  * the transport's response bound.
  */
-const MAX_ARCHIVE_BYTES = 4 * 1024 * 1024;
-const MAX_ARCHIVE_MEMBERS = 2_000;
-const MAX_MEMBER_BYTES = 512 * 1024;
-const MAX_EXPANDED_BYTES = 16 * 1024 * 1024;
+export const MAX_ARCHIVE_BYTES = 4 * 1024 * 1024;
+export const MAX_ARCHIVE_MEMBERS = 2_000;
+export const MAX_MEMBER_BYTES = 512 * 1024;
+export const MAX_EXPANDED_BYTES = 16 * 1024 * 1024;
 const MAX_MEMBER_PATH = 1024;
 
-const MEMBER_SKIPS = Object.freeze({
+export const MEMBER_SKIPS = Object.freeze({
   BINARY: 'binary',
   OVERSIZE: 'oversize',
   NESTED: 'nested-archive',
   ENCRYPTED: 'encrypted',
   UNSAFE_PATH: 'unsafe-path',
   UNREADABLE: 'unreadable'
-});
+} as const);
+export type MemberSkip = (typeof MEMBER_SKIPS)[keyof typeof MEMBER_SKIPS];
 
-function extensionOf(filePath) {
+function extensionOf(filePath: unknown): string {
   const name = String(filePath || '').split('/').pop() || '';
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
 /* 'zip', 'tar', 'tgz', 'gz' or null. */
-function archiveKind(filePath) {
+export type ArchiveKind = 'tgz' | 'tar' | 'gz' | 'zip';
+
+export function archiveKind(filePath: unknown): ArchiveKind | null {
   const name = String(filePath || '').toLowerCase();
   if (name.endsWith('.tar.gz') || name.endsWith('.tgz')) return 'tgz';
   if (name.endsWith('.tar')) return 'tar';
@@ -71,14 +72,14 @@ function archiveKind(filePath) {
  * held to the same rules: relative, no `..`, no control characters, no
  * backslash, no drive letter. A member that fails is counted and not read.
  */
-function safeMemberPath(value) {
+export function safeMemberPath(value: unknown): boolean {
   if (typeof value !== 'string' || !value || value.length > MAX_MEMBER_PATH) return false;
   if (/[\u0000-\u001f\u007f]/.test(value)) return false;
   if (value.startsWith('/') || /^[A-Za-z]:/.test(value) || value.includes('\\')) return false;
   return !value.split('/').some(segment => segment === '' || segment === '.' || segment === '..');
 }
 
-function memberRecord(archivePath, inner) {
+function memberRecord(archivePath: string, inner: string): string | null {
   const location = `${archivePath}!/${inner}`;
   return location.length <= MAX_MEMBER_PATH ? location : null;
 }
@@ -88,7 +89,32 @@ function memberRecord(archivePath, inner) {
  * UTF-16, a NUL means binary, an LFS pointer is not content -- passed in so an
  * archive's files are read exactly as the repository's are.
  */
-function memberOutcome(state, archivePath, inner, readBytes, declaredSize, decodeText, binaryExtensions) {
+/* A member's bytes, as stored ('raw') or as the archive expands them ('inflated'). */
+type ReadBytes = (mode: 'raw' | 'inflated') => Buffer | 'oversize' | null;
+export type DecodeText = (bytes: Buffer) => { readonly text?: unknown; readonly skip?: unknown } | null | undefined;
+
+export interface ArchiveMember {
+  readonly path: string;
+  readonly text: string;
+}
+
+export interface NamedMember {
+  readonly path: string;
+  readonly sha: string;
+}
+
+interface ArchiveState {
+  readonly members: ArchiveMember[];
+  readonly named: NamedMember[];
+  expanded: number;
+  examined: number;
+  truncated: boolean;
+  readonly skipped: Record<string, number>;
+  readonly pathRuleExtensions: ReadonlySet<string>;
+  skip(reason: MemberSkip): MemberSkip;
+}
+
+function memberOutcome(state: ArchiveState, archivePath: string, inner: string, readBytes: ReadBytes, declaredSize: number, decodeText: DecodeText, binaryExtensions: ReadonlySet<string>): MemberSkip | null {
   if (!safeMemberPath(inner)) return state.skip(MEMBER_SKIPS.UNSAFE_PATH);
   const location = memberRecord(archivePath, inner);
   if (!location) return state.skip(MEMBER_SKIPS.UNSAFE_PATH);
@@ -99,8 +125,8 @@ function memberOutcome(state, archivePath, inner, readBytes, declaredSize, decod
        the tree. Its identity is a digest of its stored bytes, which is the
        same whenever the same archive is scanned. */
     const raw = readBytes('raw');
-    if (!raw) return state.skip(MEMBER_SKIPS.UNREADABLE);
-    state.named.push(Object.freeze({ path: location, sha: crypto.createHash('sha256').update(raw).digest('hex') }));
+    if (!raw || raw === 'oversize') return state.skip(MEMBER_SKIPS.UNREADABLE);
+    state.named.push(Object.freeze({ path: location, sha: createHash('sha256').update(raw).digest('hex') }));
     return null;
   }
   if (binaryExtensions.has(extension)) return state.skip(MEMBER_SKIPS.BINARY);
@@ -117,9 +143,9 @@ function memberOutcome(state, archivePath, inner, readBytes, declaredSize, decod
   return null;
 }
 
-function newState(pathRuleExtensions) {
-  const skipped = {};
-  const state = {
+function newState(pathRuleExtensions: readonly string[] | null | undefined): ArchiveState {
+  const skipped: Record<string, number> = {};
+  const state: ArchiveState = {
     members: [],
     named: [],
     expanded: 0,
@@ -127,7 +153,7 @@ function newState(pathRuleExtensions) {
     truncated: false,
     skipped,
     pathRuleExtensions: new Set(pathRuleExtensions || []),
-    skip(reason) {
+    skip(reason: MemberSkip): MemberSkip {
       skipped[reason] = (skipped[reason] || 0) + 1;
       return reason;
     }
@@ -135,11 +161,16 @@ function newState(pathRuleExtensions) {
   return state;
 }
 
-function inflateRaw(data, limit) {
+/* The failure's own code, when it carries one. */
+function errorCode(error: unknown): unknown {
+  return error && typeof error === 'object' ? (error as { readonly code?: unknown }).code : undefined;
+}
+
+function inflateRaw(data: Buffer, limit: number): Buffer | 'oversize' | null {
   try {
-    return zlib.inflateRawSync(data, { maxOutputLength: limit + 1 });
+    return inflateRawSync(data, { maxOutputLength: limit + 1 });
   } catch (error) {
-    return error && error.code === 'ERR_BUFFER_TOO_LARGE' ? 'oversize' : null;
+    return error && errorCode(error) === 'ERR_BUFFER_TOO_LARGE' ? 'oversize' : null;
   }
 }
 
@@ -151,7 +182,7 @@ function inflateRaw(data, limit) {
  * gives is checked against the buffer before it is followed, so a crafted
  * directory points at nothing rather than outside the bytes we hold.
  */
-function readZip(bytes, archivePath, decodeText, binaryExtensions, pathRuleExtensions) {
+function readZip(bytes: Buffer, archivePath: string, decodeText: DecodeText, binaryExtensions: ReadonlySet<string>, pathRuleExtensions: readonly string[]): ArchiveState | null {
   const state = newState(pathRuleExtensions);
   const floor = Math.max(0, bytes.length - (0xffff + 22));
   let end = -1;
@@ -185,7 +216,7 @@ function readZip(bytes, archivePath, decodeText, binaryExtensions, pathRuleExten
     if (flags & 0x1) { state.skip(MEMBER_SKIPS.ENCRYPTED); continue; }
     if (compressedSize === 0xffffffff || size === 0xffffffff) { state.skip(MEMBER_SKIPS.OVERSIZE); continue; }
 
-    const readBytes = mode => {
+    const readBytes: ReadBytes = mode => {
       if (localOffset + 30 > bytes.length || bytes.readUInt32LE(localOffset) !== 0x04034b50) return null;
       const start = localOffset + 30 + bytes.readUInt16LE(localOffset + 26) + bytes.readUInt16LE(localOffset + 28);
       if (start + compressedSize > bytes.length) return null;
@@ -206,7 +237,7 @@ function readZip(bytes, archivePath, decodeText, binaryExtensions, pathRuleExten
 
 /* ---- TAR and gzip ------------------------------------------------------------ */
 
-function tarString(block, start, length) {
+function tarString(block: Buffer, start: number, length: number): string {
   const slice = block.subarray(start, start + length);
   const nul = slice.indexOf(0);
   return (nul >= 0 ? slice.subarray(0, nul) : slice).toString('utf8');
@@ -218,10 +249,10 @@ function tarString(block, start, length) {
  * metadata and is stepped over. Anything that is not a regular file -- a
  * directory, a link, a device -- is not content and is not followed.
  */
-function readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExtensions) {
+function readTar(bytes: Buffer, archivePath: string, decodeText: DecodeText, binaryExtensions: ReadonlySet<string>, pathRuleExtensions: readonly string[]): ArchiveState | null {
   const state = newState(pathRuleExtensions);
   let cursor = 0;
-  let longName = null;
+  let longName: string | null = null;
   while (cursor + 512 <= bytes.length) {
     const header = bytes.subarray(cursor, cursor + 512);
     if (header.every(byte => byte === 0)) break;
@@ -246,7 +277,7 @@ function readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExten
     if (state.examined >= MAX_ARCHIVE_MEMBERS) { state.truncated = true; break; }
     state.examined += 1;
     const inner = name.replace(/^\.\//, '');
-    const readBytes = mode => {
+    const readBytes: ReadBytes = mode => {
       const data = bytes.subarray(dataStart, dataStart + size);
       if (mode === 'raw') return data;
       return data.length > MAX_MEMBER_BYTES ? 'oversize' : data;
@@ -257,17 +288,26 @@ function readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExten
 }
 
 /* One shape for every answer, so a caller never has to ask which one it got. */
-function oversizeArchive() {
+export interface OpenedArchive {
+  readonly oversize: boolean;
+  readonly members: readonly ArchiveMember[];
+  readonly named: readonly NamedMember[];
+  readonly examined: number;
+  readonly truncated: boolean;
+  readonly skipped: Readonly<Record<string, number>>;
+}
+
+function oversizeArchive(): OpenedArchive {
   return Object.freeze({
     oversize: true, members: Object.freeze([]), named: Object.freeze([]), examined: 0, truncated: false, skipped: Object.freeze({})
   });
 }
 
-function gunzip(bytes) {
+function gunzip(bytes: Buffer): Buffer | 'oversize' | null {
   try {
-    return zlib.gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_BYTES + 1 });
+    return gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_BYTES + 1 });
   } catch (error) {
-    return error && error.code === 'ERR_BUFFER_TOO_LARGE' ? 'oversize' : null;
+    return error && errorCode(error) === 'ERR_BUFFER_TOO_LARGE' ? 'oversize' : null;
   }
 }
 
@@ -276,16 +316,26 @@ function gunzip(bytes) {
  * why. Returns null when the bytes are not the archive their name says, which
  * a caller reports as an unreadable file -- never as an empty archive.
  */
-function openArchive(input = {}) {
+export interface OpenArchiveInput {
+  readonly bytes?: unknown;
+  readonly kind?: unknown;
+  readonly path?: unknown;
+  readonly decodeText?: unknown;
+  readonly binaryExtensions?: unknown;
+  readonly pathRuleExtensions?: unknown;
+}
+
+export function openArchive(input: OpenArchiveInput = {}): OpenedArchive | null {
   const bytes = Buffer.isBuffer(input.bytes) ? input.bytes : null;
   const kind = input.kind;
   const archivePath = String(input.path || '');
-  const decodeText = typeof input.decodeText === 'function' ? input.decodeText : null;
-  const binaryExtensions = input.binaryExtensions instanceof Set ? input.binaryExtensions : new Set();
-  const pathRuleExtensions = Array.isArray(input.pathRuleExtensions) ? input.pathRuleExtensions : [];
+  /* The reader's text decoder: given a member's bytes, its text or why there is none. */
+  const decodeText = typeof input.decodeText === 'function' ? input.decodeText as DecodeText : null;
+  const binaryExtensions: ReadonlySet<string> = input.binaryExtensions instanceof Set ? input.binaryExtensions : new Set();
+  const pathRuleExtensions: readonly string[] = Array.isArray(input.pathRuleExtensions) ? input.pathRuleExtensions : [];
   if (!bytes || !decodeText || !archivePath || bytes.length > MAX_ARCHIVE_BYTES) return null;
 
-  let state = null;
+  let state: ArchiveState | null = null;
   if (kind === 'zip') state = readZip(bytes, archivePath, decodeText, binaryExtensions, pathRuleExtensions);
   else if (kind === 'tar') state = readTar(bytes, archivePath, decodeText, binaryExtensions, pathRuleExtensions);
   else if (kind === 'tgz') {
@@ -314,15 +364,3 @@ function openArchive(input = {}) {
     skipped: Object.freeze({ ...state.skipped })
   });
 }
-
-module.exports = Object.freeze({
-  MAX_ARCHIVE_BYTES,
-  MAX_ARCHIVE_MEMBERS,
-  MAX_EXPANDED_BYTES,
-  MAX_MEMBER_BYTES,
-  MEMBER_SKIPS,
-  ZIP_EXTENSIONS,
-  archiveKind,
-  openArchive,
-  safeMemberPath
-});

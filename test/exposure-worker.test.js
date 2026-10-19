@@ -31,16 +31,16 @@ const fs = require('fs');
 const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
-const { SKIP_REASONS } = require('../src/exposure-reader');
-const { fingerprintFor, fingerprintKeyId } = require('../src/exposure-findings');
-const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');
-const { EXPOSURE_CONFIG_VERSION } = require('../src/exposure-store');
+const { SKIP_REASONS } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
+const { fingerprintFor, fingerprintKeyId } = require('../apps/api/src/modules/quasar/index.ts');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../apps/api/src/modules/quasar/index.ts');
+const { EXPOSURE_CONFIG_VERSION } = require('../apps/api/src/modules/quasar/index.ts');
 const {
   DEFAULT_BUDGETS,
   EXPOSURE_BUDGET_VERSION,
   createExposureRunner,
   startExposureWorker
-} = require('../src/exposure-worker');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const scope = Object.freeze({
   provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo'
@@ -159,12 +159,13 @@ function runnerFor(store, reader, options = {}) {
   /* ---- Nothing runs, nothing is written to disk ------------------------ */
 
   {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-worker.js'), 'utf8')
+    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-worker.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
     assert(source.includes('function createExposureRunner'), 'the comment strip must leave the code behind');
     for (const forbidden of [
       /require\('child_process'\)/, /require\('fs'\)/, /require\('https'\)/,
+      /from '(?:node:)?(?:child_process|fs|fs\/promises|https?)'/,
       /\bspawn\w*\(/, /\bexec\w*\(/, /mkdtemp/, /writeFile/, /\bfetch\s*\(/
     ]) {
       assert.strictEqual(
@@ -279,6 +280,24 @@ function runnerFor(store, reader, options = {}) {
     assert.strictEqual(store.finalized.state, 'failed');
     assert.strictEqual(store.finalized.skippedReason, 'authorization-revoked');
     assert.strictEqual(reader.blobCalls.length, 2, 'the scan stops rather than retrying with a dead session');
+  }
+
+  /*
+   * A renewed session is held to the test the first one passed: its token is a
+   * string or there is none. A session answering with something else is not a
+   * session, and the reader is never handed it as a credential.
+   */
+  {
+    for (const renewed of [{ token: 12345 }, { token: { value: TOKEN } }, { token: true }]) {
+      const store = fakeStore();
+      const reader = fakeReader({ 'a.js': 'x\n', 'b.js': 'y\n' });
+      let asked = 0;
+      const sessionResolver = async () => (asked++ === 0 ? { token: TOKEN } : renewed);
+      await runnerFor(store, reader, { sessionResolver }).runOnce();
+      assert.strictEqual(store.finalized.state, 'failed', JSON.stringify(renewed));
+      assert.strictEqual(store.finalized.skippedReason, 'authorization-revoked');
+      assert.strictEqual(reader.treeCalls.length + reader.blobCalls.length, 0, 'and nothing was read with it');
+    }
   }
 
   /*
@@ -672,7 +691,7 @@ function runnerFor(store, reader, options = {}) {
     await runnerFor(store, reader).runOnce();
     assert.strictEqual(store.recorded.length, 1);
     assert.strictEqual(store.recorded[0].verification, undefined);
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-worker.js'), 'utf8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-worker.ts'), 'utf8');
     assert.strictEqual(
       /credential-verification/.test(source), false,
       'a background job must not be able to reach the verifier at all'
@@ -771,8 +790,9 @@ function runnerFor(store, reader, options = {}) {
 {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
-  assert(server.includes("require('./src/exposure-worker')"), 'the worker must be wired in');
-  assert(server.includes("require('./src/exposure-reader')"), 'with the reader it reads through');
+  const quasar = server.match(/const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/quasar\/index\.ts'\)/);
+  assert(quasar && /\bstartExposureWorker\b/.test(quasar[1]), 'the worker must be wired in');
+  assert(/\bexposureReader\b/.test(quasar[1]), 'with the reader it reads through');
 
   const gate = server.match(/function exposureScanningAvailable\(\)[\s\S]*?\n}/);
   assert(gate, 'the capability gate must exist');
@@ -819,12 +839,12 @@ function runnerFor(store, reader, options = {}) {
    * anywhere: asserted by requiring the resolver to return it and nothing else.
    */
   assert(server.includes('resolveStoredExposureSession(input'), 'the server uses the owned-session resolver');
-  const resolver = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-session.js'), 'utf8')
-    .match(/async function resolveExposureSession\([\s\S]*?\n}/);
+  const resolver = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-session.ts'), 'utf8')
+    .match(/async function resolveExposureSession[<(][\s\S]*?\n}/);
   assert(resolver, 'the session resolver must exist');
   assert(resolver[0].includes('nv_sessions'), 'it must read a live session');
   assert(
-    resolver[0].includes('account.login') && resolver[0].includes('requestedBy'),
+    resolver[0].includes("read(account, 'login')") && resolver[0].includes('requestedBy'),
     'and match the actor who asked for the scan, not merely somebody sharing the identity'
   );
   assert.strictEqual(
@@ -948,7 +968,7 @@ function runnerFor(store, reader, options = {}) {
     'and the payload is where both sentences are attached'
   );
   assert(
-    /const \{[^}]*describeDisposition[^}]*\} = require\('\.\/src\/exposure-narration'\)/.test(server),
+    /const \{[^}]*describeDisposition[^}]*\} = require\('\.\/apps\/api\/src\/modules\/quasar\/index\.ts'\)/.test(server),
     'the disposition sentence comes from the reviewed table, not from this file'
   );
 
@@ -991,7 +1011,7 @@ function runnerFor(store, reader, options = {}) {
     'the request path resolves the ref once, here'
   );
   assert.strictEqual(
-    /resolveCommit/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-worker.js'), 'utf8')), false,
+    /resolveCommit/.test(fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-worker.ts'), 'utf8')), false,
     'and the worker cannot reach the resolver at all'
   );
 
@@ -1271,10 +1291,10 @@ function runnerFor(store, reader, options = {}) {
     };
     const changeSet = {
       [added]: { sha: added, skip: null, committedAt: '2026-09-01T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
-        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'e'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchAdding) }] },
+        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'e'.repeat(40), hunks: require('../apps/api/src/modules/quasar/index.ts').exposureReader.parsePatch(patchAdding) }] },
       [merge]: { sha: merge, skip: null, files: [], parents: 2 },
       [deleted]: { sha: deleted, skip: null, committedAt: '2026-09-02T00:00:00.000Z', parents: 1, unsafePaths: 0, truncated: false,
-        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'f'.repeat(40), hunks: require('../src/exposure-reader').parsePatch(patchDeleting) }] }
+        files: [{ path: 'app/config.js', status: 'modified', blobSha: 'f'.repeat(40), hunks: require('../apps/api/src/modules/quasar/index.ts').exposureReader.parsePatch(patchDeleting) }] }
     };
 
     const store = fakeStore();
@@ -1452,7 +1472,7 @@ function runnerFor(store, reader, options = {}) {
      listing. A merged branch can have introduced and deleted a secret before
      that tip's date, leaving no trace in the merge's first-parent diff. */
   {
-    const providerReader = require('../src/exposure-reader');
+    const providerReader = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
     const sha = n => n.toString(16).padStart(40, '0');
     const items = [5, 4, 3, 2, 1].map(n => ({ sha: sha(n), parents: n === 5 ? [{ sha: sha(4) }, { sha: sha(3) }] : [] }));
     const transport = async input => {
@@ -1480,7 +1500,7 @@ function runnerFor(store, reader, options = {}) {
      requests, including pagination hidden inside one commit's file list. */
   for (const stage of ['listing', 'changes']) {
     for (const stop of ['cancel', 'deadline', 'renew']) {
-      const providerReader = require('../src/exposure-reader');
+      const providerReader = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
       const sha = n => n.toString(16).padStart(40, '0');
       let clock = T0;
       let requests = 0;

@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 const { writeLiveClient, DROPPED } = require('../src/live-stream');
 const { guardedFetch, PROFILES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
-const { createExposureRunner } = require('../src/exposure-worker');
-const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('../src/exposure-findings');
-const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');
-const { EXPOSURE_CONFIG_VERSION } = require('../src/exposure-store');
-const { resolveExposureSession } = require('../src/exposure-session');
+const { createExposureRunner } = require('../apps/api/src/modules/quasar/index.ts');
+const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('../apps/api/src/modules/quasar/index.ts');
+const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../apps/api/src/modules/quasar/index.ts');
+const { EXPOSURE_CONFIG_VERSION } = require('../apps/api/src/modules/quasar/index.ts');
+const { resolveExposureSession } = require('../apps/api/src/modules/quasar/index.ts');
 const { alphaActorLabel } = require('../apps/api/src/modules/identity-access/index.ts');
 
 test('capacity cannot evict an unexpired single-use grant', () => {

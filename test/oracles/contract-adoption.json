@@ -1,13 +1,9 @@
 {
   "copies": {
     "server.js": 19,
-    "src/anonymous-readability-probe.js": 1,
     "src/backup-format.js": 1,
     "src/code-audit-history.js": 3,
     "src/code-audit-triage.js": 1,
-    "src/credential-verification.js": 1,
-    "src/exposure-narration.js": 1,
-    "src/exposure-store.js": 6,
     "src/intelligence.js": 1,
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,

@@ -1,8 +1,17 @@
-'use strict';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { PROFILES, guardedFetch, type GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
+import {
+  REASONS,
+  VERIFICATION_FRESHNESS_MS,
+  VERIFICATION_STATES,
+  verificationFreshness,
+  type VerificationReason,
+  type VerificationState
+} from '../domain/verification-outcomes.ts';
 
-const crypto = require('crypto');
-
-const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
+export { REASONS, VERIFICATION_FRESHNESS_MS, VERIFICATION_STATES, verificationFreshness };
+export type { VerificationReason, VerificationState };
 
 /*
  * Asking the provider that issued a credential whether it is still live.
@@ -46,84 +55,66 @@ const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/gua
  * behind it. Those stay detected and unverifiable, which is an honest answer.
  */
 
-const VERIFICATION_STATES = Object.freeze({
-  VERIFIED: 'verified',
-  REJECTED: 'rejected',
-  UNVERIFIABLE: 'unverifiable'
-});
-
-/*
- * A closed vocabulary. A reason ends up on a stored finding and in front of a
- * reader, so the set has to be small enough to write help text for and stable
- * enough that a stored record still means what it meant. Its own test asserts
- * every entry here is reachable.
- */
-const REASONS = Object.freeze({
-  AUTHORIZATION_MISSING: 'authorization-missing',
-  AUTHORIZATION_INVALID: 'authorization-invalid',
-  AUTHORIZATION_EXPIRED: 'authorization-expired',
-  AUTHORIZATION_MISMATCH: 'authorization-mismatch',
-  UNSUPPORTED_CREDENTIAL_CLASS: 'unsupported-credential-class',
-  UNSUPPORTED_TOKEN_CLASS: 'unsupported-token-class',
-  INCOMPLETE_CREDENTIAL: 'incomplete-credential',
-  IDENTITY_CONFIRMED: 'identity-confirmed',
-  CREDENTIAL_REFUSED: 'credential-refused',
-  MALFORMED_IDENTITY_RESPONSE: 'malformed-identity-response',
-  PROVIDER_THROTTLED: 'provider-throttled',
-  PROVIDER_POLICY_RESTRICTED: 'provider-policy-restricted',
-  PROVIDER_AMBIGUOUS_REJECTION: 'provider-ambiguous-rejection',
-  PROVIDER_UNEXPECTED_STATUS: 'provider-unexpected-status',
-  TRANSPORT_REFUSED: 'transport-refused',
-  TRANSPORT_TIMEOUT: 'transport-timeout',
-  RUN_LIMIT_REACHED: 'run-limit-reached'
-});
 
 /* An authorization is minutes, not hours. It is consent to one probe against
    one target, and a grant that outlives the screen it was given on is a grant
    nobody is watching. */
-const MAX_AUTHORIZATION_LIFETIME_MS = 10 * 60 * 1000;
-
-/* One observation is good for a day. Past that the answer is unknown again --
-   not rejected, which is the distinction `verificationFreshness` exists to
-   keep. */
-const VERIFICATION_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+export const MAX_AUTHORIZATION_LIFETIME_MS = 10 * 60 * 1000;
 
 /* An identity response is a few hundred bytes. A generous ceiling on it is
    still two orders of magnitude below the transport's, and a provider that
    answers this endpoint with a megabyte is not answering this endpoint. */
-const PROBE_MAX_RESPONSE_BYTES = 16 * 1024;
+export const PROBE_MAX_RESPONSE_BYTES = 16 * 1024;
 
 /* One free web service, and every probe is a request someone else counts
    against us. A run asks at most this many times however many candidates a
    repository holds. */
-const MAX_PROBES_PER_RUN = 50;
+export const MAX_PROBES_PER_RUN = 50;
 
 /* Whatever a provider says about when to come back, we come back no sooner
    than a second and no later than an hour. A Retry-After is their opinion, not
    a scheduler. */
 const MIN_RETRY_AFTER_MS = 1_000;
-const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+export const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
 
 const USER_AGENT = 'Nebulaverse-X-Exposure-Verifier/1.0';
-const SIGNATURE_PATTERN = /^[0-9a-f]{64}$/;
 const SUBJECT_DIGEST_CHARS = 32;
 
-function text(value) {
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+/* An object's fields, or none when it is not an object. */
+function fieldsOf(value: unknown): Fields {
+  return value && typeof value === 'object' ? value as Fields : {};
+}
+
+/* A list from an input, or none. */
+function listOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function parseJsonObject(body, maxBytes = PROBE_MAX_RESPONSE_BYTES) {
+function parseJsonObject(body: unknown, maxBytes = PROBE_MAX_RESPONSE_BYTES): Fields | null {
   if (typeof body !== 'string' || body.length > maxBytes) return null;
-  let parsed;
+  let parsed: unknown;
   try { parsed = JSON.parse(body); }
   catch { return null; }
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Fields : null;
 }
 
-function parseJson(body, maxBytes) {
+function parseJson(body: unknown, maxBytes: number): unknown {
   if (typeof body !== 'string' || body.length > maxBytes) return undefined;
-  try { return JSON.parse(body); }
-  catch { return undefined; }
+  try {
+    const value: unknown = JSON.parse(body);
+    return value;
+  } catch { return undefined; }
 }
 
 /*
@@ -131,16 +122,16 @@ function parseJson(body, maxBytes) {
  * too because providers send it, but a date is read as a duration from now
  * rather than trusted as an absolute instant -- their clock is not ours.
  */
-function retryAfterMs(headers, now) {
-  const raw = text(headers && (headers['retry-after'] || headers['Retry-After']));
+function retryAfterMs(headers: unknown, now: number): number | null {
+  const raw = text(headers && (read(headers, 'retry-after') || read(headers, 'Retry-After')));
   if (!raw) return null;
-  let ms = null;
+  let ms: number | null = null;
   if (/^\d+$/.test(raw)) ms = Number(raw) * 1000;
   else {
     const at = Date.parse(raw);
     if (Number.isFinite(at)) ms = at - now;
   }
-  if (!Number.isFinite(ms)) return null;
+  if (ms === null || !Number.isFinite(ms)) return null;
   return Math.min(Math.max(Math.round(ms), MIN_RETRY_AFTER_MS), MAX_RETRY_AFTER_MS);
 }
 
@@ -156,7 +147,24 @@ function retryAfterMs(headers, now) {
  * question actually being asked.
  */
 
-function githubInterpretation(response, now) {
+/* A provider's answer, reduced to what an interpretation may read. */
+export interface ProbeAnswer {
+  readonly statusCode: number;
+  readonly body: unknown;
+  readonly headers: unknown;
+}
+
+/* What an answer means: a state, the reason for it, and what it identified. */
+export interface Verdict {
+  readonly state: VerificationState;
+  readonly reason: VerificationReason;
+  readonly subject?: string;
+  readonly retryAfterMs?: number | null;
+}
+
+export type Interpretation = (response: ProbeAnswer, now: number) => Verdict;
+
+function githubInterpretation(response: ProbeAnswer, now: number): Verdict {
   const { statusCode } = response;
   if (statusCode === 200) {
     const body = parseJsonObject(response.body);
@@ -186,7 +194,8 @@ function githubInterpretation(response, now) {
    * inside.
    */
   if (statusCode === 403) {
-    const message = text(parseJsonObject(response.body) && parseJsonObject(response.body).message).toLowerCase();
+    const refusal = parseJsonObject(response.body);
+    const message = text(refusal && refusal.message).toLowerCase();
     const throttled = /rate limit|secondary rate|abuse detection|too many requests/.test(message);
     return {
       state: VERIFICATION_STATES.UNVERIFIABLE,
@@ -197,7 +206,7 @@ function githubInterpretation(response, now) {
   return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.PROVIDER_UNEXPECTED_STATUS };
 }
 
-function gitlabInterpretation(response, now) {
+function gitlabInterpretation(response: ProbeAnswer, now: number): Verdict {
   const { statusCode } = response;
   if (statusCode === 200) {
     const body = parseJsonObject(response.body);
@@ -237,14 +246,14 @@ function gitlabInterpretation(response, now) {
  * workspace restricts. Recording it as revoked tells a reader the exposure is
  * over while the credential is still live.
  */
-const SLACK_DEFINITE_REFUSALS = Object.freeze([
+const SLACK_DEFINITE_REFUSALS: readonly string[] = Object.freeze([
   'token_revoked', 'token_expired', 'account_inactive', 'invalid_token', 'user_removed_from_team'
 ]);
-const SLACK_AMBIGUOUS = Object.freeze(['invalid_auth', 'not_authed']);
-const SLACK_POLICY = Object.freeze(['ekm_access_denied', 'no_permission', 'org_login_required', 'enterprise_is_restricted']);
-const SLACK_THROTTLED = Object.freeze(['ratelimited', 'rate_limited']);
+const SLACK_AMBIGUOUS: readonly string[] = Object.freeze(['invalid_auth', 'not_authed']);
+const SLACK_POLICY: readonly string[] = Object.freeze(['ekm_access_denied', 'no_permission', 'org_login_required', 'enterprise_is_restricted']);
+const SLACK_THROTTLED: readonly string[] = Object.freeze(['ratelimited', 'rate_limited']);
 
-function slackInterpretation(response, now) {
+function slackInterpretation(response: ProbeAnswer, now: number): Verdict {
   const { statusCode } = response;
   if (statusCode === 429) {
     return {
@@ -319,11 +328,20 @@ function slackInterpretation(response, now) {
  * everything else that is not throttling is policy or unexpected -- never a
  * verdict nobody gave.
  */
-function identityInterpretation(options = {}) {
+interface InterpretationOptions {
+  readonly maxResponseBytes?: number;
+  readonly refusedStatuses?: readonly number[];
+  readonly ambiguousStatuses?: readonly number[];
+  readonly refusedWhen?: (body: unknown, status: number) => unknown;
+  readonly policyWhen?: (body: unknown, status: number) => unknown;
+  readonly subject?: (body: unknown) => unknown;
+}
+
+function identityInterpretation(options: InterpretationOptions = {}): Interpretation {
   const maxBytes = options.maxResponseBytes || PROBE_MAX_RESPONSE_BYTES;
   const refused = options.refusedStatuses || [401];
   const ambiguous = options.ambiguousStatuses || [];
-  return function interpret(response, now) {
+  return function interpret(response: ProbeAnswer, now: number): Verdict {
     const { statusCode } = response;
     const body = parseJson(response.body, maxBytes);
     if (statusCode === 200) {
@@ -356,15 +374,36 @@ function identityInterpretation(options = {}) {
   };
 }
 
-const field = (...keys) => body => {
+const field = (...keys: string[]) => (body: unknown): string => {
   let value = body;
-  for (const key of keys) value = value && typeof value === 'object' ? value[key] : undefined;
+  for (const key of keys) value = value && typeof value === 'object' ? read(value, key) : undefined;
   return (typeof value === 'string' && value.trim()) || (Number.isInteger(value) ? String(value) : '');
 };
-const bearer = secret => ({ authorization: `Bearer ${secret}` });
+const bearer = (secret: string): Readonly<Record<string, string>> => ({ authorization: `Bearer ${secret}` });
 const LIST_RESPONSE_BYTES = 128 * 1024;
 
-function adapter(spec) {
+/* How one provider is asked whether a credential it issued is live. */
+export interface Adapter {
+  readonly id: string;
+  readonly version: number;
+  readonly rule: string;
+  readonly supports: RegExp;
+  readonly profile: string;
+  readonly origin: string;
+  readonly probePath: string;
+  readonly targetId: string;
+  readonly method: string;
+  readonly body: string | null;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly credential?: (secret: string) => Readonly<Record<string, string>>;
+  readonly maxResponseBytes?: number;
+  readonly interpret: Interpretation;
+}
+
+type AdapterSpec = Pick<Adapter, 'id' | 'rule' | 'supports' | 'origin' | 'probePath' | 'targetId' | 'interpret'>
+  & Partial<Pick<Adapter, 'method' | 'body' | 'credential' | 'maxResponseBytes' | 'headers'>>;
+
+function adapter(spec: AdapterSpec): Adapter {
   return Object.freeze({
     version: 1,
     profile: PROFILES.CREDENTIAL_VERIFY,
@@ -377,7 +416,7 @@ function adapter(spec) {
   });
 }
 
-const PROVIDER_ADAPTERS = [
+const PROVIDER_ADAPTERS: readonly Adapter[] = [
   adapter({
     id: 'openai-api-key', rule: 'openai-api-key', supports: /^sk-[A-Za-z0-9_-]{20,}$/,
     origin: 'https://api.openai.com', probePath: '/v1/models', targetId: 'api.openai.com',
@@ -639,7 +678,7 @@ const PROVIDER_ADAPTERS = [
     interpret: identityInterpretation({
       refusedStatuses: [],
       ambiguousStatuses: [403],
-      refusedWhen: body => body && body.valid === false
+      refusedWhen: body => body && read(body, 'valid') === false
     })
   }),
   adapter({
@@ -651,8 +690,8 @@ const PROVIDER_ADAPTERS = [
   })
 ];
 
-const ADAPTERS = Object.freeze({
-  'github-user-token': Object.freeze({
+export const ADAPTERS: Readonly<Record<string, Adapter>> = Object.freeze({
+  'github-user-token': Object.freeze<Adapter>({
     id: 'github-user-token',
     version: 1,
     rule: 'github-token',
@@ -675,7 +714,7 @@ const ADAPTERS = Object.freeze({
     }),
     interpret: githubInterpretation
   }),
-  'gitlab-user-token': Object.freeze({
+  'gitlab-user-token': Object.freeze<Adapter>({
     id: 'gitlab-user-token',
     version: 1,
     rule: 'gitlab-token',
@@ -691,7 +730,7 @@ const ADAPTERS = Object.freeze({
     headers: Object.freeze({ accept: 'application/json' }),
     interpret: gitlabInterpretation
   }),
-  'slack-user-token': Object.freeze({
+  'slack-user-token': Object.freeze<Adapter>({
     id: 'slack-user-token',
     version: 1,
     rule: 'slack-token',
@@ -720,9 +759,14 @@ const ADAPTERS = Object.freeze({
   ...Object.fromEntries(PROVIDER_ADAPTERS.map(entry => [entry.id, entry]))
 });
 
-const ADAPTER_BY_RULE = Object.freeze(Object.fromEntries(
+const ADAPTER_BY_RULE: Readonly<Record<string, Adapter>> = Object.freeze(Object.fromEntries(
   Object.values(ADAPTERS).map(adapter => [adapter.rule, adapter])
 ));
+
+/* The adapter a rule names. Only a rule this module lists: an inherited key is not an adapter. */
+function adapterForRule(rule: string): Adapter | null {
+  return (Object.hasOwn(ADAPTER_BY_RULE, rule) && ADAPTER_BY_RULE[rule]) || null;
+}
 
 /*
  * The rule finds an access key ID, which is a name, not a credential: signing
@@ -731,13 +775,13 @@ const ADAPTER_BY_RULE = Object.freeze(Object.fromEntries(
  * someone's account with their own data, so this class is recorded as
  * incomplete and never sent anywhere.
  */
-const INCOMPLETE_RULES = Object.freeze(['aws-access-key']);
+const INCOMPLETE_RULES: readonly string[] = Object.freeze(['aws-access-key']);
 
-function adapterForCandidate(candidate) {
-  const rule = text(candidate && candidate.rule);
-  const adapter = ADAPTER_BY_RULE[rule];
+export function adapterForCandidate(candidate: unknown): Adapter | null {
+  const rule = text(candidate && read(candidate, 'rule'));
+  const adapter = adapterForRule(rule);
   if (!adapter) return null;
-  const secret = typeof candidate.secret === 'string' ? candidate.secret.trim() : '';
+  const secret = text(read(candidate, 'secret'));
   return adapter.supports.test(secret) ? adapter : null;
 }
 
@@ -748,38 +792,68 @@ function adapterForCandidate(candidate) {
  * another's message: an owner named `Demo` in a repository named `Acme` must
  * not sign the same bytes as the reverse.
  */
-function authorizationMessage(grant) {
+function authorizationMessage(grant: unknown): string {
+  const scope = read(grant, 'scope');
   const parts = [
     'nvexpauth.v1',
     'verify-credential',
-    text(grant.authorizationId),
-    text(grant.actorLogin),
-    text(grant.scope && grant.scope.provider),
-    text(grant.scope && grant.scope.authority),
-    text(grant.scope && grant.scope.owner),
-    text(grant.scope && grant.scope.repo),
-    text(grant.commit),
-    text(grant.candidateFingerprint),
-    text(grant.adapter),
-    text(grant.targetId),
-    text(grant.issuedAt),
-    text(grant.expiresAt)
+    text(read(grant, 'authorizationId')),
+    text(read(grant, 'actorLogin')),
+    text(scope && read(scope, 'provider')),
+    text(scope && read(scope, 'authority')),
+    text(scope && read(scope, 'owner')),
+    text(scope && read(scope, 'repo')),
+    text(read(grant, 'commit')),
+    text(read(grant, 'candidateFingerprint')),
+    text(read(grant, 'adapter')),
+    text(read(grant, 'targetId')),
+    text(read(grant, 'issuedAt')),
+    text(read(grant, 'expiresAt'))
   ];
   return parts.map(part => `${Buffer.byteLength(part, 'utf8')}:${part}`).join('|');
 }
 
-function signVerificationAuthorization(input = {}) {
-  if (!Buffer.isBuffer(input.hmacKey) && typeof input.hmacKey !== 'string') {
+export interface AuthorizationInput {
+  readonly hmacKey?: unknown;
+  readonly authorizationId?: unknown;
+  readonly actorLogin?: unknown;
+  readonly scope?: unknown;
+  readonly commit?: unknown;
+  readonly candidateFingerprint?: unknown;
+  readonly adapter?: unknown;
+  readonly targetId?: unknown;
+  readonly issuedAt?: unknown;
+  readonly expiresAt?: unknown;
+}
+
+/* A grant to probe one candidate at one target, bound to everything that names it. */
+export interface VerificationAuthorization {
+  readonly authorizationId: string;
+  readonly actorLogin: string;
+  readonly scope: { readonly provider: string; readonly authority: string; readonly owner: string; readonly repo: string };
+  readonly commit: string;
+  readonly candidateFingerprint: string;
+  readonly adapter: string;
+  readonly targetId: string;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  readonly signature: string;
+}
+
+export function signVerificationAuthorization(input: AuthorizationInput = {}): VerificationAuthorization {
+  const hmacKey = input.hmacKey;
+  if (!Buffer.isBuffer(hmacKey) && typeof hmacKey !== 'string') {
     throw new TypeError('A verification authorization requires a derived HMAC key');
   }
+  const scope = input.scope;
   const grant = {
     authorizationId: text(input.authorizationId),
     actorLogin: text(input.actorLogin),
     scope: Object.freeze({
-      provider: text(input.scope && input.scope.provider),
-      authority: text(input.scope && input.scope.authority),
-      owner: text(input.scope && input.scope.owner),
-      repo: text(input.scope && input.scope.repo)
+      provider: text(scope && read(scope, 'provider')),
+      authority: text(scope && read(scope, 'authority')),
+      owner: text(scope && read(scope, 'owner')),
+      repo: text(scope && read(scope, 'repo'))
     }),
     commit: text(input.commit),
     candidateFingerprint: text(input.candidateFingerprint),
@@ -788,7 +862,7 @@ function signVerificationAuthorization(input = {}) {
     issuedAt: text(input.issuedAt),
     expiresAt: text(input.expiresAt)
   };
-  const signature = crypto.createHmac('sha256', input.hmacKey)
+  const signature = createHmac('sha256', hmacKey)
     .update(authorizationMessage(grant), 'utf8')
     .digest('hex');
   return Object.freeze({ ...grant, signature });
@@ -799,45 +873,55 @@ function signVerificationAuthorization(input = {}) {
  * signature is checked before any field is read as meaningful, because an
  * unsigned grant's fields are just text a caller supplied.
  */
-function authorizationRefusal({ authorization, hmacKey, adapter, candidate, actorLogin, now }) {
-  if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
-  const signature = text(authorization.signature);
-  if (!signature && !text(authorization.authorizationId)) return REASONS.AUTHORIZATION_MISSING;
-  if (!SIGNATURE_PATTERN.test(signature)) return REASONS.AUTHORIZATION_INVALID;
+interface RefusalInput {
+  readonly authorization: unknown;
+  readonly hmacKey: Buffer | string;
+  readonly adapter: Adapter;
+  readonly candidate: Fields;
+  readonly actorLogin: unknown;
+  readonly now: number;
+}
 
-  const expected = crypto.createHmac('sha256', hmacKey)
+function authorizationRefusal({ authorization, hmacKey, adapter, candidate, actorLogin, now }: RefusalInput): VerificationReason | null {
+  if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
+  const signature = text(read(authorization, 'signature'));
+  if (!signature && !text(read(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
+  if (!isSha256Hex(signature)) return REASONS.AUTHORIZATION_INVALID;
+
+  const expected = createHmac('sha256', hmacKey)
     .update(authorizationMessage(authorization), 'utf8')
     .digest();
   const presented = Buffer.from(signature, 'hex');
   if (presented.length !== expected.length) return REASONS.AUTHORIZATION_INVALID;
-  if (!crypto.timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
+  if (!timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
 
-  const issuedAt = Date.parse(text(authorization.issuedAt));
-  const expiresAt = Date.parse(text(authorization.expiresAt));
+  const issuedAt = Date.parse(text(read(authorization, 'issuedAt')));
+  const expiresAt = Date.parse(text(read(authorization, 'expiresAt')));
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= issuedAt) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt - issuedAt > MAX_AUTHORIZATION_LIFETIME_MS) return REASONS.AUTHORIZATION_INVALID;
   if (issuedAt > now) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= now) return REASONS.AUTHORIZATION_EXPIRED;
-  if (!text(authorization.actorLogin)) return REASONS.AUTHORIZATION_INVALID;
+  if (!text(read(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
 
   /*
    * Bound to this candidate in this repository at this commit, for this
    * adapter against this target. A grant for any other combination is a grant
    * for a different question.
    */
-  const scope = authorization.scope && typeof authorization.scope === 'object' ? authorization.scope : {};
-  const bound = [
-    [text(scope.provider), text(candidate.scope && candidate.scope.provider)],
-    [text(scope.authority), text(candidate.scope && candidate.scope.authority)],
-    [text(scope.owner), text(candidate.scope && candidate.scope.owner)],
-    [text(scope.repo), text(candidate.scope && candidate.scope.repo)],
-    [text(authorization.commit), text(candidate.commit)],
-    [text(authorization.candidateFingerprint), text(candidate.fingerprint)],
-    [text(authorization.adapter), adapter.id],
-    [text(authorization.targetId), adapter.targetId]
+  const scope = fieldsOf(read(authorization, 'scope'));
+  const asked = candidate.scope;
+  const bound: [string, string][] = [
+    [text(scope.provider), text(asked && read(asked, 'provider'))],
+    [text(scope.authority), text(asked && read(asked, 'authority'))],
+    [text(scope.owner), text(asked && read(asked, 'owner'))],
+    [text(scope.repo), text(asked && read(asked, 'repo'))],
+    [text(read(authorization, 'commit')), text(candidate.commit)],
+    [text(read(authorization, 'candidateFingerprint')), text(candidate.fingerprint)],
+    [text(read(authorization, 'adapter')), adapter.id],
+    [text(read(authorization, 'targetId')), adapter.targetId]
   ];
-  if (actorLogin != null) bound.push([text(authorization.actorLogin), text(actorLogin)]);
+  if (actorLogin != null) bound.push([text(read(authorization, 'actorLogin')), text(actorLogin)]);
   for (const [granted, required] of bound) {
     if (!granted || granted !== required) return REASONS.AUTHORIZATION_MISMATCH;
   }
@@ -852,26 +936,54 @@ function authorizationRefusal({ authorization, hmacKey, adapter, candidate, acto
  * needs. The digest is keyed, under its own purpose, because a provider user
  * id is short and guessable and an unkeyed digest of it is the id.
  */
-function subjectDigestFor(subject, adapterId, subjectKey) {
+function subjectDigestFor(subject: unknown, adapterId: string, subjectKey: unknown): string | null {
   if (!subject || (!Buffer.isBuffer(subjectKey) && typeof subjectKey !== 'string')) return null;
-  return crypto.createHmac('sha256', subjectKey)
-    .update(`${adapterId}|${subject}`, 'utf8')
+  return createHmac('sha256', subjectKey)
+    .update(`${adapterId}|${String(subject)}`, 'utf8')
     .digest('hex')
     .slice(0, SUBJECT_DIGEST_CHARS);
 }
 
-function record(input) {
+/* One attempt, as it is recorded: never the credential, never the provider's answer. */
+export interface VerificationRecord {
+  readonly adapter: string | null;
+  readonly adapterVersion: number | null;
+  readonly authorizationId: string | null;
+  readonly candidateFingerprint: string | null;
+  readonly deduplicated: boolean;
+  readonly freshnessDeadline: string;
+  readonly observedAt: string;
+  readonly reason: VerificationReason;
+  readonly retryAfterMs: number | null;
+  readonly state: VerificationState;
+  readonly subjectDigest: string | null;
+  readonly targetId: string | null;
+}
+
+interface RecordInput {
+  readonly now: number;
+  readonly candidate: Fields;
+  readonly adapter: Adapter | null;
+  readonly authorizationId?: string | null;
+  readonly deduplicated?: boolean;
+  readonly state: VerificationState;
+  readonly reason: VerificationReason;
+  readonly retryAfterMs?: number | null | undefined;
+  readonly subjectDigest?: string | null;
+}
+
+function record(input: RecordInput): VerificationRecord {
   const observedAt = new Date(input.now).toISOString();
   return Object.freeze({
     adapter: input.adapter ? input.adapter.id : null,
     adapterVersion: input.adapter ? input.adapter.version : null,
     authorizationId: input.authorizationId || null,
-    candidateFingerprint: text(input.candidate && input.candidate.fingerprint) || null,
+    candidateFingerprint: text(input.candidate.fingerprint) || null,
     deduplicated: Boolean(input.deduplicated),
     freshnessDeadline: new Date(input.now + VERIFICATION_FRESHNESS_MS).toISOString(),
     observedAt,
     reason: input.reason,
-    retryAfterMs: Number.isFinite(input.retryAfterMs) ? input.retryAfterMs : null,
+    retryAfterMs: typeof input.retryAfterMs === 'number' && Number.isFinite(input.retryAfterMs) ? input.retryAfterMs : null,
     state: input.state,
     subjectDigest: input.subjectDigest || null,
     targetId: input.adapter ? input.adapter.targetId : null
@@ -879,25 +991,12 @@ function record(input) {
 }
 
 /*
- * An observation ages out; a verdict does not change by itself. A `verified`
- * record whose deadline has passed still records a credential that was seen
- * live -- what is no longer known is whether it still is, which is what
- * re-verification is for. Letting staleness read as `rejected` would resolve
- * findings by waiting.
- */
-function verificationFreshness(attempt, now) {
-  const deadline = Date.parse(text(attempt && attempt.freshnessDeadline));
-  if (!Number.isFinite(deadline)) return 'stale';
-  return now < deadline ? 'fresh' : 'stale';
-}
-
-/*
  * The transport speaks codes; this file needs a reason. A transport error
  * message is never carried across, because it can quote the request it failed
  * to send and the request carries the credential.
  */
-function transportRefusal(error) {
-  const code = text(error && error.code);
+function transportRefusal(error: unknown): VerificationReason {
+  const code = text(error && read(error, 'code'));
   if (code === 'GUARDED_FETCH_TIMEOUT' || code === 'GUARDED_FETCH_DEADLINE') return REASONS.TRANSPORT_TIMEOUT;
   if (code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE') return REASONS.MALFORMED_IDENTITY_RESPONSE;
   return REASONS.TRANSPORT_REFUSED;
@@ -909,9 +1008,29 @@ function transportRefusal(error) {
  * Returns `{ record, probed }`. `probed` is what a run counts against its
  * ceiling: a refusal that never reached the network cost nobody anything.
  */
-async function verifyOne(input) {
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
-  const candidate = input.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+/* What a probe is answered with; any of it may be missing. */
+export interface VerifierResponse {
+  readonly statusCode?: unknown;
+  readonly body?: unknown;
+  readonly headers?: unknown;
+}
+
+/* The guarded transport, or a stand-in with its shape. */
+export type VerifierTransport = (input: GuardedFetchInput) => Promise<VerifierResponse | null | undefined>;
+
+export interface VerifyInput {
+  readonly now?: unknown;
+  readonly candidate?: unknown;
+  readonly authorization?: unknown;
+  readonly authorizationKey?: unknown;
+  readonly subjectKey?: unknown;
+  readonly actorLogin?: unknown;
+  readonly transport?: VerifierTransport | undefined;
+}
+
+async function verifyOne(input: VerifyInput): Promise<{ readonly probed: boolean; readonly record: VerificationRecord }> {
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+  const candidate = fieldsOf(input.candidate);
   const rule = text(candidate.rule);
 
   /*
@@ -929,7 +1048,7 @@ async function verifyOne(input) {
       })
     };
   }
-  const known = ADAPTER_BY_RULE[rule];
+  const known = adapterForRule(rule);
   if (!known) {
     return {
       probed: false,
@@ -950,12 +1069,13 @@ async function verifyOne(input) {
     };
   }
 
-  if (!Buffer.isBuffer(input.authorizationKey) && typeof input.authorizationKey !== 'string') {
+  const authorizationKey = input.authorizationKey;
+  if (!Buffer.isBuffer(authorizationKey) && typeof authorizationKey !== 'string') {
     throw new TypeError('Credential verification requires a derived authorization key');
   }
   const refusal = authorizationRefusal({
     authorization: input.authorization,
-    hmacKey: input.authorizationKey,
+    hmacKey: authorizationKey,
     adapter,
     candidate,
     actorLogin: input.actorLogin,
@@ -970,7 +1090,7 @@ async function verifyOne(input) {
       })
     };
   }
-  const authorizationId = text(input.authorization.authorizationId);
+  const authorizationId = text(read(input.authorization, 'authorizationId'));
 
   /*
    * The URL is assembled from the adapter's own constants. A candidate can
@@ -978,14 +1098,16 @@ async function verifyOne(input) {
    * a query string, because a URL taken out of a repository is a URL an
    * attacker chose.
    */
-  const transport = typeof input.transport === 'function' ? input.transport : guardedFetch;
-  let response;
+  const transport: VerifierTransport = typeof input.transport === 'function' ? input.transport : guardedFetch;
+  /* adapterForCandidate has checked the secret is a string. */
+  const secret = String(candidate.secret);
+  let response: VerifierResponse | null | undefined;
   try {
     /* The credential travels in a header, in the scheme its provider
        documents; a bearer token is the default and the common case. */
     const credential = typeof adapter.credential === 'function'
-      ? adapter.credential(candidate.secret)
-      : { authorization: `Bearer ${candidate.secret}` };
+      ? adapter.credential(secret)
+      : { authorization: `Bearer ${secret}` };
     response = await transport({
       url: `${adapter.origin}${adapter.probePath}`,
       profile: adapter.profile,
@@ -1020,7 +1142,7 @@ async function verifyOne(input) {
   };
 }
 
-async function verifyCredential(input = {}) {
+export async function verifyCredential(input: VerifyInput = {}): Promise<VerificationRecord> {
   const { record: attempt } = await verifyOne(input);
   return attempt;
 }
@@ -1037,18 +1159,20 @@ async function verifyCredential(input = {}) {
  * has one process and the cost of a scan cannot scale with someone else's
  * checkout.
  */
-async function verifyCandidates(input = {}) {
-  const requests = Array.isArray(input.requests) ? input.requests : [];
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
-  const seen = new Map();
-  const throttled = new Map();
-  const records = [];
+export interface VerifyCandidatesInput extends Omit<VerifyInput, 'candidate' | 'authorization'> {
+  readonly requests?: unknown;
+}
+
+export async function verifyCandidates(input: VerifyCandidatesInput = {}): Promise<readonly VerificationRecord[]> {
+  const requests = listOf(input.requests);
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+  const seen = new Map<string, VerificationRecord>();
+  const throttled = new Map<string, { readonly reason: VerificationReason; readonly retryAfterMs: number | null }>();
+  const records: VerificationRecord[] = [];
   let probes = 0;
 
   for (const request of requests) {
-    const candidate = request && request.candidate && typeof request.candidate === 'object'
-      ? request.candidate
-      : {};
+    const candidate = fieldsOf(request && read(request, 'candidate'));
     const fingerprint = text(candidate.fingerprint);
     const adapter = adapterForCandidate(candidate);
 
@@ -1086,7 +1210,7 @@ async function verifyCandidates(input = {}) {
 
     const { record: attempt, probed } = await verifyOne({
       candidate,
-      authorization: request && request.authorization,
+      authorization: request && read(request, 'authorization'),
       authorizationKey: input.authorizationKey,
       subjectKey: input.subjectKey,
       actorLogin: input.actorLogin,
@@ -1104,19 +1228,4 @@ async function verifyCandidates(input = {}) {
   return Object.freeze(records);
 }
 
-module.exports = Object.freeze({
-  ADAPTERS,
-  DEFAULT_TRANSPORT: guardedFetch,
-  MAX_AUTHORIZATION_LIFETIME_MS,
-  MAX_PROBES_PER_RUN,
-  MAX_RETRY_AFTER_MS,
-  PROBE_MAX_RESPONSE_BYTES,
-  REASONS,
-  VERIFICATION_FRESHNESS_MS,
-  VERIFICATION_STATES,
-  adapterForCandidate,
-  signVerificationAuthorization,
-  verificationFreshness,
-  verifyCandidates,
-  verifyCredential
-});
+export const DEFAULT_TRANSPORT = guardedFetch;

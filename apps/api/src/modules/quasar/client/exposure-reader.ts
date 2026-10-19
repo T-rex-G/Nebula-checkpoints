@@ -1,8 +1,7 @@
-'use strict';
-
-const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
-const { MAX_ARCHIVE_BYTES, archiveKind, openArchive } = require('./exposure-archives');
-const { PATH_RULES } = require('./exposure-rules');
+import { PROFILES, guardedFetch, type GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
+import { MAX_ARCHIVE_BYTES, archiveKind, openArchive, type ArchiveKind, type ArchiveMember, type NamedMember } from '../domain/exposure-archives.ts';
+import { PATH_RULES } from '../domain/exposure-rules.ts';
+import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 
 /*
  * Reading a repository without having a copy of it.
@@ -31,7 +30,7 @@ const { PATH_RULES } = require('./exposure-rules');
  */
 
 /* An entry a scan declined to read, with the reason, so coverage can say so. */
-const SKIP_REASONS = Object.freeze({
+export const SKIP_REASONS = Object.freeze({
   NOT_A_FILE: 'not-a-file',
   SYMLINK: 'symlink',
   SUBMODULE: 'submodule',
@@ -40,7 +39,8 @@ const SKIP_REASONS = Object.freeze({
   LFS_POINTER: 'lfs-pointer',
   UNSAFE_PATH: 'unsafe-path',
   UNREADABLE: 'unreadable'
-});
+} as const);
+export type SkipReason = (typeof SKIP_REASONS)[keyof typeof SKIP_REASONS];
 
 /*
  * Bounds, and each is a number this server can afford rather than a number the
@@ -48,14 +48,14 @@ const SKIP_REASONS = Object.freeze({
  * stops at a fifth of that, because the work after the tree read is a blob
  * fetch per file and one free web service cannot spend that.
  */
-const MAX_TREE_ENTRIES = 20_000;
-const MAX_BLOB_BYTES = 512 * 1024;
-const MAX_PATH_LENGTH = 1024;
+export const MAX_TREE_ENTRIES = 20_000;
+export const MAX_BLOB_BYTES = 512 * 1024;
+export const MAX_PATH_LENGTH = 1024;
 const MAX_TREE_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_BLOB_RESPONSE_BYTES = 1024 * 1024;
 
 /* A blob mode is a file, an executable file, a symlink or a gitlink. */
-const FILE_MODES = Object.freeze(['100644', '100755']);
+const FILE_MODES: readonly string[] = Object.freeze(['100644', '100755']);
 const SYMLINK_MODE = '120000';
 const GITLINK_MODE = '160000';
 
@@ -67,8 +67,8 @@ const LFS_POINTER_PREFIX = 'version https://git-lfs.github.com/spec/v1';
  * 3,000, which is thirty of these pages; a commit past that is reported as
  * partly read rather than quietly shortened.
  */
-const COMMIT_PAGE_SIZE = 100;
-const COMMIT_FILES_PAGE_SIZE = 100;
+export const COMMIT_PAGE_SIZE = 100;
+export const COMMIT_FILES_PAGE_SIZE = 100;
 const MAX_COMMIT_FILE_PAGES = 30;
 const MAX_COMMIT_LIST_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_COMMIT_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -87,7 +87,7 @@ const MAX_COMMIT_RESPONSE_BYTES = 8 * 1024 * 1024;
  * `.dat`). The outcome is identical to before -- the file is reported as not
  * read and coverage says partial -- and only the request is saved.
  */
-const BINARY_EXTENSIONS = new Set([
+export const BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'tif', 'tiff', 'psd', 'heic', 'avif',
   'woff', 'woff2', 'ttf', 'otf', 'eot',
   'zip', 'gz', 'tgz', 'bz2', 'xz', '7z', 'rar', 'jar', 'war', 'ear', 'apk', 'aab', 'ipa',
@@ -101,27 +101,47 @@ const BINARY_EXTENSIONS = new Set([
   'p12', 'pfx', 'jks', 'keystore', 'bks', 'kdbx', 'kdb'
 ]);
 
-function extensionOf(filePath) {
+export function extensionOf(filePath: unknown): string {
   const name = String(filePath || '').split('/').pop() || '';
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-class ExposureReaderError extends Error {
+export class ExposureReaderError extends Error {
+  override readonly name = 'ExposureReaderError';
+  readonly code: string;
+  readonly status: number;
+
   /*
    * Carries a code and fixed text. Every request this module makes has the
    * reader's session token in a header, and an error that quotes its own
    * request writes that token into whatever reads the error.
    */
-  constructor(message, code = 'EXPOSURE_READ_FAILED', status = 502) {
+  constructor(message: string, code = 'EXPOSURE_READ_FAILED', status = 502) {
     super(message);
-    this.name = 'ExposureReaderError';
     this.code = code;
     this.status = status;
   }
 }
 
-function text(value) {
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+/* A list from an answer, or none. */
+function listOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/* A Git object id: SHA-1 or SHA-256, lower-case hex. */
+function isObjectId(value: string): boolean {
+  return isCommitSha(value) || isSha256Hex(value);
+}
+
+function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
@@ -131,7 +151,7 @@ function text(value) {
  * this server and another to whatever displays it, and a path that could be
  * read as reaching outside the repository it belongs to.
  */
-function safePath(value) {
+export function safePath(value: unknown): value is string {
   const candidate = typeof value === 'string' ? value : '';
   if (!candidate || candidate.length > MAX_PATH_LENGTH) return false;
   /* Control characters, which includes the newline that would let one path
@@ -152,8 +172,13 @@ function safePath(value) {
  * a reason otherwise. A directory is `not-a-file` rather than a skip a reader
  * should be told about: there was never a file there to miss.
  */
-function classifyTreeEntry(entry) {
-  const source = entry && typeof entry === 'object' ? entry : {};
+export interface TreeEntryClass {
+  readonly skip: SkipReason | null;
+  readonly archive?: ArchiveKind;
+}
+
+export function classifyTreeEntry(entry: unknown): TreeEntryClass {
+  const source: Fields = entry && typeof entry === 'object' ? entry as Fields : {};
   const type = text(source.type);
   const mode = text(source.mode);
 
@@ -164,13 +189,14 @@ function classifyTreeEntry(entry) {
   if (type !== 'blob') return { skip: SKIP_REASONS.NOT_A_FILE };
   if (!FILE_MODES.includes(mode)) return { skip: SKIP_REASONS.UNREADABLE };
   if (!safePath(source.path)) return { skip: SKIP_REASONS.UNSAFE_PATH };
-  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(text(source.sha))) return { skip: SKIP_REASONS.UNREADABLE };
+  if (!isObjectId(text(source.sha))) return { skip: SKIP_REASONS.UNREADABLE };
   /*
    * An entry with no size is not a small file. The tree endpoint reports a
    * size for every blob, so its absence means this entry is not what it
    * appears to be -- and reading it would be reading an unbounded thing.
    */
-  if (!Number.isInteger(source.size) || source.size < 0) return { skip: SKIP_REASONS.UNREADABLE };
+  const size = source.size;
+  if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) return { skip: SKIP_REASONS.UNREADABLE };
   /*
    * An archive is opened rather than skipped: its files are one download away
    * from anyone who can read the repository. It has its own, larger ceiling,
@@ -178,10 +204,10 @@ function classifyTreeEntry(entry) {
    */
   const archive = archiveKind(source.path);
   if (archive) {
-    if (source.size > MAX_ARCHIVE_BYTES) return { skip: SKIP_REASONS.OVERSIZE };
+    if (size > MAX_ARCHIVE_BYTES) return { skip: SKIP_REASONS.OVERSIZE };
     return { skip: null, archive };
   }
-  if (source.size > MAX_BLOB_BYTES) return { skip: SKIP_REASONS.OVERSIZE };
+  if (size > MAX_BLOB_BYTES) return { skip: SKIP_REASONS.OVERSIZE };
   if (BINARY_EXTENSIONS.has(extensionOf(source.path))) return { skip: SKIP_REASONS.BINARY };
   return { skip: null };
 }
@@ -194,8 +220,24 @@ function classifyTreeEntry(entry) {
  * Another provider gets a reader when somebody has read its documentation and
  * written the fixtures.
  */
-const READERS = Object.freeze({
-  github: Object.freeze({
+export interface ReaderScope {
+  readonly owner: string;
+  readonly repo: string;
+}
+
+export interface Reader {
+  readonly provider: string;
+  readonly origin: string;
+  readonly headers: Readonly<Record<string, string>>;
+  treePath(scope: ReaderScope, commitSha: string): string;
+  blobPath(scope: ReaderScope, sha: string): string;
+  commitPath(scope: ReaderScope, ref: string): string;
+  commitListPath(scope: ReaderScope, commitSha: string, page: number): string;
+  commitChangesPath(scope: ReaderScope, commitSha: string, page: number): string;
+}
+
+const READERS: Readonly<Record<string, Reader>> = Object.freeze({
+  github: Object.freeze<Reader>({
     provider: 'github',
     origin: 'https://api.github.com',
     headers: Object.freeze({
@@ -219,12 +261,14 @@ const READERS = Object.freeze({
   })
 });
 
-function readerFor(provider) {
-  return READERS[text(provider)] || null;
+/* Only a provider this module names: an inherited key is not a reader. */
+export function readerFor(provider: unknown): Reader | null {
+  const key = text(provider);
+  return (Object.hasOwn(READERS, key) && READERS[key]) || null;
 }
 
-function requireReader(scope) {
-  const reader = readerFor(scope && scope.provider);
+function requireReader(scope: unknown): Reader {
+  const reader = readerFor(scope && read(scope, 'provider'));
   if (!reader) {
     throw new ExposureReaderError(
       'No exposure reader is implemented for this provider',
@@ -235,8 +279,8 @@ function requireReader(scope) {
   return reader;
 }
 
-function requireScope(scope) {
-  const source = scope && typeof scope === 'object' ? scope : {};
+function requireScope(scope: unknown): ReaderScope {
+  const source: Fields = scope && typeof scope === 'object' ? scope as Fields : {};
   const owner = text(source.owner);
   const repo = text(source.repo);
   if (!owner || !repo) throw new ExposureReaderError('A read requires an owner and a repository', 'EXPOSURE_SCOPE_INVALID', 400);
@@ -250,15 +294,15 @@ function requireScope(scope) {
  * together. The ref is resolved once, before the scan is accepted, and what
  * arrives here is the answer.
  */
-function requireCommit(commitSha) {
+function requireCommit(commitSha: unknown): string {
   const value = text(commitSha).toLowerCase();
-  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(value)) {
+  if (!isObjectId(value)) {
     throw new ExposureReaderError('A tree must be read at an immutable commit', 'EXPOSURE_COMMIT_INVALID', 400);
   }
   return value;
 }
 
-function requireToken(token) {
+function requireToken(token: unknown): string {
   const value = typeof token === 'string' ? token : '';
   if (!value) throw new ExposureReaderError('A repository read requires an authorized session', 'EXPOSURE_AUTHORIZATION_MISSING', 401);
   return value;
@@ -269,7 +313,7 @@ function requireToken(token) {
  * way, so it stops the scan rather than being skipped file by file -- and the
  * scan stops holding the token, rather than keeping it to retry with.
  */
-function assertAuthorized(statusCode) {
+function assertAuthorized(statusCode: number): void {
   if (statusCode === 401) {
     throw new ExposureReaderError(
       'The authorized session for this repository is no longer valid',
@@ -279,17 +323,37 @@ function assertAuthorized(statusCode) {
   }
 }
 
-async function request({ scope, reader, apiPath, token, transport, maxResponseBytes, accept = '' }) {
-  const send = typeof transport === 'function' ? transport : guardedFetch;
+/* What a read is answered with: a status and a body, either of which may be missing. */
+export interface ReaderResponse {
+  readonly statusCode?: unknown;
+  readonly body?: unknown;
+}
+
+/* The guarded transport, or a stand-in with its shape. */
+export type ReaderTransport = (input: GuardedFetchInput) => Promise<ReaderResponse | null | undefined>;
+
+interface ReadRequest {
+  readonly scope: ReaderScope;
+  readonly reader: Reader;
+  readonly apiPath: string;
+  readonly token: string;
+  readonly transport?: ReaderTransport | undefined;
+  readonly maxResponseBytes: number;
+  readonly accept?: string;
+}
+
+async function request({ scope, reader, apiPath, token, transport, maxResponseBytes, accept = '' }: ReadRequest): Promise<ReaderResponse | null | undefined> {
+  const send: ReaderTransport = typeof transport === 'function' ? transport : guardedFetch;
+  const headers: NonNullable<GuardedFetchInput['headers']> = { ...reader.headers, ...(accept ? { accept } : {}), authorization: `Bearer ${token}` };
   try {
     return await send({
       url: `${reader.origin}${apiPath}`,
       profile: PROFILES.PROVIDER_READ,
       method: 'GET',
-      headers: { ...reader.headers, ...(accept ? { accept } : {}), authorization: `Bearer ${token}` },
+      headers,
       maxResponseBytes
     });
-  } catch (error) {
+  } catch {
     /* The transport's own error can quote the request it failed to send, so
        only its code crosses this boundary. */
     throw new ExposureReaderError(
@@ -302,12 +366,20 @@ async function request({ scope, reader, apiPath, token, transport, maxResponseBy
   }
 }
 
-function parsed(response, maxBytes) {
-  const body = response && typeof response.body === 'string' ? response.body : '';
+function bodyText(response: ReaderResponse | null | undefined): string {
+  return response && typeof response.body === 'string' ? response.body : '';
+}
+
+function statusOf(response: ReaderResponse | null | undefined): number {
+  return Number(response && response.statusCode);
+}
+
+function parsed(response: ReaderResponse | null | undefined, maxBytes: number): Fields | null {
+  const body = bodyText(response);
   if (!body || body.length > maxBytes) return null;
   try {
-    const value = JSON.parse(body);
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    const value: unknown = JSON.parse(body);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Fields : null;
   } catch {
     return null;
   }
@@ -321,7 +393,7 @@ function parsed(response, maxBytes) {
  */
 const REF_PATTERN = /^(?!-)[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/;
 
-function requireRef(ref) {
+function requireRef(ref: unknown): string {
   const value = text(ref);
   if (!value || value.endsWith('/') || !REF_PATTERN.test(value) || value.split('/').some(part => part === '' || part === '.' || part === '..')) {
     throw new ExposureReaderError('A scan ref must be a branch, tag or object id', 'EXPOSURE_REF_INVALID', 400);
@@ -338,7 +410,14 @@ function requireRef(ref) {
  * locations that never existed together -- so this function exists once and
  * the worker deliberately cannot reach it.
  */
-async function resolveCommit(input = {}) {
+/* What a read is asked with. Each field is checked before it is used. */
+export interface ReadInput {
+  readonly scope?: unknown;
+  readonly token?: unknown;
+  readonly transport?: ReaderTransport | undefined;
+}
+
+export async function resolveCommit(input: ReadInput & { readonly ref?: unknown } = {}): Promise<{ readonly ref: string; readonly commitSha: string }> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const ref = requireRef(input.ref);
@@ -349,15 +428,15 @@ async function resolveCommit(input = {}) {
     /* Ask for the immutable id alone, not a potentially enormous merge diff. */
     transport: input.transport, maxResponseBytes: 1024, accept: 'application/vnd.github.sha'
   });
-  assertAuthorized(Number(response && response.statusCode));
-  if ([403, 429].includes(Number(response && response.statusCode)) || Number(response && response.statusCode) >= 500) {
+  assertAuthorized(statusOf(response));
+  if ([403, 429].includes(statusOf(response)) || statusOf(response) >= 500) {
     throw new ExposureReaderError('The provider could not complete the read', 'EXPOSURE_READ_FAILED', 502);
   }
-  if (Number(response && response.statusCode) !== 200) {
+  if (statusOf(response) !== 200) {
     throw new ExposureReaderError('That ref could not be resolved', 'EXPOSURE_REF_UNRESOLVED', 404);
   }
   const sha = text(response && response.body).toLowerCase();
-  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+  if (!isObjectId(sha)) {
     throw new ExposureReaderError('That ref did not resolve to a commit', 'EXPOSURE_REF_UNRESOLVED', 502);
   }
   return Object.freeze({ ref, commitSha: sha });
@@ -367,7 +446,28 @@ async function resolveCommit(input = {}) {
  * The tree at a commit, filtered to the files a scan may read, with everything
  * it declined reported alongside.
  */
-async function readTree(input = {}) {
+export interface TreeFile {
+  readonly path: string;
+  readonly sha: string;
+  readonly size: number;
+  readonly archive?: ArchiveKind;
+}
+
+export interface SkippedEntry {
+  readonly path: string;
+  readonly reason: SkipReason;
+  readonly sha: string | null;
+}
+
+export interface Tree {
+  readonly commitSha: string;
+  readonly entries: readonly TreeFile[];
+  readonly skipped: readonly SkippedEntry[];
+  readonly truncated: boolean;
+  readonly skippedReason: 'tree-truncated' | null;
+}
+
+export async function readTree(input: ReadInput & { readonly commitSha?: unknown } = {}): Promise<Tree> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const commitSha = requireCommit(input.commitSha);
@@ -377,8 +477,8 @@ async function readTree(input = {}) {
     scope, reader, apiPath: reader.treePath(scope, commitSha), token,
     transport: input.transport, maxResponseBytes: MAX_TREE_RESPONSE_BYTES
   });
-  assertAuthorized(Number(response && response.statusCode));
-  if (Number(response && response.statusCode) !== 200) {
+  assertAuthorized(statusOf(response));
+  if (statusOf(response) !== 200) {
     throw new ExposureReaderError('The repository tree could not be read', 'EXPOSURE_TREE_UNAVAILABLE', 502);
   }
   const body = parsed(response, MAX_TREE_RESPONSE_BYTES);
@@ -391,18 +491,19 @@ async function readTree(input = {}) {
     throw new ExposureReaderError('The repository tree response was not a tree', 'EXPOSURE_TREE_INVALID', 502);
   }
 
-  const entries = [];
-  const skipped = [];
+  const entries: TreeFile[] = [];
+  const skipped: SkippedEntry[] = [];
   let truncated = Boolean(body.truncated);
-  for (const entry of body.tree) {
+  for (const entry of listOf(body.tree)) {
     if (entries.length >= MAX_TREE_ENTRIES) {
       truncated = true;
       break;
     }
     const { skip, archive } = classifyTreeEntry(entry);
     if (!skip) {
+      /* A file this scan may read: classifyTreeEntry has checked its path is a string and its size an integer. */
       entries.push(Object.freeze({
-        path: entry.path, sha: text(entry.sha).toLowerCase(), size: entry.size,
+        path: String(read(entry, 'path')), sha: text(read(entry, 'sha')).toLowerCase(), size: Number(read(entry, 'size')),
         ...(archive ? { archive } : {})
       }));
       continue;
@@ -414,12 +515,13 @@ async function readTree(input = {}) {
      * file can be an exposure without being read: a committed keystore is one
      * whatever its bytes say, and its identity is the blob, not a string in it.
      */
-    const safe = skip !== SKIP_REASONS.UNSAFE_PATH && safePath(entry.path);
-    const sha = text(entry.sha).toLowerCase();
+    const entryPath = read(entry, 'path');
+    const safe = skip !== SKIP_REASONS.UNSAFE_PATH && safePath(entryPath);
+    const sha = text(read(entry, 'sha')).toLowerCase();
     skipped.push(Object.freeze({
-      path: safe ? entry.path : '',
+      path: safe ? entryPath : '',
       reason: skip,
-      sha: safe && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha) ? sha : null
+      sha: safe && isObjectId(sha) ? sha : null
     }));
   }
 
@@ -433,9 +535,9 @@ async function readTree(input = {}) {
   });
 }
 
-function utf16Text(bytes) {
+export function utf16Text(bytes: Buffer | null | undefined): string | null {
   if (!bytes || bytes.length < 4 || bytes.length % 2 !== 0) return null;
-  let encoding = null;
+  let encoding: 'utf-16le' | 'utf-16be';
   let body = bytes;
   if (bytes[0] === 0xff && bytes[1] === 0xfe) { encoding = 'utf-16le'; body = bytes.subarray(2); }
   else if (bytes[0] === 0xfe && bytes[1] === 0xff) { encoding = 'utf-16be'; body = bytes.subarray(2); }
@@ -450,7 +552,7 @@ function utf16Text(bytes) {
     if (wide / pairs < 0.9) return null;
     encoding = 'utf-16le';
   }
-  let decoded;
+  let decoded: string;
   try {
     decoded = new TextDecoder(encoding, { fatal: true }).decode(body);
   } catch {
@@ -470,12 +572,18 @@ function utf16Text(bytes) {
  * than an error -- the exception being a revoked session, which would make
  * every remaining read fail identically.
  */
-async function readBlob(input = {}) {
+/* A file's text, or the reason there is none. */
+export interface BlobText {
+  readonly text: string | null;
+  readonly skip: string | null;
+}
+
+export async function readBlob(input: ReadInput & { readonly sha?: unknown; readonly path?: unknown } = {}): Promise<BlobText> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const token = requireToken(input.token);
   const sha = text(input.sha).toLowerCase();
-  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+  if (!isObjectId(sha)) {
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
 
@@ -483,8 +591,8 @@ async function readBlob(input = {}) {
     scope, reader, apiPath: reader.blobPath(scope, sha), token,
     transport: input.transport, maxResponseBytes: MAX_BLOB_RESPONSE_BYTES
   });
-  assertAuthorized(Number(response && response.statusCode));
-  if (Number(response && response.statusCode) !== 200) {
+  assertAuthorized(statusOf(response));
+  if (statusOf(response) !== 200) {
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
   const body = parsed(response, MAX_BLOB_RESPONSE_BYTES);
@@ -492,7 +600,7 @@ async function readBlob(input = {}) {
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
 
-  let bytes;
+  let bytes: Buffer;
   try {
     bytes = Buffer.from(body.content, 'base64');
   } catch {
@@ -513,7 +621,7 @@ async function readBlob(input = {}) {
  * Bytes as text, or why not -- the one rule for what counts as a text file,
  * used for a blob and for a file inside an archive alike.
  */
-function textFromBytes(bytes) {
+export function textFromBytes(bytes: Buffer): BlobText {
   /*
    * Windows tools write UTF-16 -- a `.reg` export, a PowerShell profile, a
    * config saved from Notepad -- and every other character of it is a NUL, so
@@ -529,7 +637,7 @@ function textFromBytes(bytes) {
   if (bytes.includes(0)) {
     return Object.freeze({ text: null, skip: SKIP_REASONS.BINARY });
   }
-  let decoded;
+  let decoded: string;
   try {
     decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
@@ -552,7 +660,7 @@ function textFromBytes(bytes) {
 /* ---- Many files in one request ----------------------------------------- */
 
 const GRAPHQL_URL = 'https://api.github.com/graphql';
-const MAX_TEXTS_PER_QUERY = 100;
+export const MAX_TEXTS_PER_QUERY = 100;
 /* JSON-escaped text runs somewhat larger than the bytes it carries. */
 const MAX_TEXTS_RESPONSE_BYTES = 8 * 1024 * 1024;
 
@@ -566,7 +674,10 @@ const MAX_TEXTS_RESPONSE_BYTES = 8 * 1024 * 1024;
  * every file in it unreadable rather than failing the audit -- except a
  * revoked session, which would fail every request after it the same way.
  */
-async function readBlobTexts(input = {}) {
+/* Texts by path; `failed` says the request itself did not complete. */
+export type BlobTexts = Map<string, BlobText> & { failed?: boolean };
+
+export async function readBlobTexts(input: ReadInput & { readonly commitSha?: unknown; readonly paths?: unknown } = {}): Promise<BlobTexts> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   if (reader !== READERS.github) {
@@ -574,21 +685,20 @@ async function readBlobTexts(input = {}) {
   }
   const token = requireToken(input.token);
   const commitSha = requireCommit(input.commitSha);
-  const paths = (Array.isArray(input.paths) ? input.paths : []).filter(filePath => safePath(filePath)).slice(0, MAX_TEXTS_PER_QUERY);
-  /** @type {Map<string, { text: string | null, skip: string | null }> & { failed?: boolean }} */
-  const out = new Map();
+  const paths = listOf(input.paths).filter(filePath => safePath(filePath)).slice(0, MAX_TEXTS_PER_QUERY);
+  const out: BlobTexts = new Map();
   if (!paths.length) return out;
-  const variables = { owner: scope.owner, name: scope.repo };
+  const variables: Record<string, string> = { owner: scope.owner, name: scope.repo };
   const declarations = ['$owner: String!', '$name: String!'];
-  const fields = [];
+  const fields: string[] = [];
   paths.forEach((filePath, index) => {
     variables[`e${index}`] = `${commitSha}:${filePath}`;
     declarations.push(`$e${index}: String!`);
     fields.push(`f${index}: object(expression: $e${index}) { ... on Blob { text isBinary isTruncated byteSize } }`);
   });
   const query = `query(${declarations.join(', ')}) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
-  const send = typeof input.transport === 'function' ? input.transport : guardedFetch;
-  let response;
+  const send: ReaderTransport = typeof input.transport === 'function' ? input.transport : guardedFetch;
+  let response: ReaderResponse | null | undefined;
   try {
     response = await send({
       url: GRAPHQL_URL,
@@ -607,17 +717,20 @@ async function readBlobTexts(input = {}) {
     out.failed = true;
     return out;
   }
-  assertAuthorized(Number(response && response.statusCode));
-  const body = Number(response && response.statusCode) === 200 ? parsed(response, MAX_TEXTS_RESPONSE_BYTES) : null;
-  const repository = body && body.data && body.data.repository && typeof body.data.repository === 'object' ? body.data.repository : null;
+  assertAuthorized(statusOf(response));
+  const body = statusOf(response) === 200 ? parsed(response, MAX_TEXTS_RESPONSE_BYTES) : null;
+  const data = body && body.data;
+  const found = data && read(data, 'repository');
+  const repository = found && typeof found === 'object' ? found : null;
   paths.forEach((filePath, index) => {
-    const blob = repository ? repository[`f${index}`] : null;
+    const blob = repository ? read(repository, `f${index}`) : null;
     if (!blob || typeof blob !== 'object') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE }));
-    if (blob.isBinary === true || typeof blob.text !== 'string') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
-    if (blob.isTruncated === true || Number(blob.byteSize) > MAX_BLOB_BYTES) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.OVERSIZE }));
-    if (blob.text.includes('\u0000')) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
-    if (blob.text.startsWith(LFS_POINTER_PREFIX)) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.LFS_POINTER }));
-    return out.set(filePath, Object.freeze({ text: blob.text, skip: null }));
+    const blobText = read(blob, 'text');
+    if (read(blob, 'isBinary') === true || typeof blobText !== 'string') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
+    if (read(blob, 'isTruncated') === true || Number(read(blob, 'byteSize')) > MAX_BLOB_BYTES) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.OVERSIZE }));
+    if (blobText.includes('\u0000')) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
+    if (blobText.startsWith(LFS_POINTER_PREFIX)) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.LFS_POINTER }));
+    return out.set(filePath, Object.freeze({ text: blobText, skip: null }));
   });
   return out;
 }
@@ -626,9 +739,20 @@ async function readBlobTexts(input = {}) {
 
 /* Base64 inside JSON is a third larger than the bytes it carries. */
 const MAX_ARCHIVE_RESPONSE_BYTES = Math.ceil(MAX_ARCHIVE_BYTES * 1.4) + 64 * 1024;
-const PATH_RULE_EXTENSIONS = Object.freeze(PATH_RULES.flatMap(rule => rule.extensions));
+const PATH_RULE_EXTENSIONS: readonly string[] = Object.freeze(PATH_RULES.flatMap(rule => rule.extensions));
 
-function archiveSkip(reason) {
+/* What an archive held, or why it was not opened. */
+export interface ArchiveRead {
+  readonly skip: SkipReason | null;
+  readonly members: readonly ArchiveMember[];
+  readonly named: readonly NamedMember[];
+  readonly examined: number;
+  readonly membersSkipped: number;
+  readonly membersSkippedBinary: number;
+  readonly truncated: boolean;
+}
+
+function archiveSkip(reason: SkipReason): ArchiveRead {
   return Object.freeze({
     skip: reason, members: Object.freeze([]), named: Object.freeze([]),
     examined: 0, membersSkipped: 0, membersSkippedBinary: 0, truncated: false
@@ -640,17 +764,17 @@ function archiveSkip(reason) {
  * `<archive>!/<member>`, with credential containers found by name and counts
  * of what was not read. An archive that does not parse is one unreadable file.
  */
-async function readArchive(input = {}) {
+export async function readArchive(input: ReadInput & { readonly sha?: unknown; readonly path?: unknown } = {}): Promise<ArchiveRead> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const token = requireToken(input.token);
   const sha = text(input.sha).toLowerCase();
   const archivePath = typeof input.path === 'string' ? input.path : '';
   const kind = archiveKind(archivePath);
-  if (!kind || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) {
+  if (!kind || !isObjectId(sha)) {
     return archiveSkip(SKIP_REASONS.UNREADABLE);
   }
-  let response;
+  let response: ReaderResponse | null | undefined;
   try {
     response = await request({
       scope, reader, apiPath: reader.blobPath(scope, sha), token,
@@ -659,8 +783,8 @@ async function readArchive(input = {}) {
   } catch {
     return archiveSkip(SKIP_REASONS.OVERSIZE);
   }
-  assertAuthorized(Number(response && response.statusCode));
-  if (Number(response && response.statusCode) !== 200) return archiveSkip(SKIP_REASONS.UNREADABLE);
+  assertAuthorized(statusOf(response));
+  if (statusOf(response) !== 200) return archiveSkip(SKIP_REASONS.UNREADABLE);
   const body = parsed(response, MAX_ARCHIVE_RESPONSE_BYTES);
   if (!body || text(body.encoding) !== 'base64' || typeof body.content !== 'string') {
     return archiveSkip(SKIP_REASONS.UNREADABLE);
@@ -680,7 +804,7 @@ async function readArchive(input = {}) {
     named: opened.named,
     examined: opened.examined,
     membersSkipped: skippedCount,
-    membersSkippedBinary: /** @type {Record<string, number>} */ (opened.skipped).binary || 0,
+    membersSkippedBinary: opened.skipped.binary || 0,
     truncated: opened.truncated
   });
 }
@@ -690,7 +814,7 @@ async function readArchive(input = {}) {
  * or a readability probe re-detects rather than trusting anything stored. A
  * path inside an archive is read by opening that archive at that commit.
  */
-async function readFileAtCommit(input = {}) {
+export async function readFileAtCommit(input: ReadInput & { readonly commitSha?: unknown; readonly path?: unknown } = {}): Promise<BlobText> {
   const filePath = typeof input.path === 'string' ? input.path : '';
   const marker = filePath.indexOf('!/');
   const outer = marker > 0 ? filePath.slice(0, marker) : filePath;
@@ -726,11 +850,11 @@ async function readFileAtCommit(input = {}) {
  * happened to leave it alone.
  */
 
-function parsedArray(response, maxBytes) {
-  const body = response && typeof response.body === 'string' ? response.body : '';
+function parsedArray(response: ReaderResponse | null | undefined, maxBytes: number): readonly unknown[] | null {
+  const body = bodyText(response);
   if (!body || body.length > maxBytes) return null;
   try {
-    const value = JSON.parse(body);
+    const value: unknown = JSON.parse(body);
     return Array.isArray(value) ? value : null;
   } catch {
     return null;
@@ -743,7 +867,7 @@ function parsedArray(response, maxBytes) {
  * a scan -- recorded as partial, with the reason -- instead of being counted
  * as one unreadable commit after another.
  */
-function assertNotThrottled(statusCode) {
+function assertNotThrottled(statusCode: number): void {
   if (statusCode === 403 || statusCode === 429) {
     throw new ExposureReaderError(
       'The provider asked for fewer requests',
@@ -753,11 +877,14 @@ function assertNotThrottled(statusCode) {
   }
 }
 
-function commitDate(item) {
-  const commit = item && item.commit && typeof item.commit === 'object' ? item.commit : {};
-  const committed = Date.parse(text(commit.committer && commit.committer.date));
+function commitDate(item: unknown): string | null {
+  const found = item && read(item, 'commit');
+  const commit = found && typeof found === 'object' ? found : {};
+  const committer = read(commit, 'committer');
+  const committed = Date.parse(text(committer && read(committer, 'date')));
   if (Number.isFinite(committed)) return new Date(committed).toISOString();
-  const authored = Date.parse(text(commit.author && commit.author.date));
+  const author = read(commit, 'author');
+  const authored = Date.parse(text(author && read(author, 'date')));
   return Number.isFinite(authored) ? new Date(authored).toISOString() : null;
 }
 
@@ -768,15 +895,28 @@ function commitDate(item) {
  * the bounded reachable history again until ancestry coverage can be proven.
  * Only ids, dates and parent counts are retained, never authors or messages.
  */
-async function listCommits(input = {}) {
+export interface CommitSummary {
+  readonly sha: string;
+  readonly committedAt: string | null;
+  readonly parents: number;
+}
+
+export interface HistoryInput extends ReadInput {
+  readonly commitSha?: unknown;
+  readonly maxCommits?: unknown;
+  readonly beforePage?: (() => unknown) | undefined;
+}
+
+export async function listCommits(input: HistoryInput = {}): Promise<{ readonly commits: readonly CommitSummary[]; readonly truncated: boolean }> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const commitSha = requireCommit(input.commitSha);
   const token = requireToken(input.token);
-  const maxCommits = Number.isInteger(input.maxCommits) && input.maxCommits > 0 ? input.maxCommits : 1000;
+  const asked = input.maxCommits;
+  const maxCommits = typeof asked === 'number' && Number.isInteger(asked) && asked > 0 ? asked : 1000;
 
-  const commits = [];
-  const seen = new Set();
+  const commits: CommitSummary[] = [];
+  const seen = new Set<string>();
   let truncated = false;
   /* A repeated or malformed full page must not create an endless listing.
      One lookahead page distinguishes an exact ceiling from a longer history. */
@@ -787,7 +927,7 @@ async function listCommits(input = {}) {
       scope, reader, apiPath: reader.commitListPath(scope, commitSha, page), token,
       transport: input.transport, maxResponseBytes: MAX_COMMIT_LIST_RESPONSE_BYTES
     });
-    const status = Number(response && response.statusCode);
+    const status = statusOf(response);
     assertAuthorized(status);
     assertNotThrottled(status);
     /* An empty repository answers 409 to a history read. Anything else that
@@ -801,14 +941,14 @@ async function listCommits(input = {}) {
       throw new ExposureReaderError('The repository history response was not a list', 'EXPOSURE_HISTORY_INVALID', 502);
     }
     for (const item of items) {
-      const sha = text(item && item.sha).toLowerCase();
-      if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha) || seen.has(sha)) continue;
+      const sha = text(item && read(item, 'sha')).toLowerCase();
+      if (!isObjectId(sha) || seen.has(sha)) continue;
       if (commits.length >= maxCommits) { truncated = true; break; }
       seen.add(sha);
       commits.push(Object.freeze({
         sha,
         committedAt: commitDate(item),
-        parents: Array.isArray(item && item.parents) ? item.parents.length : 0
+        parents: listOf(item && read(item, 'parents')).length
       }));
     }
     if (truncated || items.length < COMMIT_PAGE_SIZE) break;
@@ -824,10 +964,20 @@ async function listCommits(input = {}) {
  * only recognisable beside the words around them; only a match on an added
  * line is ever reported.
  */
-function parsePatch(patch) {
+export interface PatchLine {
+  readonly line: number;
+  readonly text: string;
+  readonly added: boolean;
+}
+
+export interface Hunk {
+  readonly lines: readonly PatchLine[];
+}
+
+export function parsePatch(patch: unknown): readonly Hunk[] {
   const source = typeof patch === 'string' ? patch : '';
-  const hunks = [];
-  let current = null;
+  const hunks: { readonly lines: PatchLine[] }[] = [];
+  let current: { readonly lines: PatchLine[] } | null = null;
   let next = 0;
   for (const raw of source.split('\n')) {
     const header = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
@@ -862,21 +1012,38 @@ function parsePatch(patch) {
  * without hunks and with its blob id, so a caller can read the blob instead
  * or report it as not read.
  */
-async function readCommitChanges(input = {}) {
+export interface ChangedFile {
+  readonly path: string;
+  readonly status: string;
+  readonly blobSha: string | null;
+  readonly hunks: readonly Hunk[] | null;
+}
+
+export interface CommitChanges {
+  readonly sha: string;
+  readonly skip: SkipReason | null;
+  readonly files: readonly ChangedFile[];
+  readonly committedAt: string | null;
+  readonly parents: number;
+  readonly unsafePaths?: number;
+  readonly truncated?: boolean;
+}
+
+export async function readCommitChanges(input: ReadInput & { readonly sha?: unknown; readonly beforePage?: (() => unknown) | undefined } = {}): Promise<CommitChanges> {
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const sha = requireCommit(input.sha);
   const token = requireToken(input.token);
 
-  const files = [];
+  const files: ChangedFile[] = [];
   let unsafePaths = 0;
   let truncated = false;
-  let committedAt = null;
+  let committedAt: string | null = null;
   let parents = 0;
   for (let page = 1; page <= MAX_COMMIT_FILE_PAGES; page += 1) {
     /* Outside the transport catch: losing access is not an unreadable commit. */
     if (typeof input.beforePage === 'function') await input.beforePage();
-    let response;
+    let response: ReaderResponse | null | undefined;
     try {
       response = await request({
         scope, reader, apiPath: reader.commitChangesPath(scope, sha, page), token,
@@ -887,7 +1054,7 @@ async function readCommitChanges(input = {}) {
          scan: it is reported, and the rest of history is still read. */
       return Object.freeze({ sha, skip: SKIP_REASONS.UNREADABLE, files: Object.freeze(files), committedAt, parents });
     }
-    const status = Number(response && response.statusCode);
+    const status = statusOf(response);
     assertAuthorized(status);
     assertNotThrottled(status);
     if (status !== 200) {
@@ -899,23 +1066,26 @@ async function readCommitChanges(input = {}) {
     }
     if (page === 1) {
       committedAt = commitDate(body);
-      parents = Array.isArray(body.parents) ? body.parents.length : 0;
+      parents = listOf(body.parents).length;
     }
-    for (const file of body.files) {
-      const filePath = typeof (file && file.filename) === 'string' ? file.filename : '';
-      const status = text(file && file.status);
+    const changed = listOf(body.files);
+    for (const file of changed) {
+      const filename = file && read(file, 'filename');
+      const filePath = typeof filename === 'string' ? filename : '';
+      const status = text(file && read(file, 'status'));
       if (status === 'removed') continue;
       if (!safePath(filePath)) { unsafePaths += 1; continue; }
-      const blobSha = text(file && file.sha).toLowerCase();
-      const patch = typeof (file && file.patch) === 'string' ? file.patch : null;
+      const blobSha = text(file && read(file, 'sha')).toLowerCase();
+      const found = file && read(file, 'patch');
+      const patch = typeof found === 'string' ? found : null;
       files.push(Object.freeze({
         path: filePath,
         status,
-        blobSha: /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(blobSha) ? blobSha : null,
+        blobSha: isObjectId(blobSha) ? blobSha : null,
         hunks: patch === null ? null : parsePatch(patch)
       }));
     }
-    if (body.files.length < COMMIT_FILES_PAGE_SIZE) break;
+    if (changed.length < COMMIT_FILES_PAGE_SIZE) break;
     if (page === MAX_COMMIT_FILE_PAGES) truncated = true;
   }
   return Object.freeze({
@@ -923,30 +1093,4 @@ async function readCommitChanges(input = {}) {
   });
 }
 
-module.exports = Object.freeze({
-  BINARY_EXTENSIONS,
-  DEFAULT_TRANSPORT: guardedFetch,
-  ExposureReaderError,
-  MAX_BLOB_BYTES,
-  MAX_PATH_LENGTH,
-  MAX_TREE_ENTRIES,
-  SKIP_REASONS,
-  COMMIT_FILES_PAGE_SIZE,
-  COMMIT_PAGE_SIZE,
-  classifyTreeEntry,
-  extensionOf,
-  listCommits,
-  parsePatch,
-  readArchive,
-  readBlob,
-  readBlobTexts,
-  MAX_TEXTS_PER_QUERY,
-  readCommitChanges,
-  readFileAtCommit,
-  textFromBytes,
-  readTree,
-  readerFor,
-  resolveCommit,
-  safePath,
-  utf16Text
-});
+export const DEFAULT_TRANSPORT = guardedFetch;

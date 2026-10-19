@@ -10,7 +10,7 @@ const {
   statusClass,
   runProviderQualification
 } = require('./provider-alpha17-common');
-const exposureReader = require('../src/exposure-reader');
+const { exposureReader } = require('../apps/api/src/modules/quasar/index.ts');
 const {
   createVerifiedRepository,
   verifyRepositoryDeletion,

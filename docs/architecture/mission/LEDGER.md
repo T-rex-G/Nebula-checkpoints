@@ -322,3 +322,41 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - What the tests load from the product is the product under test, so it is not part of the comparison.
 - **On the real tree** the closure adds the three release helpers, the public asset list and the secret scanner, and a tree compared with itself passes.
 - **Next:** D6 (Quasar).
+
+### D6 — Quasar, the exposure module
+
+- **One module, behind its index.** `modules/quasar` holds all of credential exposure, each layer in its own directory:
+  - `domain/`: Supabase key kinds, the exposure rules, detection, keyed findings, archives, the words a finding is described in, and the outcome vocabularies of a verification and a readability probe.
+  - `client/`: the three parties Quasar speaks to: the repository reader, the credential verifier and the readability probe.
+  - `application/`: the scan worker and the session resolver it reads a live token through.
+  - `persistence/`: the store.
+  - The index exports the domain, the worker and the store by name, and each client as a namespace of its own (`exposureReader`, `credentialVerifier`, `readabilityProbe`): the three share words such as `REASONS` and `DEFAULT_TRANSPORT`, each meaning something different. The server's nine requires of exposure files are one, of `index.ts`. Every caller in `src/`, `ci/`, the scripts and the tests reaches Quasar the same way.
+- **The secret scanner is platform, not Quasar.** The plan placed `secret-scanner` in `modules/quasar`. It is the release gate's scanner: `scripts/check-secrets.js` and the candidate qualifier run it, and the platform may import no module, so the gate would have had to load all of Quasar to run. It moved to `platform/release` in two files:
+  - `secret-rules.ts`: the rules, as data.
+  - `secret-scanner.ts`: the tree walk, which uses `fs` and `git`.
+  - Detection imports the rules and nothing else, so a decision about a credential does not load the code that walks a disk for one. The baseline inventory keeps its baseline owner, because it records the baseline.
+- **Layering is now a test.** The module boundary test refuses a domain file that imports its own module's client, application or persistence layer, or that loads a file importing a transport, persistence or process package at any depth. It failed first on Quasar: detection loaded the scanner's `fs` and `child_process`. Narration needed the verification and probe vocabularies, which lived in the clients; they moved to `domain/verification-outcomes.ts` and `domain/readability-outcomes.ts`, and the clients re-export them.
+- **Typed strictly, behaviour unchanged.**
+  - The 2,079-line store keeps every SQL statement as it was. A row read by `RETURNING` or an aggregate goes through one helper that says when it is missing, and a cursor is rebuilt from fields checked one by one after its signature is.
+  - The worker is typed against the ports it is handed: the store, the reader and the session resolver. The reads it starts ahead of the scan are held in two queues, the tree's and then history's, where one array served both.
+  - Each converted file was compared with its original after its types were stripped. What differs is listed here or is the same expression written so the checker can follow it. One difference has no effect: a read that rejects with no reason at all now propagates that, not the TypeError it caused. Either way the scan is left for its lease to expire, as an error nobody understands must be.
+  - Error objects keep their own-property order, and fingerprints, cursors and narration are byte for byte the same. Every exposure test passes against them, PostgreSQL included.
+- **Defects the port found, each with a test that failed first against the original:**
+  - *Inherited names were table entries.*
+    - A provider named after an `Object.prototype` member had a reader, so a read failed on a missing function instead of being refused as unsupported.
+    - A rule named after one had a verification adapter, so a whole verification run crashed with a TypeError.
+    - The narration tables answered with built-in functions. A verification or probe sentence printed a function's source text, a disposition returned one, and a finding was described with no severity at all.
+    - The findings view tallied such a rule under a key named after a function, holding `NaN`, while the query that filters by severity counted it as serious.
+    - Every one of these lookups is now by own key.
+  - *A renewed session was trusted on less than the first one.* The scan starts only with a string token, but the renewal accepted anything truthy and handed it to the reader as a credential. The renewal now applies the same test: a session without a string token is revoked, and nothing is read with it.
+- **Hardened, with no change for any real input:**
+  - The copied object-id and digest patterns are the contract's guards (`isCommitSha`, `isSha256Hex`): in the reader, the worker, the store's fingerprint lists, narration's introducing commit and both authorization signatures. The contract adoption record holds no copy in Quasar.
+  - The store's verification freshness is the verifier's constant, not a copy of it.
+  - The source-text guards forbid an ES-module import of a network, file-system or process package, as well as a `require` of one. They had matched only `require`, which a TypeScript module never contains, so they would have passed whatever it imported. Their first run found the reader's type-only `node:http` import, which is gone.
+- **Removed as dead:** the file path the worker handed a detector that never reads it, and an unused error binding.
+- **Tests that moved with the code:**
+  - The source-text contracts read the server's one Quasar require and the files at their new paths.
+  - The reason-vocabulary contract reads the declaration in the domain and its use in the verifier.
+  - The package and release contracts, the verifier, the syntax manifest, `jsconfig` and the adoption record name the new paths or drop the old ones.
+- **Checks:** typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify green; every exposure program green, the PostgreSQL store included; the module boundaries; the full unit gate.
+- **Next:** D7 (Uranus).

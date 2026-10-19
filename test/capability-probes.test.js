@@ -505,7 +505,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     assert.match(harness, /url\.searchParams\.set\('q', `\$\{words\} repo:\$\{repository\}`\)/);
 
     /* Exposure: the probe runs the product's reader module, not a copy of it. */
-    assert.match(harness, /const exposureReader = require\('\.\.\/src\/exposure-reader'\);/);
+    assert.match(harness, /const \{ exposureReader \} = require\('\.\.\/apps\/api\/src\/modules\/quasar\/index\.ts'\);/);
     for (const call of ['resolveCommit', 'readTree', 'readBlob', 'listCommits', 'readCommitChanges']) {
       assert(harness.includes(`exposureReader.${call}(`), `the exposure probe must call the reader's ${call}`);
     }

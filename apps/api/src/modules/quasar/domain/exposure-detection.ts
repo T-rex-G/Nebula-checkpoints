@@ -1,20 +1,23 @@
-'use strict';
+import { RULES } from '../../../platform/release/secret-rules.ts';
+import { EXPOSURE_RULES, PATH_RULES } from './exposure-rules.ts';
+import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 
-const { RULES } = require('./secret-scanner');
-const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
+export { EXPOSURE_RULES, PATH_RULES };
 
 /*
  * Finding every credential in a file, rather than proving one exists.
  *
- * `src/secret-scanner.js` already answers the release gate's question -- is
- * there a secret in this repository -- and stops at the first match per rule
+ * The release gate's scanner (`platform/release/secret-scanner.ts`) already
+ * answers the release gate's question -- is there a secret in this
+ * repository -- and stops at the first match per rule
  * per file, because one is enough to fail a build. That is the right shape for
  * a gate and the wrong shape for a reader triaging an exposure, who needs to
  * know which credentials, how many times each, and where. A scan reporting one
  * token in a file holding four has told them the repository is clean three
  * times over.
  *
- * The rules themselves are not re-stated here. They are imported, so there is
+ * The rules themselves are not re-stated here. They are imported from
+ * `platform/release/secret-rules.ts`, the gate's own list, so there is
  * one definition of what a credential looks like in this repository and a rule
  * improved for the gate improves the scan. What this module adds is
  * enumeration, and enumeration brings two hazards worth naming.
@@ -34,14 +37,14 @@ const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
  *
  * Nothing exported carries a credential. The bytes live on the internal
  * candidate object for as long as a verification probe needs them and leave
- * through `src/exposure-findings.js`. This module does not pretend they can be
+ * through the findings module (`exposure-findings.ts`). This module does not pretend they can be
  * erased afterwards: a JavaScript string is immutable and copied by the engine
  * at will, so the claim made here is the weaker true one -- as few copies as
  * possible, and never one that is stored.
  */
 
 /*
- * The scan's own rules live in `src/exposure-rules.js`: the gate's set asks
+ * The scan's own rules live in `exposure-rules.ts`: the gate's set asks
  * whether there is a secret at all and must never be noisy, while a scan asks
  * which credentials and where, and can afford more rules as long as each one
  * is precise. Both sets run here, gate rules first.
@@ -69,39 +72,49 @@ const { EXPOSURE_RULES, PATH_RULES } = require('./exposure-rules');
  * configuration -- with the prefix-less ones recognised only beside a name
  * that says what they are.
  */
-const RULES_VERSION = 4;
+export const RULES_VERSION = 4;
 /*
  * 2: base64 runs are decoded and scanned, and a commit's hunks can be scanned
  * for what that commit added.
  */
-const DETECTION_ENGINE_VERSION = 3;
+export const DETECTION_ENGINE_VERSION = 3;
 
 /* A file this server will read at all. Past it the file is not scanned and the
    result says so. */
-const MAX_TEXT_BYTES = 1024 * 1024;
+export const MAX_TEXT_BYTES = 1024 * 1024;
 
 /* Matches walked in one file, across all rules. A file needing more than this
    is a generated file, and a reader does not triage a generated file
    line by line. */
-const MAX_MATCHES_PER_FILE = 200;
+export const MAX_MATCHES_PER_FILE = 200;
 
 /* Distinct credentials kept from one file. */
-const MAX_CANDIDATES_PER_FILE = 50;
+export const MAX_CANDIDATES_PER_FILE = 50;
 
 /* Locations kept for one credential. The count is not capped with the list:
    "found 400 times, here are the first 20" is useful, "found 20 times" is
    wrong. */
-const MAX_OCCURRENCES_PER_CANDIDATE = 20;
+export const MAX_OCCURRENCES_PER_CANDIDATE = 20;
 
 
-/**
+/*
  * The rules a scan runs: the shared release-gate set, then this module's own.
  * Spelled out as a type because the two halves have different shapes -- only
- * the scan's rules carry a predicate -- and a union of the literal shapes
- * would make reading `accept` an error on the half that has none.
- *
- * @typedef {{ rule: string, regex: RegExp, accept?: (secret: string) => boolean, keywords?: ReadonlyArray<string> }} DetectionRule
+ * the scan's rules carry a predicate and keywords.
  */
+interface DetectionRule {
+  readonly rule: string;
+  readonly regex: RegExp;
+  readonly accept?: (secret: string) => boolean;
+  readonly keywords?: readonly string[];
+}
+
+/* One walk of one expression over a text, and the rules that share it. */
+interface Pass {
+  readonly regex: RegExp;
+  readonly rules: readonly { readonly rule: string; readonly accept: ((secret: string) => boolean) | null }[];
+  readonly keywords: readonly string[] | null;
+}
 
 /*
  * A fresh expression per file, with the global flag added so `exec` can walk.
@@ -109,9 +122,8 @@ const MAX_OCCURRENCES_PER_CANDIDATE = 20;
  * keeps its `lastIndex`, and the bug that causes is invisible in a single-file
  * test.
  */
-function compiledRules() {
-  /** @type {ReadonlyArray<DetectionRule>} */
-  const all = [...RULES, ...EXPOSURE_RULES];
+function compiledRules(): Pass[] {
+  const all: readonly DetectionRule[] = [...RULES, ...EXPOSURE_RULES];
   /*
    * Grouped by expression, so a shape two rules share is walked once.
    *
@@ -128,7 +140,7 @@ function compiledRules() {
    * correct for the release-gate rules -- each has a pattern of its own -- and
    * is why one would swallow a pass it shared.
    */
-  const passes = new Map();
+  const passes = new Map<string, { regex: RegExp; rules: { rule: string; accept: ((secret: string) => boolean) | null }[]; always?: boolean; keywords?: string[] }>();
   for (const rule of all) {
     const flags = rule.regex.flags.replace(/[gy]/g, '');
     const key = `${rule.regex.source}\u0000${flags}`;
@@ -146,14 +158,14 @@ function compiledRules() {
      * any of whose rules names none must always run -- a rule without
      * keywords is a rule that could match anywhere.
      */
-    const keywords = Array.isArray(rule.keywords) && rule.keywords.length ? rule.keywords : null;
+    const keywords = rule.keywords && Array.isArray(rule.keywords) && rule.keywords.length ? rule.keywords : null;
     if (!keywords) pass.always = true;
     else pass.keywords = [...new Set([...(pass.keywords || []), ...keywords.map(item => item.toLowerCase())])];
   }
   return [...passes.values()].map(pass => ({
     regex: pass.regex,
     rules: pass.rules,
-    keywords: pass.always ? null : pass.keywords
+    keywords: pass.always ? null : pass.keywords ?? null
   }));
 }
 
@@ -169,9 +181,14 @@ function compiledRules() {
  * over. The line endings are the same three -- \n, \r\n and a bare \r -- and
  * a test holds this to the walk it replaces on every offset of a mixed file.
  */
-function createLocator(text) {
-  let starts = null;
-  return function locate(index) {
+export interface Location {
+  readonly line: number;
+  readonly column: number;
+}
+
+export function createLocator(text: string): (index: number) => Location {
+  let starts: number[] | null = null;
+  return function locate(index: number): Location {
     if (!starts) {
       starts = [0];
       for (let cursor = 0; cursor < text.length; cursor += 1) {
@@ -184,18 +201,39 @@ function createLocator(text) {
         }
       }
     }
+    const lineStarts: readonly number[] = starts;
     let low = 0;
-    let high = starts.length - 1;
+    let high = lineStarts.length - 1;
     while (low < high) {
       const middle = (low + high + 1) >> 1;
-      if (starts[middle] <= index) low = middle;
+      if ((lineStarts[middle] ?? 0) <= index) low = middle;
       else high = middle - 1;
     }
-    return { line: low + 1, column: index - starts[low] + 1 };
+    return { line: low + 1, column: index - (lineStarts[low] ?? 0) + 1 };
   };
 }
 
-function sanitizeCandidate(candidate) {
+/* A credential found in a file. It carries the bytes; `sanitizeCandidate` is what anything outside detection and findings reads. */
+export interface DetectedCandidate {
+  readonly rule: string;
+  readonly secret: string;
+  readonly placeholder: string;
+  readonly occurrences: readonly Location[];
+  readonly occurrenceCount: number;
+  readonly truncated: boolean;
+  readonly decodedFrom?: string | null;
+}
+
+export interface SanitizedCandidate {
+  readonly rule: string;
+  readonly placeholder: string;
+  readonly occurrences: readonly Location[];
+  readonly occurrenceCount: number;
+  readonly truncated: boolean;
+  readonly decodedFrom: string | null;
+}
+
+export function sanitizeCandidate(candidate: DetectedCandidate): SanitizedCandidate {
   return Object.freeze({
     rule: candidate.rule,
     placeholder: candidate.placeholder,
@@ -213,13 +251,42 @@ function sanitizeCandidate(candidate) {
  * order this rule's credentials appear in this file, which makes the label
  * readable and deliberately says nothing about the bytes.
  */
-function placeholderFor(rule, ordinal) {
+function placeholderFor(rule: string, ordinal: number): string {
   return `<${rule} #${ordinal}>`;
 }
 
-function newDetectionState(input = {}) {
-  const decodedLimit = Number.isInteger(input.maxDecodedBytes) && input.maxDecodedBytes >= 0
-    ? Math.min(input.maxDecodedBytes, MAX_DECODED_BYTES) : MAX_DECODED_BYTES;
+interface CandidateDraft {
+  readonly rule: string;
+  readonly secret: string;
+  readonly placeholder: string;
+  readonly occurrences: Location[];
+  occurrenceCount: number;
+  truncated: boolean;
+  readonly decodedFrom: string | null;
+}
+
+interface DetectionState {
+  readonly byKey: Map<string, CandidateDraft>;
+  readonly ordinals: Map<string, number>;
+  matchCount: number;
+  truncated: boolean;
+  decodedAttempts: number;
+  decodedBytes: number;
+  readonly decodedLimit: number;
+}
+
+export interface DetectionInput {
+  readonly text?: unknown;
+  readonly hunks?: unknown;
+  readonly prefilter?: unknown;
+  readonly decode?: unknown;
+  readonly maxDecodedBytes?: unknown;
+}
+
+function newDetectionState(input: DetectionInput = {}): DetectionState {
+  const requested = input.maxDecodedBytes;
+  const decodedLimit = typeof requested === 'number' && Number.isInteger(requested) && requested >= 0
+    ? Math.min(requested, MAX_DECODED_BYTES) : MAX_DECODED_BYTES;
   return { byKey: new Map(), ordinals: new Map(), matchCount: 0, truncated: false,
     decodedAttempts: 0, decodedBytes: 0, decodedLimit };
 }
@@ -234,11 +301,13 @@ function newDetectionState(input = {}) {
  * the commit added. `decodedFrom` marks a candidate first seen inside an
  * encoded run, so a reader is told why the line shows no credential.
  */
-function scanInto(state, text, locateAt, prefilter, decodedFrom) {
+type Locate = (index: number) => Location | null;
+
+function scanInto(state: DetectionState, text: string, locateAt: Locate, prefilter: boolean, decodedFrom: string | null): void {
   const lower = prefilter ? text.toLowerCase() : '';
   for (const { regex, rules, keywords } of compiledRules()) {
     if (prefilter && keywords && !keywords.some(keyword => lower.includes(keyword))) continue;
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
       /*
        * A rule whose expression can match nothing would loop forever on a
@@ -326,11 +395,11 @@ const MAX_DECODED_RUNS = 200;
 const MAX_DECODED_BYTES = 256 * 1024;
 const MIN_DECODED_BYTES = 16;
 
-function decodedText(run) {
+function decodedText(run: string): string | null {
   if (!/[A-Z]/.test(run) || !/[a-z]/.test(run) || !/[0-9+/]/.test(run)) return null;
   const bytes = Buffer.from(run, 'base64');
   if (bytes.length < MIN_DECODED_BYTES) return null;
-  let decoded;
+  let decoded: string;
   try {
     decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
@@ -344,9 +413,9 @@ function decodedText(run) {
   return printable / decoded.length >= 0.9 ? decoded : null;
 }
 
-function decodeInto(state, text, locateAt, prefilter) {
+function decodeInto(state: DetectionState, text: string, locateAt: Locate, prefilter: boolean): void {
   const runs = new RegExp(BASE64_RUN.source, 'g');
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = runs.exec(text)) !== null) {
     if (state.matchCount >= MAX_MATCHES_PER_FILE) { state.truncated = true; break; }
     const location = locateAt(match.index);
@@ -364,7 +433,15 @@ function decodeInto(state, text, locateAt, prefilter) {
   }
 }
 
-function detectionResult(state) {
+export interface DetectionResult {
+  readonly scanned: boolean;
+  readonly truncated: boolean;
+  readonly matchCount: number;
+  readonly decodedBytes?: number;
+  readonly candidates: readonly DetectedCandidate[];
+}
+
+function detectionResult(state: DetectionState): DetectionResult {
   const candidates = [...state.byKey.values()].map(candidate => Object.freeze({
     ...candidate,
     occurrences: Object.freeze(candidate.occurrences)
@@ -383,7 +460,7 @@ function detectionResult(state) {
  * `secret`; `sanitizeCandidate` is what anything outside this file and
  * `exposure-findings` should be looking at.
  */
-function detectInText(input = {}) {
+export function detectInText(input: DetectionInput = {}): DetectionResult {
   const text = typeof input.text === 'string' ? input.text : '';
 
   if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
@@ -410,23 +487,30 @@ function detectInText(input = {}) {
  * commit. Placeholders are numbered across the file's hunks, as they would be
  * across a whole file.
  */
-function detectInHunks(input = {}) {
-  const hunks = Array.isArray(input.hunks) ? input.hunks : [];
+interface HunkLine {
+  readonly text?: unknown;
+  readonly added?: unknown;
+  readonly line?: unknown;
+}
+
+export function detectInHunks(input: DetectionInput = {}): DetectionResult {
+  /* The diff reader's hunks: each a list of lines, the added ones marked with their line in the file. */
+  const hunks = (Array.isArray(input.hunks) ? input.hunks : []) as readonly ({ readonly lines?: unknown } | null | undefined)[];
   const prefilter = input.prefilter !== false;
   const state = newDetectionState(input);
   for (const hunk of hunks) {
-    const lines = hunk && Array.isArray(hunk.lines) ? hunk.lines : [];
+    const lines = (hunk && Array.isArray(hunk.lines) ? hunk.lines : []) as readonly (HunkLine | null | undefined)[];
     if (!lines.some(line => line && line.added)) continue;
-    const text = lines.map(line => String(line.text || '')).join('\n');
+    const text = lines.map(line => String((line as HunkLine).text || '')).join('\n');
     if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
       state.truncated = true;
       continue;
     }
     const locate = createLocator(text);
-    const at = index => {
+    const at = (index: number): Location | null => {
       const relative = locate(index);
       const source = lines[relative.line - 1];
-      if (!source || !source.added || !Number.isInteger(source.line)) return null;
+      if (!source || !source.added || typeof source.line !== 'number' || !Number.isInteger(source.line)) return null;
       return { line: source.line, column: relative.column };
     };
     scanInto(state, text, at, prefilter, null);
@@ -443,14 +527,14 @@ function detectInHunks(input = {}) {
  * a new one. The result has the same shape as `detectInText` so the findings
  * module does not need to know which kind of rule produced a candidate.
  */
-function detectInPath(input = {}) {
+export function detectInPath(input: { readonly path?: unknown; readonly sha?: unknown } = {}): DetectionResult {
   const filePath = typeof input.path === 'string' ? input.path : '';
   const sha = typeof input.sha === 'string' ? input.sha.toLowerCase() : '';
   const name = filePath.split('/').pop() || '';
   const dot = name.lastIndexOf('.');
   const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
   const empty = Object.freeze({ scanned: true, truncated: false, matchCount: 0, candidates: Object.freeze([]) });
-  if (!extension || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(sha)) return empty;
+  if (!extension || !(isCommitSha(sha) || isSha256Hex(sha))) return empty;
   const rule = PATH_RULES.find(item => item.extensions.includes(extension));
   if (!rule) return empty;
   return Object.freeze({
@@ -467,19 +551,3 @@ function detectInPath(input = {}) {
     })])
   });
 }
-
-module.exports = Object.freeze({
-  EXPOSURE_RULES,
-  PATH_RULES,
-  DETECTION_ENGINE_VERSION,
-  MAX_CANDIDATES_PER_FILE,
-  MAX_MATCHES_PER_FILE,
-  MAX_OCCURRENCES_PER_CANDIDATE,
-  MAX_TEXT_BYTES,
-  RULES_VERSION,
-  createLocator,
-  detectInHunks,
-  detectInPath,
-  detectInText,
-  sanitizeCandidate
-});

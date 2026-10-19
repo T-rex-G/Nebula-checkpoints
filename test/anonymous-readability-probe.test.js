@@ -44,7 +44,7 @@ const {
   discoverProject,
   probeAnonymousReadability,
   signReadabilityAuthorization
-} = require('../src/anonymous-readability-probe');
+} = require('../apps/api/src/modules/quasar/index.ts').readabilityProbe;
 
 const MASTER = 'p'.repeat(64);
 const authorizationKey = deriveKey(MASTER, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);
@@ -125,10 +125,10 @@ function probe(overrides = {}) {
   {
     assert.strictEqual(DEFAULT_TRANSPORT, guardedFetch);
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'anonymous-readability-probe.js'), 'utf8'
+      path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'anonymous-readability-probe.ts'), 'utf8'
     ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     assert(source.includes('function discoverProject'), 'the comment strip must leave the code behind');
-    for (const forbidden of [/require\('https'\)/, /require\('http'\)/, /\bfetch\s*\(/, /https\.request/]) {
+    for (const forbidden of [/require\('https'\)/, /require\('http'\)/, /from '(?:node:)?https?'/, /\bfetch\s*\(/, /https\.request/]) {
       assert.strictEqual(forbidden.test(source), false, `must not reach the network itself: ${forbidden}`);
     }
 
@@ -511,7 +511,7 @@ function probe(overrides = {}) {
 
   {
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'anonymous-readability-probe.js'), 'utf8'
+      path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'anonymous-readability-probe.ts'), 'utf8'
     );
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       assert.strictEqual(

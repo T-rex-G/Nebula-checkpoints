@@ -41,7 +41,7 @@ const {
   readTree,
   readerFor,
   resolveCommit
-} = require('../src/exposure-reader');
+} = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
 
 const scope = Object.freeze({
   provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo'
@@ -82,13 +82,14 @@ function blobEntry(entryPath, overrides = {}) {
      * fail on the sentence describing the thing it forbids -- which is how a
      * guard like this turns into one somebody deletes.
      */
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-reader.js'), 'utf8')
+    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'exposure-reader.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/.*$/gm, '');
     assert(source.includes('function readTree'), 'the comment strip must leave the code behind');
     for (const forbidden of [
       /require\('child_process'\)/, /\bspawn\w*\(/, /\bexec\w*\(/, /\bfork\(/,
-      /require\('https'\)/, /require\('fs'\)/, /\bfetch\s*\(/, /\bgit\s+(?:clone|fetch|checkout)/
+      /require\('https'\)/, /require\('fs'\)/, /from '(?:node:)?(?:child_process|fs|fs\/promises|https?|net)'/,
+      /\bfetch\s*\(/, /\bgit\s+(?:clone|fetch|checkout)/
     ]) {
       assert.strictEqual(
         forbidden.test(source), false,
@@ -433,7 +434,8 @@ function blobEntry(entryPath, overrides = {}) {
    */
   {
     assert(readerFor('github'));
-    for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null]) {
+    /* Names an object inherits are not providers either: the table lists its readers by name. */
+    for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null, 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
       assert.strictEqual(readerFor(provider), null, String(provider));
       const transport = transportReturning();
       const input = { scope: { ...scope, provider }, commitSha: COMMIT, sha: COMMIT, ref: 'main', path: 'app.js', paths: ['app.js'], token: TOKEN, transport };

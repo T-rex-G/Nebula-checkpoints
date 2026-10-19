@@ -23,13 +23,13 @@ const path = require('path');
 
 const {
   COVERAGE, DISPOSITIONS, EXPOSURE_CONFIG_VERSION, SCAN_STATES, SKIPPED_REASONS, TERMINAL_STATES
-} = require('../src/exposure-store');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const sql = fs.readFileSync(
   path.join(__dirname, '..', 'db', 'migrations', '022_exposure_scans.sql'), 'utf8'
 );
 const storeSource = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'exposure-store.js'), 'utf8'
+  path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'persistence', 'exposure-store.ts'), 'utf8'
 );
 
 /* ---- The tables exist and the store's vocabulary is the schema's ------- */

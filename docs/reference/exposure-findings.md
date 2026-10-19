@@ -3,12 +3,13 @@
 What a finding says, what each word in it is allowed to mean, and what it
 deliberately does not claim.
 
-This is the reference for reading a finding. The implementation lives in
-`src/exposure-detection.js`, `src/exposure-findings.js`,
-`src/credential-verification.js`, `src/anonymous-readability-probe.js` and
-`src/exposure-narration.js`; the wording a reader sees comes from the last of
-those and is a lookup table, so the sentences in this document are the
-sentences the product says.
+This is the reference for reading a finding. The implementation is the Quasar
+module, `apps/api/src/modules/quasar`: detection and keyed findings in
+`domain/exposure-detection.ts` and `domain/exposure-findings.ts`, the
+credential verifier and readability probe in `client/`, and the words in
+`domain/exposure-narration.ts`. The wording a reader sees comes from that last
+file and is a lookup table, so the sentences in this document are the sentences
+the product says.
 
 ## What can be scanned today
 
@@ -53,7 +54,9 @@ Plaid, WooCommerce, Slack app tokens, Discord bot tokens, Dropbox, Asana and
 Algolia admin keys. A credential with no prefix of its own -- Datadog, Algolia,
 Octopus, LaunchDarkly, Discord, Asana -- is recognised only where it is
 assigned to a name that says what it is. The complete list is
-`src/exposure-rules.js`, and every rule has an entry in the narration table.
+`apps/api/src/modules/quasar/domain/exposure-rules.ts` with the release gate's
+own rules in `apps/api/src/platform/release/secret-rules.ts`, and every rule has
+an entry in the narration table.
 
 A credential written base64-encoded -- a Kubernetes secret, a Docker config, a
 key pasted as one encoded line -- is found too: each run that is plausibly

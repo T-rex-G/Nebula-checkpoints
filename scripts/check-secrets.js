@@ -5,7 +5,7 @@ const path = require('path');
 const {
   discoverReleasableTextFiles,
   scanFiles
-} = require('../src/secret-scanner');
+} = require('../apps/api/src/platform/release/secret-scanner.ts');
 
 function run(root = path.resolve(__dirname, '..')) {
   const files = discoverReleasableTextFiles(root);

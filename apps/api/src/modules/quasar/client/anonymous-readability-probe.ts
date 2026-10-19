@@ -1,9 +1,11 @@
-'use strict';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { PROFILES, guardedFetch, type GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
+import { KEY_KINDS, classifyKey } from '../domain/supabase-key-kinds.ts';
+import { PROBE_STATES, REASONS, type ProbeReason, type ProbeState } from '../domain/readability-outcomes.ts';
 
-const crypto = require('crypto');
-
-const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
-const { KEY_KINDS, classifyKey } = require('./supabase-key-kinds');
+export { KEY_KINDS, PROBE_STATES, REASONS, classifyKey };
+export type { ProbeReason, ProbeState };
 
 /*
  * Whether a discovered project is actually readable by a stranger, rather than
@@ -39,54 +41,48 @@ const { KEY_KINDS, classifyKey } = require('./supabase-key-kinds');
  * and no values whatsoever.
  */
 
-const PROBE_STATES = Object.freeze({
-  READABLE: 'readable',
-  DENIED: 'denied',
-  UNVERIFIABLE: 'unverifiable'
-});
-
-const REASONS = Object.freeze({
-  AUTHORIZATION_MISSING: 'authorization-missing',
-  AUTHORIZATION_INVALID: 'authorization-invalid',
-  AUTHORIZATION_EXPIRED: 'authorization-expired',
-  AUTHORIZATION_MISMATCH: 'authorization-mismatch',
-  KEY_NOT_ANONYMOUS: 'key-not-anonymous',
-  PROJECT_REFUSED: 'project-refused',
-  RELATION_REFUSED: 'relation-refused',
-  PROJECTION_REFUSED: 'projection-refused',
-  ROWS_VISIBLE: 'rows-visible',
-  NO_VISIBLE_ROWS: 'no-visible-rows',
-  ACCESS_DENIED_FOR_TESTED_REQUEST: 'access-denied-for-tested-request',
-  PROVIDER_THROTTLED: 'provider-throttled',
-  PROVIDER_UNEXPECTED_RESPONSE: 'provider-unexpected-response',
-  TRANSPORT_REFUSED: 'transport-refused'
-});
-
 /* Minutes, like every other grant here. */
-const MAX_AUTHORIZATION_LIFETIME_MS = 10 * 60 * 1000;
+export const MAX_AUTHORIZATION_LIFETIME_MS = 10 * 60 * 1000;
 
 /*
  * One row is the whole question. Asking for more would establish nothing
  * further and would move more of somebody's data across the network.
  */
-const MAX_ROWS = 1;
-const MAX_RESPONSE_BYTES = 8 * 1024;
-const MAX_PROJECTION_COLUMNS = 8;
-const MAX_DESCRIBED_RELATIONS = 200;
+export const MAX_ROWS = 1;
+export const MAX_RESPONSE_BYTES = 8 * 1024;
+export const MAX_PROJECTION_COLUMNS = 8;
+export const MAX_DESCRIBED_RELATIONS = 200;
 const DESCRIBE_MAX_RESPONSE_BYTES = 256 * 1024;
 
 const PROJECT_REF_PATTERN = /^[a-z]{20}$/;
 const RELATION_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
 const COLUMN_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
-const SIGNATURE_PATTERN = /^[0-9a-f]{64}$/;
 
 /* The two operations a grant can authorise, and they are not interchangeable. */
-const OPERATIONS = Object.freeze({
+export const OPERATIONS = Object.freeze({
   PROBE: 'probe-readability',
   DESCRIBE: 'describe-service'
-});
+} as const);
+export type ProbeOperation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
-function text(value) {
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+/* An object's fields, or none when it is not an object. */
+function fieldsOf(value: unknown): Fields {
+  return value && typeof value === 'object' ? value as Fields : {};
+}
+
+/* A list from an input, or none. */
+function listOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
@@ -103,19 +99,19 @@ function text(value) {
  * connects to. Twenty lowercase letters and a fixed suffix is the only shape
  * that becomes a host.
  */
-function discoverProject(source) {
+export function discoverProject(source: unknown): { readonly projectRef: string; readonly origin: string } | null {
   const candidate = typeof source === 'string' ? source : '';
   const match = candidate.match(/https:\/\/([a-z]{20})\.supabase\.co(?![a-z0-9.-])/);
   if (!match) return null;
   const projectRef = match[1];
-  if (!PROJECT_REF_PATTERN.test(projectRef)) return null;
+  if (!projectRef || !PROJECT_REF_PATTERN.test(projectRef)) return null;
   return Object.freeze({ projectRef, origin: `https://${projectRef}.supabase.co` });
 }
 
 /* ---- Keys -------------------------------------------------------------- */
 
 /*
- * Telling the kinds apart lives in `src/supabase-key-kinds.js`, because the
+ * Telling the kinds apart lives in `domain/supabase-key-kinds.ts`, because the
  * scanner needs the same answer and must not acquire this module's transport
  * to get it. It is re-exported here so a caller holding the probe has the
  * whole vocabulary in one place.
@@ -138,7 +134,7 @@ function discoverProject(source) {
  * by shape rather than by prefix is the whole point -- a name is dangerous
  * because of what it contains, not what it starts with.
  */
-function relationRefused(relation) {
+function relationRefused(relation: unknown): boolean {
   const value = text(relation);
   return !value || !RELATION_PATTERN.test(value);
 }
@@ -151,8 +147,8 @@ function relationRefused(relation) {
  * casts and function calls are refused for the same reason -- each one reaches
  * past the columns that were agreed.
  */
-function projectionRefused(projection) {
-  const list = Array.isArray(projection) ? projection : [];
+function projectionRefused(projection: unknown): boolean {
+  const list = listOf(projection);
   if (!list.length || list.length > MAX_PROJECTION_COLUMNS) return true;
   if (new Set(list).size !== list.length) return true;
   return list.some(column => !COLUMN_PATTERN.test(typeof column === 'string' ? column : ''));
@@ -160,100 +156,148 @@ function projectionRefused(projection) {
 
 /* ---- The grant --------------------------------------------------------- */
 
-function authorizationMessage(grant) {
-  const projection = Array.isArray(grant.projection) ? grant.projection : [];
+function authorizationMessage(grant: unknown): string {
+  const projection = listOf(read(grant, 'projection'));
+  const scope = read(grant, 'scope');
   const parts = [
     'nvexpread.v1',
-    text(grant.operation),
-    text(grant.authorizationId),
-    text(grant.actorLogin),
-    text(grant.scope && grant.scope.provider),
-    text(grant.scope && grant.scope.authority),
-    text(grant.scope && grant.scope.owner),
-    text(grant.scope && grant.scope.repo),
-    text(grant.commit),
-    text(grant.candidateFingerprint),
-    text(grant.projectRef),
-    text(grant.relation),
+    text(read(grant, 'operation')),
+    text(read(grant, 'authorizationId')),
+    text(read(grant, 'actorLogin')),
+    text(scope && read(scope, 'provider')),
+    text(scope && read(scope, 'authority')),
+    text(scope && read(scope, 'owner')),
+    text(scope && read(scope, 'repo')),
+    text(read(grant, 'commit')),
+    text(read(grant, 'candidateFingerprint')),
+    text(read(grant, 'projectRef')),
+    text(read(grant, 'relation')),
     /*
      * The projection is signed in order and as one part with its own length
      * prefix, so a grant for `id,title` is not a grant for `title,id` and a
      * column containing the separator cannot forge another field.
      */
     projection.map(column => text(column)).join(','),
-    text(grant.issuedAt),
-    text(grant.expiresAt)
+    text(read(grant, 'issuedAt')),
+    text(read(grant, 'expiresAt'))
   ];
   return parts.map(part => `${Buffer.byteLength(part, 'utf8')}:${part}`).join('|');
 }
 
-function signReadabilityAuthorization(input = {}) {
-  if (!Buffer.isBuffer(input.hmacKey) && typeof input.hmacKey !== 'string') {
+export interface ReadabilityAuthorizationInput {
+  readonly hmacKey?: unknown;
+  readonly operation?: unknown;
+  readonly authorizationId?: unknown;
+  readonly actorLogin?: unknown;
+  readonly scope?: unknown;
+  readonly commit?: unknown;
+  readonly candidateFingerprint?: unknown;
+  readonly projectRef?: unknown;
+  readonly relation?: unknown;
+  readonly projection?: unknown;
+  readonly issuedAt?: unknown;
+  readonly expiresAt?: unknown;
+}
+
+/* A grant to read one relation of one project, bound to everything that names it. */
+export interface ReadabilityAuthorization {
+  readonly operation: string;
+  readonly authorizationId: string;
+  readonly actorLogin: string;
+  readonly scope: { readonly provider: string; readonly authority: string; readonly owner: string; readonly repo: string };
+  readonly commit: string;
+  readonly candidateFingerprint: string;
+  readonly projectRef: string;
+  readonly relation: string;
+  readonly projection: readonly string[];
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  readonly signature: string;
+}
+
+export function signReadabilityAuthorization(input: ReadabilityAuthorizationInput = {}): ReadabilityAuthorization {
+  const hmacKey = input.hmacKey;
+  if (!Buffer.isBuffer(hmacKey) && typeof hmacKey !== 'string') {
     throw new TypeError('A readability authorization requires a derived HMAC key');
   }
+  const scope = input.scope;
   const grant = {
     operation: text(input.operation) || OPERATIONS.PROBE,
     authorizationId: text(input.authorizationId),
     actorLogin: text(input.actorLogin),
     scope: Object.freeze({
-      provider: text(input.scope && input.scope.provider),
-      authority: text(input.scope && input.scope.authority),
-      owner: text(input.scope && input.scope.owner),
-      repo: text(input.scope && input.scope.repo)
+      provider: text(scope && read(scope, 'provider')),
+      authority: text(scope && read(scope, 'authority')),
+      owner: text(scope && read(scope, 'owner')),
+      repo: text(scope && read(scope, 'repo'))
     }),
     commit: text(input.commit),
     candidateFingerprint: text(input.candidateFingerprint),
     projectRef: text(input.projectRef),
     relation: text(input.relation),
-    projection: Object.freeze((Array.isArray(input.projection) ? input.projection : []).map(column => text(column))),
+    projection: Object.freeze(listOf(input.projection).map(column => text(column))),
     issuedAt: text(input.issuedAt),
     expiresAt: text(input.expiresAt)
   };
-  const signature = crypto.createHmac('sha256', input.hmacKey)
+  const signature = createHmac('sha256', hmacKey)
     .update(authorizationMessage(grant), 'utf8')
     .digest('hex');
   return Object.freeze({ ...grant, signature });
 }
 
-function authorizationRefusal({ authorization, hmacKey, operation, projectRef, relation, projection, candidate, actorLogin, now }) {
-  if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
-  const signature = text(authorization.signature);
-  if (!signature && !text(authorization.authorizationId)) return REASONS.AUTHORIZATION_MISSING;
-  if (!SIGNATURE_PATTERN.test(signature)) return REASONS.AUTHORIZATION_INVALID;
+interface RefusalInput {
+  readonly authorization: unknown;
+  readonly hmacKey: Buffer | string;
+  readonly operation: ProbeOperation;
+  readonly projectRef: string;
+  readonly relation: string;
+  readonly projection: readonly string[];
+  readonly candidate: Fields;
+  readonly actorLogin: unknown;
+  readonly now: number;
+}
 
-  const expected = crypto.createHmac('sha256', hmacKey)
+function authorizationRefusal({ authorization, hmacKey, operation, projectRef, relation, projection, candidate, actorLogin, now }: RefusalInput): ProbeReason | null {
+  if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
+  const signature = text(read(authorization, 'signature'));
+  if (!signature && !text(read(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
+  if (!isSha256Hex(signature)) return REASONS.AUTHORIZATION_INVALID;
+
+  const expected = createHmac('sha256', hmacKey)
     .update(authorizationMessage(authorization), 'utf8')
     .digest();
   const presented = Buffer.from(signature, 'hex');
   if (presented.length !== expected.length) return REASONS.AUTHORIZATION_INVALID;
-  if (!crypto.timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
+  if (!timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
 
-  const issuedAt = Date.parse(text(authorization.issuedAt));
-  const expiresAt = Date.parse(text(authorization.expiresAt));
+  const issuedAt = Date.parse(text(read(authorization, 'issuedAt')));
+  const expiresAt = Date.parse(text(read(authorization, 'expiresAt')));
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= issuedAt) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt - issuedAt > MAX_AUTHORIZATION_LIFETIME_MS) return REASONS.AUTHORIZATION_INVALID;
   if (issuedAt > now) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= now) return REASONS.AUTHORIZATION_EXPIRED;
-  if (!text(authorization.actorLogin)) return REASONS.AUTHORIZATION_INVALID;
+  if (!text(read(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
 
-  const granted = Array.isArray(authorization.projection) ? authorization.projection.map(text) : [];
-  const required = Array.isArray(projection) ? projection.map(text) : [];
-  const bound = [
-    [text(authorization.operation), operation],
-    [text(authorization.scope && authorization.scope.provider), text(candidate.scope && candidate.scope.provider)],
-    [text(authorization.scope && authorization.scope.authority), text(candidate.scope && candidate.scope.authority)],
-    [text(authorization.scope && authorization.scope.owner), text(candidate.scope && candidate.scope.owner)],
-    [text(authorization.scope && authorization.scope.repo), text(candidate.scope && candidate.scope.repo)],
-    [text(authorization.commit), text(candidate.commit)],
-    [text(authorization.candidateFingerprint), text(candidate.fingerprint)],
-    [text(authorization.projectRef), text(projectRef)],
+  const granted = listOf(read(authorization, 'projection')).map(column => text(column));
+  const required = listOf(projection).map(column => text(column));
+  const scope = read(authorization, 'scope');
+  const asked = candidate.scope;
+  const bound: [string, string][] = [
+    [text(read(authorization, 'operation')), operation],
+    [text(scope && read(scope, 'provider')), text(asked && read(asked, 'provider'))],
+    [text(scope && read(scope, 'authority')), text(asked && read(asked, 'authority'))],
+    [text(scope && read(scope, 'owner')), text(asked && read(asked, 'owner'))],
+    [text(scope && read(scope, 'repo')), text(asked && read(asked, 'repo'))],
+    [text(read(authorization, 'commit')), text(candidate.commit)],
+    [text(read(authorization, 'candidateFingerprint')), text(candidate.fingerprint)],
+    [text(read(authorization, 'projectRef')), text(projectRef)],
     /* Order included: a grant for two columns is a grant for those two
        columns in that order, because the request is built from it. */
     [granted.join(','), required.join(',')]
   ];
-  if (operation === OPERATIONS.PROBE) bound.push([text(authorization.relation), text(relation)]);
-  if (actorLogin != null) bound.push([text(authorization.actorLogin), text(actorLogin)]);
+  if (operation === OPERATIONS.PROBE) bound.push([text(read(authorization, 'relation')), text(relation)]);
+  if (actorLogin != null) bound.push([text(read(authorization, 'actorLogin')), text(actorLogin)]);
   for (const [supplied, needed] of bound) {
     if (supplied !== needed) return REASONS.AUTHORIZATION_MISMATCH;
   }
@@ -262,7 +306,7 @@ function authorizationRefusal({ authorization, hmacKey, operation, projectRef, r
 
 /* ---- Requests ---------------------------------------------------------- */
 
-function headersFor(anonKey) {
+function headersFor(anonKey: string): Readonly<Record<string, string>> {
   return {
     /*
      * The key in both headers, which is what the service expects, and in
@@ -280,8 +324,24 @@ function headersFor(anonKey) {
   };
 }
 
-async function send({ url, anonKey, transport, maxResponseBytes }) {
-  const request = typeof transport === 'function' ? transport : guardedFetch;
+/* What a probe is answered with; either part may be missing. */
+export interface ProbeResponse {
+  readonly statusCode?: unknown;
+  readonly body?: unknown;
+}
+
+/* The guarded transport, or a stand-in with its shape. */
+export type ProbeTransport = (input: GuardedFetchInput) => Promise<ProbeResponse | null | undefined>;
+
+interface SendInput {
+  readonly url: string;
+  readonly anonKey: string;
+  readonly transport: ProbeTransport | undefined;
+  readonly maxResponseBytes: number;
+}
+
+async function send({ url, anonKey, transport, maxResponseBytes }: SendInput): Promise<ProbeResponse | null | undefined> {
+  const request: ProbeTransport = typeof transport === 'function' ? transport : guardedFetch;
   return request({
     url,
     /*
@@ -298,14 +358,37 @@ async function send({ url, anonKey, transport, maxResponseBytes }) {
   });
 }
 
-function observation(input) {
+/* What was tested and how many rows the anonymous role could see; nothing from inside them. */
+export interface ReadabilityObservation {
+  readonly state: ProbeState;
+  readonly reason: ProbeReason;
+  readonly projectRef: string | null;
+  readonly relation: string | null;
+  readonly projection: readonly string[];
+  readonly rowCount: number;
+  readonly testedRole: 'publishable' | 'anon' | null;
+  readonly observedAt: string;
+}
+
+interface ObservationInput {
+  readonly now: number;
+  readonly state: ProbeState;
+  readonly reason: ProbeReason;
+  readonly projectRef: string;
+  readonly relation: string;
+  readonly projection: readonly string[];
+  readonly rowCount?: number;
+  readonly testedRole?: 'publishable' | 'anon';
+}
+
+function observation(input: ObservationInput): ReadabilityObservation {
   return Object.freeze({
     state: input.state,
     reason: input.reason,
     projectRef: input.projectRef || null,
     relation: input.relation || null,
     projection: Object.freeze(Array.isArray(input.projection) ? [...input.projection] : []),
-    rowCount: Number.isInteger(input.rowCount) ? input.rowCount : 0,
+    rowCount: typeof input.rowCount === 'number' && Number.isInteger(input.rowCount) ? input.rowCount : 0,
     testedRole: input.testedRole || null,
     observedAt: new Date(input.now).toISOString()
   });
@@ -315,12 +398,25 @@ function observation(input) {
  * The probe. Returns a sanitized observation: what was tested, how many rows
  * the anonymous role could see, and nothing from inside them.
  */
-async function probeAnonymousReadability(input = {}) {
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
-  const candidate = input.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+export interface ProbeInput {
+  readonly now?: unknown;
+  readonly candidate?: unknown;
+  readonly projectRef?: unknown;
+  readonly relation?: unknown;
+  readonly projection?: unknown;
+  readonly anonKey?: unknown;
+  readonly authorization?: unknown;
+  readonly authorizationKey?: unknown;
+  readonly actorLogin?: unknown;
+  readonly transport?: ProbeTransport | undefined;
+}
+
+export async function probeAnonymousReadability(input: ProbeInput = {}): Promise<ReadabilityObservation> {
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+  const candidate = fieldsOf(input.candidate);
   const projectRef = text(input.projectRef);
   const relation = text(input.relation);
-  const projection = (Array.isArray(input.projection) ? input.projection : []).map(text);
+  const projection = listOf(input.projection).map(column => text(column));
   const base = { now, projectRef, relation, projection };
 
   /*
@@ -344,12 +440,13 @@ async function probeAnonymousReadability(input = {}) {
     return observation({ ...base, state: PROBE_STATES.UNVERIFIABLE, reason: REASONS.KEY_NOT_ANONYMOUS });
   }
 
-  if (!Buffer.isBuffer(input.authorizationKey) && typeof input.authorizationKey !== 'string') {
+  const authorizationKey = input.authorizationKey;
+  if (!Buffer.isBuffer(authorizationKey) && typeof authorizationKey !== 'string') {
     throw new TypeError('A readability probe requires a derived authorization key');
   }
   const refusal = authorizationRefusal({
     authorization: input.authorization,
-    hmacKey: input.authorizationKey,
+    hmacKey: authorizationKey,
     operation: OPERATIONS.PROBE,
     projectRef, relation, projection, candidate,
     actorLogin: input.actorLogin,
@@ -362,7 +459,7 @@ async function probeAnonymousReadability(input = {}) {
   const url = `https://${projectRef}.supabase.co/rest/v1/${relation}`
     + `?select=${encodeURIComponent(projection.join(','))}&limit=${MAX_ROWS}`;
 
-  let response;
+  let response: ProbeResponse | null | undefined;
   try {
     response = await send({ url, anonKey: text(input.anonKey), transport: input.transport, maxResponseBytes: MAX_RESPONSE_BYTES });
   } catch {
@@ -372,7 +469,8 @@ async function probeAnonymousReadability(input = {}) {
   }
 
   const statusCode = Number(response && response.statusCode) || 0;
-  const tested = { ...base, testedRole: key.kind === KEY_KINDS.PUBLISHABLE ? 'publishable' : 'anon' };
+  const testedRole: 'publishable' | 'anon' = key.kind === KEY_KINDS.PUBLISHABLE ? 'publishable' : 'anon';
+  const tested = { ...base, testedRole };
 
   if (statusCode === 429) {
     return observation({ ...tested, state: PROBE_STATES.UNVERIFIABLE, reason: REASONS.PROVIDER_THROTTLED });
@@ -390,8 +488,9 @@ async function probeAnonymousReadability(input = {}) {
     return observation({ ...tested, state: PROBE_STATES.UNVERIFIABLE, reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
   }
 
-  const body = typeof response.body === 'string' ? response.body : '';
-  let rows;
+  const answered = response && response.body;
+  const body = typeof answered === 'string' ? answered : '';
+  let rows: unknown;
   try {
     rows = JSON.parse(body);
   } catch {
@@ -425,11 +524,19 @@ async function probeAnonymousReadability(input = {}) {
  * is unavailable the coverage says so, because an operator confirming a
  * relation list from a partial description is confirming less than they think.
  */
-async function describeService(input = {}) {
-  const now = Number.isFinite(input.now) ? input.now : Date.now();
-  const candidate = input.candidate && typeof input.candidate === 'object' ? input.candidate : {};
+/* The relations a service names, and how much of its description was read. */
+export interface ServiceDescription {
+  readonly coverage: 'complete' | 'partial' | 'refused';
+  readonly reason: ProbeReason | null;
+  readonly relations: readonly string[];
+  readonly observedAt: string;
+}
+
+export async function describeService(input: Omit<ProbeInput, 'relation' | 'projection'> = {}): Promise<ServiceDescription> {
+  const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+  const candidate = fieldsOf(input.candidate);
   const projectRef = text(input.projectRef);
-  const empty = { relations: Object.freeze([]), observedAt: new Date(now).toISOString() };
+  const empty = { relations: Object.freeze<string[]>([]), observedAt: new Date(now).toISOString() };
 
   if (!PROJECT_REF_PATTERN.test(projectRef)) {
     return Object.freeze({ ...empty, coverage: 'refused', reason: REASONS.PROJECT_REFUSED });
@@ -438,12 +545,13 @@ async function describeService(input = {}) {
   if (!key.usable) {
     return Object.freeze({ ...empty, coverage: 'refused', reason: REASONS.KEY_NOT_ANONYMOUS });
   }
-  if (!Buffer.isBuffer(input.authorizationKey) && typeof input.authorizationKey !== 'string') {
+  const authorizationKey = input.authorizationKey;
+  if (!Buffer.isBuffer(authorizationKey) && typeof authorizationKey !== 'string') {
     throw new TypeError('A service description requires a derived authorization key');
   }
   const refusal = authorizationRefusal({
     authorization: input.authorization,
-    hmacKey: input.authorizationKey,
+    hmacKey: authorizationKey,
     operation: OPERATIONS.DESCRIBE,
     projectRef, relation: '', projection: [], candidate,
     actorLogin: input.actorLogin,
@@ -451,7 +559,7 @@ async function describeService(input = {}) {
   });
   if (refusal) return Object.freeze({ ...empty, coverage: 'refused', reason: refusal });
 
-  let response;
+  let response: ProbeResponse | null | undefined;
   try {
     response = await send({
       url: `https://${projectRef}.supabase.co/rest/v1/`,
@@ -465,16 +573,18 @@ async function describeService(input = {}) {
   if (Number(response && response.statusCode) !== 200) {
     return Object.freeze({ ...empty, coverage: 'partial', reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
   }
-  let document;
+  const answered = response && response.body;
+  let document: unknown;
   try {
-    document = JSON.parse(typeof response.body === 'string' ? response.body : '');
+    document = JSON.parse(typeof answered === 'string' ? answered : '');
   } catch {
     return Object.freeze({ ...empty, coverage: 'partial', reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
   }
-  const paths = document && document.paths && typeof document.paths === 'object' ? document.paths : null;
+  const found = document && read(document, 'paths');
+  const paths = found && typeof found === 'object' ? found : null;
   if (!paths) return Object.freeze({ ...empty, coverage: 'partial', reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
 
-  const relations = [];
+  const relations: string[] = [];
   for (const key of Object.keys(paths)) {
     const name = key.replace(/^\//, '');
     /* The root is the description itself, and an `rpc/` path is a function:
@@ -484,7 +594,7 @@ async function describeService(input = {}) {
     if (relations.length >= MAX_DESCRIBED_RELATIONS) break;
     relations.push(name);
   }
-  return Object.freeze({
+  return Object.freeze<ServiceDescription>({
     coverage: 'complete',
     reason: null,
     relations: Object.freeze(relations.sort()),
@@ -492,20 +602,4 @@ async function describeService(input = {}) {
   });
 }
 
-module.exports = Object.freeze({
-  DEFAULT_TRANSPORT: guardedFetch,
-  KEY_KINDS,
-  MAX_AUTHORIZATION_LIFETIME_MS,
-  MAX_DESCRIBED_RELATIONS,
-  MAX_PROJECTION_COLUMNS,
-  MAX_RESPONSE_BYTES,
-  MAX_ROWS,
-  OPERATIONS,
-  PROBE_STATES,
-  REASONS,
-  classifyKey,
-  describeService,
-  discoverProject,
-  probeAnonymousReadability,
-  signReadabilityAuthorization
-});
+export const DEFAULT_TRANSPORT = guardedFetch;

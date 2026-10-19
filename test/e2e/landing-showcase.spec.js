@@ -15,8 +15,8 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
-const { EXPOSURE_RULES } = require('../../src/exposure-rules');
-const { ADAPTERS } = require('../../src/credential-verification');
+const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
+const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
 const audit = require('../../src/code-audit');
 const site = require('../../src/site-check');
 

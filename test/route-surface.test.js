@@ -136,8 +136,8 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * reason the ratchet asks for.
  *
  * The six routes are registration and nothing else: each one validates a
- * couple of parameters, calls one method on `src/exposure-store.js`,
- * `src/exposure-reader.js` or `src/exposure-narration.js`, and returns the
+ * couple of parameters, calls one method on the exposure store, reader or
+ * narration (now `apps/api/src/modules/quasar`), and returns the
  * result. The identity boundary is a parameter passed into the store, where it
  * lands in a WHERE clause; the decisions about coverage, disposition and
  * wording are all in modules with their own tests. That is exactly the shape

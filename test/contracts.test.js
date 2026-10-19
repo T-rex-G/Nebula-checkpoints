@@ -249,7 +249,7 @@ for (const kind of jobs.JOB_KINDS) {
   assert.equal(gone.error.code, jobs.JOB_ERROR_CODES[kind].RUN_GONE);
   queue.close();
 }
-const exposureStore = require('../src/exposure-store');
+const exposureStore = require('../apps/api/src/modules/quasar/index.ts');
 assert.deepEqual([...exposureStore.SCAN_STATES], [...jobs.SCAN_STATES]);
 assert.deepEqual([...exposureStore.TERMINAL_STATES], [...jobs.TERMINAL_SCAN_STATES]);
 assert.deepEqual([...exposureStore.COVERAGE], [...evidence.EXPOSURE_COVERAGE]);

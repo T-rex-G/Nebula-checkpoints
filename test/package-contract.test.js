@@ -524,7 +524,8 @@ assert.strictEqual(
   'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json'
 );
 const publicAlphaQualificationArtifacts = [
-  'src/secret-scanner.js',
+  'apps/api/src/platform/release/secret-scanner.ts',
+  'apps/api/src/platform/release/secret-rules.ts',
   'scripts/check-secrets.js',
   'src/qualification-evidence.js',
   'src/public-alpha-qualification.js',

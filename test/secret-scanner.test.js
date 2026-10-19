@@ -9,7 +9,7 @@ const {
   MAX_DIRECTORY_DEPTH,
   discoverReleasableTextFiles,
   scanFiles
-} = require('../src/secret-scanner');
+} = require('../apps/api/src/platform/release/secret-scanner.ts');
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-secret-scanner-'));
 try {
@@ -206,7 +206,7 @@ try {
  * be quiet about a file the gate flagged.
  */
 {
-  const { detectInText } = require('../src/exposure-detection');
+  const { detectInText } = require('../apps/api/src/modules/quasar/index.ts');
   const compatibilityRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-scanner-compat-'));
   try {
     /* Its own fixtures: the set above is scoped to the block that built it,

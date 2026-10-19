@@ -35,8 +35,7 @@ const { parse: parseDomain } = require('tldts');
 const { parse: parseHtml } = require('parse5');
 const { gradeOf, lookupAdvisories, advisoryKey, compareVersions } = require('./code-audit');
 const { standardsFor } = require('./security-standards');
-const { detectInText } = require('./exposure-detection');
-const { RULE_NARRATION } = require('./exposure-narration');
+const { detectInText, RULE_NARRATION } = require('../apps/api/src/modules/quasar/index.ts');
 
 const RULES = Object.freeze({
   'WEB-001': { severity: 'critical', title: 'An environment file is served publicly',

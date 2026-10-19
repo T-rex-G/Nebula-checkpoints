@@ -14,7 +14,9 @@
  *    and the shared contracts import neither.
  *  - A module of the server is reached through its index only, by the other
  *    modules and by the CommonJS server code that remains, and its domain
- *    layer imports no transport, persistence or process package.
+ *    layer imports no transport, persistence or process package -- neither
+ *    itself nor through anything it loads -- and none of its own module's
+ *    other layers: a decision does not depend on how it is fetched or kept.
  *  - The platform imports only the platform and the shared contracts: the
  *    modules stand on it, so it depends on none of them, nor on the server
  *    code still in src/.
@@ -202,7 +204,9 @@ console.log('  ok  the root stays CommonJS; apps/ and packages/ are ES-module sc
 
 const scoped = [...walk(path.join(root, 'apps')), ...walk(path.join(root, 'packages'))]
   .filter(file => !/[/\\](?:public|dist)[/\\]/.test(file) && !/vite\.config\.js$/.test(file));
+const DOMAIN_FILE = /^apps\/api\/src\/modules\/([^/]+)\/domain\//;
 const edges = new Map();
+const forbiddenPackages = new Map();
 const violations = [];
 for (const file of scoped) {
   const name = rel(file);
@@ -219,8 +223,9 @@ for (const file of scoped) {
     const target = resolveRelative(file, specifier);
     if (!target) {
       if (specifier.startsWith('.')) violations.push(`${name}: ${specifier} does not resolve`);
-      if (/^modules\/[^/]+\/domain\//.test(name.replace(/^apps\/api\/src\//, '')) && DOMAIN_FORBIDDEN.test(specifier)) {
-        violations.push(`${name}: domain code imports ${specifier}`);
+      if (DOMAIN_FORBIDDEN.test(specifier)) {
+        forbiddenPackages.set(name, [...(forbiddenPackages.get(name) || []), specifier]);
+        if (DOMAIN_FILE.test(name)) violations.push(`${name}: domain code imports ${specifier}`);
       }
       continue;
     }
@@ -236,9 +241,28 @@ for (const file of scoped) {
     if (toModule && (!fromModule || fromModule[1] !== toModule[1]) && toModule[2] !== 'index.ts') {
       violations.push(`${name}: reaches into module ${toModule[1]} past its index (${to})`);
     }
+    const fromDomain = DOMAIN_FILE.exec(name);
+    if (fromDomain && toModule && toModule[1] === fromDomain[1] && !toModule[2].startsWith('domain/')) {
+      violations.push(`${name}: domain code imports its own module's ${toModule[2].split('/')[0]} layer (${to})`);
+    }
     if (statics.includes(specifier)) targets.push(to);
   }
   edges.set(name, targets);
+}
+/* What a domain file loads, at any depth, is held to the domain's rule too. */
+for (const name of edges.keys()) {
+  if (!DOMAIN_FILE.test(name)) continue;
+  const seen = new Set([name]);
+  const pending = [...edges.get(name)];
+  while (pending.length) {
+    const next = pending.pop();
+    if (seen.has(next)) continue;
+    seen.add(next);
+    for (const specifier of forbiddenPackages.get(next) || []) {
+      violations.push(`${name}: domain code loads ${next}, which imports ${specifier}`);
+    }
+    pending.push(...(edges.get(next) || []));
+  }
 }
 assert.deepStrictEqual(violations, [], `module rules broken:\n- ${violations.join('\n- ')}`);
 assert.deepStrictEqual(stronglyConnected(edges), [], 'a dependency cycle in apps/ or packages/');

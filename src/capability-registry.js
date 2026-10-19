@@ -1,6 +1,6 @@
 'use strict';
 const fs = require('fs');
-const { connectionRestriction } = require('./github-account-operations');
+const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
 const capability = require('../packages/contracts/src/capability.ts');
 const { deepFreeze } = require('../packages/contracts/src/guards.ts');
 

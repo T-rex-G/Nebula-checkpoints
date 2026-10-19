@@ -452,7 +452,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
   {
     const fs = require('fs');
     const path = require('path');
-    const { scopedCodeQuery } = require('../src/github-account-operations');
+    const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
     const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
     const route = (method, routePath) => {

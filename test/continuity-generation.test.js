@@ -265,9 +265,9 @@ try {
     'WORK_CONTINUITY.json',
     'src/work-continuity.js',
     'src/capability-registry.js',
-    'src/github-account-operations.js',
-    /* The repository scope parser lives in identity and access, an ES-module scope reached through its index. */
+    /* Account operations and the repository scope parser are server modules, an ES-module scope each reached through its index. */
     'apps/package.json',
+    'apps/api/src/modules/github-provider',
     'apps/api/src/modules/identity-access',
     'apps/api/src/platform/persistence/queryable.ts',
     /* The capability document's guard is a shared contract, in its own module scope. */

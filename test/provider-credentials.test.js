@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { resolveProviderAccount } = require('../src/provider-credentials');
+const { resolveProviderAccount } = require('../apps/api/src/modules/github-provider/index.ts');
 
 (async () => {
   for (const account of [

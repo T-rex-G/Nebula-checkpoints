@@ -9,7 +9,7 @@ const {
   createGithubAppState,
   verifyGithubAppState,
   GithubAppBroker
-} = require('../src/github-app');
+} = require('../apps/api/src/modules/github-provider/index.ts');
 
 function response(status, body) {
   return new Response(body == null ? '' : JSON.stringify(body), {

@@ -252,6 +252,26 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
 - **Checks:** typecheck under all four projects and lint green; every unit program that touches these modules green; Playwright loads every browser and integration spec.
 - **Next:** D4 (the identity-access and GitHub provider modules, behind their indexes).
 
+### D4 — Identity and access, and the GitHub provider, as modules
+
+- **Two modules, each behind its index.**
+  - `modules/identity-access`: invitation and repository-scope rules, the privacy policy and provider disconnect (`domain/`), and the access and privacy stores (`persistence/`).
+  - `modules/github-provider`: the GitHub App client and its credential broker (`client/`), and the account operations and credential resolution (`domain/`).
+  - The server, the scripts and the CI harnesses reach both through `index.ts` only. The server's thirteen separate requires of these files are now two.
+- **Typed strictly, behaviour unchanged.**
+  - The 2,500-line privacy store keeps every SQL statement as it was. Rows are checked values; a statement answered without rows fails as it always did, and a `RETURNING` row is read by one helper that says so when it is missing.
+  - Disconnect steps handed in by the server are still called as methods of what supplied them, so a store's own `this` holds.
+  - Error objects keep their own-property order, and the App's state tokens keep their canonical JSON byte for byte (one of the eight copies carried to Phase G).
+- **The boundary rule reaches the CommonJS server.** The import-graph test already held modules to each other's indexes; it now holds `server.js` and `src/` to them as well. It was shown to catch a planted reach past the identity-access index.
+- **Copies replaced by the contract's names.** Three copied SHA-256 patterns are `isSha256Hex`; the adoption record shrinks by three copies and one waiting export.
+- **Tests that moved with the code:**
+  - The boundary fixture swaps the stores and the credential resolver in each module's index, under either runtime's extension, instead of matching the old file requests.
+  - The continuity archive test carries both module trees and the ES-module scope file, so the generator it isolates still runs.
+  - The source-text contracts read the server's one require of each index.
+  - `node --check` reads JavaScript only, so the moved files leave the syntax manifest; `verify.js` counts a server `.ts` source as checked when the `apps/api` project typechecks, as the package contract does.
+- **Checks:** typecheck under all four projects and lint green; every unit program that touches these modules green, the PostgreSQL privacy purge and migrations included; both server runtimes; Playwright loads every browser and integration spec.
+- **Next:** D5 (Kepler, the governance module).
+
 ### Qualifier — a failing browser slice names its tests
 
 - **The defect.** On C4 the alpha17 candidate gate failed in browser slice 4/4, and its message named only a web server warning. Each slice ran with the blob reporter alone, which writes nothing readable, and a failure was described by the slice's stderr, which holds only the server's warnings. The failing tests were not named anywhere a reader could see.

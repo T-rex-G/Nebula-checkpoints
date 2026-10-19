@@ -17,7 +17,7 @@ const {
   listAccessibleNotifications,
   githubTokenKind,
   connectionRestriction
-} = require('../src/github-account-operations');
+} = require('../apps/api/src/modules/github-provider/index.ts');
 const { requireGithubOrigin } = require('./verify-alpha17-authorization');
 
 /*

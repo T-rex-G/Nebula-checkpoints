@@ -65,8 +65,10 @@ const {
 const {
   githubTokenKind, validateRepositoryCreation, githubRepositoryScopes, validateCodeQuery, scopedCodeQuery,
   createVerifiedRepository, searchAccessibleCode, listAccessibleNotifications,
-  verifyRepositoryDeletion
-} = require('./src/github-account-operations');
+  verifyRepositoryDeletion,
+  GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
+  resolveProviderAccount
+} = require('./apps/api/src/modules/github-provider/index.ts');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
 );
@@ -138,9 +140,6 @@ const {
   createCsrfToken, verifyCsrfToken, createStepUpGrant, verifyStepUpGrant,
   normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp, scopeHash
 } = require('./apps/api/src/platform/authorization/security-foundation.ts');
-const {
-  GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
-} = require('./src/github-app');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./apps/api/src/platform/crypto/key-derivation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
@@ -149,7 +148,6 @@ const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
 const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
-const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
 const { createMutationGateway, normalizeMutationDescriptor } = require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts');

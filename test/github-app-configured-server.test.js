@@ -6,7 +6,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { createGithubAppState } = require('../src/github-app');
+const { createGithubAppState } = require('../apps/api/src/modules/github-provider/index.ts');
 const { hashJson } = require('../src/intelligence');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 

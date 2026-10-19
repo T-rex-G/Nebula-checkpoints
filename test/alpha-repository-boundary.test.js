@@ -486,8 +486,11 @@ Module._load = function load(request, parent, isMain) {
     const real = originalLoad.call(this, request, parent, isMain);
     return { ...real, AlphaAccessStore, AlphaAccessOperationalError, AlphaPrivacyStore };
   }
-  if (request === './src/provider-credentials' && parent && /server\.js$/.test(parent.filename)) {
+  /* The GitHub provider module, its credential resolution replaced by this fixture's. */
+  if (/^\.\/apps\/api\/src\/modules\/github-provider\/index\.[jt]s$/.test(request) && parent && /server\.js$/.test(parent.filename)) {
+    const real = originalLoad.call(this, request, parent, isMain);
     return {
+      ...real,
       async resolveProviderAccount(account) {
         record({ kind: 'credential.resolve', authMethod: account && account.authMethod });
         if (account && account.authMethod === 'github-app') {

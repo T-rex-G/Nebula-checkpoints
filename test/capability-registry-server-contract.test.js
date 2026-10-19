@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -179,7 +180,7 @@ function mutationOptions(method, cookie, body, extraHeaders = {}) {
   };
 }
 
-const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
+const child = spawn(process.execPath, ['-r', fixture, serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

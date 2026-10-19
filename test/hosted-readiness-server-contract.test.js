@@ -1,12 +1,13 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const sessionSecret = ['hosted-startup-test', '0123456789abcdef'].join('-');
-const rejected = spawnSync(process.execPath, ['server.js'], {
+const rejected = spawnSync(process.execPath, [serverEntry()], {
   cwd: root,
   encoding: 'utf8',
   timeout: 5000,

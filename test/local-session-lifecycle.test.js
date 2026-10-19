@@ -1,5 +1,6 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
@@ -29,7 +30,7 @@ function cookieFrom(response, fallback = '') {
   return match ? `nv_session=${match[1]}` : fallback;
 }
 async function start() {
-  child = spawn(process.execPath, ['-r', './test/fixtures/session-provider-fetch.js', 'server.js'], {
+  child = spawn(process.execPath, ['-r', './test/fixtures/session-provider-fetch.js', serverEntry()], {
     cwd: root,
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test', SESSION_SECRET: secret,
       DATABASE_URL: '', NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local' },

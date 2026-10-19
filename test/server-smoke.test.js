@@ -1,5 +1,6 @@
 'use strict';
 
+const { serverEntry, serverIdentity } = require('./helpers/server-entry');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -12,7 +13,7 @@ const { computeReleaseFingerprint } = require('../src/release-fingerprint');
 const releaseTreeSha256 = computeReleaseFingerprint(root);
 const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['smoke-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,
@@ -160,7 +161,8 @@ async function waitForServer() {
     assert.deepStrictEqual(await version.json(), {
       product: 'Nebulaverse-X',
       releaseTreeSha256,
-      servedAssetsSha256: servedAssetsDigest(path.join(root, 'dist', 'web'))
+      servedAssetsSha256: servedAssetsDigest(path.join(root, 'dist', 'web')),
+      ...serverIdentity(root)
     });
 
     /*

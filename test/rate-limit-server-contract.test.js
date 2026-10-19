@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -39,7 +40,7 @@ function session(sessionNonce, login = 'rate-fixture-user') {
   };
 }
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

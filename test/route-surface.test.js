@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -273,7 +274,7 @@ if (fs.existsSync(routesDir)) {
   }
 }
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

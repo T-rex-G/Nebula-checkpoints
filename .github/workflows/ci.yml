@@ -214,3 +214,43 @@ jobs:
           path: test-results/integration/
           retention-days: 3
           if-no-files-found: error
+
+  # The fallback runtime of ADR-088, proven on every commit rather than on the
+  # day it is needed. The server is compiled into dist/server twice from the
+  # same tree (the digest it reports as serverBuildSha256 must name the same
+  # bytes both times) and every test that starts the server -- boot, health
+  # and readiness on PostgreSQL, the route surface and the negative-request
+  # matrix, the worker and child-process entries, the multi-instance programs
+  # and the release smoke -- runs again against the compiled tree. `verify`
+  # runs the same programs against the source, so the two runtimes answer the
+  # same questions the same way or this job is red.
+  server-compiled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm run build:server:check
+      - run: npm run test:server-compiled

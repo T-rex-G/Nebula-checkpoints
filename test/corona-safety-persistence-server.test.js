@@ -1,5 +1,6 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -141,7 +142,7 @@ async function main() {
       console.log('Corona concurrent safety patch regressions passed');
     } finally { await safetyPool.end(); }
     const port = await freePort();
-    child = spawn(process.execPath, ['-r', './test/fixtures/corona-fetch.js', 'server.js'], {
+    child = spawn(process.execPath, ['-r', './test/fixtures/corona-fetch.js', serverEntry()], {
       cwd: root,
       env: {
         ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,

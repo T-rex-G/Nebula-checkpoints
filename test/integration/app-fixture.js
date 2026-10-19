@@ -10,6 +10,7 @@ const { startGithubBoundary } = require('./github-boundary');
 const { loadMigrations } = require('../../src/migrations');
 const { computeReleaseFingerprint } = require('../../src/release-fingerprint');
 const { checkDeployment } = require('../../scripts/check-deployment-readiness');
+const { serverEntry } = require('../helpers/server-entry');
 
 const root = path.resolve(__dirname, '../..');
 
@@ -116,7 +117,7 @@ const test = base.extend({
       const port = await unusedPort();
       const origin = `http://127.0.0.1:${port}`;
       const expectedFingerprint = computeReleaseFingerprint(root);
-      child = spawn(process.execPath, ['-r', path.join(__dirname, 'provider-preload.js'), 'server.js'], {
+      child = spawn(process.execPath, ['-r', path.join(__dirname, 'provider-preload.js'), serverEntry(root)], {
         cwd: root,
         env: {
           PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,

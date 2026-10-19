@@ -209,6 +209,7 @@ function computeReleaseFingerprint(rootDirectory, options = {}) {
 module.exports = Object.freeze({
   assertCleanReleaseTree,
   computeReleaseFingerprint,
+  discoverReleaseFiles,
   shouldIncludeReleasePath,
   shouldTraverseReleaseDirectory
 });

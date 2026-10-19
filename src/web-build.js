@@ -12,29 +12,12 @@
  * the release fingerprint in /api/version: the fingerprint names the source,
  * this names what was built from it, and qualification compares both.
  */
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
-function listFiles(root, prefix = '') {
-  const files = [];
-  for (const entry of fs.readdirSync(path.join(root, prefix), { withFileTypes: true })) {
-    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) files.push(...listFiles(root, relative));
-    else if (entry.isFile()) files.push(relative);
-    else throw new Error(`unexpected entry in the browser build: ${relative}`);
-  }
-  return files;
-}
+const { directoryDigest } = require('./directory-digest');
 
 function servedAssetsDigest(root) {
-  const files = listFiles(root).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
-  const digest = crypto.createHash('sha256');
-  for (const file of files) {
-    const content = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex');
-    digest.update(`${file}\0${content}\n`);
-  }
-  return digest.digest('hex');
+  return directoryDigest(root, 'the browser build');
 }
 
 function loadWebBuild(root) {

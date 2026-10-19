@@ -101,19 +101,29 @@ function withArtifact(file, value, callback) {
 function withIgnoredSentinels(callback) {
   const sentinelId = `release-containment-${crypto.randomUUID()}`;
   const sentinels = [
-    [`node_modules/.${sentinelId}.txt`, 'synthetic ignored dependency-state sentinel\n']
+    [`node_modules/.${sentinelId}.txt`, 'synthetic ignored dependency-state sentinel\n'],
+    /* The compiled server is derived from the release, never part of it. */
+    [`dist/server/.${sentinelId}.js`, 'synthetic compiled-server sentinel\n']
   ];
+  const createdDirectories = [];
   try {
     for (const [file, value] of sentinels) {
       const target = path.join(root, file);
       assert(!fs.existsSync(target), `sentinel already exists: ${file}`);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const created = fs.mkdirSync(path.dirname(target), { recursive: true });
+      if (created) createdDirectories.push(created);
       fs.writeFileSync(target, value);
     }
     callback(sentinels.map(([file]) => file));
   } finally {
     for (const [file] of sentinels) {
       quarantineTestPath(path.join(root, file), file.replace(/[^a-z0-9]+/gi, '-'));
+    }
+    /* Directories made only to hold a sentinel go with it, so no empty build tree is left behind. */
+    for (const directory of createdDirectories.reverse()) {
+      if (fs.existsSync(directory) && !fs.readdirSync(directory, { recursive: true }).some(entry => fs.statSync(path.join(directory, entry)).isFile())) {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     }
   }
 }

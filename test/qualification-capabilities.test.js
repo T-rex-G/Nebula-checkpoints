@@ -9,6 +9,7 @@
  * one back, and a real server serves live events with the variable unset.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const path = require('path');
@@ -47,7 +48,7 @@ assert.strictEqual(assertCapabilityAvailable(document, { ...github, feature: 'li
 /* ---- A real server ------------------------------------------------------- */
 function start(env) {
   const port = 24000 + Math.floor(Math.random() * 2000);
-  const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', 'server.js'], {
+  const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', serverEntry()], {
     cwd: root,
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '', NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local',
       SESSION_SECRET: crypto.randomBytes(40).toString('hex'), ...env },

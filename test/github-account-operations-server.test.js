@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -21,7 +22,7 @@ const stepUpKey = deriveSecret(secret, KEY_PURPOSES.STEP_UP_GRANT);
 const port = 20000 + Math.floor(Math.random() * 1000);
 const account = { provider: 'github', authMethod: 'token', login: 'alice', providerAccountId: 7, token: 'fixture-admin' };
 let logs = '';
-const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures/github-account-operations-fetch.js'), 'server.js'], {
+const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures/github-account-operations-fetch.js'), serverEntry()], {
   cwd: root, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,
     DATABASE_URL: '', GITHUB_CLIENT_ID: 'fixture-client', GITHUB_CLIENT_SECRET: 'fixture-client-secret',
     NV_ALPHA_ACCESS_MODE: 'off', NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn', NV_ACCOUNT_OPERATIONS_LOG: log },

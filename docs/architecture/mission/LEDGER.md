@@ -154,3 +154,30 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - two builds give one `servedAssetsSha256`;
   - the full browser suite on both projects (see the commit).
 - **Next:** C4 (the server's runtime and build identity in `/api/version`, the compiled-server CI job, `apps/api/src/entrypoint.ts` and the qualification double build).
+
+### C4 — Release plumbing: which server runs, and from what
+
+- **One place names an entry.** `apps/api/src/entrypoint.ts` declares the two files a worker thread or child process starts: Uranus's analysis worker and Parallax's rendered-check process. Each resolves from the entry module's own location and extension, so natively it is the source and compiled it is what tsc emitted. Both spawn sites now ask it. `test/module-boundaries.test.js` refuses an entry path written at any spawn site in `server.js` or `src` (99 files). It checks `new Worker`, `fork`, `spawn`, `spawnSync`, `execFile` and `execFileSync`. An entry path is a literal, `__filename`, a `path.join`/`path.resolve` ending in a file, or a `require.resolve`. It is caught whether passed directly, inside the argument list, or through a constant. It was shown to fail on each of eleven forms. The first version missed an entry inside the argument list (`spawn(process.execPath, [file])`).
+- **The compiled runtime** (ADR-088). `npm run build:server` builds `dist/server`, which mirrors the release tree as deployed:
+  - the server's 114 modules are emitted by tsc, with relative `.ts` specifiers rewritten;
+  - every other releasable file is copied, except TypeScript source;
+  - the browser build is copied in.
+- **Identity.** `/api/version` now reports `serverRuntime` (`native-ts` or `compiled`). A compiled server also reports `serverBuildSha256`, a digest of its own tree read at startup. `releaseTreeSha256` stays the source tree's in both runtimes. The web and server digests share one walker (`src/directory-digest.js`), and `servedAssetsSha256` is unchanged by the move.
+- **Both runtimes, same tests.**
+  - Every test that starts the server does so through `test/helpers/server-entry.js`: 25 programs, the negative-request matrix and the browser-integration fixture.
+  - `NV_SERVER_RUNTIME=compiled` points them at the built tree, and the release smoke and release contract then require that runtime's identity in `/api/version`.
+  - `scripts/test-server-runtime.js` finds these programs by how they start the server, so a new one joins without being listed.
+  - Compiled, the run adds `test/compiled/server-tree.js`. It checks that the tree holds no TypeScript, that its scoped `package.json` files are copied, and that every relative specifier resolves. It also starts an analysis on a worker thread from the tree and requires the source's answer, a real command-injection finding included. The program sits outside the runtime matrix's discovery because it needs a built tree.
+- **CI.** The new `server-compiled` job builds the server twice and requires one digest. It then runs all 26 server programs, plus the tree check, against PostgreSQL 17. `verify` runs the same programs on the source. The local CI runner requires both steps. The qualification workflow's `automated` job now builds the page twice (`build:web:check`), as ci.yml does.
+- **Builds stay out of the release.** The release fingerprint test now places a compiled server and a built page in its tree and requires the same identity. The packaging test places a sentinel in `dist/server` and requires the archive to leave it out.
+- **Defects found and fixed:**
+  - The documentation manifest test walked into `dist/server` and read its copied documents as unregistered. `dist` is now skipped, as the release fingerprint already skips it.
+  - The browser-integration fixture started `server.js` by name, so it would have stayed native whatever runtime was asked for.
+- **Checks:**
+  - unit gate (250 programs) green;
+  - `uranus-linear`'s timing bound failed once while the browser suite ran beside it, then passed alone;
+  - native 26/26 and compiled 27/27;
+  - two server builds give one `serverBuildSha256`;
+  - multi-instance, migrations, release, staging gate, typecheck, lint, syntax, secrets, docs and inventory green.
+- **Carried by the plan to F2:** the hosted gates still compare only `releaseTreeSha256`. F2 makes them also require the candidate's `servedAssetsSha256` and, for a compiled server, its `serverBuildSha256`.
+- **Next:** D1 (platform leaves to `.ts` inside `apps/api`).

@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { fork } = require('child_process');
+const { entryFile } = require('../apps/api/src/entrypoint.ts');
 const { auditError, renderedUrl } = require('./rendered-site-audit');
 
 /* Chromium creates its own process group. Killing only the Node worker's
@@ -38,7 +39,7 @@ function runRenderedSite({ url, executablePath, signal, onProgress = () => {} })
     if (signal && signal.aborted) return reject(auditError('Audit cancelled.', 'RENDERED_AUDIT_CANCELLED', 499));
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-rendered-'));
     let child;
-    try { child = fork(path.join(__dirname, 'rendered-site-worker.js'), [], {
+    try { child = fork(entryFile('rendered-site-worker'), [], {
       env: { PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: directory, LANG: 'C.UTF-8' },
       execArgv: ['--max-old-space-size=256'], detached: process.platform !== 'win32',
       stdio: ['ignore', 'ignore', 'ignore', 'ipc']

@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -166,7 +167,7 @@ function responseCookie(response, fallback) {
   return match ? `nv_session=${match[1]}` : fallback;
 }
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

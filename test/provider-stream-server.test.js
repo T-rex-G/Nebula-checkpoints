@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const path = require('path');
@@ -15,7 +16,7 @@ function sessionCookie(accounts, active = 0) {
 }
 const port = 23000 + Math.floor(Math.random() * 2000);
 const origin = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', 'server.js'], {
+const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', serverEntry()], {
   cwd: path.resolve(__dirname, '..'),
   env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '',
     NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local',

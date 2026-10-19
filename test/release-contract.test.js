@@ -1,5 +1,6 @@
 'use strict';
 
+const { serverEntry, serverIdentity } = require('./helpers/server-entry');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -25,7 +26,7 @@ assert.deepStrictEqual(Object.keys(require('../src/version')).sort(), ['APP_VERS
 const port = 27000 + Math.floor(Math.random() * 1000);
 const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['release-contract-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,
@@ -65,7 +66,8 @@ async function wait() {
     assert.deepStrictEqual(version, {
       product: PRODUCT_NAME,
       releaseTreeSha256: expectedReleaseTreeSha256,
-      servedAssetsSha256: expectedServedAssetsSha256
+      servedAssetsSha256: expectedServedAssetsSha256,
+      ...serverIdentity()
     });
     assert.ok(!JSON.stringify(version).includes(pkg.version),
       'the anonymous identity route still publishes the semantic version');

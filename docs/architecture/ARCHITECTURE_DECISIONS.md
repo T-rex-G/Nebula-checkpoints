@@ -871,6 +871,8 @@ this PR must stay open and unmerged for another AI review.
 - Worker and child-process entry files are named only through `apps/api/src/entrypoint.ts`.
 - A `tsc`-compiled build of the same source runs the same server checks in CI on every commit and must give the same results. `/api/version` reports which runtime is serving.
 
+The compiled tree is `dist/server`, built by `npm run build:server`. It mirrors the release tree as deployed: the server's modules are emitted as JavaScript, every other releasable file is copied except TypeScript source, and the browser build is copied in. `/api/version` reports `serverRuntime` (`native-ts` or `compiled`). A compiled server also reports `serverBuildSha256`, a digest of its tree read at startup. `releaseTreeSha256` stays the source tree's in both runtimes. The `server-compiled` CI job builds twice and requires the same digest. It then runs every test that starts the server against the compiled tree, against PostgreSQL. Those tests are found by how they start the server, not listed.
+
 **Reason:** The release fingerprint keeps meaning "the tracked tree", and tests run exactly the code production runs. A root module-type change would have broken about 373 CommonJS files at once. The compiled fallback was found broken on first trial: worker paths written as strings are not rewritten by `tsc`. So the fallback is proven, not documented.
 
 **Consequence:** Native type stripping costs 0.1–0.17 s per process start. Switching to the compiled runtime is triggered by a Node upgrade, any loader regression or a cold-start budget breach.

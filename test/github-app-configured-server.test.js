@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -34,7 +35,7 @@ const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }
 const privateKeyBase64 = Buffer.from(privateKey.export({ type: 'pkcs8', format: 'pem' })).toString('base64');
 const clientSecret = 'configured-server-client-secret';
 const webhookSecret = 'configured-server-webhook-secret';
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

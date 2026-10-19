@@ -16,6 +16,7 @@
  * missing is the same as not having the gate.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
@@ -52,7 +53,7 @@ function startInstance(port, databaseUrl) {
   const withoutTls = databaseUrl
     ? `${databaseUrl}${databaseUrl.includes('?') ? '&' : '?'}sslmode=disable`
     : '';
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, [serverEntry()], {
     cwd: root,
     env: {
       ...process.env,

@@ -105,7 +105,10 @@ jobs:
               { mode: 0o600 }
             );
           '
-      - run: npm run build
+      # The browser build twice from the same tree, as ci.yml has it: the
+      # candidate is qualified on the served-assets digest its server attests,
+      # so that digest must name the same bytes on every build.
+      - run: npm run build:web:check
       - run: npm run test:runtime:matrix
       # Chromium is installed here for the qualifier below, which runs the
       # browser suite inside the extracted candidate.

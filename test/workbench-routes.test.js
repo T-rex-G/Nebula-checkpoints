@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -52,7 +53,7 @@ function mutation(method, body, extra = {}, stepUp = null) {
   };
 }
 
-const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures', 'github-model-fetch.js'), 'server.js'], {
+const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures', 'github-model-fetch.js'), serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

@@ -36,6 +36,7 @@
  */
 
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+const { entryFile } = require('../apps/api/src/entrypoint.ts');
 const { assertAuditActive } = require('./code-audit');
 
 const KIND = 'nv-code-audit';
@@ -136,7 +137,7 @@ function runWorker(input, trace, hardMs, budget, spawn = Worker, signal) {
         .catch(() => {});
     }, budget.watchMs);
     try {
-      worker = new spawn(__filename, {
+      worker = new spawn(entryFile('code-audit-worker'), {
         workerData: { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, licences: input.licences || null, intel: input.intel || null, extra: input.extra || null, trace },
         resourceLimits: { maxOldGenerationSizeMb: Math.max(HEAP_FLOOR_MB, budget.heapMb), maxYoungGenerationSizeMb: budget.youngMb, stackSizeMb: 8 }
       });

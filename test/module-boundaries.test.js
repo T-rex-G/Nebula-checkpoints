@@ -8,8 +8,8 @@
  *  - Nothing under apps/ or packages/ awaits at the top level: a CommonJS test
  *    or tool that require()s such a graph fails with ERR_REQUIRE_ASYNC_MODULE.
  *  - A worker or child-process entry file is named in one place,
- *    apps/api/src/entrypoint.ts, so the native and compiled runtimes resolve
- *    the same file.
+ *    apps/api/src/entrypoint.ts, anywhere in the server, so the native and
+ *    compiled runtimes resolve the same file.
  *  - The page never imports the server, the server never imports the page,
  *    and the shared contracts import neither.
  *  - A module of the server is reached through its index only, and its domain
@@ -96,13 +96,57 @@ function topLevelAwait(source) {
 function entryPathLiterals(source) {
   const hits = [];
   const literalPath = node => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && /\.(?:[cm]?[jt]s)$/.test(node.text);
+  const literalSpecifier = node => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && /^\.\.?\//.test(node.text);
+  /* Constants the file declares, so an entry held in one (`const WORKER = path.join(...)`) is still seen where it is started. */
+  const constants = new Map();
+  const collect = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) constants.set(node.name.text, node.initializer);
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  /*
+   * A literal path, this file (`__filename`), a file beside it
+   * (`path.join(__dirname, 'x.js')`) or a module resolved by name
+   * (`require.resolve('./x')`).
+   */
+  const entryPath = (node, depth = 0) => {
+    if (!node) return null;
+    if (ts.isIdentifier(node) && constants.has(node.text) && depth < 4) return entryPath(constants.get(node.text), depth + 1);
+    if (literalPath(node)) return node.text;
+    if (ts.isIdentifier(node) && node.text === '__filename') return '__filename';
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const { expression: owner, name } = node.expression;
+      if (['join', 'resolve'].includes(name.text) && !(ts.isIdentifier(owner) && owner.text === 'require')) {
+        const last = node.arguments[node.arguments.length - 1];
+        if (literalPath(last)) return last.text;
+      }
+      if (name.text === 'resolve' && ts.isIdentifier(owner) && owner.text === 'require' && literalSpecifier(node.arguments[0])) {
+        return node.arguments[0].text;
+      }
+    }
+    return null;
+  };
+  /* An entry passed directly, or as an element of the argument list (`spawn(process.execPath, [entry])`). */
+  const entryIn = args => {
+    for (const arg of args || []) {
+      const direct = entryPath(arg);
+      if (direct) return direct;
+      const list = arg && ts.isIdentifier(arg) && constants.has(arg.text) ? constants.get(arg.text) : arg;
+      if (list && ts.isArrayLiteralExpression(list)) {
+        const element = list.elements.map(element => entryPath(element)).find(Boolean);
+        if (element) return element;
+      }
+    }
+    return null;
+  };
+  const STARTERS = ['fork', 'spawn', 'spawnSync', 'execFile', 'execFileSync'];
   const visit = node => {
-    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && ['URL', 'Worker'].includes(node.expression.text) &&
-        node.arguments && literalPath(node.arguments[0])) hits.push(node.arguments[0].text);
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && ['URL', 'Worker', 'spawn'].includes(node.expression.text) &&
+        node.arguments && entryPath(node.arguments[0])) hits.push(entryPath(node.arguments[0]));
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
-      if (['fork', 'spawn'].includes(name) && node.arguments.some(literalPath)) hits.push(node.arguments.find(literalPath).text);
+      if (STARTERS.includes(name) && entryIn(node.arguments)) hits.push(entryIn(node.arguments));
     }
     ts.forEachChild(node, visit);
   };
@@ -192,11 +236,15 @@ console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray ent
 
 const legacy = [path.join(root, 'server.js'), ...walk(path.join(root, 'src'))].filter(fs.existsSync);
 const legacyEdges = new Map();
+const legacyEntries = [];
 for (const file of legacy) {
-  const { requires } = importsOf(parse(file));
+  const source = parse(file);
+  for (const literal of entryPathLiterals(source)) legacyEntries.push(`${rel(file)}: names the entry file ${literal}; only apps/api/src/entrypoint.ts may`);
+  const { requires } = importsOf(source);
   legacyEdges.set(rel(file), requires.map(specifier => resolveRelative(file, specifier)).filter(Boolean).map(rel)
     .filter(target => target === 'server.js' || target.startsWith('src/')));
 }
 assert.deepStrictEqual(stronglyConnected(legacyEdges), RECORDED_CYCLES.map(cycle => [...cycle].sort()),
   'the server\'s dependency cycles changed: a new one appeared, or a recorded one is gone and must be struck from the list');
-console.log(`  ok  ${legacy.length} CommonJS server files: ${RECORDED_CYCLES.length} recorded cycle, no new one`);
+assert.deepStrictEqual(legacyEntries, [], 'a worker or child process started by a path written at its spawn site');
+console.log(`  ok  ${legacy.length} CommonJS server files: no stray entry paths, ${RECORDED_CYCLES.length} recorded cycle, no new one`);

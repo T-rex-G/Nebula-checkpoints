@@ -17,6 +17,7 @@
  *   - a revoked tester is still turned away, and that cookie is still cleared.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const net = require('net');
@@ -66,7 +67,7 @@ async function main() {
     await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
     const store = new AlphaAccessStore({ pool: { query: (...args) => client.query(...args), connect: async () => ({ query: (...args) => client.query(...args), release() {} }) }, pepper });
     const port = await freePort();
-    child = spawn(process.execPath, ['server.js'], {
+    child = spawn(process.execPath, [serverEntry()], {
       cwd: root,
       env: {
         ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: crypto.randomBytes(40).toString('hex'),

@@ -107,12 +107,16 @@ const {
 } = require('./src/alpha-access');
 const { PRODUCT_NAME, APP_VERSION } = require('./src/version');
 const { computeReleaseFingerprint } = require('./src/release-fingerprint');
+const { describeServerRuntime } = require('./src/server-runtime');
 const { loadWebBuild, webCacheControl } = require('./src/web-build');
 const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
 const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
-const RELEASE_TREE_SHA256 = computeReleaseFingerprint(__dirname);
+// The compiled fallback (src/server-runtime.js, ADR-088) still names the source it
+// was built from, and names its own tree beside it.
+const SERVER_RUNTIME = describeServerRuntime(__dirname);
+const RELEASE_TREE_SHA256 = computeReleaseFingerprint(SERVER_RUNTIME.sourceRoot);
 /*
  * The browser application as built from that tree (scripts/build-web.js). Read
  * once; the server will not start without it. servedAssetsSha256 names the
@@ -8843,7 +8847,9 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
 app.get('/api/version', (req, res) => res.json({
   product: PRODUCT_NAME,
   releaseTreeSha256: RELEASE_TREE_SHA256,
-  servedAssetsSha256: WEB_BUILD.servedAssetsSha256
+  servedAssetsSha256: WEB_BUILD.servedAssetsSha256,
+  serverRuntime: SERVER_RUNTIME.mode,
+  ...(SERVER_RUNTIME.buildSha256 ? { serverBuildSha256: SERVER_RUNTIME.buildSha256 } : {})
 }));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });

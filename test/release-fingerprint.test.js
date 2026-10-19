@@ -30,10 +30,16 @@ try {
   const runtimeSecretValue = ['synthetic', 'runtime', 'only', 'value'].join('-');
   fs.writeFileSync(path.join(root, '.env'), `${runtimeSecretName}=${runtimeSecretValue}\n`);
   fs.writeFileSync(path.join(root, 'runtime.log'), 'ignored runtime log\n');
+  /* Both builds are derived from the source and named by their own digests, never by the release's. */
+  fs.mkdirSync(path.join(root, 'dist', 'server', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'dist', 'server', 'server.js'), 'compiled server\n');
+  fs.writeFileSync(path.join(root, 'dist', 'server', 'src', 'module.js'), 'compiled module\n');
+  fs.mkdirSync(path.join(root, 'dist', 'web'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'dist', 'web', 'index.html'), '<!doctype html>\n');
   assert.strictEqual(
     computeReleaseFingerprint(root),
     initial,
-    'dependency, evidence, environment, and log state must not alter release identity'
+    'dependency, evidence, environment, log and build state must not alter release identity'
   );
 
   fs.writeFileSync(path.join(root, 'a.txt'), 'changed\n');
@@ -52,6 +58,8 @@ try {
   assert.strictEqual(shouldIncludeReleasePath('node_modules/pkg/index.js'), false);
   assert.strictEqual(shouldIncludeReleasePath('staging/evidence/live.json'), false);
   assert.strictEqual(shouldIncludeReleasePath('dist/release.js'), false);
+  assert.strictEqual(shouldIncludeReleasePath('dist/server/server.js'), false);
+  assert.strictEqual(shouldIncludeReleasePath('dist/web/index.html'), false);
   assert.strictEqual(shouldIncludeReleasePath('../escape.js'), false);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

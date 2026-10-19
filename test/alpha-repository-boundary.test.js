@@ -1,5 +1,6 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -604,7 +605,7 @@ fs.writeFileSync(fixture, fixtureSource, { mode: 0o600 });
 fs.writeFileSync(eventLog, '', { mode: 0o600 });
 fs.writeFileSync(alphaStateFile, JSON.stringify({ A: 'active' }), { mode: 0o600 });
 
-const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
+const child = spawn(process.execPath, ['-r', fixture, serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

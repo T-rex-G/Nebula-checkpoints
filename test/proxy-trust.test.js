@@ -1,12 +1,13 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 const express = require('express');
 const { loadTrustedProxies } = require('../src/config');
 const port = 29000 + Math.floor(Math.random() * 900);
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: path.join(__dirname, '..'),
   env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '',
     NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local', NV_TRUSTED_PROXIES: '', RENDER: '' },

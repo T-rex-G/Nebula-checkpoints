@@ -23,7 +23,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { AlphaAccessStore } = require('../src/alpha-access-store');
+const { AlphaAccessStore } = require('../apps/api/src/modules/identity-access/index.ts');
 
 const root = path.join(__dirname, '..');
 const adminUrl = process.env.NV_TEST_DATABASE_URL;

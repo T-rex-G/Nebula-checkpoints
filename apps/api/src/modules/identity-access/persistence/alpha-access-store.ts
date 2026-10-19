@@ -1,12 +1,12 @@
-'use strict';
-
-const crypto = require('crypto');
-const {
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
   AlphaAccessError,
   parseInviteCode,
   digestInviteSecret,
   parseRepositoryScope
-} = require('./alpha-access');
+} from '../domain/alpha-access.ts';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import type { PoolClient, QueryOutcome, Row, TransactionalPool } from '../../../platform/persistence/queryable.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
@@ -25,20 +25,23 @@ const SESSION_ID_RX = /^[A-Za-z0-9_-]{43}$/;
 const INVITE_ID_RX = /^[0-9a-z]{20,40}$/;
 const TESTER_ID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const GENERIC_REDEMPTION_ERROR = 'Invitation could not be redeemed';
+export const GENERIC_REDEMPTION_ERROR = 'Invitation could not be redeemed';
 const DUMMY_PUBLIC_ID = '0'.repeat(20);
 const DUMMY_SECRET = 'A'.repeat(32);
 const DUMMY_LOOKUP_ID = '!invalid-invite-lookup!';
 const OPERATIONAL_ERROR = 'Alpha access operation could not be completed';
 
-class AlphaAccessOperationalError extends Error {
+export class AlphaAccessOperationalError extends Error {
+  override readonly name = 'AlphaAccessOperationalError';
+
   constructor() {
     super(OPERATIONAL_ERROR);
-    this.name = 'AlphaAccessOperationalError';
   }
 }
 
-function requirePlainObject(value, label) {
+type Fields = Readonly<Record<string, unknown>>;
+
+function requirePlainObject(value: unknown, label: string): Fields {
   if (
     !value
     || typeof value !== 'object'
@@ -47,24 +50,24 @@ function requirePlainObject(value, label) {
   ) {
     throw new TypeError(`${label} must be a plain object`);
   }
-  return value;
+  return value as Fields;
 }
 
-function requireDuration(name, value, maximum) {
-  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+function requireDuration(name: string, value: unknown, maximum: number): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
     throw new TypeError(`${name} must be a positive integer no greater than ${maximum}`);
   }
-  return value;
+  return value as number;
 }
 
-function requireTermsVersion(value) {
+function requireTermsVersion(value: unknown): string {
   if (typeof value !== 'string' || !TERMS_VERSION_RX.test(value)) {
     throw new TypeError('terms version must use versioned YYYY-MM-DD format');
   }
   return value;
 }
 
-function requireTesterLabel(value) {
+function requireTesterLabel(value: unknown): string {
   if (typeof value !== 'string') {
     throw new TypeError('tester label must be a string containing 1-120 characters');
   }
@@ -75,7 +78,7 @@ function requireTesterLabel(value) {
   return label;
 }
 
-function requireRevocationReason(value) {
+function requireRevocationReason(value: unknown): string {
   if (typeof value !== 'string') {
     throw new TypeError('revocation reason must be a string containing 1-240 characters');
   }
@@ -86,35 +89,42 @@ function requireRevocationReason(value) {
   return reason;
 }
 
-function genericRedemptionError(code = 'ALPHA_INVITE_REJECTED') {
+function genericRedemptionError(code = 'ALPHA_INVITE_REJECTED'): AlphaAccessError {
   return new AlphaAccessError(GENERIC_REDEMPTION_ERROR, code, 403);
 }
 
-function sessionError(message, code, status) {
+function sessionError(message: string, code: string, status: number): AlphaAccessError {
   return new AlphaAccessError(message, code, status);
 }
 
-function toDate(value) {
-  const date = value instanceof Date ? new Date(value) : new Date(value);
+function toDate(value: unknown): Date | null {
+  const date = value instanceof Date ? new Date(value) : new Date(value as string | number);
   return Number.isFinite(date.getTime()) ? date : null;
 }
 
-function toIso(value) {
+function toIso(value: unknown): string {
   const date = toDate(value);
   if (!date) throw new TypeError('database returned an invalid timestamp');
   return date.toISOString();
 }
 
-function redemptionIpHash(pepper, ip) {
+/* The rows a statement answered with. An answer without them is a failed operation, as it always was. */
+function rowsOf(result: QueryOutcome): readonly Row[] {
+  const rows = result.rows;
+  if (!rows) throw new TypeError('the database answered without rows');
+  return rows;
+}
+
+function redemptionIpHash(pepper: string, ip: unknown): string {
   if (typeof ip !== 'string' || !ip.trim() || ip.length > 256) {
     throw new TypeError('redemption request IP must be a non-empty string');
   }
-  return crypto.createHmac('sha256', pepper)
+  return createHmac('sha256', pepper)
     .update(`alpha-redemption-ip-v1\0${ip.trim()}`, 'utf8')
     .digest('hex');
 }
 
-async function persistRedemptionFailure(client, ipHash, now) {
+async function persistRedemptionFailure(client: PoolClient, ipHash: string, now: Date): Promise<QueryOutcome> {
   return client.query(
     `INSERT INTO nv_alpha_redemption_locks(
        ip_hash, window_started_at, failed_count, locked_until
@@ -153,13 +163,66 @@ async function persistRedemptionFailure(client, ipHash, now) {
   );
 }
 
-class AlphaAccessStore {
-  constructor(options) {
+export interface AlphaAccessStoreOptions {
+  readonly pool?: unknown;
+  readonly pepper?: unknown;
+  readonly now?: unknown;
+  readonly randomUUID?: unknown;
+  readonly randomBytes?: unknown;
+  readonly inviteTtlMs?: unknown;
+  readonly sessionTtlMs?: unknown;
+  readonly idleTtlMs?: unknown;
+  readonly purgeLimit?: unknown;
+}
+
+/* The tester a redeemed invitation or a live session belongs to. */
+export interface AlphaTester {
+  readonly testerId: string;
+  readonly testerLabel: string;
+  readonly repositoryScopes: string[];
+  readonly termsVersion: string;
+}
+
+export interface AlphaSession extends AlphaTester {
+  readonly expiresAt: string;
+}
+
+export interface IssuedInvite {
+  readonly inviteId: string;
+  readonly code: string;
+  readonly expiresAt: string;
+  readonly repositoryScopes: string[];
+}
+
+export interface Redemption {
+  readonly tester: AlphaTester;
+  readonly sessionId: string;
+  readonly expiresAt: string;
+}
+
+export type InviteRevocationState = 'unknown' | 'purged' | 'redeemed' | 'already-revoked' | 'revoked';
+
+type RedemptionOutcome = { readonly errorCode: string; readonly value?: undefined } | { readonly errorCode?: undefined; readonly value: Redemption };
+
+export class AlphaAccessStore {
+  readonly pool: TransactionalPool;
+  readonly pepper: string;
+  readonly now: () => unknown;
+  readonly randomUUID: () => unknown;
+  readonly randomBytes: (size: number) => unknown;
+  readonly inviteTtlMs: number;
+  readonly sessionTtlMs: number;
+  readonly idleTtlMs: number;
+  readonly purgeLimit: number;
+  readonly dummyDigest: string;
+
+  constructor(options: unknown) {
     const input = requirePlainObject(options, 'AlphaAccessStore options');
+    const pool = input.pool as Partial<TransactionalPool> | null | undefined;
     if (
-      !input.pool
-      || typeof input.pool.query !== 'function'
-      || typeof input.pool.connect !== 'function'
+      !pool
+      || typeof pool.query !== 'function'
+      || typeof pool.connect !== 'function'
     ) {
       throw new TypeError('AlphaAccessStore requires a pg-compatible pool');
     }
@@ -176,11 +239,11 @@ class AlphaAccessStore {
       throw new TypeError('randomBytes must be a function');
     }
 
-    this.pool = input.pool;
+    this.pool = pool as TransactionalPool;
     this.pepper = String(input.pepper);
-    this.now = input.now || (() => new Date());
-    this.randomUUID = input.randomUUID || crypto.randomUUID;
-    this.randomBytes = input.randomBytes || crypto.randomBytes;
+    this.now = (input.now as (() => unknown) | undefined) || (() => new Date());
+    this.randomUUID = (input.randomUUID as (() => unknown) | undefined) || randomUUID;
+    this.randomBytes = (input.randomBytes as ((size: number) => unknown) | undefined) || randomBytes;
     this.inviteTtlMs = requireDuration(
       'inviteTtlMs',
       input.inviteTtlMs ?? INVITE_TTL_MS,
@@ -208,14 +271,14 @@ class AlphaAccessStore {
     );
   }
 
-  currentTime() {
+  currentTime(): Date {
     const value = this.now();
     const date = toDate(value);
     if (!date) throw new TypeError('now must return a valid date');
     return date;
   }
 
-  bytes(size, label) {
+  bytes(size: number, label: string): Buffer {
     const value = this.randomBytes(size);
     if (!Buffer.isBuffer(value) || value.length !== size) {
       throw new TypeError(`randomBytes must return exactly ${size} bytes for ${label}`);
@@ -223,7 +286,7 @@ class AlphaAccessStore {
     return value;
   }
 
-  async withTransaction(callback) {
+  async withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -238,7 +301,7 @@ class AlphaAccessStore {
     }
   }
 
-  async operational(callback) {
+  async operational<T>(callback: () => Promise<T>): Promise<T> {
     try {
       return await callback();
     } catch (error) {
@@ -252,21 +315,22 @@ class AlphaAccessStore {
     }
   }
 
-  async issueInvite(input) {
+  async issueInvite(input: unknown): Promise<IssuedInvite> {
     const invitation = requirePlainObject(input, 'issue invite input');
     const testerLabel = requireTesterLabel(invitation.testerLabel);
     const termsVersion = requireTermsVersion(invitation.termsVersion);
+    const requested = invitation.repositoryScopes;
     if (
-      !Array.isArray(invitation.repositoryScopes)
-      || invitation.repositoryScopes.length < 1
-      || invitation.repositoryScopes.length > 20
+      !Array.isArray(requested)
+      || requested.length < 1
+      || requested.length > 20
     ) {
       throw new TypeError('invite requires 1-20 repository scopes');
     }
-    let repositoryScopes;
+    let repositoryScopes: string[];
     try {
       repositoryScopes = [...new Set(
-        invitation.repositoryScopes.map(
+        (requested as readonly unknown[]).map(
           scope => parseRepositoryScope(scope).canonical
         )
       )];
@@ -316,18 +380,18 @@ class AlphaAccessStore {
     };
   }
 
-  safeDigestMatches(actualHex, storedHex) {
-    const candidate = /^[0-9a-f]{64}$/.test(String(storedHex || ''))
+  safeDigestMatches(actualHex: string, storedHex: unknown): boolean {
+    const candidate = isSha256Hex(String(storedHex || ''))
       ? String(storedHex)
       : this.dummyDigest;
-    const matches = crypto.timingSafeEqual(
+    const matches = timingSafeEqual(
       Buffer.from(actualHex, 'hex'),
       Buffer.from(candidate, 'hex')
     );
     return matches && candidate === storedHex;
   }
 
-  async redeemInvite(input) {
+  async redeemInvite(input: unknown): Promise<Redemption> {
     const redemption = requirePlainObject(input, 'redeem invite input');
     const ipHash = redemptionIpHash(this.pepper, redemption.ip);
     const now = this.currentTime();
@@ -355,7 +419,7 @@ class AlphaAccessStore {
     );
 
     const outcome = await this.operational(
-      () => this.withTransaction(async client => {
+      () => this.withTransaction(async (client): Promise<RedemptionOutcome> => {
         await client.query(
           'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
           [ipHash]
@@ -367,8 +431,8 @@ class AlphaAccessStore {
             FOR UPDATE`,
           [ipHash]
         );
-        const lockedUntil =
-          admission.rows[0] && toDate(admission.rows[0].locked_until);
+        const admitted = rowsOf(admission)[0];
+        const lockedUntil = admitted && toDate(admitted.locked_until);
         if (lockedUntil && lockedUntil.getTime() > now.getTime()) {
           return { errorCode: 'ALPHA_REDEMPTION_LOCKED' };
         }
@@ -382,7 +446,7 @@ class AlphaAccessStore {
             FOR UPDATE`,
           [lookupId]
         );
-        const invite = found.rows[0] || null;
+        const invite = rowsOf(found)[0] || null;
         const validDigest = this.safeDigestMatches(
           actualDigest,
           invite && invite.secret_digest
@@ -399,7 +463,7 @@ class AlphaAccessStore {
           && expiresAt.getTime() > now.getTime()
           && acceptedTermsVersion === invite.terms_version
         );
-        if (!valid) {
+        if (!valid || !invite) {
           await persistRedemptionFailure(client, ipHash, now);
           return { errorCode: 'ALPHA_INVITE_REJECTED' };
         }
@@ -454,9 +518,9 @@ class AlphaAccessStore {
           value: {
             tester: {
               testerId,
-              testerLabel: invite.tester_label,
-              repositoryScopes: [...invite.repository_scopes],
-              termsVersion: invite.terms_version
+              testerLabel: invite.tester_label as string,
+              repositoryScopes: [...invite.repository_scopes as readonly string[]],
+              termsVersion: invite.terms_version as string
             },
             sessionId,
             expiresAt: sessionExpiresAt.toISOString()
@@ -465,10 +529,10 @@ class AlphaAccessStore {
       })
     );
     if (outcome.errorCode) throw genericRedemptionError(outcome.errorCode);
-    return outcome.value;
+    return outcome.value as Redemption;
   }
 
-  async readSession(sessionId, options = {}) {
+  async readSession(sessionId: unknown, options: { readonly touch?: unknown } = {}): Promise<AlphaSession> {
     if (typeof sessionId !== 'string' || !SESSION_ID_RX.test(sessionId)) {
       throw sessionError(
         'Alpha access is required',
@@ -491,7 +555,7 @@ class AlphaAccessStore {
           FOR UPDATE OF t, s`,
         [sessionId]
       );
-      const row = result.rows[0];
+      const row = rowsOf(result)[0];
       if (!row) {
         throw sessionError(
           'Alpha access is required',
@@ -545,16 +609,16 @@ class AlphaAccessStore {
       }
 
       return {
-        testerId: row.tester_id,
-        testerLabel: row.tester_label,
-        repositoryScopes: [...row.repository_scopes],
-        termsVersion: row.terms_version,
+        testerId: row.tester_id as string,
+        testerLabel: row.tester_label as string,
+        repositoryScopes: [...row.repository_scopes as readonly string[]],
+        termsVersion: row.terms_version as string,
         expiresAt: toIso(expiresAt)
       };
     }));
   }
 
-/*
+  /*
    * Revoke an invitation that nobody has redeemed.
    *
    * revokeTester needs a tester, and an exposed invitation that was never
@@ -568,7 +632,7 @@ class AlphaAccessStore {
    * not end the session it produced, and an operator told "revoked" would stop
    * at exactly the wrong point.
    */
-  async revokeInvite(inviteId) {
+  async revokeInvite(inviteId: unknown): Promise<{ readonly inviteId: string; readonly state: InviteRevocationState; readonly revoked: boolean }> {
     if (typeof inviteId !== 'string' || !INVITE_ID_RX.test(inviteId)) {
       throw new TypeError('invitation id must use the invitation identifier format');
     }
@@ -582,7 +646,7 @@ class AlphaAccessStore {
           FOR UPDATE`,
         [inviteId]
       );
-      const invite = found.rows[0] || null;
+      const invite = rowsOf(found)[0] || null;
       if (!invite) return { inviteId, state: 'unknown', revoked: false };
       /* Purged rows are immutable; the retention trigger would refuse. */
       if (invite.metadata_purged_at) return { inviteId, state: 'purged', revoked: false };
@@ -597,7 +661,7 @@ class AlphaAccessStore {
     }));
   }
 
-    async revokeTester(testerId, reason) {
+  async revokeTester(testerId: unknown, reason: unknown): Promise<{ readonly sessionsRevoked: number | null | undefined }> {
     if (typeof testerId !== 'string' || !TESTER_ID_RX.test(testerId)) {
       throw new TypeError('tester id must be a valid UUID');
     }
@@ -613,7 +677,7 @@ class AlphaAccessStore {
           FOR UPDATE`,
         [testerId]
       );
-      if (!selected.rows[0]) return { sessionsRevoked: 0 };
+      if (!rowsOf(selected)[0]) return { sessionsRevoked: 0 };
       await client.query(
         `UPDATE nv_alpha_testers
             SET revoked_at = COALESCE(revoked_at, $2),
@@ -635,7 +699,7 @@ class AlphaAccessStore {
     }));
   }
 
-  async purgeExpired() {
+  async purgeExpired(): Promise<{ readonly invites: number | null | undefined; readonly sessions: number | null | undefined; readonly locks: number | null | undefined }> {
     const now = this.currentTime();
     const idleBefore = new Date(now.getTime() - this.idleTtlMs);
     const locksBefore = new Date(now.getTime() - LOCK_RETENTION_MS);
@@ -694,9 +758,3 @@ class AlphaAccessStore {
     }));
   }
 }
-
-module.exports = Object.freeze({
-  AlphaAccessStore,
-  AlphaAccessOperationalError,
-  GENERIC_REDEMPTION_ERROR
-});

@@ -14,10 +14,14 @@ function routeBlock(method, routePath) {
   return server.slice(start, end < 0 ? server.length : end);
 }
 
-assert.match(
-  server,
-  /const \{ alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance \} = require\('\.\/src\/alpha-privacy'\)/
-);
+{
+  /* The server reaches identity and access through the module's index only. */
+  const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
+  assert(identityAccess, 'the server must load identity and access through its index');
+  for (const name of ['alphaActorLabel', 'alphaRetentionPolicy', 'sanitizeFeedback', 'providerRevocationGuidance']) {
+    assert.match(identityAccess[1], new RegExp(`\\b${name}\\b`), `the server must take ${name} from identity and access`);
+  }
+}
 
 const privacy = routeBlock('get', '/api/alpha/privacy');
 assert(privacy.includes("res.setHeader('Cache-Control', 'no-store')"));

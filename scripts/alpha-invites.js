@@ -3,12 +3,12 @@
 const path = require('path');
 const {
   parseRepositoryScope
-} = require('../src/alpha-access');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 const {
   normalizeDatabaseUrl,
   loadAlphaAccessConfig
 } = require('../apps/api/src/platform/config/config.ts');
-const { AlphaAccessStore } = require('../src/alpha-access-store');
+const { AlphaAccessStore } = require('../apps/api/src/modules/identity-access/index.ts');
 const { runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 const ISSUE_WARNING =

@@ -54,10 +54,6 @@
   },
   "files": [
     "src/activity-feed.js",
-    "src/alpha-access-store.js",
-    "src/alpha-access.js",
-    "src/alpha-privacy-store.js",
-    "src/alpha-privacy.js",
     "src/anonymous-readability-probe.js",
     "src/backup-format.js",
     "src/capability-registry.js",
@@ -80,7 +76,6 @@
     "src/governance-templates.js",
     "src/live-stream.js",
     "src/provider-credentials.js",
-    "src/provider-disconnect.js",
     "src/secret-scanner.js",
     "src/staging-validation.js",
     "src/supabase-key-kinds.js",

@@ -1,35 +1,42 @@
-'use strict';
+import { createHash } from 'node:crypto';
+import { providerRevocationGuidance } from './alpha-privacy.ts';
+import type { RevocationGuidance } from './alpha-privacy.ts';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 
-const crypto = require('crypto');
-const { providerRevocationGuidance } = require('./alpha-privacy');
-
-const HASH_RX = /^[0-9a-f]{64}$/;
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Historical identifiers are needed to hash retained cleanup evidence.
 const HISTORICAL_PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
 
-function hashDomain(domain, parts) {
-  const hash = crypto.createHash('sha256');
+type Fields = Readonly<Record<string, unknown>>;
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+function hashDomain(domain: string, parts: readonly unknown[]): string {
+  const hash = createHash('sha256');
   hash.update(domain, 'utf8');
   for (const part of parts) hash.update(`\0${String(part)}`, 'utf8');
   return hash.digest('hex');
 }
 
-function providerSessionKeyHash(sessionId) {
+export function providerSessionKeyHash(sessionId: unknown): string {
   if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 512) {
     throw new TypeError('sessionId is invalid');
   }
   return hashDomain('nv-alpha-provider-session-v1', [sessionId]);
 }
 
-function providerResourceKeyHash(input) {
+export function providerResourceKeyHash(input: unknown): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('provider resource hash input is invalid');
   }
-  const provider = String(input.provider || '').toLowerCase();
-  const authority = String(input.authority || '').toLowerCase();
-  const resourceType = String(input.resourceType || '');
-  const resourceReference = String(input.resourceReference == null ? '' : input.resourceReference);
+  const fields = input as Fields;
+  const provider = String(fields.provider || '').toLowerCase();
+  const authority = String(fields.authority || '').toLowerCase();
+  const resourceType = String(fields.resourceType || '');
+  const resourceReference = String(fields.resourceReference == null ? '' : fields.resourceReference);
   if (!HISTORICAL_PROVIDERS.has(provider) || !authority || resourceType !== 'provider-webhook') {
     throw new TypeError('provider resource hash context is invalid');
   }
@@ -41,11 +48,12 @@ function providerResourceKeyHash(input) {
   ]);
 }
 
-function webhookReference(webhook) {
+function webhookReference(webhook: unknown): string {
   if (!webhook || typeof webhook !== 'object' || Array.isArray(webhook)) {
     throw new TypeError('provider webhook inventory item is invalid');
   }
-  const value = webhook.providerHookId ?? webhook.hookId ?? webhook.id ?? webhook.resourceReference;
+  const fields = webhook as Fields;
+  const value = fields.providerHookId ?? fields.hookId ?? fields.id ?? fields.resourceReference;
   const reference = String(value == null ? '' : value);
   if (!reference || reference.length > 1024) {
     throw new TypeError('provider webhook inventory item lacks a bounded reference');
@@ -53,40 +61,56 @@ function webhookReference(webhook) {
   return reference;
 }
 
-function isAbsent(value) {
+function isAbsent(value: unknown): boolean {
   return !!value && (
-    value.verifiedAbsent === true
-    || value.absent === true
-    || Number(value.status) === 404
+    read(value, 'verifiedAbsent') === true
+    || read(value, 'absent') === true
+    || Number(read(value, 'status')) === 404
   );
 }
 
-function is404(error) {
-  return Number(error && (error.status || error.statusCode)) === 404;
+function is404(error: unknown): boolean {
+  return Number(error && (read(error, 'status') || read(error, 'statusCode'))) === 404;
 }
 
-function cleanupTaskValue(value) {
+interface CleanupTask {
+  readonly cleanupId: string;
+  readonly status: 'pending' | 'verified';
+}
+
+function cleanupTaskValue(value: unknown): CleanupTask {
   if (typeof value === 'string') return { cleanupId: value, status: 'pending' };
   if (!value || typeof value !== 'object') {
     throw new TypeError('cleanup task registration returned invalid evidence');
   }
-  const cleanupId = String(value.cleanupId || '');
+  const cleanupId = String(read(value, 'cleanupId') || '');
   if (!UUID_RX.test(cleanupId)) {
     throw new TypeError('cleanup task registration returned an invalid cleanupId');
   }
-  const status = value.status === 'verified' ? 'verified' : 'pending';
+  const status = read(value, 'status') === 'verified' ? 'verified' : 'pending';
   return { cleanupId: cleanupId.toLowerCase(), status };
 }
 
-function requirePreparedHash(value, label) {
-  const hash = String(value && value.resourceKeyHash || '');
-  if (!HASH_RX.test(hash)) {
+function requirePreparedHash(value: unknown, label: string): string {
+  const hash = String(value && read(value, 'resourceKeyHash') || '');
+  if (!isSha256Hex(hash)) {
     throw new TypeError(`${label} preparation returned an invalid resource hash`);
   }
   return hash;
 }
 
-function pendingResult(account, cleanupIds) {
+/* What a disconnect reports: whether the provider's state is gone, and how to revoke what only the person can. */
+export interface DisconnectResult {
+  readonly providerStateRemoved: boolean;
+  readonly webhookCleanup: 'pending' | 'verified';
+  readonly brokerCacheCleared: boolean;
+  readonly providerRevoked: false;
+  readonly cleanupId?: string;
+  readonly reasonCode?: string;
+  readonly revocationGuidance: RevocationGuidance;
+}
+
+function pendingResult(account: unknown, cleanupIds: readonly string[]): DisconnectResult {
   const ids = [...new Set(cleanupIds.filter(Boolean))].sort();
   return Object.freeze({
     providerStateRemoved: false,
@@ -98,7 +122,7 @@ function pendingResult(account, cleanupIds) {
   });
 }
 
-function verifiedResult(account) {
+function verifiedResult(account: unknown): DisconnectResult {
   return Object.freeze({
     providerStateRemoved: true,
     webhookCleanup: 'verified',
@@ -108,35 +132,70 @@ function verifiedResult(account) {
   });
 }
 
-function assertFunction(input, name) {
-  if (typeof input[name] !== 'function') throw new TypeError(`${name} must be a function`);
+type Step = (input: Fields) => unknown;
+
+/*
+ * The provider and the store, handed in. Each step is asked for what it must
+ * answer; nothing is claimed absent that a step did not verify.
+ */
+export interface DisconnectOptions {
+  readonly account?: unknown;
+  readonly tester?: unknown;
+  readonly binding?: unknown;
+  readonly sessionId?: unknown;
+  readonly recordPendingEvidence?: Step;
+  readonly enumerateProviderWebhooks?: Step;
+  readonly prepareDisconnect?: Step;
+  readonly removeProviderWebhook?: Step;
+  readonly readProviderWebhook?: Step;
+  readonly completeProviderWebhookCleanup?: Step;
+  readonly finalizeDisconnect?: Step;
+  readonly invalidateBroker?: (account: unknown) => unknown;
 }
 
-function safeBinding(input, testerId) {
+type RequiredStep = 'enumerateProviderWebhooks' | 'prepareDisconnect' | 'removeProviderWebhook' | 'completeProviderWebhookCleanup' | 'finalizeDisconnect';
+
+/* A required step, called as the method it is, so a store's own `this` still holds. */
+function assertFunction(input: DisconnectOptions, name: RequiredStep): (stepInput: Fields) => unknown {
+  const step = input[name];
+  if (typeof step !== 'function') throw new TypeError(`${name} must be a function`);
+  return stepInput => step.call(input, stepInput);
+}
+
+interface Binding {
+  readonly testerId: string;
+  readonly identityKey: string;
+  readonly provider: string;
+  readonly authority: string;
+}
+
+function safeBinding(input: DisconnectOptions, testerId: string): Binding | null {
   const binding = input && input.binding;
   if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return null;
-  const identityKey = String(binding.identityKey || '');
-  const provider = String(binding.provider || '').toLowerCase();
-  const authority = String(binding.authority || '').toLowerCase();
+  const fields = binding as Fields;
+  const identityKey = String(fields.identityKey || '');
+  const provider = String(fields.provider || '').toLowerCase();
+  const authority = String(fields.authority || '').toLowerCase();
   if (
-    String(binding.testerId || '').toLowerCase() !== testerId
-    || !HASH_RX.test(identityKey)
+    String(fields.testerId || '').toLowerCase() !== testerId
+    || !isSha256Hex(identityKey)
     || provider !== 'github'
     || authority !== 'github.com'
   ) return null;
   return { testerId, identityKey, provider, authority };
 }
 
-async function disconnectProviderAccount(options) {
+export async function disconnectProviderAccount(options: DisconnectOptions): Promise<DisconnectResult> {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new TypeError('disconnect options must be an object');
   }
   const account = options.account;
-  const testerId = String(options.tester && options.tester.testerId || '').toLowerCase();
+  const testerId = String(read(options.tester, 'testerId') || '').toLowerCase();
   if (!account || typeof account !== 'object' || !UUID_RX.test(testerId)) {
     throw new TypeError('disconnect account and tester context are required');
   }
-  const provider = String(account.provider || 'github').toLowerCase();
+  const accountFields = account as Fields;
+  const provider = String(accountFields.provider || 'github').toLowerCase();
   if (provider !== 'github') {
     if (!HISTORICAL_PROVIDERS.has(provider)) throw new TypeError('provider is unsupported');
     // Local deletion remains an operator privacy action; external resources must
@@ -156,36 +215,38 @@ async function disconnectProviderAccount(options) {
       await options.recordPendingEvidence({
         testerId,
         resourceKeyHash: hashDomain('nv-alpha-provider-context-v1', [
-          testerId, String(account.provider || 'github')
+          testerId, String(accountFields.provider || 'github')
         ]),
         reasonCode: binding ? 'PROVIDER_SESSION_CONTEXT_MISSING' : 'PROVIDER_BINDING_CONTEXT_MISSING'
       });
     }
     return pendingResult(account, []);
   }
-  assertFunction(options, 'enumerateProviderWebhooks');
-  assertFunction(options, 'prepareDisconnect');
-  assertFunction(options, 'removeProviderWebhook');
-  assertFunction(options, 'completeProviderWebhookCleanup');
-  assertFunction(options, 'finalizeDisconnect');
+  const enumerateProviderWebhooks = assertFunction(options, 'enumerateProviderWebhooks');
+  const prepareDisconnect = assertFunction(options, 'prepareDisconnect');
+  const removeProviderWebhook = assertFunction(options, 'removeProviderWebhook');
+  const completeProviderWebhookCleanup = assertFunction(options, 'completeProviderWebhookCleanup');
+  const finalizeDisconnect = assertFunction(options, 'finalizeDisconnect');
 
   const sessionKeyHash = providerSessionKeyHash(options.sessionId);
-  let webhooks;
+  let webhooks: readonly unknown[];
   let inventoryFailure = false;
-  const credentialUnavailable = account.authMethod !== 'github-app'
-    && typeof account.token !== 'string';
+  const credentialUnavailable = accountFields.authMethod !== 'github-app'
+    && typeof accountFields.token !== 'string';
   try {
-    webhooks = await options.enumerateProviderWebhooks({ account, tester: options.tester });
-    if (!Array.isArray(webhooks)) throw new TypeError('provider webhook inventory must be an array');
+    const listed = await enumerateProviderWebhooks({ account, tester: options.tester });
+    if (!Array.isArray(listed)) throw new TypeError('provider webhook inventory must be an array');
+    webhooks = listed;
   } catch {
     webhooks = [];
     inventoryFailure = true;
   }
 
-  const inventory = [];
-  const seenHashes = new Map();
+  const inventory: { readonly webhook: Fields; readonly resourceKeyHash: string }[] = [];
+  const seenHashes = new Map<string, string>();
   for (const webhook of webhooks) {
     const reference = webhookReference(webhook);
+    const item = webhook as Fields;
     const resourceKeyHash = providerResourceKeyHash({
       provider: binding.provider,
       authority: binding.authority,
@@ -193,9 +254,9 @@ async function disconnectProviderAccount(options) {
       resourceReference: reference
     });
     if (
-      webhook.alphaResourceKeyHash !== undefined
-      && webhook.alphaResourceKeyHash !== null
-      && webhook.alphaResourceKeyHash !== resourceKeyHash
+      item.alphaResourceKeyHash !== undefined
+      && item.alphaResourceKeyHash !== null
+      && item.alphaResourceKeyHash !== resourceKeyHash
     ) {
       throw new Error('provider webhook inventory hash is inconsistent');
     }
@@ -205,12 +266,12 @@ async function disconnectProviderAccount(options) {
     }
     if (prior) continue;
     seenHashes.set(resourceKeyHash, reference);
-    inventory.push({ webhook, resourceKeyHash });
+    inventory.push({ webhook: item, resourceKeyHash });
   }
 
-  let prepared;
+  let prepared: unknown;
   try {
-    prepared = await options.prepareDisconnect({
+    prepared = await prepareDisconnect({
       testerId,
       identityKey: binding.identityKey,
       provider: binding.provider,
@@ -227,9 +288,10 @@ async function disconnectProviderAccount(options) {
   if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
     throw new TypeError('disconnect preparation returned invalid evidence');
   }
-  const preparedWebhooks = Array.isArray(prepared.webhooks) ? prepared.webhooks : null;
-  const preparedSessions = Array.isArray(prepared.providerSessions)
-    ? prepared.providerSessions
+  const preparedFields = prepared as Fields;
+  const preparedWebhooks: readonly unknown[] | null = Array.isArray(preparedFields.webhooks) ? preparedFields.webhooks : null;
+  const preparedSessions: readonly unknown[] | null = Array.isArray(preparedFields.providerSessions)
+    ? preparedFields.providerSessions
     : null;
   if (!preparedWebhooks || !preparedSessions || !preparedSessions.length) {
     return pendingResult(account, []);
@@ -242,8 +304,8 @@ async function disconnectProviderAccount(options) {
       resourceKeyHash,
       cleanupId: task.cleanupId,
       status: task.status,
-      requesterOwned: item.requesterOwned === true,
-      shared: item.shared === true,
+      requesterOwned: read(item, 'requesterOwned') === true,
+      shared: read(item, 'shared') === true,
       webhook: inventoryByHash.get(resourceKeyHash) || null
     };
   });
@@ -252,7 +314,7 @@ async function disconnectProviderAccount(options) {
     ...cleanupTaskValue(item)
   }));
 
-  const preparedByHash = new Map();
+  const preparedByHash = new Map<string, (typeof webhookTasks)[number]>();
   let exactCoverage = true;
   for (const item of webhookTasks) {
     if (preparedByHash.has(item.resourceKeyHash)) exactCoverage = false;
@@ -276,7 +338,7 @@ async function disconnectProviderAccount(options) {
     ]);
   }
 
-  const pendingIds = [];
+  const pendingIds: string[] = [];
   for (const item of webhookTasks) {
     let providerAbsent = false;
     if (item.status !== 'verified' && !item.shared) {
@@ -286,7 +348,7 @@ async function disconnectProviderAccount(options) {
       }
 
       try {
-        const deletion = await options.removeProviderWebhook({
+        const deletion = await removeProviderWebhook({
           account,
           webhook: item.webhook,
           tester: options.tester
@@ -313,7 +375,7 @@ async function disconnectProviderAccount(options) {
       }
     }
     try {
-      const completion = await options.completeProviderWebhookCleanup({
+      const completion = await completeProviderWebhookCleanup({
         testerId,
         identityKey: binding.identityKey,
         provider: binding.provider,
@@ -321,7 +383,7 @@ async function disconnectProviderAccount(options) {
         resourceKeyHash: item.resourceKeyHash,
         providerVerifiedAbsent: providerAbsent
       });
-      if (!(completion && completion.verified === true)) {
+      if (!(completion && read(completion, 'verified') === true)) {
         pendingIds.push(item.cleanupId);
       }
     } catch {
@@ -331,7 +393,7 @@ async function disconnectProviderAccount(options) {
   if (pendingIds.length) return pendingResult(account, pendingIds);
 
   try {
-    const finalized = await options.finalizeDisconnect({
+    const finalized = await finalizeDisconnect({
       testerId,
       identityKey: binding.identityKey,
       provider: binding.provider,
@@ -340,11 +402,11 @@ async function disconnectProviderAccount(options) {
         cleanupId: item.cleanupId
       }))
     });
-    if (!(finalized === true || (finalized && finalized.finalized === true))) {
+    if (!(finalized === true || (finalized && read(finalized, 'finalized') === true))) {
       return pendingResult(account, sessionTasks.map(item => item.cleanupId));
     }
     const sharedProviderState = !!(
-      finalized && typeof finalized === 'object' && finalized.sharedProviderState === true
+      finalized && typeof finalized === 'object' && read(finalized, 'sharedProviderState') === true
     );
     if (!sharedProviderState && typeof options.invalidateBroker === 'function') {
       options.invalidateBroker(account);
@@ -354,9 +416,3 @@ async function disconnectProviderAccount(options) {
   }
   return verifiedResult(account);
 }
-
-module.exports = Object.freeze({
-  disconnectProviderAccount,
-  providerResourceKeyHash,
-  providerSessionKeyHash
-});

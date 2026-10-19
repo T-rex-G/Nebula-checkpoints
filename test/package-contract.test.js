@@ -21,7 +21,7 @@ const phaseOneGovernanceHistory = [
 
 const required = [
   'config/historical-document-integrity.json',
-  'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts', 'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
   'test/alpha-access-server-contract.test.js', 'test/alpha-repository-boundary.test.js',
@@ -164,8 +164,8 @@ assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.16/purify.min.
 assert(!fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.12')) && !fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.13')),
   'the vulnerable DOMPurify browser asset must not remain releasable');
 const task6Artifacts = [
-  'src/alpha-access.js',
-  'src/alpha-access-store.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts',
   'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql',
   'test/alpha-access.test.js',
@@ -184,8 +184,8 @@ const task6Programs = [
   'test/alpha-invite-cli.test.js'
 ];
 const task6SyntaxSources = [
-  'src/alpha-access.js',
-  'src/alpha-access-store.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts',
   'scripts/alpha-invites.js'
 ];
 const task6Omissions = [];
@@ -299,9 +299,9 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr59)) uxOmis
 assert.deepStrictEqual(uxOmissions, [], `UX accessibility binding omissions:\n- ${uxOmissions.join('\n- ')}`);
 
 const privacyArtifacts = [
-  'src/alpha-privacy.js',
-  'src/alpha-privacy-store.js',
-  'src/provider-disconnect.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts',
+  'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js',
   'db/migrations/015_alpha_privacy.sql',
   'test/alpha-privacy.test.js',
@@ -317,9 +317,9 @@ const privacyArtifacts = [
 ];
 const privacyPrograms = privacyArtifacts.filter(file => file.startsWith('test/'));
 const privacySyntaxSources = [
-  'src/alpha-privacy.js',
-  'src/alpha-privacy-store.js',
-  'src/provider-disconnect.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts',
+  'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js'
 ];
 const privacyOmissions = [];

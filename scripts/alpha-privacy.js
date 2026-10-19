@@ -2,8 +2,8 @@
 'use strict';
 
 const crypto = require('crypto');
-const { AlphaPrivacyStore } = require('../src/alpha-privacy-store');
-const { alphaRetentionPolicy } = require('../src/alpha-privacy');
+const { AlphaPrivacyStore } = require('../apps/api/src/modules/identity-access/index.ts');
+const { alphaRetentionPolicy } = require('../apps/api/src/modules/identity-access/index.ts');
 
 const CLEANUP_ID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMANDS = new Set(['retention', 'cleanup-status', 'retry-cleanup', 'cohort-close']);

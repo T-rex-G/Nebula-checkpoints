@@ -25,7 +25,7 @@
 
 const fs = require('fs');
 const { Pool } = require('pg');
-const { AlphaAccessStore } = require('../src/alpha-access-store');
+const { AlphaAccessStore } = require('../apps/api/src/modules/identity-access/index.ts');
 const drills = require('./run-alpha17-hosted-drills');
 
 const TESTERS = 5;

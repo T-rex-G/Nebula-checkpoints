@@ -4,7 +4,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const { Pool } = require('pg');
-const { AlphaPrivacyStore } = require('../src/alpha-privacy-store');
+const { AlphaPrivacyStore } = require('../apps/api/src/modules/identity-access/index.ts');
 
 async function verifyAlphaPrivacyPurge(connectionString) {
   const pool = new Pool({ connectionString });

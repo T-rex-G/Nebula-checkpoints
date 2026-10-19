@@ -12,7 +12,8 @@
  *    compiled runtimes resolve the same file.
  *  - The page never imports the server, the server never imports the page,
  *    and the shared contracts import neither.
- *  - A module of the server is reached through its index only, and its domain
+ *  - A module of the server is reached through its index only, by the other
+ *    modules and by the CommonJS server code that remains, and its domain
  *    layer imports no transport, persistence or process package.
  *  - The platform imports only the platform and the shared contracts: the
  *    modules stand on it, so it depends on none of them, nor on the server
@@ -255,6 +256,12 @@ for (const file of legacy) {
   legacyEdges.set(rel(file), requires.map(specifier => resolveRelative(file, specifier)).filter(Boolean).map(rel)
     .filter(target => target === 'server.js' || /^(?:src|apps|packages)\//.test(target)));
 }
+/* The server code still in src/ reaches a module through its index, as the modules do. */
+const legacyReaches = [...legacyEdges].flatMap(([name, targets]) => targets
+  .map(target => /^apps\/api\/src\/modules\/([^/]+)\/(.+)$/.exec(target))
+  .filter(match => match && match[2] !== 'index.ts')
+  .map(match => `${name}: reaches into module ${match[1]} past its index (${match[0]})`));
+assert.deepStrictEqual(legacyReaches, [], 'the CommonJS server reaches into a module past its index');
 const backend = new Map([...[...edges].filter(([name]) => !name.startsWith('apps/web/')), ...legacyEdges]);
 assert.deepStrictEqual(stronglyConnected(backend), RECORDED_CYCLES.map(cycle => [...cycle].sort()),
   'the backend\'s dependency cycles changed: a new one appeared, or a recorded one is gone and must be struck from the list');

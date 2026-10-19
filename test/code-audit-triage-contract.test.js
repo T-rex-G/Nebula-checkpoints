@@ -20,7 +20,7 @@ const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '030_code_audit_triage.sql'), 'utf8');
 const code = sql.replace(/--.*$/gm, '');
 const storeSource = fs.readFileSync(path.join(root, 'src', 'code-audit-triage.js'), 'utf8');
-const privacySource = fs.readFileSync(path.join(root, 'src', 'alpha-privacy-store.js'), 'utf8');
+const privacySource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8');
 const { SHAPE } = require('../src/code-audit-triage');
 
 const TABLES = ['nv_code_audit_triage', 'nv_code_audit_triage_events', 'nv_code_audit_resolutions'];

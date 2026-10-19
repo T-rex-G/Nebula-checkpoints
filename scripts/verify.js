@@ -27,12 +27,12 @@ const required = [
   'config/historical-document-integrity.json',
   'src/work-continuity.js', 'scripts/generate-continuity-docs.js', 'scripts/resume-work.js',
   'test/continuity-generation.test.js',
-  'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts', 'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
   'test/alpha-access-server-contract.test.js', 'test/alpha-repository-boundary.test.js',
   'test/alpha-invite-cli.test.js',
-  'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts', 'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts', 'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js', 'db/migrations/015_alpha_privacy.sql',
   'test/alpha-privacy.test.js', 'test/alpha-privacy-persistence-contract.test.js',
   'test/alpha-privacy-store.test.js', 'test/provider-disconnect.test.js',
@@ -98,8 +98,8 @@ for (const file of required) must(fs.existsSync(path.join(root, file)), `Missing
 
 for (const file of [
   'server.js', 'src/work-continuity.js', 'scripts/generate-continuity-docs.js',
-  'scripts/resume-work.js', 'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
-  'src/alpha-privacy.js', 'src/alpha-privacy-store.js', 'src/provider-disconnect.js',
+  'scripts/resume-work.js', 'apps/api/src/modules/identity-access/domain/alpha-access.ts', 'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts', 'scripts/alpha-invites.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts', 'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts', 'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js', 'apps/api/src/http/errors.ts',
   'apps/api/src/platform/persistence/hosted-readiness.ts', 'src/backup-format.js',
   'scripts/alpha-db.js', 'scripts/alpha-smoke.js', 'scripts/alpha-load.js',
@@ -162,8 +162,12 @@ for (const program of accessPrograms) {
   must(programIndex > previousAccessProgram, `Unit gate must execute ${program} in deterministic access order`);
   previousAccessProgram = programIndex;
 }
-for (const source of ['src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js']) {
-  must(pkg.scripts?.['check:syntax']?.includes(`node --check ${source}`), `Syntax gate missing ${source}`);
+for (const source of ['apps/api/src/modules/identity-access/domain/alpha-access.ts', 'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts', 'scripts/alpha-invites.js']) {
+  /* node --check reads JavaScript only; a server TypeScript source is checked when its tsc project runs. */
+  const checked = source.endsWith('.ts')
+    ? String(pkg.scripts?.typecheck || '').split(/\s*&&\s*/).includes('tsc --project apps/api')
+    : Boolean(pkg.scripts?.['check:syntax']?.includes(`node --check ${source}`));
+  must(checked, `Syntax gate missing ${source}`);
 }
 const qualificationTests = [
   'test/public-alpha-qualification.test.js',

@@ -92,19 +92,21 @@ const {
   databaseReadiness,
   hostedConfigProjection
 } = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
-const { AlphaAccessStore, AlphaAccessOperationalError } = require('./src/alpha-access-store');
-const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
-const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance } = require('./src/alpha-privacy');
 const {
+  AlphaAccessStore,
+  AlphaAccessOperationalError,
+  AlphaPrivacyStore,
+  alphaActorLabel,
+  alphaRetentionPolicy,
+  sanitizeFeedback,
+  providerRevocationGuidance,
   disconnectProviderAccount,
-  providerResourceKeyHash
-} = require('./src/provider-disconnect');
-const {
+  providerResourceKeyHash,
   AlphaAccessError,
   canonicalRepositoryScope,
   repositoryAllowed,
   inviteUnbound
-} = require('./src/alpha-access');
+} = require('./apps/api/src/modules/identity-access/index.ts');
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
 const { describeServerRuntime } = require('./apps/api/src/platform/release/server-runtime.ts');

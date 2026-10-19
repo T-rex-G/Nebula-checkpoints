@@ -1,8 +1,6 @@
 {
   "copies": {
     "server.js": 19,
-    "src/alpha-access-store.js": 1,
-    "src/alpha-privacy-store.js": 1,
     "src/anonymous-readability-probe.js": 1,
     "src/backup-format.js": 1,
     "src/code-audit-history.js": 3,
@@ -19,7 +17,6 @@
     "src/governance-simulation.js": 1,
     "src/governance-store.js": 7,
     "src/intelligence.js": 1,
-    "src/provider-disconnect.js": 1,
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,
     "src/snapshot-signatures.js": 3,
@@ -54,7 +51,6 @@
     "ids.ts isIdentityKey",
     "ids.ts isPolicyKey",
     "ids.ts isRecordId",
-    "ids.ts isSha256Hex",
     "jobs.ts JOB_FAILURES",
     "jobs.ts JOB_KINDS",
     "mutation.ts ACTOR_BINDINGS",

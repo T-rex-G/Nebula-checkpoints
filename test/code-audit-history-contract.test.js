@@ -118,7 +118,7 @@ assert(!/SELECT \*/.test(storeSource), 'every read names its columns');
 
 /* ---- The account purge knows about the tables ---------------------------------- */
 {
-  const privacySource = fs.readFileSync(path.join(root, 'src', 'alpha-privacy-store.js'), 'utf8');
+  const privacySource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8');
   assert(/DELETE FROM nv_code_audits WHERE identity_key=ANY/.test(privacySource), 'the tester purge must delete nv_code_audits by identity key');
   /* The other three cascade from their audit; a second delete would make two places responsible for the same rows. */
   for (const table of TABLES.slice(1)) {

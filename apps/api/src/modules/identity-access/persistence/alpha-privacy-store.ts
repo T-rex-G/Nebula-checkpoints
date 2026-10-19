@@ -1,11 +1,11 @@
-'use strict';
-
-const crypto = require('crypto');
-const { providerSessionKeyHash } = require('./provider-disconnect');
+import { createHash, randomUUID } from 'node:crypto';
+import { providerSessionKeyHash } from '../domain/provider-disconnect.ts';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { errorCode } from '../../../platform/persistence/queryable.ts';
+import type { PoolClient, QueryOutcome, Row, TransactionalPool } from '../../../platform/persistence/queryable.ts';
 
 const TESTER_ID_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const HASH_RX = /^[0-9a-f]{64}$/;
 const AUTHORITY_RX = /^[a-z0-9](?:[a-z0-9.-]{0,253}[a-z0-9])?(?::[1-9][0-9]{0,4})?$/;
 const REASON_CODE_RX = /^(?:|[A-Z][A-Z0-9_]{1,79})$/;
 const RELEASE_VERSION_RX = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
@@ -23,15 +23,19 @@ const FEEDBACK_INPUT_FIELDS = new Set([
 ]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-class AlphaPrivacyStoreError extends Error {
-  constructor(message, code) {
+export class AlphaPrivacyStoreError extends Error {
+  override readonly name = 'AlphaPrivacyStoreError';
+  readonly code: string;
+
+  constructor(message: string, code: string) {
     super(message);
-    this.name = 'AlphaPrivacyStoreError';
     this.code = code;
   }
 }
 
-function requirePlainObject(value, label) {
+type Fields = Readonly<Record<string, unknown>>;
+
+function requirePlainObject(value: unknown, label: string): Fields {
   if (
     !value
     || typeof value !== 'object'
@@ -40,47 +44,47 @@ function requirePlainObject(value, label) {
   ) {
     throw new TypeError(`${label} must be a plain object`);
   }
-  return value;
+  return value as Fields;
 }
 
-function requireTesterId(value) {
+function requireTesterId(value: unknown): string {
   if (typeof value !== 'string' || !TESTER_ID_RX.test(value)) {
     throw new TypeError('testerId must be a UUID');
   }
   return value.toLowerCase();
 }
 
-function requireHash(value, label) {
-  if (typeof value !== 'string' || !HASH_RX.test(value)) {
+function requireHash(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !isSha256Hex(value)) {
     throw new TypeError(`${label} must be a lowercase SHA-256 hash`);
   }
   return value;
 }
 
-function requireHashList(value, label, maximum = 1000) {
+function requireHashList(value: unknown, label: string, maximum = 1000): string[] {
   if (!Array.isArray(value) || value.length > maximum) {
     throw new TypeError(`${label} must be a bounded hash array`);
   }
-  const hashes = value.map((item, index) => requireHash(item, `${label}[${index}]`));
+  const hashes = (value as readonly unknown[]).map((item, index) => requireHash(item, `${label}[${index}]`));
   if (new Set(hashes).size !== hashes.length) {
     throw new TypeError(`${label} must not contain duplicates`);
   }
   return hashes;
 }
 
-function requireProvider(value) {
+function requireProvider(value: unknown): string {
   if (typeof value !== 'string' || !HISTORICAL_PROVIDERS.has(value)) {
     throw new TypeError('provider is unsupported');
   }
   return value;
 }
 
-function requireActiveProvider(value) {
+function requireActiveProvider(value: unknown): 'github' {
   if (value !== 'github') throw new TypeError('Only GitHub accounts can be connected');
   return value;
 }
 
-function requireAuthority(value) {
+function requireAuthority(value: unknown): string {
   if (
     typeof value !== 'string'
     || value.length > 255
@@ -91,45 +95,59 @@ function requireAuthority(value) {
   return value;
 }
 
-function requireResourceType(value) {
+function requireResourceType(value: unknown): string {
   if (typeof value !== 'string' || !RESOURCE_TYPES.has(value)) {
     throw new TypeError('resourceType is unsupported');
   }
   return value;
 }
 
-function requireReasonCode(value) {
+function requireReasonCode(value: unknown): string {
   if (typeof value !== 'string' || !REASON_CODE_RX.test(value)) {
     throw new TypeError('reasonCode must be an allowlisted diagnostic code');
   }
   return value;
 }
 
-function requirePattern(value, pattern, label, maximum = 80) {
+function requirePattern(value: unknown, pattern: RegExp, label: string, maximum = 80): string {
   if (typeof value !== 'string' || value.length > maximum || !pattern.test(value)) {
     throw new TypeError(`${label} is invalid`);
   }
   return value;
 }
 
-function requireEnum(value, values, label) {
+function requireEnum(value: unknown, values: ReadonlySet<string>, label: string): string {
   if (typeof value !== 'string' || !values.has(value)) {
     throw new TypeError(`${label} is invalid`);
   }
   return value;
 }
 
-function toDate(value, label) {
-  const date = value instanceof Date ? new Date(value) : new Date(value);
+function toDate(value: unknown, label: string): Date {
+  const date = value instanceof Date ? new Date(value) : new Date(value as string | number);
   if (!Number.isFinite(date.getTime())) throw new TypeError(`${label} must be a valid date`);
   return date;
 }
 
-function toIso(value) {
+function toIso(value: unknown): string {
   return toDate(value, 'database timestamp').toISOString();
 }
 
-function cleanupTuple(row) {
+/* The rows a statement answered with. An answer without them is a failure, as it always was. */
+function rowsOf(result: QueryOutcome): readonly Row[] {
+  const rows = result.rows;
+  if (!rows) throw new TypeError('the database answered without rows');
+  return rows;
+}
+
+/* The row a statement that always returns one returned (RETURNING, an aggregate). */
+function onlyRow(result: QueryOutcome): Row {
+  const row = rowsOf(result)[0];
+  if (!row) throw new TypeError('the database returned no row');
+  return row;
+}
+
+function cleanupTuple(row: Row): string {
   return [
     row.tester_id,
     row.identity_key,
@@ -139,13 +157,29 @@ function cleanupTuple(row) {
   ].join('\0');
 }
 
-function testerPurgeHash(testerId) {
-  return crypto.createHash('sha256')
+function testerPurgeHash(testerId: string): string {
+  return createHash('sha256')
     .update(`nv-alpha-purge-v1\0${testerId}`, 'utf8')
     .digest('hex');
 }
 
-function purgeReportFromRow(row) {
+/* What a completed tester purge reports: counts and flags, never a removed value. */
+export interface PurgeReport {
+  readonly status: 'complete';
+  readonly tokenBearingStateRemoved: boolean;
+  readonly providerCleanupVerified: boolean;
+  readonly retainedIntegrityMetadata: boolean;
+  readonly removed: Readonly<{
+    providerSessions: number;
+    webhooks: number;
+    events: number;
+    snapshots: number;
+    feedback: number;
+  }>;
+  readonly completedAt: string;
+}
+
+function purgeReportFromRow(row: Row): PurgeReport {
   return Object.freeze({
     status: 'complete',
     tokenBearingStateRemoved: row.token_bearing_state_removed === true,
@@ -162,13 +196,68 @@ function purgeReportFromRow(row) {
   });
 }
 
-class AlphaPrivacyStore {
-  constructor(options) {
+/* Seals and opens the server's session rows; the store never reads a credential itself. */
+export interface SessionCodec {
+  encode(data: unknown): unknown;
+  decode(value: unknown): unknown;
+  identityKey(account: unknown): unknown;
+}
+
+interface LifecycleOptions {
+  readonly allowDeletion?: boolean;
+  readonly allowRevoked?: boolean;
+  readonly allowBlockedDeletion?: boolean;
+}
+
+interface LifecycleContext {
+  readonly tester: Row;
+  readonly deletion: Row | null;
+}
+
+/* A hosted session as the codec opens it: its accounts, then whatever else the server keeps there. */
+type Account = Record<string, unknown>;
+interface HostedSession {
+  accounts: Account[];
+  [key: string]: unknown;
+}
+
+/* Why deletion is blocked, by code, with the cleanup tasks that block it. */
+interface CleanupBlock {
+  readonly code: string;
+  readonly count: number;
+  readonly cleanupIds: readonly unknown[];
+}
+
+interface CleanupReadiness {
+  readonly verified: boolean;
+  readonly blockedCleanupIds: readonly unknown[];
+  readonly cleanupBlocks: readonly CleanupBlock[];
+}
+
+interface ReadinessScope {
+  readonly identityKey: string;
+  readonly provider: string;
+}
+
+interface SessionLockOptions {
+  readonly identityKey?: string;
+  readonly provider?: string;
+  readonly allowReleased?: boolean;
+}
+
+export class AlphaPrivacyStore {
+  readonly pool: TransactionalPool;
+  readonly now: () => unknown;
+  readonly randomUUID: () => unknown;
+  readonly sessionCodec: SessionCodec | null;
+
+  constructor(options: unknown) {
     const input = requirePlainObject(options, 'AlphaPrivacyStore options');
+    const pool = input.pool as Partial<TransactionalPool> | null | undefined;
     if (
-      !input.pool
-      || typeof input.pool.query !== 'function'
-      || typeof input.pool.connect !== 'function'
+      !pool
+      || typeof pool.query !== 'function'
+      || typeof pool.connect !== 'function'
     ) {
       throw new TypeError('AlphaPrivacyStore requires a pg-compatible pool');
     }
@@ -178,26 +267,27 @@ class AlphaPrivacyStore {
     if (input.randomUUID !== undefined && typeof input.randomUUID !== 'function') {
       throw new TypeError('randomUUID must be a function');
     }
+    const codec = input.sessionCodec as Partial<SessionCodec> | null | undefined;
     if (input.sessionCodec !== undefined && (
-      !input.sessionCodec
-      || typeof input.sessionCodec !== 'object'
-      || typeof input.sessionCodec.encode !== 'function'
-      || typeof input.sessionCodec.decode !== 'function'
-      || typeof input.sessionCodec.identityKey !== 'function'
+      !codec
+      || typeof codec !== 'object'
+      || typeof codec.encode !== 'function'
+      || typeof codec.decode !== 'function'
+      || typeof codec.identityKey !== 'function'
     )) {
       throw new TypeError('sessionCodec must provide encode, decode and identityKey functions');
     }
-    this.pool = input.pool;
-    this.now = input.now || (() => new Date());
-    this.randomUUID = input.randomUUID || crypto.randomUUID;
-    this.sessionCodec = input.sessionCodec || null;
+    this.pool = pool as TransactionalPool;
+    this.now = (input.now as (() => unknown) | undefined) || (() => new Date());
+    this.randomUUID = (input.randomUUID as (() => unknown) | undefined) || randomUUID;
+    this.sessionCodec = (codec as SessionCodec | undefined) || null;
   }
 
-  currentTime() {
+  currentTime(): Date {
     return toDate(this.now(), 'now');
   }
 
-  async withGlobalTransaction(callback) {
+  async withGlobalTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -215,7 +305,7 @@ class AlphaPrivacyStore {
     }
   }
 
-  async withLifecycleTransaction(testerId, options, callback) {
+  async withLifecycleTransaction<T>(testerId: string, options: LifecycleOptions, callback: (client: PoolClient, context: LifecycleContext) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -227,7 +317,7 @@ class AlphaPrivacyStore {
            FROM nv_alpha_testers WHERE tester_id=$1 FOR UPDATE`,
         [testerId]
       );
-      const tester = testerResult.rows[0];
+      const tester = rowsOf(testerResult)[0];
       if (!tester) {
         throw new AlphaPrivacyStoreError('Alpha tester is unavailable', 'ALPHA_TESTER_UNAVAILABLE');
       }
@@ -239,7 +329,7 @@ class AlphaPrivacyStore {
            FROM nv_alpha_deletion_requests WHERE tester_id=$1 FOR UPDATE`,
         [testerId]
       );
-      const deletion = deletionResult.rows[0] || null;
+      const deletion = rowsOf(deletionResult)[0] || null;
       const blockedCompletion = deletion
         && deletion.status === 'blocked'
         && options.allowBlockedDeletion;
@@ -260,7 +350,7 @@ class AlphaPrivacyStore {
     }
   }
 
-  async bindProviderIdentity(input) {
+  async bindProviderIdentity(input: unknown): Promise<Readonly<{ created: boolean; connectedAt: string }>> {
     const binding = requirePlainObject(input, 'provider binding input');
     const testerId = requireTesterId(binding.testerId);
     const identityKey = requireHash(binding.identityKey, 'identityKey');
@@ -285,17 +375,19 @@ class AlphaPrivacyStore {
            ) AS lifecycle_started`,
           [testerId, identityKey]
         );
-        if (lifecycleResult.rows[0] && lifecycleResult.rows[0].lifecycle_started) {
+        const lifecycle = rowsOf(lifecycleResult)[0];
+        if (lifecycle && lifecycle.lifecycle_started) {
           throw new AlphaPrivacyStoreError(
             'Provider cleanup lifecycle has started',
             'ALPHA_PROVIDER_LIFECYCLE_STARTED'
           );
         }
 
-        if (existingResult.rows.length) {
-          const existing = existingResult.rows[0];
+        const existingRows = rowsOf(existingResult);
+        const existing = existingRows[0];
+        if (existing) {
           if (
-            existingResult.rows.length !== 1
+            existingRows.length !== 1
             || existing.provider !== provider
             || existing.authority !== authority
             || existing.disconnected_at
@@ -320,13 +412,13 @@ class AlphaPrivacyStore {
         );
         return Object.freeze({
           created: true,
-          connectedAt: toIso(inserted.rows[0].connected_at)
+          connectedAt: toIso(onlyRow(inserted).connected_at)
         });
       }
     );
   }
 
-  nextUuid(label) {
+  nextUuid(label: string): string {
     const value = this.randomUUID();
     if (typeof value !== 'string' || !TESTER_ID_RX.test(value)) {
       throw new TypeError(`randomUUID must return a UUID for ${label}`);
@@ -334,7 +426,7 @@ class AlphaPrivacyStore {
     return value.toLowerCase();
   }
 
-  async createCleanupTask(input) {
+  async createCleanupTask(input: unknown) {
     const cleanup = requirePlainObject(input, 'cleanup task input');
     const testerId = requireTesterId(cleanup.testerId);
     const identityKey = requireHash(cleanup.identityKey, 'identityKey');
@@ -362,9 +454,9 @@ class AlphaPrivacyStore {
             FOR UPDATE OF manifest,task`,
           [testerId, identityKey, provider, resourceType, resourceKeyHash]
         );
-        if (existingResult.rows.length) {
-          const existing = existingResult.rows[0];
-          if (existingResult.rows.length !== 1 || !existing.cleanup_id || !existing.status) {
+        if (rowsOf(existingResult).length) {
+          const existing = rowsOf(existingResult)[0];
+          if (rowsOf(existingResult).length !== 1 || !existing || !existing.cleanup_id || !existing.status) {
             throw new AlphaPrivacyStoreError(
               'Cleanup evidence is inconsistent',
               'ALPHA_CLEANUP_EVIDENCE_MISMATCH'
@@ -383,8 +475,8 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const binding = bindingResult.rows[0];
-        if (bindingResult.rows.length !== 1 || !binding || binding.disconnected_at) {
+        const binding = rowsOf(bindingResult)[0];
+        if (rowsOf(bindingResult).length !== 1 || !binding || binding.disconnected_at) {
           throw new AlphaPrivacyStoreError(
             'Cleanup requires one active provider binding',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -415,7 +507,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async claimProviderWebhookOwnership(input) {
+  async claimProviderWebhookOwnership(input: unknown) {
     const claim = requirePlainObject(input, 'provider webhook ownership input');
     const testerId = requireTesterId(claim.testerId);
     const identityKey = requireHash(claim.identityKey, 'identityKey');
@@ -433,8 +525,8 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const binding = bindingResult.rows[0];
-        if (bindingResult.rows.length !== 1 || !binding || binding.disconnected_at) {
+        const binding = rowsOf(bindingResult)[0];
+        if (rowsOf(bindingResult).length !== 1 || !binding || binding.disconnected_at) {
           throw new AlphaPrivacyStoreError(
             'Provider webhook ownership requires one active binding',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -447,7 +539,7 @@ class AlphaPrivacyStore {
             FOR UPDATE`,
           [identityKey, provider, resourceKeyHash]
         );
-        if (webhookResult.rows.length !== 1) {
+        if (rowsOf(webhookResult).length !== 1) {
           throw new AlphaPrivacyStoreError(
             'Provider webhook resource is unavailable',
             'ALPHA_PROVIDER_WEBHOOK_UNAVAILABLE'
@@ -471,11 +563,11 @@ class AlphaPrivacyStore {
             FOR UPDATE`,
           [identityKey, provider, resourceKeyHash]
         );
-        const existing = existingResult.rows.find(row => row.tester_id === testerId);
+        const existing = rowsOf(existingResult).find(row => row.tester_id === testerId);
         if (existing && !existing.released_at) {
           return Object.freeze({ claimed: false, claimedAt: toIso(existing.claimed_at) });
         }
-        if (existing || (lifecycleResult.rows[0] && lifecycleResult.rows[0].lifecycle_started)) {
+        if (existing || (rowsOf(lifecycleResult)[0] && onlyRow(lifecycleResult).lifecycle_started)) {
           throw new AlphaPrivacyStoreError(
             'Provider webhook cleanup lifecycle has started',
             'ALPHA_PROVIDER_LIFECYCLE_STARTED'
@@ -488,12 +580,12 @@ class AlphaPrivacyStore {
            RETURNING claimed_at`,
           [testerId, identityKey, provider, resourceKeyHash, now]
         );
-        return Object.freeze({ claimed: true, claimedAt: toIso(inserted.rows[0].claimed_at) });
+        return Object.freeze({ claimed: true, claimedAt: toIso(onlyRow(inserted).claimed_at) });
       }
     );
   }
 
-  async prepareProviderDisconnect(input) {
+  async prepareProviderDisconnect(input: unknown) {
     const preparation = requirePlainObject(input, 'provider disconnect preparation input');
     const testerId = requireTesterId(preparation.testerId);
     const identityKey = requireHash(preparation.identityKey, 'identityKey');
@@ -522,8 +614,8 @@ class AlphaPrivacyStore {
             FOR UPDATE OF manifest,task`,
           [testerId, identityKey, provider]
         );
-        const existingByTuple = new Map();
-        for (const row of existingResult.rows) {
+        const existingByTuple = new Map<string, Row>();
+        for (const row of rowsOf(existingResult)) {
           const key = `${row.resource_type}\0${row.resource_key_hash}`;
           if (existingByTuple.has(key)) {
             throw new AlphaPrivacyStoreError(
@@ -539,8 +631,8 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const binding = bindingResult.rows[0];
-        if (bindingResult.rows.length !== 1 || !binding) {
+        const binding = rowsOf(bindingResult)[0];
+        if (rowsOf(bindingResult).length !== 1 || !binding) {
           throw new AlphaPrivacyStoreError(
             'Provider binding is unavailable',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -564,7 +656,7 @@ class AlphaPrivacyStore {
             FOR UPDATE OF ownership`,
           [identityKey, provider]
         );
-        const activeSessionHashes = sessionResult.rows
+        const activeSessionHashes = rowsOf(sessionResult)
           .filter(row => !row.released_at)
           .map(row => row.session_key_hash);
         if (!binding.disconnected_at && !activeSessionHashes.includes(currentSessionKeyHash)) {
@@ -573,7 +665,7 @@ class AlphaPrivacyStore {
             'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT'
           );
         }
-        if (binding.disconnected_at && !existingResult.rows.length) {
+        if (binding.disconnected_at && !rowsOf(existingResult).length) {
           throw new AlphaPrivacyStoreError(
             'Cleanup requires exact retained evidence',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -581,7 +673,7 @@ class AlphaPrivacyStore {
         }
 
         const webhookHashes = new Set(
-          webhookResult.rows
+          rowsOf(webhookResult)
             .filter(row => row.tester_id === testerId && !row.released_at)
             .map(row => row.resource_key_hash)
         );
@@ -589,11 +681,11 @@ class AlphaPrivacyStore {
           webhookHashes.add(resourceKeyHash);
         }
         const sessionHashes = new Set(activeSessionHashes);
-        for (const row of existingResult.rows) {
+        for (const row of rowsOf(existingResult)) {
           if (row.resource_type === 'provider-webhook') webhookHashes.add(row.resource_key_hash);
           if (row.resource_type === 'provider-session') sessionHashes.add(row.resource_key_hash);
         }
-        const ensureTask = async (resourceType, resourceKeyHash) => {
+        const ensureTask = async (resourceType: string, resourceKeyHash: unknown) => {
           const key = `${resourceType}\0${resourceKeyHash}`;
           const existing = existingByTuple.get(key);
           if (existing) {
@@ -631,14 +723,14 @@ class AlphaPrivacyStore {
           return Object.freeze({ cleanupId, status: 'pending', resourceKeyHash });
         };
 
-        const candidateSet = new Set(candidateWebhookHashes);
-        const webhooks = [];
+        const candidateSet = new Set<unknown>(candidateWebhookHashes);
+        const webhooks: Readonly<Record<string, unknown>>[] = [];
         for (const resourceKeyHash of [...webhookHashes].sort()) {
-          const requesterOwned = webhookResult.rows.some(row => (
+          const requesterOwned = rowsOf(webhookResult).some(row => (
             row.resource_key_hash === resourceKeyHash && row.tester_id === testerId
           ));
           const task = await ensureTask('provider-webhook', resourceKeyHash);
-          const shared = webhookResult.rows.some(row => (
+          const shared = rowsOf(webhookResult).some(row => (
             row.resource_key_hash === resourceKeyHash
             && row.tester_id !== testerId
             && !row.released_at
@@ -651,7 +743,7 @@ class AlphaPrivacyStore {
             localPresent: candidateSet.has(resourceKeyHash)
           }));
         }
-        const providerSessions = [];
+        const providerSessions: Readonly<Record<string, unknown>>[] = [];
         for (const resourceKeyHash of [...sessionHashes].sort()) {
           providerSessions.push(await ensureTask('provider-session', resourceKeyHash));
         }
@@ -669,7 +761,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async completeProviderWebhookCleanup(input) {
+  async completeProviderWebhookCleanup(input: unknown) {
     const completion = requirePlainObject(input, 'provider webhook completion input');
     const testerId = requireTesterId(completion.testerId);
     const identityKey = requireHash(completion.identityKey, 'identityKey');
@@ -689,9 +781,9 @@ class AlphaPrivacyStore {
             WHERE cleanup_id=$1 AND tester_id=$2 FOR UPDATE`,
           [cleanupId, testerId]
         );
-        const task = taskResult.rows[0];
+        const task = rowsOf(taskResult)[0];
         if (
-          taskResult.rows.length !== 1 || !task
+          rowsOf(taskResult).length !== 1 || !task
           || task.identity_key !== identityKey || task.provider !== provider
           || task.resource_type !== 'provider-webhook'
           || task.resource_key_hash !== resourceKeyHash
@@ -712,14 +804,14 @@ class AlphaPrivacyStore {
             FOR UPDATE OF ownership`,
           [identityKey, provider, resourceKeyHash]
         );
-        const owner = ownersResult.rows.find(row => row.tester_id === testerId);
+        const owner = rowsOf(ownersResult).find(row => row.tester_id === testerId);
         if (!owner) {
           throw new AlphaPrivacyStoreError(
             'Provider webhook ownership could not be verified',
             'ALPHA_PROVIDER_WEBHOOK_OWNERSHIP_CONFLICT'
           );
         }
-        const shared = ownersResult.rows.some(row => (
+        const shared = rowsOf(ownersResult).some(row => (
           row.tester_id !== testerId && !row.released_at && !row.tester_revoked_at
         ));
         if (task.status !== 'verified' && !shared && completion.providerVerifiedAbsent !== true) {
@@ -746,7 +838,7 @@ class AlphaPrivacyStore {
               RETURNING released_at`,
             [testerId, identityKey, provider, resourceKeyHash, now]
           );
-          if (!released.rows[0]) {
+          if (!rowsOf(released)[0]) {
             throw new AlphaPrivacyStoreError(
               'Provider webhook ownership release conflicted',
               'ALPHA_PROVIDER_WEBHOOK_OWNERSHIP_CONFLICT'
@@ -761,7 +853,7 @@ class AlphaPrivacyStore {
               RETURNING cleanup_id,status,verified_at`,
             [cleanupId, testerId, now]
           );
-          if (!verified.rows[0]) {
+          if (!rowsOf(verified)[0]) {
             throw new AlphaPrivacyStoreError(
               'Cleanup verification conflicted',
               'ALPHA_CLEANUP_VERIFICATION_CONFLICT'
@@ -773,7 +865,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async inspectProviderWebhookCleanup(input) {
+  async inspectProviderWebhookCleanup(input: unknown) {
     const inspection = requirePlainObject(input, 'provider webhook inspection input');
     const testerId = requireTesterId(inspection.testerId);
     const identityKey = requireHash(inspection.identityKey, 'identityKey');
@@ -792,9 +884,9 @@ class AlphaPrivacyStore {
             WHERE cleanup_id=$1 AND tester_id=$2 FOR UPDATE`,
           [cleanupId, testerId]
         );
-        const task = taskResult.rows[0];
+        const task = rowsOf(taskResult)[0];
         if (
-          taskResult.rows.length !== 1 || !task
+          rowsOf(taskResult).length !== 1 || !task
           || task.identity_key !== identityKey || task.provider !== provider
           || task.resource_type !== 'provider-webhook'
           || task.resource_key_hash !== resourceKeyHash
@@ -815,7 +907,7 @@ class AlphaPrivacyStore {
             FOR UPDATE OF ownership`,
           [identityKey, provider, resourceKeyHash]
         );
-        if (!ownersResult.rows.some(row => row.tester_id === testerId)) {
+        if (!rowsOf(ownersResult).some(row => row.tester_id === testerId)) {
           throw new AlphaPrivacyStoreError(
             'Provider webhook ownership could not be verified',
             'ALPHA_PROVIDER_WEBHOOK_OWNERSHIP_CONFLICT'
@@ -823,7 +915,7 @@ class AlphaPrivacyStore {
         }
         return Object.freeze({
           verified: task.status === 'verified',
-          shared: ownersResult.rows.some(row => (
+          shared: rowsOf(ownersResult).some(row => (
             row.tester_id !== testerId && !row.released_at && !row.tester_revoked_at
           ))
         });
@@ -831,7 +923,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async completeCleanupTask(input) {
+  async completeCleanupTask(input: unknown) {
     const completion = requirePlainObject(input, 'cleanup completion input');
     const testerId = requireTesterId(completion.testerId);
     const cleanupId = requireTesterId(completion.cleanupId);
@@ -847,7 +939,7 @@ class AlphaPrivacyStore {
             WHERE cleanup_id=$1 AND tester_id=$2 FOR UPDATE`,
           [cleanupId, testerId]
         );
-        const task = result.rows[0];
+        const task = rowsOf(result)[0];
         if (!task) {
           throw new AlphaPrivacyStoreError(
             'Cleanup task is unavailable',
@@ -868,7 +960,7 @@ class AlphaPrivacyStore {
             RETURNING cleanup_id,status,verified_at`,
           [cleanupId, testerId, now]
         );
-        const verified = updated.rows[0];
+        const verified = rowsOf(updated)[0];
         if (!verified) {
           throw new AlphaPrivacyStoreError(
             'Cleanup verification conflicted',
@@ -884,7 +976,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async cleanupReadiness(client, testerId, scope = null) {
+  async cleanupReadiness(client: PoolClient, testerId: string, scope: ReadinessScope | null = null): Promise<CleanupReadiness> {
     const [
       bindingResult,
       manifestResult,
@@ -925,20 +1017,20 @@ class AlphaPrivacyStore {
         [testerId]
       )
     ]);
-    const inScope = row => !scope || (
+    const inScope = (row: Row): boolean => !scope || (
       row.identity_key === scope.identityKey && row.provider === scope.provider
     );
-    const bindings = bindingResult.rows.filter(inScope);
-    const manifests = manifestResult.rows.filter(inScope);
-    const tasks = taskResult.rows.filter(inScope);
-    const ownership = ownershipResult.rows.filter(inScope);
-    const webhookOwnership = webhookOwnershipResult.rows.filter(inScope);
-    const manifestByTuple = new Map();
-    const manifestById = new Map();
-    const tasksByTuple = new Map();
-    const diagnosticBlocks = new Map();
-    const addBlock = (code, count = 1, cleanupIds = []) => {
-      const existing = diagnosticBlocks.get(code) || { count: 0, cleanupIds: new Set() };
+    const bindings = rowsOf(bindingResult).filter(inScope);
+    const manifests = rowsOf(manifestResult).filter(inScope);
+    const tasks = rowsOf(taskResult).filter(inScope);
+    const ownership = rowsOf(ownershipResult).filter(inScope);
+    const webhookOwnership = rowsOf(webhookOwnershipResult).filter(inScope);
+    const manifestByTuple = new Map<string, Row>();
+    const manifestById = new Map<unknown, Row>();
+    const tasksByTuple = new Map<string, Row[]>();
+    const diagnosticBlocks = new Map<string, { count: number; readonly cleanupIds: Set<unknown> }>();
+    const addBlock = (code: string, count = 1, cleanupIds: readonly unknown[] = []): void => {
+      const existing = diagnosticBlocks.get(code) || { count: 0, cleanupIds: new Set<unknown>() };
       existing.count += count;
       for (const cleanupId of cleanupIds) {
         if (cleanupId) existing.cleanupIds.add(cleanupId);
@@ -1067,7 +1159,7 @@ class AlphaPrivacyStore {
     });
   }
 
-  async replaceCleanupBlocks(client, requestId, cleanupBlocks) {
+  async replaceCleanupBlocks(client: PoolClient, requestId: unknown, cleanupBlocks: readonly CleanupBlock[]): Promise<void> {
     await client.query(
       'DELETE FROM nv_alpha_deletion_blocks WHERE request_id=$1',
       [requestId]
@@ -1082,7 +1174,7 @@ class AlphaPrivacyStore {
     }
   }
 
-  async createDeletionRequest(input) {
+  async createDeletionRequest(input: unknown) {
     const deletionInput = requirePlainObject(input, 'deletion request input');
     const testerId = requireTesterId(deletionInput.testerId);
     const now = this.currentTime();
@@ -1133,7 +1225,7 @@ class AlphaPrivacyStore {
               now
             ]
           );
-          requestId = inserted.rows[0].request_id;
+          requestId = onlyRow(inserted).request_id;
         } else if (
           lifecycle.deletion.status !== status
           || JSON.stringify(lifecycle.deletion.blocked_cleanup_ids || [])
@@ -1159,7 +1251,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async markProviderIdentityDisconnected(input) {
+  async markProviderIdentityDisconnected(input: unknown) {
     const disconnect = requirePlainObject(input, 'provider disconnect input');
     const testerId = requireTesterId(disconnect.testerId);
     const identityKey = requireHash(disconnect.identityKey, 'identityKey');
@@ -1176,8 +1268,8 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const binding = bindingResult.rows[0];
-        if (bindingResult.rows.length !== 1 || !binding) {
+        const binding = rowsOf(bindingResult)[0];
+        if (rowsOf(bindingResult).length !== 1 || !binding) {
           throw new AlphaPrivacyStoreError(
             'Provider binding is unavailable',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -1216,7 +1308,7 @@ class AlphaPrivacyStore {
             RETURNING disconnected_at`,
           [testerId, identityKey, provider, now]
         );
-        if (!updated.rows[0]) {
+        if (!rowsOf(updated)[0]) {
           throw new AlphaPrivacyStoreError(
             'Provider disconnect conflicted',
             'ALPHA_PROVIDER_DISCONNECT_CONFLICT'
@@ -1224,13 +1316,13 @@ class AlphaPrivacyStore {
         }
         return Object.freeze({
           disconnected: true,
-          disconnectedAt: toIso(updated.rows[0].disconnected_at)
+          disconnectedAt: toIso(onlyRow(updated).disconnected_at)
         });
       }
     );
   }
 
-  async claimProviderSessionOwnership(input) {
+  async claimProviderSessionOwnership(input: unknown) {
     const ownership = requirePlainObject(input, 'provider session ownership input');
     const testerId = requireTesterId(ownership.testerId);
     const identityKey = requireHash(ownership.identityKey, 'identityKey');
@@ -1248,8 +1340,8 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const binding = bindingResult.rows[0];
-        if (bindingResult.rows.length !== 1 || !binding || binding.disconnected_at) {
+        const binding = rowsOf(bindingResult)[0];
+        if (rowsOf(bindingResult).length !== 1 || !binding || binding.disconnected_at) {
           throw new AlphaPrivacyStoreError(
             'Provider session ownership requires one active binding',
             'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -1262,8 +1354,8 @@ class AlphaPrivacyStore {
             WHERE session_key_hash=$1 FOR UPDATE`,
           [sessionKeyHash]
         );
-        const foreignOwner = existingResult.rows.find(row => row.tester_id !== testerId);
-        const existing = existingResult.rows.find(row => (
+        const foreignOwner = rowsOf(existingResult).find(row => row.tester_id !== testerId);
+        const existing = rowsOf(existingResult).find(row => (
           row.tester_id === testerId
           && row.identity_key === identityKey
           && row.provider === provider
@@ -1290,13 +1382,13 @@ class AlphaPrivacyStore {
         );
         return Object.freeze({
           claimed: true,
-          claimedAt: toIso(inserted.rows[0].claimed_at)
+          claimedAt: toIso(onlyRow(inserted).claimed_at)
         });
       }
     );
   }
 
-  requireSessionCodec() {
+  requireSessionCodec(): SessionCodec {
     if (!this.sessionCodec) {
       throw new AlphaPrivacyStoreError(
         'Hosted alpha session codec is unavailable',
@@ -1306,23 +1398,23 @@ class AlphaPrivacyStore {
     return this.sessionCodec;
   }
 
-  decodeHostedSession(value) {
+  decodeHostedSession(value: unknown): HostedSession {
     const decoded = this.requireSessionCodec().decode(value);
     if (
       !decoded
       || typeof decoded !== 'object'
       || Array.isArray(decoded)
-      || !Array.isArray(decoded.accounts)
+      || !Array.isArray((decoded as Partial<HostedSession>).accounts)
     ) {
       throw new AlphaPrivacyStoreError(
         'Hosted alpha session state is invalid',
         'ALPHA_PROVIDER_SESSION_STATE_INVALID'
       );
     }
-    return structuredClone(decoded);
+    return structuredClone(decoded as HostedSession);
   }
 
-  encodeHostedSession(value) {
+  encodeHostedSession(value: unknown): string {
     const encoded = this.requireSessionCodec().encode(value);
     if (typeof encoded !== 'string' || !encoded) {
       throw new AlphaPrivacyStoreError(
@@ -1333,18 +1425,17 @@ class AlphaPrivacyStore {
     return encoded;
   }
 
-  hostedSessionIdentityKeys(session) {
+  hostedSessionIdentityKeys(session: HostedSession): string[] {
     const codec = this.requireSessionCodec();
-    const keys = [];
+    const keys: string[] = [];
     for (const account of session.accounts) {
-      const key = codec.identityKey(account);
-      requireHash(key, 'hosted session account identityKey');
+      const key = requireHash(codec.identityKey(account), 'hosted session account identityKey');
       if (!keys.includes(key)) keys.push(key);
     }
     return keys;
   }
 
-  assertHostedSessionRowKey(row, sessionKeyHash) {
+  assertHostedSessionRowKey(row: Row | null | undefined, sessionKeyHash: unknown): void {
     if (!row || row.session_key_hash !== sessionKeyHash) {
       throw new AlphaPrivacyStoreError(
         'Hosted provider session ownership could not be verified',
@@ -1353,21 +1444,21 @@ class AlphaPrivacyStore {
     }
   }
 
-  async lockOwnedProviderSession(client, testerId, sessionKeyHash, options = {}) {
+  async lockOwnedProviderSession(client: PoolClient, testerId: string, sessionKeyHash: unknown, options: SessionLockOptions = {}): Promise<Row> {
     const ownershipResult = await client.query(
       `SELECT session_key_hash,tester_id,identity_key,provider,claimed_at,released_at
          FROM nv_alpha_provider_session_ownership
         WHERE session_key_hash=$1 FOR UPDATE`,
       [sessionKeyHash]
     );
-    const foreign = ownershipResult.rows.find(row => row.tester_id !== testerId);
+    const foreign = rowsOf(ownershipResult).find(row => row.tester_id !== testerId);
     const matching = options.identityKey
-      ? ownershipResult.rows.find(row => (
+      ? rowsOf(ownershipResult).find(row => (
         row.tester_id === testerId
         && row.identity_key === options.identityKey
         && row.provider === options.provider
       ))
-      : ownershipResult.rows.find(row => row.tester_id === testerId && !row.released_at);
+      : rowsOf(ownershipResult).find(row => row.tester_id === testerId && !row.released_at);
     /*
      * No other tester holds it and this tester no longer does: a disconnect or
      * sign-out ended it. A copy of its cookie is a session that has ended, not
@@ -1388,7 +1479,7 @@ class AlphaPrivacyStore {
     return matching;
   }
 
-  async readHostedProviderSession(input) {
+  async readHostedProviderSession(input: unknown) {
     const read = requirePlainObject(input, 'hosted provider session read input');
     const testerId = requireTesterId(read.testerId);
     const sessionId = String(read.sessionId || '');
@@ -1403,7 +1494,7 @@ class AlphaPrivacyStore {
              FROM nv_sessions WHERE sid=$1 FOR UPDATE`,
           [sessionId]
         );
-        const row = result.rows[0];
+        const row = rowsOf(result)[0];
         if (!row) {
           throw new AlphaPrivacyStoreError(
             'Hosted provider session is unavailable',
@@ -1426,12 +1517,13 @@ class AlphaPrivacyStore {
     );
   }
 
-  async mutateHostedProviderSession(input) {
+  async mutateHostedProviderSession(input: unknown) {
     const mutation = requirePlainObject(input, 'hosted provider session mutation input');
     const testerId = requireTesterId(mutation.testerId);
     const sessionId = String(mutation.sessionId || '');
     const sessionKeyHash = providerSessionKeyHash(sessionId);
-    if (typeof mutation.mutate !== 'function') throw new TypeError('mutate must be a function');
+    const mutate = mutation.mutate;
+    if (typeof mutate !== 'function') throw new TypeError('mutate must be a function');
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -1445,7 +1537,7 @@ class AlphaPrivacyStore {
                  FROM nv_sessions WHERE sid=$1 FOR UPDATE`,
               [sessionId]
             );
-            const row = result.rows[0];
+            const row = rowsOf(result)[0];
             if (!row) {
               throw new AlphaPrivacyStoreError(
                 'Hosted provider session is unavailable',
@@ -1461,7 +1553,7 @@ class AlphaPrivacyStore {
               );
             }
             const current = this.decodeHostedSession(row.data);
-            const next = await mutation.mutate(current, Object.freeze({ revision, attempt }));
+            const next = await mutate(current, Object.freeze({ revision, attempt })) as HostedSession | null | undefined;
             if (!next || typeof next !== 'object' || Array.isArray(next) || !Array.isArray(next.accounts)) {
               throw new AlphaPrivacyStoreError(
                 'Hosted provider session mutation returned invalid state',
@@ -1481,7 +1573,7 @@ class AlphaPrivacyStore {
                 revision
               ]
             );
-            if (!updated.rows[0]) {
+            if (!rowsOf(updated)[0]) {
               throw new AlphaPrivacyStoreError(
                 'Hosted provider session revision conflicted',
                 'ALPHA_SESSION_REVISION_CONFLICT'
@@ -1489,12 +1581,12 @@ class AlphaPrivacyStore {
             }
             return Object.freeze({
               session: structuredClone(next),
-              revision: Number(updated.rows[0].revision)
+              revision: Number(onlyRow(updated).revision)
             });
           }
         );
       } catch (error) {
-        if (error && error.code === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
+        if (errorCode(error) === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
         throw error;
       }
     }
@@ -1504,7 +1596,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async connectHostedProviderAccount(input) {
+  async connectHostedProviderAccount(input: unknown) {
     const connection = requirePlainObject(input, 'hosted provider account connection input');
     const testerId = requireTesterId(connection.testerId);
     const sessionId = String(connection.sessionId || '');
@@ -1533,14 +1625,14 @@ class AlphaPrivacyStore {
             WHERE session_key_hash=$1 FOR UPDATE`,
           [sessionKeyHash]
         );
-        if (ownershipResult.rows.some(row => row.tester_id !== testerId)) {
+        if (rowsOf(ownershipResult).some(row => row.tester_id !== testerId)) {
           throw new AlphaPrivacyStoreError(
             'Provider session ownership could not be verified',
             'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT'
           );
         }
-        const activeOwnership = ownershipResult.rows.filter(row => !row.released_at);
-        if (ownershipResult.rows.length && !activeOwnership.length) {
+        const activeOwnership = rowsOf(ownershipResult).filter(row => !row.released_at);
+        if (rowsOf(ownershipResult).length && !activeOwnership.length) {
           /* This tester's own session, ended by a disconnect or sign-out. */
           throw new AlphaPrivacyStoreError(
             'Hosted provider session has ended',
@@ -1548,15 +1640,15 @@ class AlphaPrivacyStore {
           );
         }
 
-        let row = null;
-        let current = { accounts: [], active: 0 };
+        let row: Row | null = null;
+        let current: HostedSession = { accounts: [], active: 0 };
         if (activeOwnership.length) {
           const sessionResult = await client.query(
             `SELECT sid,data,identity_keys,session_key_hash,revision,updated
                FROM nv_sessions WHERE sid=$1 FOR UPDATE`,
             [sessionId]
           );
-          row = sessionResult.rows[0] || null;
+          row = rowsOf(sessionResult)[0] || null;
           if (!row) {
             throw new AlphaPrivacyStoreError(
               'Hosted provider session is unavailable',
@@ -1585,7 +1677,7 @@ class AlphaPrivacyStore {
             WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
           [testerId, identityKey, provider]
         );
-        const existingBinding = bindingResult.rows[0] || null;
+        const existingBinding = rowsOf(bindingResult)[0] || null;
         const lifecycleResult = await client.query(
           `SELECT EXISTS(
              SELECT 1 FROM nv_alpha_cleanup_manifest
@@ -1594,13 +1686,13 @@ class AlphaPrivacyStore {
            ) AS lifecycle_started`,
           [testerId, identityKey]
         );
-        if (lifecycleResult.rows[0] && lifecycleResult.rows[0].lifecycle_started) {
+        if (rowsOf(lifecycleResult)[0] && onlyRow(lifecycleResult).lifecycle_started) {
           throw new AlphaPrivacyStoreError(
             'Provider cleanup lifecycle has started',
             'ALPHA_PROVIDER_LIFECYCLE_STARTED'
           );
         }
-        if (bindingResult.rows.length > 1 || (
+        if (rowsOf(bindingResult).length > 1 || (
           existingBinding
           && (existingBinding.authority !== authority || existingBinding.disconnected_at)
         )) {
@@ -1619,7 +1711,7 @@ class AlphaPrivacyStore {
           );
         }
 
-        const existingOwnership = ownershipResult.rows.find(owner => (
+        const existingOwnership = rowsOf(ownershipResult).find(owner => (
           owner.tester_id === testerId
           && owner.identity_key === identityKey
           && owner.provider === provider
@@ -1640,7 +1732,7 @@ class AlphaPrivacyStore {
           );
         }
 
-        const next = this.scrubIdentityBoundSessionState(current, identityKey) || {};
+        const next = (this.scrubIdentityBoundSessionState(current, identityKey) || {}) as HostedSession;
         next.accounts = [...currentAccounts, structuredClone(account)];
         next.active = next.accounts.length - 1;
         const encoded = this.encodeHostedSession(next);
@@ -1652,7 +1744,7 @@ class AlphaPrivacyStore {
              RETURNING revision`,
             [sessionId, encoded, identityKeys, sessionKeyHash, this.currentTime()]
           );
-          if (!inserted.rows[0]) {
+          if (!rowsOf(inserted)[0]) {
             throw new AlphaPrivacyStoreError(
               'Hosted provider session could not be created',
               'ALPHA_PROVIDER_SESSION_CONFLICT'
@@ -1674,7 +1766,7 @@ class AlphaPrivacyStore {
             RETURNING revision`,
           [sessionId, encoded, identityKeys, this.currentTime(), revision]
         );
-        if (!updated.rows[0]) {
+        if (!rowsOf(updated)[0]) {
           throw new AlphaPrivacyStoreError(
             'Hosted provider session revision conflicted',
             'ALPHA_SESSION_REVISION_CONFLICT'
@@ -1682,12 +1774,12 @@ class AlphaPrivacyStore {
         }
         return Object.freeze({
           session: structuredClone(next),
-          revision: Number(updated.rows[0].revision)
+          revision: Number(onlyRow(updated).revision)
         });
           }
         );
       } catch (error) {
-        if (error && error.code === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
+        if (errorCode(error) === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
         throw error;
       }
     }
@@ -1697,7 +1789,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async revokeOwnedProviderSessions(input) {
+  async revokeOwnedProviderSessions(input: unknown) {
     const revocation = requirePlainObject(input, 'owned provider session revocation input');
     const testerId = requireTesterId(revocation.testerId);
     if (!Array.isArray(revocation.sessionIds) || revocation.sessionIds.length > 1000) {
@@ -1712,7 +1804,7 @@ class AlphaPrivacyStore {
     if (new Set(sessionIds).size !== sessionIds.length) {
       throw new TypeError('sessionIds must not contain duplicates');
     }
-    const sidByHash = new Map();
+    const sidByHash = new Map<unknown, string>();
     for (const sessionId of sessionIds) {
       const hash = providerSessionKeyHash(sessionId);
       if (sidByHash.has(hash) && sidByHash.get(hash) !== sessionId) {
@@ -1739,14 +1831,14 @@ class AlphaPrivacyStore {
             ORDER BY session_key_hash,identity_key,provider FOR UPDATE`,
           [hashes]
         );
-        if (ownershipResult.rows.some(row => row.tester_id !== testerId)) {
+        if (rowsOf(ownershipResult).some(row => row.tester_id !== testerId)) {
           throw new AlphaPrivacyStoreError(
             'Provider session ownership could not be verified',
             'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT'
           );
         }
         for (const hash of hashes) {
-          if (!ownershipResult.rows.some(row => (
+          if (!rowsOf(ownershipResult).some(row => (
             row.session_key_hash === hash && row.tester_id === testerId && !row.released_at
           ))) {
             throw new AlphaPrivacyStoreError(
@@ -1762,8 +1854,8 @@ class AlphaPrivacyStore {
             ORDER BY session_key_hash FOR UPDATE`,
           [hashes]
         );
-        const removed = [];
-        for (const row of sessionsResult.rows) {
+        const removed: unknown[] = [];
+        for (const row of rowsOf(sessionsResult)) {
           if (sidByHash.get(row.session_key_hash) !== row.sid) {
             throw new AlphaPrivacyStoreError(
               'Hosted provider session ownership could not be verified',
@@ -1783,7 +1875,7 @@ class AlphaPrivacyStore {
               RETURNING sid`,
             [row.sid, row.session_key_hash, revision]
           );
-          if (!deleted.rows[0]) {
+          if (!rowsOf(deleted)[0]) {
             throw new AlphaPrivacyStoreError(
               'Hosted provider session revision conflicted',
               'ALPHA_SESSION_REVISION_CONFLICT'
@@ -1803,15 +1895,15 @@ class AlphaPrivacyStore {
     );
   }
 
-  scrubIdentityBoundSessionState(value, identityKey) {
+  scrubIdentityBoundSessionState(value: unknown, identityKey: string): unknown {
     if (Array.isArray(value)) {
       return value
         .map(item => this.scrubIdentityBoundSessionState(item, identityKey))
         .filter(item => item !== undefined);
     }
     if (!value || typeof value !== 'object') return value;
-    if (value.identityKey === identityKey) return undefined;
-    const clean = {};
+    if ((value as Readonly<Record<string, unknown>>).identityKey === identityKey) return undefined;
+    const clean: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
       const scrubbed = this.scrubIdentityBoundSessionState(item, identityKey);
       if (scrubbed !== undefined) clean[key] = scrubbed;
@@ -1819,7 +1911,7 @@ class AlphaPrivacyStore {
     return clean;
   }
 
-  async finalizeProviderDisconnect(input) {
+  async finalizeProviderDisconnect(input: unknown) {
     const finalization = requirePlainObject(input, 'provider disconnect finalization input');
     const testerId = requireTesterId(finalization.testerId);
     const identityKey = requireHash(finalization.identityKey, 'identityKey');
@@ -1848,7 +1940,7 @@ class AlphaPrivacyStore {
     }
     if (finalization.sessionId !== undefined && (
       providerSessionKeyHash(String(finalization.sessionId || ''))
-        !== providerSessionTasks[0].resourceKeyHash
+        !== providerSessionTasks[0]?.resourceKeyHash
     )) {
       throw new AlphaPrivacyStoreError(
         'Provider session reference is inconsistent',
@@ -1868,8 +1960,8 @@ class AlphaPrivacyStore {
                 WHERE tester_id=$1 AND identity_key=$2 AND provider=$3 FOR UPDATE`,
               [testerId, identityKey, provider]
             );
-            const binding = bindingResult.rows[0];
-            if (bindingResult.rows.length !== 1 || !binding) {
+            const binding = rowsOf(bindingResult)[0];
+            if (rowsOf(bindingResult).length !== 1 || !binding) {
               throw new AlphaPrivacyStoreError(
                 'Provider binding is unavailable',
                 'ALPHA_PROVIDER_BINDING_INACTIVE'
@@ -1882,11 +1974,11 @@ class AlphaPrivacyStore {
                 ORDER BY session_key_hash FOR UPDATE`,
               [testerId, identityKey, provider]
             );
-            const ownershipHashes = new Set(ownershipResult.rows.map(row => row.session_key_hash));
-            const taskHashes = new Set(providerSessionTasks.map(task => task.resourceKeyHash));
+            const ownershipHashes = new Set<unknown>(rowsOf(ownershipResult).map(row => row.session_key_hash));
+            const taskHashes = new Set<unknown>(providerSessionTasks.map(task => task.resourceKeyHash));
             if (
               providerSessionTasks.some(task => !ownershipHashes.has(task.resourceKeyHash))
-              || ownershipResult.rows.some(row => !row.released_at && !taskHashes.has(row.session_key_hash))
+              || rowsOf(ownershipResult).some(row => !row.released_at && !taskHashes.has(row.session_key_hash))
             ) {
               throw new AlphaPrivacyStoreError(
                 'Provider session cleanup evidence is incomplete',
@@ -1901,8 +1993,8 @@ class AlphaPrivacyStore {
                 ORDER BY resource_key_hash FOR UPDATE`,
               [providerSessionTasks.map(task => task.cleanupId), testerId]
             );
-            const taskById = new Map(taskResult.rows.map(task => [task.cleanup_id, task]));
-            if (taskResult.rows.length !== providerSessionTasks.length) {
+            const taskById = new Map(rowsOf(taskResult).map(task => [task.cleanup_id, task]));
+            if (rowsOf(taskResult).length !== providerSessionTasks.length) {
               throw new AlphaPrivacyStoreError(
                 'Provider session cleanup evidence is inconsistent',
                 'ALPHA_CLEANUP_EVIDENCE_MISMATCH'
@@ -1928,7 +2020,7 @@ class AlphaPrivacyStore {
                     RETURNING cleanup_id,status,verified_at`,
                   [task.cleanup_id, testerId, this.currentTime()]
                 );
-                if (!verified.rows[0]) {
+                if (!rowsOf(verified)[0]) {
                   throw new AlphaPrivacyStoreError(
                     'Cleanup verification conflicted',
                     'ALPHA_CLEANUP_VERIFICATION_CONFLICT'
@@ -1957,7 +2049,7 @@ class AlphaPrivacyStore {
             );
             let accountRemoved = false;
             let sessionRemoved = false;
-            for (const row of sessionsResult.rows) {
+            for (const row of rowsOf(sessionsResult)) {
               if (!taskHashes.has(row.session_key_hash)) {
                 throw new AlphaPrivacyStoreError(
                   'Hosted provider session ownership could not be verified',
@@ -1978,7 +2070,7 @@ class AlphaPrivacyStore {
                 if (matches) accountRemoved = true;
                 return !matches;
               });
-              const scrubbed = this.scrubIdentityBoundSessionState(current, identityKey) || {};
+              const scrubbed = (this.scrubIdentityBoundSessionState(current, identityKey) || {}) as HostedSession;
               scrubbed.accounts = remainingAccounts;
               scrubbed.active = remainingAccounts.length
                 ? Math.min(Math.max(Number(scrubbed.active) || 0, 0), remainingAccounts.length - 1)
@@ -1988,7 +2080,7 @@ class AlphaPrivacyStore {
                   'DELETE FROM nv_sessions WHERE sid=$1 AND revision=$2 RETURNING sid',
                   [row.sid, revision]
                 );
-                if (!deleted.rows[0]) {
+                if (!rowsOf(deleted)[0]) {
                   throw new AlphaPrivacyStoreError(
                     'Hosted provider session revision conflicted',
                     'ALPHA_SESSION_REVISION_CONFLICT'
@@ -2009,7 +2101,7 @@ class AlphaPrivacyStore {
                     revision
                   ]
                 );
-                if (!updated.rows[0]) {
+                if (!rowsOf(updated)[0]) {
                   throw new AlphaPrivacyStoreError(
                     'Hosted provider session revision conflicted',
                     'ALPHA_SESSION_REVISION_CONFLICT'
@@ -2026,8 +2118,8 @@ class AlphaPrivacyStore {
               [testerId, identityKey, provider]
             );
             if (
-              activeWebhookResult.rows[0]
-              && activeWebhookResult.rows[0].active_webhook_ownership === true
+              rowsOf(activeWebhookResult)[0]
+              && onlyRow(activeWebhookResult).active_webhook_ownership === true
             ) {
               throw new AlphaPrivacyStoreError(
                 'Provider webhook cleanup is not verified',
@@ -2059,7 +2151,7 @@ class AlphaPrivacyStore {
               [identityKey, provider, testerId]
             );
             const sharedProviderState = !!(
-              sharedResult.rows[0] && sharedResult.rows[0].shared_provider_state === true
+              rowsOf(sharedResult)[0] && onlyRow(sharedResult).shared_provider_state === true
             );
             if (!sharedProviderState) {
               await client.query(
@@ -2083,7 +2175,7 @@ class AlphaPrivacyStore {
                   RETURNING disconnected_at`,
                 [testerId, identityKey, provider, this.currentTime()]
               );
-              if (!disconnected.rows[0]) {
+              if (!rowsOf(disconnected)[0]) {
                 throw new AlphaPrivacyStoreError(
                   'Provider disconnect conflicted',
                   'ALPHA_PROVIDER_DISCONNECT_CONFLICT'
@@ -2099,7 +2191,7 @@ class AlphaPrivacyStore {
           }
         );
       } catch (error) {
-        if (error && error.code === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
+        if (errorCode(error) === 'ALPHA_SESSION_REVISION_CONFLICT' && attempt < 2) continue;
         throw error;
       }
     }
@@ -2109,7 +2201,7 @@ class AlphaPrivacyStore {
     );
   }
 
-  async scrubCompletedTesterSessions(client, testerId) {
+  async scrubCompletedTesterSessions(client: PoolClient, testerId: string): Promise<number | null | undefined> {
     const ownershipResult = await client.query(
       `SELECT session_key_hash,tester_id,identity_key,provider,claimed_at,released_at
          FROM nv_alpha_provider_session_ownership
@@ -2121,10 +2213,10 @@ class AlphaPrivacyStore {
         ORDER BY session_key_hash,tester_id,identity_key,provider FOR UPDATE`,
       [testerId]
     );
-    const ownersByHash = new Map();
-    for (const row of ownershipResult.rows) {
+    const ownersByHash = new Map<string, Set<string>>();
+    for (const row of rowsOf(ownershipResult)) {
       const sessionKeyHash = requireHash(row.session_key_hash, 'owned sessionKeyHash');
-      const owners = ownersByHash.get(sessionKeyHash) || new Set();
+      const owners = ownersByHash.get(sessionKeyHash) || new Set<string>();
       owners.add(String(row.tester_id || '').toLowerCase());
       ownersByHash.set(sessionKeyHash, owners);
     }
@@ -2142,7 +2234,7 @@ class AlphaPrivacyStore {
     return removed.rowCount;
   }
 
-  async purgeTester(input) {
+  async purgeTester(input: unknown) {
     const purge = requirePlainObject(input, 'tester purge input');
     const testerId = requireTesterId(purge.testerId);
     const testerIdHash = testerPurgeHash(testerId);
@@ -2160,9 +2252,9 @@ class AlphaPrivacyStore {
              FROM nv_alpha_purge_reports WHERE tester_id_hash=$1`,
           [testerIdHash]
         );
-        if (previousReport.rows[0]) {
+        if (rowsOf(previousReport)[0]) {
           await this.scrubCompletedTesterSessions(client, testerId);
-          return purgeReportFromRow(previousReport.rows[0]);
+          return purgeReportFromRow(onlyRow(previousReport));
         }
         if (!lifecycle.deletion) {
           throw new AlphaPrivacyStoreError(
@@ -2250,7 +2342,7 @@ class AlphaPrivacyStore {
             ORDER BY binding.identity_key`,
           [testerId]
         );
-        const exclusiveIdentityKeys = exclusiveResult.rows.map(row => row.identity_key);
+        const exclusiveIdentityKeys = rowsOf(exclusiveResult).map(row => row.identity_key);
 
         await client.query(
           `INSERT INTO nv_alpha_retained_integrity(
@@ -2441,12 +2533,12 @@ class AlphaPrivacyStore {
             now
           ]
         );
-        return purgeReportFromRow(insertedReport.rows[0]);
+        return purgeReportFromRow(onlyRow(insertedReport));
       }
     );
   }
 
-  async recordFeedback(input) {
+  async recordFeedback(input: unknown) {
     const feedback = requirePlainObject(input, 'feedback input');
     if (Object.keys(feedback).some(key => !FEEDBACK_INPUT_FIELDS.has(key))) {
       throw new AlphaPrivacyStoreError(
@@ -2494,13 +2586,13 @@ class AlphaPrivacyStore {
         );
         return Object.freeze({
           recorded: true,
-          createdAt: toIso(inserted.rows[0].created_at)
+          createdAt: toIso(onlyRow(inserted).created_at)
         });
       }
     );
   }
 
-  async cohortClose(input) {
+  async cohortClose(input: unknown) {
     const close = requirePlainObject(input, 'cohort close input');
     const closedAt = toDate(close.closedAt, 'closedAt');
     const purgeAfter = new Date(closedAt.getTime() + 30 * DAY_MS);
@@ -2512,7 +2604,7 @@ class AlphaPrivacyStore {
            FROM nv_alpha_cohort_retention
           WHERE cohort_key='public-alpha-17' FOR UPDATE`
       );
-      const existing = existingResult.rows[0];
+      const existing = rowsOf(existingResult)[0];
       if (existing) {
         if (
           toDate(existing.closed_at, 'cohort closed timestamp').getTime() !== closedAt.getTime()
@@ -2539,8 +2631,8 @@ class AlphaPrivacyStore {
       );
       return Object.freeze({
         created: true,
-        closedAt: toIso(inserted.rows[0].closed_at),
-        purgeAfter: toIso(inserted.rows[0].purge_after)
+        closedAt: toIso(onlyRow(inserted).closed_at),
+        purgeAfter: toIso(onlyRow(inserted).purge_after)
       });
     });
   }
@@ -2604,9 +2696,9 @@ class AlphaPrivacyStore {
           WHERE created_at<=$1`,
         [feedbackCutoff]
       );
-      const cohort = cohortResult.rows[0];
-      let testerMetadataPurged = 0;
-      let inviteMetadataPurged = 0;
+      const cohort = rowsOf(cohortResult)[0];
+      let testerMetadataPurged: number | null | undefined = 0;
+      let inviteMetadataPurged: number | null | undefined = 0;
       if (
         cohort
         && now >= toDate(cohort.purge_after, 'cohort purge timestamp')
@@ -2652,4 +2744,3 @@ class AlphaPrivacyStore {
 
 }
 
-module.exports = Object.freeze({ AlphaPrivacyStore, AlphaPrivacyStoreError });

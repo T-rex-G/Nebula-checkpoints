@@ -384,7 +384,7 @@ assert.strictEqual(
  */
 {
   const privacySource = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'alpha-privacy-store.js'), 'utf8'
+    path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8'
   );
   for (const table of ['nv_exposure_scans', 'nv_exposure_findings']) {
     assert(

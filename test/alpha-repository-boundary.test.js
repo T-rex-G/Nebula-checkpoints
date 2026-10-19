@@ -481,11 +481,10 @@ class Pool {
 }
 
 Module._load = function load(request, parent, isMain) {
-  if (request === './src/alpha-access-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaAccessStore, AlphaAccessOperationalError };
-  }
-  if (request === './src/alpha-privacy-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaPrivacyStore };
+  /* The identity-access module, its stores replaced by this fixture's; .ts as the source names it, .js as the compiled tree does. */
+  if (/^\.\/apps\/api\/src\/modules\/identity-access\/index\.[jt]s$/.test(request) && parent && /server\.js$/.test(parent.filename)) {
+    const real = originalLoad.call(this, request, parent, isMain);
+    return { ...real, AlphaAccessStore, AlphaAccessOperationalError, AlphaPrivacyStore };
   }
   if (request === './src/provider-credentials' && parent && /server\.js$/.test(parent.filename)) {
     return {

@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseRepositoryScope, parseStoredRepositoryScope } = require('./alpha-access');
+const { parseRepositoryScope, parseStoredRepositoryScope } = require('../apps/api/src/modules/identity-access/index.ts');
 const REPOSITORY_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 const QUERY_LIMIT = 200;
 

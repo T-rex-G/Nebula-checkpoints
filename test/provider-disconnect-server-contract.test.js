@@ -14,8 +14,11 @@ function routeBlock(routePath) {
   return server.slice(start, next < 0 ? server.length : next);
 }
 
-assert.match(server, /const \{ AlphaPrivacyStore \} = require\('\.\/src\/alpha-privacy-store'\)/);
-assert.match(server, /const \{[^}]*disconnectProviderAccount[^}]*\} = require\('\.\/src\/provider-disconnect'\)/s);
+/* The server reaches identity and access through the module's index only. */
+const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
+assert(identityAccess, 'the server must load identity and access through its index');
+assert.match(identityAccess[1], /\bAlphaPrivacyStore\b/);
+assert.match(identityAccess[1], /\bdisconnectProviderAccount\b/);
 assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
 assert.match(server, /async function disconnectAlphaProviderAccount\(/);
 const alphaRequestSessionStart = server.indexOf('async function readAlphaRequestSession(req)');

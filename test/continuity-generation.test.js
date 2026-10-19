@@ -266,17 +266,22 @@ try {
     'src/work-continuity.js',
     'src/capability-registry.js',
     'src/github-account-operations.js',
-    'src/alpha-access.js',
+    /* The repository scope parser lives in identity and access, an ES-module scope reached through its index. */
+    'apps/package.json',
+    'apps/api/src/modules/identity-access',
+    'apps/api/src/platform/persistence/queryable.ts',
     /* The capability document's guard is a shared contract, in its own module scope. */
     'packages/package.json',
     'packages/contracts/src/capability.ts',
     'packages/contracts/src/guards.ts',
+    'packages/contracts/src/ids.ts',
     'config/public-alpha-capabilities.json',
     'scripts/generate-continuity-docs.js',
     'docs/current/PROJECT_STATE.md',
     'docs/current/CONTINUATION_PROMPT.md'
   ]) {
-    fs.copyFileSync(path.join(root, relative), path.join(archiveRoot, relative));
+    fs.mkdirSync(path.dirname(path.join(archiveRoot, relative)), { recursive: true });
+    fs.cpSync(path.join(root, relative), path.join(archiveRoot, relative), { recursive: true });
   }
   const archiveCheck = execFileSync(
     process.execPath,

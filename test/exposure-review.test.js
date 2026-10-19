@@ -10,7 +10,7 @@ const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('../src/exposure-f
 const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');
 const { EXPOSURE_CONFIG_VERSION } = require('../src/exposure-store');
 const { resolveExposureSession } = require('../src/exposure-session');
-const { alphaActorLabel } = require('../src/alpha-privacy');
+const { alphaActorLabel } = require('../apps/api/src/modules/identity-access/index.ts');
 
 test('capacity cannot evict an unexpired single-use grant', () => {
   const map = new Map();

@@ -9,7 +9,7 @@ const {
   parseRepositoryScope,
   repositoryAllowed,
   inviteUnbound
-} = require('../src/alpha-access');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 
 function assertScopeInvalid(callback, label) {
   assert.throws(

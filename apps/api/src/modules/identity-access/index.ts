@@ -1,0 +1,30 @@
+/*
+ * Identity and access: who may use the alpha, the provider identities they
+ * bind, and the privacy lifecycle that ends them. The rest of the server
+ * reaches this module through this file only.
+ */
+export {
+  AlphaAccessError,
+  canonicalRepositoryScope,
+  digestInviteSecret,
+  inviteUnbound,
+  parseInviteCode,
+  parseRepositoryScope,
+  parseStoredRepositoryScope,
+  repositoryAllowed
+} from './domain/alpha-access.ts';
+export type { ParsedRepositoryScope } from './domain/alpha-access.ts';
+export {
+  alphaActorLabel,
+  alphaRetentionPolicy,
+  buildSupportBundle,
+  providerRevocationGuidance,
+  sanitizeFeedback
+} from './domain/alpha-privacy.ts';
+export type { AlphaRetentionPolicy, RevocationGuidance, SupportBundle } from './domain/alpha-privacy.ts';
+export { disconnectProviderAccount, providerResourceKeyHash, providerSessionKeyHash } from './domain/provider-disconnect.ts';
+export type { DisconnectOptions, DisconnectResult } from './domain/provider-disconnect.ts';
+export { AlphaAccessOperationalError, AlphaAccessStore, GENERIC_REDEMPTION_ERROR } from './persistence/alpha-access-store.ts';
+export type { AlphaSession, AlphaTester, IssuedInvite, Redemption } from './persistence/alpha-access-store.ts';
+export { AlphaPrivacyStore, AlphaPrivacyStoreError } from './persistence/alpha-privacy-store.ts';
+export type { PurgeReport, SessionCodec } from './persistence/alpha-privacy-store.ts';

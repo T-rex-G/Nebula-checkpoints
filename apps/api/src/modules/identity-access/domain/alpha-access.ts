@@ -1,12 +1,13 @@
-'use strict';
+import { createHmac } from 'node:crypto';
+import { domainToASCII, domainToUnicode } from 'node:url';
 
-const crypto = require('crypto');
-const { domainToASCII, domainToUnicode } = require('url');
+export class AlphaAccessError extends Error {
+  override readonly name = 'AlphaAccessError';
+  readonly code: string;
+  readonly status: number;
 
-class AlphaAccessError extends Error {
-  constructor(message, code, status = 400) {
+  constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'AlphaAccessError';
     this.code = code;
     this.status = status;
   }
@@ -17,9 +18,22 @@ const SECRET_RX = /^[A-Za-z0-9_-]{32,128}$/;
 const REPO_PART_RX = /^[A-Za-z0-9_.-]{1,200}$/;
 const HOSTNAME_RX = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
 const IPV4_ALIAS_RX = /^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}$/i;
-const SCOPE_FIELDS = Object.freeze(['provider', 'authority', 'owner', 'repo']);
+const SCOPE_FIELDS = Object.freeze(['provider', 'authority', 'owner', 'repo'] as const);
+const SCOPE_RX = /^(github):([^/]+)\/([^/]+)\/([^/]+)$/;
 
-function invalidInvite() {
+type ScopeField = (typeof SCOPE_FIELDS)[number];
+type ScopeFields = Record<ScopeField, string>;
+
+/* A repository an invitation names, read back from its canonical text. */
+export interface ParsedRepositoryScope {
+  readonly provider: string;
+  readonly authority: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly canonical: string;
+}
+
+function invalidInvite(): AlphaAccessError {
   return new AlphaAccessError(
     'Invitation could not be redeemed',
     'ALPHA_INVITE_INVALID',
@@ -27,20 +41,21 @@ function invalidInvite() {
   );
 }
 
-function invalidScope(message) {
+function invalidScope(message: string): AlphaAccessError {
   return new AlphaAccessError(message, 'ALPHA_SCOPE_INVALID');
 }
 
-function parseInviteCode(code) {
+export function parseInviteCode(code: unknown): { readonly publicId: string; readonly secret: string } {
   const match = /^nvx_alpha_([0-9a-z]{20,40})\.([A-Za-z0-9_-]{32,128})$/
     .exec(String(code || '').trim());
-  if (!match || !PUBLIC_ID_RX.test(match[1]) || !SECRET_RX.test(match[2])) {
+  const [, publicId = '', secret = ''] = match ?? [];
+  if (!match || !PUBLIC_ID_RX.test(publicId) || !SECRET_RX.test(secret)) {
     throw invalidInvite();
   }
-  return { publicId: match[1], secret: match[2] };
+  return { publicId, secret };
 }
 
-function digestInviteSecret(pepper, publicId, secret) {
+export function digestInviteSecret(pepper: unknown, publicId: unknown, secret: unknown): string {
   const key = String(pepper || '');
   if (Buffer.byteLength(key, 'utf8') < 32) {
     throw new TypeError('invite pepper must contain at least 32 bytes');
@@ -51,12 +66,12 @@ function digestInviteSecret(pepper, publicId, secret) {
   ) {
     throw new TypeError('invite public id and secret must use the invitation format');
   }
-  return crypto.createHmac('sha256', key)
-    .update(`alpha-invite-v1\0${publicId}\0${secret}`, 'utf8')
+  return createHmac('sha256', key)
+    .update(`alpha-invite-v1\0${String(publicId)}\0${String(secret)}`, 'utf8')
     .digest('hex');
 }
 
-function parseAuthority(raw) {
+function parseAuthority(raw: unknown): string {
   if (typeof raw !== 'string' || !raw) {
     throw invalidScope('Repository authority is required');
   }
@@ -93,7 +108,7 @@ function parseAuthority(raw) {
   return hostname;
 }
 
-function normalizeAuthority(provider, raw) {
+function normalizeAuthority(provider: string, raw: unknown): string {
   const authority = parseAuthority(raw);
   if (provider === 'github' && authority !== 'github.com') {
     throw invalidScope('GitHub repository authority must be github.com');
@@ -101,7 +116,7 @@ function normalizeAuthority(provider, raw) {
   return authority;
 }
 
-function readScopeFields(input) {
+function readScopeFields(input: unknown): ScopeFields {
   try {
     if (
       input === null
@@ -112,7 +127,7 @@ function readScopeFields(input) {
       throw invalidScope('Repository scope input must be a plain object');
     }
 
-    const fields = {};
+    const fields: Partial<ScopeFields> = {};
     for (const field of SCOPE_FIELDS) {
       const descriptor = Object.getOwnPropertyDescriptor(input, field);
       if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') {
@@ -120,14 +135,14 @@ function readScopeFields(input) {
       }
       fields[field] = descriptor.value;
     }
-    return fields;
+    return fields as ScopeFields;
   } catch (error) {
     if (error instanceof AlphaAccessError) throw error;
     throw invalidScope('Repository scope input is invalid');
   }
 }
 
-function normalizeRepositoryParts(ownerInput, repoInput) {
+function normalizeRepositoryParts(ownerInput: string, repoInput: string): { readonly owner: string; readonly repo: string } {
   const owner = ownerInput.trim().toLowerCase();
   const repo = repoInput.trim().toLowerCase();
   if (
@@ -144,7 +159,7 @@ function normalizeRepositoryParts(ownerInput, repoInput) {
   return { owner, repo };
 }
 
-function canonicalRepositoryScope(input) {
+export function canonicalRepositoryScope(input: unknown): string {
   const fields = readScopeFields(input);
   const provider = fields.provider.trim().toLowerCase();
   if (!['github'].includes(provider)) {
@@ -156,7 +171,7 @@ function canonicalRepositoryScope(input) {
   return `${provider}:${normalizeAuthority(provider, fields.authority)}/${owner}/${repo}`;
 }
 
-function parseRepositoryScope(scope) {
+export function parseRepositoryScope(scope: unknown): ParsedRepositoryScope {
   if (typeof scope !== 'string') {
     throw invalidScope('Repository scope must be a string');
   }
@@ -166,19 +181,15 @@ function parseRepositoryScope(scope) {
     throw invalidScope('Repository scope is invalid');
   }
 
-  const canonical = canonicalRepositoryScope({
-    provider: match[1],
-    authority: match[2],
-    owner: match[3],
-    repo: match[4]
-  });
-  const canonicalMatch = /^(github):([^/]+)\/([^/]+)\/([^/]+)$/
-    .exec(canonical);
+  const [, provider = '', authority = '', owner = '', repo = ''] = match;
+  const canonical = canonicalRepositoryScope({ provider, authority, owner, repo });
+  /* The canonical text is built in exactly this shape, so every group is present. */
+  const [, canonicalProvider = '', canonicalAuthority = '', canonicalOwner = '', canonicalRepo = ''] = SCOPE_RX.exec(canonical) ?? [];
   return {
-    provider: canonicalMatch[1],
-    authority: canonicalMatch[2],
-    owner: canonicalMatch[3],
-    repo: canonicalMatch[4],
+    provider: canonicalProvider,
+    authority: canonicalAuthority,
+    owner: canonicalOwner,
+    repo: canonicalRepo,
     canonical
   };
 }
@@ -188,13 +199,14 @@ function parseRepositoryScope(scope) {
  * every entry, but a retired grant can never match a live repository. This is
  * deliberately separate from the parser used to create new invitations.
  */
-function parseStoredRepositoryScope(scope) {
+export function parseStoredRepositoryScope(scope: unknown): ParsedRepositoryScope | null {
   const retired = typeof scope === 'string'
     ? /^(?:gitlab|gitea):([^/]+)\/([^/]+)\/([^/]+)$/i.exec(scope.trim())
     : null;
   if (retired) {
-    parseAuthority(retired[1]);
-    normalizeRepositoryParts(retired[2], retired[3]);
+    const [, authority = '', owner = '', repo = ''] = retired;
+    parseAuthority(authority);
+    normalizeRepositoryParts(owner, repo);
     return null;
   }
   return parseRepositoryScope(scope);
@@ -209,17 +221,17 @@ function parseStoredRepositoryScope(scope) {
  * to load must read as "refuse", not as "permit", so anything that is not an
  * array of length zero is not unbound.
  */
-function inviteUnbound(allowedScopes) {
+export function inviteUnbound(allowedScopes: unknown): boolean {
   return Array.isArray(allowedScopes) && allowedScopes.length === 0;
 }
 
-function repositoryAllowed(allowedScopes, target) {
+export function repositoryAllowed(allowedScopes: unknown, target: unknown): boolean {
   const canonical = canonicalRepositoryScope(target);
   if (!Array.isArray(allowedScopes)) return false;
 
   try {
-    const canonicalScopes = new Set();
-    for (const scope of allowedScopes) {
+    const canonicalScopes = new Set<string>();
+    for (const scope of allowedScopes as readonly unknown[]) {
       const stored = parseStoredRepositoryScope(scope);
       if (stored !== null) canonicalScopes.add(stored.canonical);
     }
@@ -229,14 +241,3 @@ function repositoryAllowed(allowedScopes, target) {
     throw error;
   }
 }
-
-module.exports = Object.freeze({
-  AlphaAccessError,
-  parseInviteCode,
-  digestInviteSecret,
-  canonicalRepositoryScope,
-  parseRepositoryScope,
-  parseStoredRepositoryScope,
-  repositoryAllowed,
-  inviteUnbound
-});

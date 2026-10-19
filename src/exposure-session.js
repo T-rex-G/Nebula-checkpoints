@@ -1,6 +1,6 @@
 'use strict';
 
-const { alphaActorLabel } = require('./alpha-privacy');
+const { alphaActorLabel } = require('../apps/api/src/modules/identity-access/index.ts');
 
 /* Resolve the durable owner, not a display label. Hosted scans must still have
    an active invitation, repository scope and provider-session ownership. */

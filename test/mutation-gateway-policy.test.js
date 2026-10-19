@@ -1,11 +1,11 @@
 'use strict';
 const assert = require('assert');
 const { createMutationGateway, normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { deriveControlMapping } = require('../src/control-catalog');
-const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
+const { deriveControlMapping } = require('../apps/api/src/modules/kepler/index.ts');
+const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../apps/api/src/modules/kepler/index.ts');
 const { spawnSync } = require('child_process');
 const path = require('path');
-const { policyDocumentHash } = require('../src/governance-model');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 const authorization = {
   schemaVersion: 1,
   scope: { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' },

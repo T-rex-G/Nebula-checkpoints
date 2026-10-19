@@ -1,46 +1,83 @@
-'use strict';
-
-const crypto = require('crypto');
-const dns = require('dns');
-const https = require('https');
-const {
+import { createHash } from 'node:crypto';
+import { promises as dnsPromises } from 'node:dns';
+import type { OutgoingHttpHeaders } from 'node:http';
+import {
   GovernanceDeliveryError,
   normalizeWebhookDestination,
   deriveWebhookSigningSecret,
   signWebhookPayload
-} = require('./governance-delivery');
-const { stableJson } = require('./governance-model');
-const { PROFILES, CODES: GUARDED_FETCH_CODES, GuardedFetchError, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
+} from './governance-delivery.ts';
+import type { GovernanceEvent, WebhookDestination } from './governance-delivery.ts';
+import { stableJson } from '../../../../../../packages/contracts/src/canonical-json.ts';
+import { PROFILES, CODES as GUARDED_FETCH_CODES, GuardedFetchError, guardedFetch } from '../../../platform/network/guarded-fetch.ts';
+import type { GuardedResponse, RequestImpl } from '../../../platform/network/guarded-fetch.ts';
 
-const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
-const DEFAULT_TIMEOUT_MS = 10_000;
+export const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 
-function hashText(value) {
-  return crypto.createHash('sha256').update(String(value), 'utf8').digest('hex');
+function hashText(value: unknown): string {
+  return createHash('sha256').update(String(value), 'utf8').digest('hex');
 }
 
-function requireStore(store) {
+/* A delivery failure the attempt record names by code. */
+function webhookFailure(message: string, code: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
+/* A delivery the store leased to this worker, as the store describes it. */
+export interface ClaimedDelivery {
+  readonly deliveryId: string;
+  readonly webhookId: unknown;
+  readonly url: string;
+  readonly scope: { readonly scopeKey: string };
+  readonly eventSeq: unknown;
+  readonly secretSalt: unknown;
+  readonly secretVersion: unknown;
+  readonly leaseUntil?: unknown;
+}
+
+export interface DeliveryAttempt {
+  readonly deliveryId: string;
+  readonly eventHash: string;
+  readonly requestTimestamp: string;
+  readonly signatureHash: string;
+  readonly delivered: boolean;
+  readonly terminal: boolean;
+  readonly statusCode: number | null;
+  readonly errorCode: string | null;
+}
+
+export interface WebhookDeliveryStore {
+  claimWebhookDeliveries(input: { readonly limit: number; readonly leaseSeconds: number }): Promise<readonly ClaimedDelivery[]>;
+  getGovernanceEvent(input: { readonly scope: ClaimedDelivery['scope']; readonly eventSeq: unknown }): Promise<GovernanceEvent>;
+  recordWebhookDeliveryAttempt(input: DeliveryAttempt): Promise<{ readonly status: string }>;
+}
+
+function requireStore(store: unknown): WebhookDeliveryStore {
   const methods = ['claimWebhookDeliveries', 'getGovernanceEvent', 'recordWebhookDeliveryAttempt'];
-  if (!store || methods.some(method => typeof store[method] !== 'function')) {
+  const candidate = store as Readonly<Record<string, unknown>> | null | undefined;
+  if (!candidate || methods.some(method => typeof candidate[method] !== 'function')) {
     throw new TypeError('Webhook worker requires a complete governance delivery store');
   }
-  return store;
+  /* Each method the worker calls is present and callable; what they answer is the store's contract. */
+  return candidate as unknown as WebhookDeliveryStore;
 }
 
-function nowDate(now) {
+export type WorkerClock = () => Date | number | string;
+
+function nowDate(now: WorkerClock | undefined): Date {
   const value = typeof now === 'function' ? now() : new Date();
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) throw new TypeError('Webhook worker clock is invalid');
   return date;
 }
 
-function errorCodeOf(error) {
-  const source = String(error && error.code || '').trim().toUpperCase();
+function errorCodeOf(error: unknown): string {
+  const source = String(error && (error as { readonly code?: unknown }).code || '').trim().toUpperCase();
   if (/^[A-Z][A-Z0-9_]{2,99}$/.test(source)) return source;
   return 'WEBHOOK_TRANSPORT_ERROR';
 }
 
-function permanentStatus(statusCode) {
+function permanentStatus(statusCode: number): boolean {
   if (statusCode >= 300 && statusCode < 400) return true;
   return statusCode >= 400 && statusCode < 500 && ![408, 425, 429].includes(statusCode);
 }
@@ -59,11 +96,12 @@ function permanentStatus(statusCode) {
 /*
  * The transport speaks its own codes; a delivery attempt records this file's.
  * The table is total rather than defaulted: every code the transport can
- * raise has a line here, and the test asserts that against the transport's
- * own registry. A `||` fallback would have absorbed a missing line, and the
- * cost of that is not cosmetic -- `terminal` is decided from the recorded
- * code, so a permanent fault translated as a generic transport error is
- * retried until the attempt ceiling instead of being dead-lettered once.
+ * raise has a line here, which its type now requires and the test asserts
+ * against the transport's own registry. A `||` fallback would have absorbed a
+ * missing line, and the cost of that is not cosmetic -- `terminal` is decided
+ * from the recorded code, so a permanent fault translated as a generic
+ * transport error is retried until the attempt ceiling instead of being
+ * dead-lettered once.
  *
  * WEBHOOK_TRANSPORT_ERROR is deliberate for the three that can only mean a
  * mistake in this repository rather than anything about the destination: an
@@ -71,7 +109,8 @@ function permanentStatus(statusCode) {
  * operator could act on, and inventing a code per internal slip would grow
  * the vocabulary operators read without telling them anything.
  */
-const GUARDED_TO_WEBHOOK_CODE = Object.freeze({
+type GuardedFetchCode = (typeof GUARDED_FETCH_CODES)[keyof typeof GUARDED_FETCH_CODES];
+export const GUARDED_TO_WEBHOOK_CODE: Readonly<Record<GuardedFetchCode, string>> = Object.freeze({
   [GUARDED_FETCH_CODES.BODY_TOO_LARGE]: 'WEBHOOK_BODY_TOO_LARGE',
   [GUARDED_FETCH_CODES.DEADLINE]: 'WEBHOOK_TIMEOUT',
   [GUARDED_FETCH_CODES.DNS_INVALID]: 'WEBHOOK_DNS_INVALID',
@@ -85,19 +124,25 @@ const GUARDED_TO_WEBHOOK_CODE = Object.freeze({
   [GUARDED_FETCH_CODES.TRANSPORT_FAILED]: 'WEBHOOK_TRANSPORT_ERROR',
   [GUARDED_FETCH_CODES.URL_INVALID]: 'WEBHOOK_URL_INVALID'
 });
+const WEBHOOK_CODE_BY_GUARDED: Readonly<Record<string, string>> = GUARDED_TO_WEBHOOK_CODE;
 
-async function sendPinnedHttpsWebhook(input = {}) {
+export interface WebhookRequest {
+  readonly destination?: WebhookDestination | null;
+  readonly body?: unknown;
+  readonly headers?: OutgoingHttpHeaders;
+  readonly signingSecret?: string;
+  readonly timeoutMs?: number;
+  readonly requestImpl?: RequestImpl;
+}
+
+export async function sendPinnedHttpsWebhook(input: WebhookRequest = {}): Promise<GuardedResponse> {
   const destination = input.destination;
   if (!destination || !Array.isArray(destination.addresses) || !destination.addresses.length) {
-    const error = new Error('Webhook destination is unresolved');
-    error.code = 'WEBHOOK_DNS_INVALID';
-    throw error;
+    throw webhookFailure('Webhook destination is unresolved', 'WEBHOOK_DNS_INVALID');
   }
   const body = String(input.body || '');
   if (Buffer.byteLength(body, 'utf8') > MAX_WEBHOOK_BODY_BYTES) {
-    const error = new Error('Webhook body exceeds the delivery limit');
-    error.code = 'WEBHOOK_BODY_TOO_LARGE';
-    throw error;
+    throw webhookFailure('Webhook body exceeds the delivery limit', 'WEBHOOK_BODY_TOO_LARGE');
   }
   try {
     return await guardedFetch({
@@ -112,26 +157,50 @@ async function sendPinnedHttpsWebhook(input = {}) {
     });
   } catch (error) {
     if (error instanceof GuardedFetchError) {
-      const translated = new Error('Webhook delivery failed');
-      translated.code = GUARDED_TO_WEBHOOK_CODE[error.code] || 'WEBHOOK_TRANSPORT_ERROR';
-      if (error.transportCode) translated.transportCode = error.transportCode;
+      /* Own keys only: an inherited name is not one of the transport's codes. */
+      const code = Object.hasOwn(WEBHOOK_CODE_BY_GUARDED, error.code) ? WEBHOOK_CODE_BY_GUARDED[error.code] : undefined;
+      const translated = webhookFailure('Webhook delivery failed', code || 'WEBHOOK_TRANSPORT_ERROR');
+      if (error.transportCode) Object.assign(translated, { transportCode: error.transportCode });
       throw translated;
     }
     throw error;
   }
 }
 
-async function processWebhookDeliveryBatch(options = {}) {
+export type WebhookTransport = (request: WebhookRequest & { readonly destination: WebhookDestination; readonly body: string; readonly headers: OutgoingHttpHeaders; readonly signingSecret: string }) => Promise<unknown>;
+
+export interface WebhookWorkerOptions {
+  readonly store?: unknown;
+  readonly masterSecret?: unknown;
+  readonly resolveAddresses?: (hostname: string) => Promise<unknown>;
+  readonly transport?: WebhookTransport;
+  readonly limit?: number;
+  readonly leaseSeconds?: number;
+  readonly now?: WorkerClock;
+  readonly timeoutMs?: number;
+  readonly intervalMs?: number;
+  readonly onError?: (error: unknown) => void;
+}
+
+export interface BatchSummary {
+  claimed: number;
+  delivered: number;
+  retrying: number;
+  deadLettered: number;
+  released: number;
+}
+
+export async function processWebhookDeliveryBatch(options: WebhookWorkerOptions = {}): Promise<BatchSummary> {
   const store = requireStore(options.store);
   if (Buffer.byteLength(String(options.masterSecret || ''), 'utf8') < 32) {
     throw new TypeError('Webhook worker master secret is invalid');
   }
   const resolveAddresses = typeof options.resolveAddresses === 'function'
     ? options.resolveAddresses
-    : async hostname => dns.promises.lookup(hostname, { all: true, verbatim: true });
-  const transport = typeof options.transport === 'function' ? options.transport : sendPinnedHttpsWebhook;
+    : async (hostname: string) => dnsPromises.lookup(hostname, { all: true, verbatim: true });
+  const transport: WebhookTransport = typeof options.transport === 'function' ? options.transport : sendPinnedHttpsWebhook;
   const claimed = await store.claimWebhookDeliveries({ limit: options.limit || 10, leaseSeconds: options.leaseSeconds || 60 });
-  const summary = { claimed: claimed.length, delivered: 0, retrying: 0, deadLettered: 0, released: 0 };
+  const summary: BatchSummary = { claimed: claimed.length, delivered: 0, retrying: 0, deadLettered: 0, released: 0 };
 
   for (const delivery of claimed) {
     const requestTime = nowDate(options.now);
@@ -157,25 +226,23 @@ async function processWebhookDeliveryBatch(options = {}) {
      * which is already the state that makes it available; leaving it is the
      * release.
      */
-    const leaseUntil = delivery.leaseUntil ? new Date(delivery.leaseUntil) : null;
+    const leaseUntil = delivery.leaseUntil ? new Date(delivery.leaseUntil as string | number | Date) : null;
     if (leaseUntil && Number.isFinite(leaseUntil.getTime()) && leaseUntil.getTime() <= requestTime.getTime()) {
       summary.released += 1;
       continue;
     }
     let eventHash = '0'.repeat(64);
     let signatureHash = '0'.repeat(64);
-    let statusCode = null;
+    let statusCode: number | null = null;
     let delivered = false;
     let terminal = false;
-    let errorCode = null;
+    let errorCode: string | null = null;
     try {
       const event = await store.getGovernanceEvent({ scope: delivery.scope, eventSeq: delivery.eventSeq });
       eventHash = event.eventHash;
       const body = stableJson(event);
       if (Buffer.byteLength(body, 'utf8') > MAX_WEBHOOK_BODY_BYTES) {
-        const error = new Error('Webhook body exceeds the delivery limit');
-        error.code = 'WEBHOOK_BODY_TOO_LARGE';
-        throw error;
+        throw webhookFailure('Webhook body exceeds the delivery limit', 'WEBHOOK_BODY_TOO_LARGE');
       }
       const parsed = new URL(delivery.url);
       const addresses = await resolveAddresses(parsed.hostname);
@@ -202,11 +269,9 @@ async function processWebhookDeliveryBatch(options = {}) {
         'Idempotency-Key': delivery.deliveryId
       };
       const response = await transport({ destination, body, headers, signingSecret, timeoutMs: options.timeoutMs });
-      statusCode = Number(response && response.statusCode || 0);
+      statusCode = Number(response && (response as { readonly statusCode?: unknown }).statusCode || 0);
       if (!Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599) {
-        const error = new Error('Webhook transport returned an invalid status');
-        error.code = 'WEBHOOK_STATUS_INVALID';
-        throw error;
+        throw webhookFailure('Webhook transport returned an invalid status', 'WEBHOOK_STATUS_INVALID');
       }
       delivered = statusCode >= 200 && statusCode < 300;
       terminal = !delivered && permanentStatus(statusCode);
@@ -233,8 +298,14 @@ async function processWebhookDeliveryBatch(options = {}) {
   return summary;
 }
 
-function startWebhookWorker(options = {}) {
-  const intervalMs = Number.isInteger(options.intervalMs) ? Math.min(Math.max(options.intervalMs, 10_000), 15 * 60_000) : 30_000;
+export interface WebhookWorker {
+  readonly stop: () => Promise<void>;
+  readonly run: () => Promise<void>;
+}
+
+export function startWebhookWorker(options: WebhookWorkerOptions = {}): WebhookWorker {
+  const requested = options.intervalMs;
+  const intervalMs = typeof requested === 'number' && Number.isInteger(requested) ? Math.min(Math.max(requested, 10_000), 15 * 60_000) : 30_000;
   let running = false;
   let stopped = false;
   /*
@@ -245,8 +316,8 @@ function startWebhookWorker(options = {}) {
    * lease expires and the receiver is sent the same event again -- a duplicate
    * on every restart that lands mid-batch.
    */
-  let inFlight = Promise.resolve();
-  const run = async () => {
+  let inFlight: Promise<void> = Promise.resolve();
+  const run = async (): Promise<void> => {
     if (running || stopped) return;
     running = true;
     inFlight = (async () => {
@@ -272,11 +343,3 @@ function startWebhookWorker(options = {}) {
     run
   });
 }
-
-module.exports = Object.freeze({
-  MAX_WEBHOOK_BODY_BYTES,
-  GUARDED_TO_WEBHOOK_CODE,
-  sendPinnedHttpsWebhook,
-  processWebhookDeliveryBatch,
-  startWebhookWorker
-});

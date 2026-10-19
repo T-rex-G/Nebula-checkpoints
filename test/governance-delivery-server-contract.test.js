@@ -8,7 +8,8 @@ const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutatio
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
-assert(server.includes("require('./src/governance-webhook-worker')"));
+const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
+assert(kepler && /\bstartWebhookWorker\b/.test(kepler[1]), 'server must load the webhook worker through the Kepler index');
 assert(server.includes('startWebhookWorker'));
 for (const route of [
   "app.get('/api/repo/:owner/:repo/governance/notifications'",

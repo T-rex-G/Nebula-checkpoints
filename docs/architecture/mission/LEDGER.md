@@ -277,3 +277,34 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
 - **The defect.** On C4 the alpha17 candidate gate failed in browser slice 4/4, and its message named only a web server warning. Each slice ran with the blob reporter alone, which writes nothing readable, and a failure was described by the slice's stderr, which holds only the server's warnings. The failing tests were not named anywhere a reader could see.
 - **The fix.** Each slice now also runs the line reporter, and a failing slice is described by the end of that output, without terminal colour codes: each failed test's error, then the failed and flaky tests by name. The blob report is still the slice's evidence, one zip per slice. The test that pins this failed first on the old message.
 - **The run itself.** The same slice of the same commit passes outside CI (241 passed, 6 skipped, one worker), so the next CI run names whatever failed rather than leaving it to be guessed.
+
+### D5 — Kepler, the governance module
+
+- **One module, behind its index.** `modules/kepler` holds all of governance, each layer in its own directory:
+  - `domain/`: the policy model, the control catalogue, the audit SLA policy, simulation, exceptions, templates, the digital twin, the interface access projection, and the enforcement engine the mutation gateway consults.
+  - `persistence/`: the store.
+  - `delivery/`: governance events, notifications, webhooks and signed evidence exports, and the webhook worker.
+  - `application/`: the governance API service the routes call.
+  - The server's seven requires of governance files are now one, of `index.ts`. Every caller in `src/`, the scripts and the tests reaches Kepler the same way.
+- **Typed strictly, behaviour unchanged.**
+  - The 2,959-line store keeps every SQL statement as it was. Rows are checked values: a statement answered without rows fails as it always did, a `RETURNING` row is read by one helper that says so when it is missing, and an idempotent replay returns the stored answer.
+  - Each converted file was compared with its original after its types were stripped. What differs is listed below or is the same expression written so the checker can follow it.
+  - Error objects keep their own-property order. Policy, audit-chain and decision hashes are unchanged, and every governance test passes against them, PostgreSQL included.
+- **Canonical JSON is a contract.** `packages/contracts/src/canonical-json.ts` holds the canonical form Kepler signs its policies, audit chain and decisions over. It is the same function, moved, so its bytes are unchanged. It is the first of the server's eight canonical copies to become a contract. The other variants differ on `undefined` and on `toJSON`, and stay where they are until they can be unified with proof.
+  - The matrix runner and staging validation hash their evidence with it, and the candidate qualifier trusts that file and its guard in place of the governance model. Without the move, the matrix runner would have loaded all of Kepler from the candidate, and none of it is trust-compared.
+- **Defects the port found, each with a test that failed first:**
+  - *Inherited names were catalogue entries.* `deriveControlMapping` crashed with a TypeError on an action or catalogue version named after an `Object.prototype` member. A stored mapping citing such an action as its source passed the source check, so only its hash stood in the way. Lookups are now by own key: such an action is unmapped, such a version is unsupported, and such a mapping is refused.
+  - *A non-text actor login crashed decision verification.* A decision built from a descriptor whose actor login was not text reached a string method the login did not have and threw a TypeError. Verification now refuses it as `MUTATION_POLICY_DECISION_MISMATCH` (500), as it refuses any other descriptor the decision does not match.
+- **Hardened, with no change for any real input:**
+  - A scenario's condition fields and the webhook's code translation are read by own key.
+  - The webhook's code table is typed against the transport's code registry, so a missing line no longer compiles. The test that checks the same thing at run time stays.
+  - 26 copied identifier and hash patterns are now the contract's names (`isSha256Hex`, `isIdentityKey`, `isPolicyKey`, `isRecordId`, `MUTATION_ID`, `POLICY_KEY`). Three waiting exports gained their first consumer. The adoption record says so.
+- **Removed as dead:** a text normalizer and an event-id pattern nothing called, an unused `https` import, and a nullable branch of the hash reader no caller took.
+- **Tests that moved with the code:**
+  - The boundary fixture holds the webhook worker still through the Kepler index, under either runtime's extension.
+  - The source-text contracts read the server's one Kepler require. The Safe Passage contract reads the store at its new path.
+  - The simulation contract no longer asks the syntax manifest for its module: `node --check` reads JavaScript only, and the `apps/api` typecheck covers it.
+  - The code catalogue, the hardening and package contracts, the verifier and the qualifier's tamper test name the new paths. The tamper test also covers the canonical contract's guard.
+- **Found, and closed next:** the qualifier compares only the programs it runs. What those programs load is not compared: the platform release helpers the web build uses, the persistence platform the database drills use, and the restore drill's backup format and harness. A tampered archive could change them and still qualify. This gap predates the mission and was widened by C4 and D1. The next commit closes it.
+- **Checks:** typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify green; every governance program green, PostgreSQL included; the boundary fixture under both runtimes; the full unit gate.
+- **Next:** the qualifier closure, then D6 (Quasar).

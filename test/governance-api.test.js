@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 let api = {};
-try { api = require('../src/governance-api'); } catch {}
+try { api = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['GovernanceApiError', 'assertGovernanceAuthorization', 'createGovernanceApiService']) {
   assert(api[name], `${name} must be implemented`);
 }

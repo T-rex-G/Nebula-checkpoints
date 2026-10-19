@@ -1,8 +1,5 @@
-'use strict';
-
-const crypto = require('crypto');
-const REVIEW_SENSITIVE_TEXT_RX = /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|(?:bearer|token|password|secret)\s*[:=]\s*[A-Za-z0-9._~+\/-]{16,}|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/i;
-const {
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import {
   GovernanceError,
   GOVERNANCE_AUDIT_GENESIS,
   normalizeIdentityKey,
@@ -15,18 +12,18 @@ const {
   policyDocumentHash,
   normalizeAuditDetails,
   createGovernanceAuditRecord,
-  verifyGovernanceAuditChain,
-  stableJson
-} = require('./governance-model');
-const {
+  verifyGovernanceAuditChain
+} from '../domain/governance-model.ts';
+import { stableJson } from '../../../../../../packages/contracts/src/canonical-json.ts';
+import {
   POLICY_DECISION_GENESIS,
   evaluateActivePolicySet,
   normalizePolicyDecision
-} = require('./governance-enforcement');
-const { normalizeExceptionRequest, computeExceptionState } = require('./governance-exceptions');
-const { normalizeDigitalTwinOptions } = require('./governance-digital-twin');
-const { normalizeSimulationRequest, simulatePolicyImpact } = require('./governance-simulation');
-const {
+} from '../domain/governance-enforcement.ts';
+import { normalizeExceptionRequest, computeExceptionState } from '../domain/governance-exceptions.ts';
+import { normalizeDigitalTwinOptions } from '../domain/governance-digital-twin.ts';
+import { normalizeSimulationRequest, simulatePolicyImpact } from '../domain/governance-simulation.ts';
+import {
   SUPPORTED_EVENT_TYPES,
   DEFAULT_NOTIFICATION_EVENT_TYPES,
   normalizeNotificationPreferences,
@@ -36,9 +33,92 @@ const {
   buildGovernanceEvent,
   buildSignedEvidenceExport,
   verifySignedEvidenceExport
-} = require('./governance-delivery');
+} from '../delivery/governance-delivery.ts';
+import { isIdentityKey, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import type { PoolClient, QueryOutcome, Queryable, Row, TransactionalPool } from '../../../platform/persistence/queryable.ts';
+import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
 
-function requiredText(value, label, max = 2000) {
+const REVIEW_SENSITIVE_TEXT_RX = /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|(?:bearer|token|password|secret)\s*[:=]\s*[A-Za-z0-9._~+/-]{16,}|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/i;
+
+type Fields = Readonly<Record<string, unknown>>;
+
+/* The person a governance write is recorded against. */
+export interface GovernanceActor {
+  readonly identityKey: string;
+  readonly login: string;
+}
+
+/* The provider's confirmation of a person's access, as a review, activation or exception records it. */
+export interface AuthorizationEvidence {
+  readonly accessLevel: number;
+  readonly providerRole: string;
+  readonly source: string;
+  readonly fetchedAt: string;
+  readonly expiresAt: string;
+}
+
+/* One entry of a policy's tamper-evident lifecycle record. */
+interface AuditContext {
+  readonly policyId: unknown;
+  readonly versionId?: unknown;
+  readonly scopeKey: unknown;
+  readonly eventType: string;
+  readonly actor: GovernanceActor;
+  readonly details?: unknown;
+}
+
+/* What makes a write replayable: who sent it, on which repository, under which key, with what request. */
+interface IdempotencyContext {
+  readonly idempotencyKey?: unknown;
+  readonly scopeKey?: unknown;
+  readonly actorIdentityKey?: unknown;
+  readonly operation?: unknown;
+  readonly request?: unknown;
+  readonly validateReplay?: ((client: PoolClient, body: unknown) => Promise<void> | void) | null;
+}
+
+/* A lifecycle change made under the locks its caller holds. */
+interface LockedChange {
+  readonly scope: RepositoryScope;
+  readonly state: Row;
+  readonly actor: GovernanceActor;
+  readonly reason: string;
+  readonly resetId?: string | null;
+}
+
+export interface GovernanceStoreOptions {
+  readonly secret?: unknown;
+  readonly idFactory?: () => unknown;
+  readonly now?: () => Date;
+  readonly saltFactory?: () => unknown;
+  readonly simulate?: typeof simulatePolicyImpact;
+}
+
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+/* A date from a stored or supplied value, by JavaScript's own reading of it; callers check the result is finite. */
+function dateOf(value: unknown): Date {
+  return new Date(value as string | number | Date);
+}
+
+/* The rows a statement answered with. An answer without them is a failure, as it always was. */
+function rowsOf(result: QueryOutcome): readonly Row[] {
+  const rows = result.rows;
+  if (!rows) throw new TypeError('the database answered without rows');
+  return rows;
+}
+
+/* The row a statement that always returns one returned (RETURNING, an aggregate). */
+function onlyRow(result: QueryOutcome): Row {
+  const row = rowsOf(result)[0];
+  if (!row) throw new TypeError('the database returned no row');
+  return row;
+}
+
+function requiredText(value: unknown, label: string, max = 2000): string {
   const text = String(value == null ? '' : value).trim();
   if (!text || text.length > max || /[\u0000-\u001f\u007f]/.test(text)) {
     throw new GovernanceError(`${label} is invalid`, 'GOVERNANCE_INPUT_INVALID');
@@ -46,7 +126,7 @@ function requiredText(value, label, max = 2000) {
   return text;
 }
 
-function optionalText(value, label, max = 4000) {
+function optionalText(value: unknown, label: string, max = 4000): string {
   const text = String(value == null ? '' : value).trim();
   if (text.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)) {
     throw new GovernanceError(`${label} is invalid`, 'GOVERNANCE_INPUT_INVALID');
@@ -54,15 +134,16 @@ function optionalText(value, label, max = 4000) {
   return text;
 }
 
-function actorOf(input) {
+function actorOf(input: unknown): GovernanceActor {
   if (!input || typeof input !== 'object') throw new GovernanceError('Governance actor is required', 'GOVERNANCE_ACTOR_INVALID');
+  const fields = input as Fields;
   return {
-    identityKey: normalizeIdentityKey(input.identityKey, 'actor identity'),
-    login: requiredText(input.login, 'Actor login', 200)
+    identityKey: normalizeIdentityKey(fields.identityKey, 'actor identity'),
+    login: requiredText(fields.login, 'Actor login', 200)
   };
 }
 
-function mapPolicy(row) {
+function mapPolicy(row: Row) {
   return {
     policyId: row.policy_id,
     scopeKey: row.scope_key,
@@ -79,7 +160,7 @@ function mapPolicy(row) {
   };
 }
 
-function mapVersion(row) {
+function mapVersion(row: Row) {
   return {
     versionId: row.version_id,
     policyId: row.policy_id,
@@ -94,7 +175,7 @@ function mapVersion(row) {
   };
 }
 
-function mapPolicyState(row) {
+function mapPolicyState(row: Row) {
   return {
     ...mapPolicy(row),
     activeVersionId: row.active_version_id || null,
@@ -105,7 +186,7 @@ function mapPolicyState(row) {
   };
 }
 
-function mapDraft(row) {
+function mapDraft(row: Row) {
   return {
     draftId: row.draft_id,
     policyId: row.policy_id,
@@ -122,7 +203,7 @@ function mapDraft(row) {
 }
 
 
-function mapReviewAssignment(row) {
+function mapReviewAssignment(row: Row) {
   return {
     assignmentId: row.assignment_id,
     policyId: row.policy_id,
@@ -138,7 +219,7 @@ function mapReviewAssignment(row) {
   };
 }
 
-function mapReviewDecision(row) {
+function mapReviewDecision(row: Row) {
   return {
     decisionId: row.approval_id,
     versionId: row.version_id,
@@ -156,7 +237,7 @@ function mapReviewDecision(row) {
   };
 }
 
-function mapExceptionEvent(row) {
+function mapExceptionEvent(row: Row) {
   return {
     eventId: row.event_id,
     exceptionId: row.exception_id,
@@ -173,7 +254,7 @@ function mapExceptionEvent(row) {
   };
 }
 
-function mapExceptionRequest(row, events = [], now = new Date()) {
+function mapExceptionRequest(row: Row, events: readonly Row[] = [], now: Date = new Date()) {
   const request = {
     exceptionId: row.exception_id,
     scopeKey: row.scope_key,
@@ -203,18 +284,19 @@ function mapExceptionRequest(row, events = [], now = new Date()) {
   return { ...request, ...state, events: mappedEvents };
 }
 
-function exceptionAuthorizationEvidenceOf(input, minimumLevel, currentDate = new Date()) {
+function exceptionAuthorizationEvidenceOf(input: unknown, minimumLevel: number, currentDate: Date = new Date()): AuthorizationEvidence {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new GovernanceError('Exception authorization evidence is required', 'GOVERNANCE_EXCEPTION_AUTHORIZATION_INVALID', 403);
   }
-  const accessLevel = Number(input.accessLevel);
+  const fields = input as Fields;
+  const accessLevel = Number(fields.accessLevel);
   if (![30, 40, 50].includes(accessLevel) || accessLevel < minimumLevel) {
     throw new GovernanceError('Current repository authorization is required for this exception operation', 'GOVERNANCE_EXCEPTION_AUTHORIZATION_INVALID', 403);
   }
-  const providerRole = requiredText(input.providerRole, 'Exception provider role', 120);
-  const source = requiredText(input.source, 'Exception authorization source', 120);
-  const fetchedAt = new Date(input.fetchedAt);
-  const expiresAt = new Date(input.expiresAt);
+  const providerRole = requiredText(fields.providerRole, 'Exception provider role', 120);
+  const source = requiredText(fields.source, 'Exception authorization source', 120);
+  const fetchedAt = dateOf(fields.fetchedAt);
+  const expiresAt = dateOf(fields.expiresAt);
   const currentTime = new Date(currentDate).getTime();
   if (!Number.isFinite(fetchedAt.getTime()) || !Number.isFinite(expiresAt.getTime()) || !Number.isFinite(currentTime) ||
       expiresAt <= fetchedAt || expiresAt.getTime() <= currentTime || fetchedAt.getTime() > currentTime + 30 * 1000) {
@@ -223,24 +305,25 @@ function exceptionAuthorizationEvidenceOf(input, minimumLevel, currentDate = new
   return { accessLevel, providerRole, source, fetchedAt: fetchedAt.toISOString(), expiresAt: expiresAt.toISOString() };
 }
 
-function exceptionDecisionOf(value) {
+function exceptionDecisionOf(value: unknown): 'approve' | 'reject' {
   const decision = String(value || '').trim().toLowerCase();
-  if (!['approve', 'reject'].includes(decision)) throw new GovernanceError('Exception decision must be approve or reject', 'GOVERNANCE_EXCEPTION_DECISION_INVALID');
+  if (decision !== 'approve' && decision !== 'reject') throw new GovernanceError('Exception decision must be approve or reject', 'GOVERNANCE_EXCEPTION_DECISION_INVALID');
   return decision;
 }
 
-function authorizationEvidenceOf(input, currentDate = new Date()) {
+function authorizationEvidenceOf(input: unknown, currentDate: Date = new Date()): AuthorizationEvidence {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new GovernanceError('Reviewer authorization evidence is required', 'GOVERNANCE_REVIEW_AUTHORIZATION_INVALID', 403);
   }
-  const accessLevel = Number(input.accessLevel);
+  const fields = input as Fields;
+  const accessLevel = Number(fields.accessLevel);
   if (![40, 50].includes(accessLevel)) {
     throw new GovernanceError('Current reviewer authorization is required', 'GOVERNANCE_REVIEW_AUTHORIZATION_INVALID', 403);
   }
-  const providerRole = requiredText(input.providerRole, 'Reviewer provider role', 120);
-  const source = requiredText(input.source, 'Reviewer authorization source', 120);
-  const fetchedAt = new Date(input.fetchedAt);
-  const expiresAt = new Date(input.expiresAt);
+  const providerRole = requiredText(fields.providerRole, 'Reviewer provider role', 120);
+  const source = requiredText(fields.source, 'Reviewer authorization source', 120);
+  const fetchedAt = dateOf(fields.fetchedAt);
+  const expiresAt = dateOf(fields.expiresAt);
   const currentTime = new Date(currentDate).getTime();
   if (!Number.isFinite(fetchedAt.getTime()) || !Number.isFinite(expiresAt.getTime()) || !Number.isFinite(currentTime) ||
       expiresAt <= fetchedAt || expiresAt.getTime() <= currentTime || fetchedAt.getTime() > currentTime + 30 * 1000) {
@@ -255,18 +338,19 @@ function authorizationEvidenceOf(input, currentDate = new Date()) {
   };
 }
 
-function activationAuthorizationEvidenceOf(input, currentDate = new Date()) {
+function activationAuthorizationEvidenceOf(input: unknown, currentDate: Date = new Date()): AuthorizationEvidence {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new GovernanceError('Activator authorization evidence is required', 'GOVERNANCE_ACTIVATION_AUTHORIZATION_INVALID', 403);
   }
-  const accessLevel = Number(input.accessLevel);
+  const fields = input as Fields;
+  const accessLevel = Number(fields.accessLevel);
   if (accessLevel !== 50) {
     throw new GovernanceError('Current repository administrator authorization is required', 'GOVERNANCE_ACTIVATION_AUTHORIZATION_INVALID', 403);
   }
-  const providerRole = requiredText(input.providerRole, 'Activator provider role', 120);
-  const source = requiredText(input.source, 'Activator authorization source', 120);
-  const fetchedAt = new Date(input.fetchedAt);
-  const expiresAt = new Date(input.expiresAt);
+  const providerRole = requiredText(fields.providerRole, 'Activator provider role', 120);
+  const source = requiredText(fields.source, 'Activator authorization source', 120);
+  const fetchedAt = dateOf(fields.fetchedAt);
+  const expiresAt = dateOf(fields.expiresAt);
   const currentTime = new Date(currentDate).getTime();
   if (!Number.isFinite(fetchedAt.getTime()) || !Number.isFinite(expiresAt.getTime()) || !Number.isFinite(currentTime) ||
       expiresAt <= fetchedAt || expiresAt.getTime() <= currentTime || fetchedAt.getTime() > currentTime + 30 * 1000) {
@@ -275,30 +359,33 @@ function activationAuthorizationEvidenceOf(input, currentDate = new Date()) {
   return { accessLevel, providerRole, source, fetchedAt: fetchedAt.toISOString(), expiresAt: expiresAt.toISOString() };
 }
 
-function activationSimulationEvidenceOf(input, expectedSimulationHash) {
+function activationSimulationEvidenceOf(input: unknown, expectedSimulationHash: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new GovernanceError('Simulation evidence is required', 'GOVERNANCE_SIMULATION_REQUIRED', 400);
   }
-  const hash = value => {
+  const fields = input as Fields;
+  const hash = (value: unknown): string => {
     const normalized = String(value || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(normalized)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
+    if (!isSha256Hex(normalized)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
     return normalized;
   };
-  const simulationHash = hash(input.simulationHash);
+  const simulationHash = hash(fields.simulationHash);
   if (simulationHash !== hash(expectedSimulationHash)) {
     throw new GovernanceError('Simulation evidence does not match the reviewed result', 'GOVERNANCE_SIMULATION_MISMATCH', 409);
   }
-  if (Number(input.schemaVersion) !== 1 || !Number.isSafeInteger(Number(input.engineVersion)) || Number(input.engineVersion) < 1) {
+  if (Number(fields.schemaVersion) !== 1 || !Number.isSafeInteger(Number(fields.engineVersion)) || Number(fields.engineVersion) < 1) {
     throw new GovernanceError('Simulation evidence version is unsupported', 'GOVERNANCE_SIMULATION_INVALID', 400);
   }
-  if (!input.activationReadiness || input.activationReadiness.eligible !== true ||
-      !Array.isArray(input.activationReadiness.blockers) || input.activationReadiness.blockers.length !== 0) {
+  const readiness = fields.activationReadiness;
+  const blockers = read(readiness, 'blockers');
+  if (!readiness || read(readiness, 'eligible') !== true ||
+      !Array.isArray(blockers) || blockers.length !== 0) {
     throw new GovernanceError('Simulation evidence contains activation blockers', 'GOVERNANCE_SIMULATION_BLOCKED', 409);
   }
-  const scope = normalizePolicyScope(input.scope);
-  const proposed = input.proposed || {};
-  const baseline = input.baseline || {};
-  const summary = input.summary || {};
+  const scope = normalizePolicyScope(fields.scope);
+  const proposed = (fields.proposed || {}) as Fields;
+  const baseline = (fields.baseline || {}) as Fields;
+  const summary = (fields.summary || {}) as Fields;
   const versionId = normalizeUuid(proposed.versionId, 'simulation proposed version id');
   const proposedDocumentHash = hash(proposed.documentHash);
   const baselineKind = String(baseline.kind || '');
@@ -319,18 +406,18 @@ function activationSimulationEvidenceOf(input, expectedSimulationHash) {
   if (scenarioCount < 1) throw new GovernanceError('Simulation must contain at least one scenario', 'GOVERNANCE_SIMULATION_INVALID', 400);
   return {
     schemaVersion: 1,
-    engineVersion: Number(input.engineVersion),
+    engineVersion: Number(fields.engineVersion),
     scope,
     simulationHash,
-    scenarioSetHash: hash(input.scenarioSetHash),
-    resultHash: hash(input.resultHash),
+    scenarioSetHash: hash(fields.scenarioSetHash),
+    resultHash: hash(fields.resultHash),
     proposed: { versionId, documentHash: proposedDocumentHash },
     baseline: { kind: baselineKind, versionId: baselineVersionId, documentHash: hash(baseline.documentHash) },
     summary: { scenarioCount, strengthenedCount, relaxedCount, changedCount }
   };
 }
 
-function reviewResponse(version, assignmentRows, decisionRows) {
+function reviewResponse(version: Row, assignmentRows: readonly Row[], decisionRows: readonly Row[]) {
   const assignments = assignmentRows.map(mapReviewAssignment);
   const decisions = decisionRows.map(mapReviewDecision);
   const state = computeGovernanceReviewState({
@@ -353,7 +440,7 @@ function reviewResponse(version, assignmentRows, decisionRows) {
   };
 }
 
-function expectedRevisionOf(value) {
+function expectedRevisionOf(value: unknown): number {
   const revision = Number(value);
   if (!Number.isSafeInteger(revision) || revision < 0) {
     throw new GovernanceError('Expected draft revision is invalid', 'GOVERNANCE_DRAFT_REVISION_INVALID');
@@ -361,7 +448,7 @@ function expectedRevisionOf(value) {
   return revision;
 }
 
-function boundedListLimit(value) {
+function boundedListLimit(value: unknown): number {
   if (value == null || String(value).trim() === '') return 100;
   const limit = Number(value);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
@@ -370,7 +457,7 @@ function boundedListLimit(value) {
   return limit;
 }
 
-function boundedDecisionLimit(value, defaultValue, maximum) {
+function boundedDecisionLimit(value: unknown, defaultValue: number, maximum: number): number {
   if (value == null || String(value).trim() === '') return defaultValue;
   const limit = Number(value);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximum) {
@@ -383,7 +470,7 @@ function boundedDecisionLimit(value, defaultValue, maximum) {
   return limit;
 }
 
-function decisionCursor(value) {
+function decisionCursor(value: unknown): number {
   if (value == null) return 0;
   if (!['string', 'number'].includes(typeof value) || !/^\d+$/.test(String(value).trim())) {
     throw new GovernanceError('Governance decision cursor must be a non-negative integer', 'GOVERNANCE_CURSOR_INVALID', 400);
@@ -395,7 +482,7 @@ function decisionCursor(value) {
   return cursor;
 }
 
-function normalizedDraftContent(input) {
+function normalizedDraftContent(input: Fields) {
   const document = normalizePolicyDocument(input.document);
   const documentHash = policyDocumentHash(document);
   if (input.documentHash != null && String(input.documentHash).trim().toLowerCase() !== documentHash) {
@@ -405,7 +492,7 @@ function normalizedDraftContent(input) {
   return { document, documentHash, approval };
 }
 
-function normalizeIdempotencyKey(value) {
+function normalizeIdempotencyKey(value: unknown): string | null {
   if (value == null || String(value).trim() === '') return null;
   const key = String(value).trim();
   if (key.length < 8 || key.length > 200 || /[\u0000-\u001f\u007f]/.test(key)) {
@@ -414,32 +501,32 @@ function normalizeIdempotencyKey(value) {
   return key;
 }
 
-function sha256Stable(value) {
-  return crypto.createHash('sha256').update(stableJson(value), 'utf8').digest('hex');
+function sha256Stable(value: unknown): string {
+  return createHash('sha256').update(stableJson(value), 'utf8').digest('hex');
 }
 
-function activePolicySetLockKey(scopeKey) {
+function activePolicySetLockKey(scopeKey: string): string {
   return `nv-governance-active-set:${scopeKey}`;
 }
 
-function decisionRecordHash(secret, input) {
-  return crypto.createHmac('sha256', secret).update(stableJson(input), 'utf8').digest('hex');
+function decisionRecordHash(secret: string, input: unknown): string {
+  return createHmac('sha256', secret).update(stableJson(input), 'utf8').digest('hex');
 }
 
 
-function eventCursor(value, label = 'Governance event cursor') {
+function eventCursor(value: unknown, label = 'Governance event cursor'): number {
   if (value == null || String(value).trim() === '') return 0;
   const cursor = Number(value);
   if (!Number.isSafeInteger(cursor) || cursor < 0) throw new GovernanceError(`${label} must be a non-negative integer`, 'GOVERNANCE_CURSOR_INVALID', 400);
   return cursor;
 }
-function eventLimit(value, maximum = 200, defaultValue = 100) {
+function eventLimit(value: unknown, maximum = 200, defaultValue = 100): number {
   if (value == null || String(value).trim() === '') return defaultValue;
   const limit = Number(value);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximum) throw new GovernanceError(`Governance event limit must be an integer between 1 and ${maximum}`, 'GOVERNANCE_LIMIT_INVALID', 400);
   return limit;
 }
-function mapWebhook(row) {
+function mapWebhook(row: Row) {
   return {
     webhookId: row.webhook_id,
     scopeKey: row.scope_key,
@@ -454,7 +541,7 @@ function mapWebhook(row) {
     deletedAt: row.deleted_at || null
   };
 }
-function mapWebhookDelivery(row) {
+function mapWebhookDelivery(row: Row) {
   return {
     deliveryId: row.delivery_id,
     webhookId: row.webhook_id,
@@ -470,24 +557,24 @@ function mapWebhookDelivery(row) {
     updatedAt: row.updated_at
   };
 }
-function lifecycleSubject(details) {
-  const source = details && typeof details === 'object' && !Array.isArray(details) ? details : {};
-  const result = {};
+function lifecycleSubject(details: unknown): Record<string, unknown> {
+  const source: Fields = details && typeof details === 'object' && !Array.isArray(details) ? details as Fields : {};
+  const result: Record<string, unknown> = {};
   for (const key of ['draftId','assignmentId','approvalId','activationId','exceptionId','previousVersionId','rollbackSourceActivationId']) {
     if (source[key]) result[key] = source[key];
   }
   for (const key of ['action','decision','reviewStatus']) if (source[key]) result[key] = source[key];
   return result;
 }
-function lifecycleEvidence(details) {
-  const source = details && typeof details === 'object' && !Array.isArray(details) ? details : {};
-  const result = {};
+function lifecycleEvidence(details: unknown): Record<string, unknown> {
+  const source: Fields = details && typeof details === 'object' && !Array.isArray(details) ? details as Fields : {};
+  const result: Record<string, unknown> = {};
   if (source.documentHash) result.documentHash = source.documentHash;
   else if (source.proposedDocumentHash) result.documentHash = source.proposedDocumentHash;
   for (const key of ['simulationHash','scenarioSetHash','resultHash','targetHash']) if (source[key]) result[key] = source[key];
   return result;
 }
-function eventFromJoinedRow(row) {
+function eventFromJoinedRow(row: Row) {
   const lifecycle = row.source_kind === 'lifecycle';
   if (lifecycle) {
     return buildGovernanceEvent({
@@ -499,7 +586,7 @@ function eventFromJoinedRow(row) {
       evidence: { lifecycleRecordHash: row.lifecycle_record_hash, detailsHash: row.lifecycle_details_hash, ...lifecycleEvidence(row.lifecycle_details) }
     });
   }
-  const mapping = row.decision_control_mapping && typeof row.decision_control_mapping === 'object' ? row.decision_control_mapping : {};
+  const mapping: Fields = row.decision_control_mapping && typeof row.decision_control_mapping === 'object' ? row.decision_control_mapping as Fields : {};
   return buildGovernanceEvent({
     eventSeq: Number(row.event_seq), sourceKind: row.source_kind, sourceSeq: Number(row.source_seq), sourceId: row.source_id,
     eventType: row.event_type, occurredAt: row.occurred_at,
@@ -509,7 +596,7 @@ function eventFromJoinedRow(row) {
     evidence: { decisionHash: row.decision_hash, descriptorHash: row.decision_descriptor_hash, policySetHash: row.decision_policy_set_hash, controlMappingHash: mapping.mappingHash }
   });
 }
-function exportRowEnvelope(row) {
+function exportRowEnvelope(row: Row) {
   return {
     schemaVersion: 1,
     format: 'nebulaverse-governance-evidence-envelope',
@@ -519,10 +606,11 @@ function exportRowEnvelope(row) {
   };
 }
 
-function translateDatabaseError(error) {
+export function translateDatabaseError(error: unknown): unknown {
   if (error instanceof GovernanceError) return error;
-  if (error && error.code === '23505') {
-    const constraint = String(error.constraint || '');
+  const code = read(error, 'code');
+  if (error && code === '23505') {
+    const constraint = String(read(error, 'constraint') || '');
     if (/exception_one_decision/i.test(constraint)) return new GovernanceError('This exception already has an approval decision', 'GOVERNANCE_EXCEPTION_DECISION_EXISTS', 409);
     if (/exception_one_revoke/i.test(constraint)) return new GovernanceError('This exception is already revoked', 'GOVERNANCE_EXCEPTION_REVOKED', 409);
     if (/approvals.*version.*actor|approvals_assignment_once/i.test(constraint)) return new GovernanceError('This identity already recorded a decision for the version', 'GOVERNANCE_DECISION_EXISTS', 409);
@@ -532,27 +620,36 @@ function translateDatabaseError(error) {
     if (/policies.*(?:scope_key.*policy_key|live_key)/i.test(constraint)) return new GovernanceError('A policy with this key already exists in the repository scope', 'GOVERNANCE_POLICY_EXISTS', 409);
     return new GovernanceError('Governance record already exists', 'GOVERNANCE_CONFLICT', 409);
   }
-  if (error && error.code === '23503') return new GovernanceError('Referenced governance record does not exist', 'GOVERNANCE_REFERENCE_INVALID', 409);
+  if (error && code === '23503') return new GovernanceError('Referenced governance record does not exist', 'GOVERNANCE_REFERENCE_INVALID', 409);
   return error;
 }
 
-class GovernanceStore {
-  constructor(pool, options = {}) {
-    if (!pool || typeof pool.connect !== 'function' || typeof pool.query !== 'function') {
+export class GovernanceStore {
+  readonly pool: TransactionalPool;
+  readonly secret: string;
+  readonly idFactory: () => unknown;
+  readonly now: () => Date;
+  readonly saltFactory: () => unknown;
+  readonly simulate: typeof simulatePolicyImpact;
+
+  constructor(pool: unknown, options: GovernanceStoreOptions = {}) {
+    const candidate = pool as Partial<TransactionalPool> | null | undefined;
+    if (!candidate || typeof candidate.connect !== 'function' || typeof candidate.query !== 'function') {
       throw new GovernanceError('Governance requires a PostgreSQL pool', 'GOVERNANCE_DATABASE_REQUIRED', 503);
     }
     if (Buffer.byteLength(String(options.secret || ''), 'utf8') < 32) {
       throw new GovernanceError('Governance audit secret is invalid', 'GOVERNANCE_AUDIT_SECRET_INVALID', 500);
     }
-    this.pool = pool;
+    /* Both calls a store makes are present; the pool's answers are read as rows. */
+    this.pool = candidate as TransactionalPool;
     this.secret = String(options.secret);
-    this.idFactory = typeof options.idFactory === 'function' ? options.idFactory : () => crypto.randomUUID();
+    this.idFactory = typeof options.idFactory === 'function' ? options.idFactory : () => randomUUID();
     this.now = typeof options.now === 'function' ? options.now : () => new Date();
-    this.saltFactory = typeof options.saltFactory === 'function' ? options.saltFactory : () => crypto.randomBytes(32).toString('hex');
+    this.saltFactory = typeof options.saltFactory === 'function' ? options.saltFactory : () => randomBytes(32).toString('hex');
     this.simulate = typeof options.simulate === 'function' ? options.simulate : simulatePolicyImpact;
   }
 
-  async transaction(work) {
+  async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -567,7 +664,7 @@ class GovernanceStore {
     }
   }
 
-  async idempotentTransaction(context, work) {
+  async idempotentTransaction<T>(context: IdempotencyContext, work: (client: PoolClient) => Promise<T>): Promise<T> {
     const idempotencyKey = normalizeIdempotencyKey(context.idempotencyKey);
     if (!idempotencyKey) return this.transaction(work);
     const scopeKey = requiredText(context.scopeKey, 'Governance scope key', 600);
@@ -576,7 +673,7 @@ class GovernanceStore {
     if (!/^[a-z][a-z0-9._-]{2,99}$/.test(operation)) {
       throw new GovernanceError('Governance idempotency operation is invalid', 'GOVERNANCE_IDEMPOTENCY_OPERATION_INVALID', 500);
     }
-    const keyHash = crypto.createHash('sha256').update(idempotencyKey, 'utf8').digest('hex');
+    const keyHash = createHash('sha256').update(idempotencyKey, 'utf8').digest('hex');
     const requestHash = sha256Stable(context.request || {});
     return this.transaction(async client => {
       const reserved = await client.query(
@@ -592,7 +689,7 @@ class GovernanceStore {
            WHERE scope_key=$1 AND actor_identity_key=$2 AND operation=$3 AND idempotency_key_hash=$4`,
           [scopeKey, actorIdentityKey, operation, keyHash]
         );
-        const row = existing.rows[0];
+        const row = rowsOf(existing)[0];
         if (!row) throw new GovernanceError('Idempotent operation could not be resolved', 'GOVERNANCE_IDEMPOTENCY_UNAVAILABLE', 409);
         if (row.request_hash !== requestHash) {
           throw new GovernanceError('Idempotency-Key was already used for a different governance request', 'GOVERNANCE_IDEMPOTENCY_CONFLICT', 409);
@@ -601,7 +698,8 @@ class GovernanceStore {
           throw new GovernanceError('An identical governance request is still being processed', 'GOVERNANCE_IDEMPOTENCY_IN_PROGRESS', 409);
         }
         if (context.validateReplay) await context.validateReplay(client, row.response_body);
-        return row.response_body;
+        /* The stored answer is what this operation returned the first time, as JSON. */
+        return row.response_body as T;
       }
       const value = await work(client);
       const encoded = JSON.stringify(value);
@@ -620,7 +718,7 @@ class GovernanceStore {
     });
   }
 
-  async appendAudit(client, context) {
+  async appendAudit(client: Queryable, context: AuditContext) {
     const policyId = normalizeUuid(context.policyId, 'policy id');
     const eventId = normalizeUuid(this.idFactory(), 'audit event id');
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance-audit:${policyId}`]);
@@ -629,6 +727,7 @@ class GovernanceStore {
        WHERE policy_id=$1 ORDER BY seq DESC LIMIT 1`,
       [policyId]
     );
+    const previousRow = rowsOf(previous)[0];
     const record = createGovernanceAuditRecord(this.secret, {
       eventId,
       policyId,
@@ -636,7 +735,7 @@ class GovernanceStore {
       eventType: context.eventType,
       actorIdentityKey: context.actor.identityKey,
       actorLogin: context.actor.login,
-      previousHash: previous.rows[0] ? previous.rows[0].record_hash : GOVERNANCE_AUDIT_GENESIS,
+      previousHash: previousRow ? previousRow.record_hash : GOVERNANCE_AUDIT_GENESIS,
       details: normalizeAuditDetails(context.details || {}),
       createdAt: this.now().toISOString()
     });
@@ -652,7 +751,7 @@ class GovernanceStore {
     return record;
   }
 
-  async createPolicy(input) {
+  async createPolicy(input: Fields) {
     const actor = actorOf(input.actor);
     const scope = normalizePolicyScope(input.scope);
     const policyKey = normalizePolicyKey(input.policyKey);
@@ -682,11 +781,11 @@ class GovernanceStore {
         policyId, scopeKey: scope.scopeKey, eventType: 'policy.created', actor,
         details: { policyKey, name, provider: scope.provider, authority: scope.authority, owner: scope.owner, repo: scope.repo }
       });
-      return mapPolicy(inserted.rows[0]);
+      return mapPolicy(onlyRow(inserted));
     });
   }
 
-  async listPolicies(input = {}) {
+  async listPolicies(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const capped = boundedListLimit(input.limit);
     const result = await this.pool.query(
@@ -699,10 +798,10 @@ class GovernanceStore {
        ORDER BY p.created_at ASC,p.policy_id ASC LIMIT $2`,
       [scope.scopeKey, capped]
     );
-    return result.rows.map(mapPolicyState);
+    return rowsOf(result).map(mapPolicyState);
   }
 
-  async getPolicyStateInScope(input = {}) {
+  async getPolicyStateInScope(input: Fields = {}) {
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
     const result = await this.pool.query(
@@ -714,11 +813,11 @@ class GovernanceStore {
        WHERE p.policy_id=$1 AND p.scope_key=$2 AND p.archived_at IS NULL`,
       [policyId, scope.scopeKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
-    return mapPolicyState(result.rows[0]);
+    if (!rowsOf(result)[0]) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
+    return mapPolicyState(onlyRow(result));
   }
 
-  async createVersion(input) {
+  async createVersion(input: Fields) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const document = normalizePolicyDocument(input.document);
@@ -732,13 +831,13 @@ class GovernanceStore {
          FROM nv_governance_policies WHERE policy_id=$1 AND archived_at IS NULL FOR UPDATE`,
         [policyId]
       );
-      const policy = policyResult.rows[0];
+      const policy = rowsOf(policyResult)[0];
       if (!policy) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
       const maxResult = await client.query(
         'SELECT COALESCE(MAX(version_number),0)::int AS version_number FROM nv_governance_policy_versions WHERE policy_id=$1',
         [policyId]
       );
-      const versionNumber = Number(maxResult.rows[0] && maxResult.rows[0].version_number || 0) + 1;
+      const versionNumber = Number(rowsOf(maxResult)[0]?.version_number || 0) + 1;
       const inserted = await client.query(
         `INSERT INTO nv_governance_policy_versions(
           version_id,policy_id,version_number,document,document_hash,authored_by_identity_key,authored_by_login,
@@ -751,11 +850,11 @@ class GovernanceStore {
         policyId, versionId, scopeKey: policy.scope_key, eventType: 'version.created', actor,
         details: { versionNumber, documentHash, requiredApprovals: approval.requiredApprovals, disallowAuthorApproval: approval.disallowAuthorApproval }
       });
-      return mapVersion(inserted.rows[0]);
+      return mapVersion(onlyRow(inserted));
     });
   }
 
-  async createDraft(input = {}) {
+  async createDraft(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
@@ -773,7 +872,7 @@ class GovernanceStore {
          WHERE policy_id=$1 AND scope_key=$2 AND archived_at IS NULL FOR SHARE`,
         [policyId, scope.scopeKey]
       );
-      if (!policy.rows[0]) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
+      if (!rowsOf(policy)[0]) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
       const inserted = await client.query(
         `INSERT INTO nv_governance_policy_drafts(
           draft_id,policy_id,revision,document,document_hash,authored_by_identity_key,authored_by_login,
@@ -787,11 +886,11 @@ class GovernanceStore {
         details: { draftId, revision: 0, documentHash, requiredApprovals: approval.requiredApprovals,
           disallowAuthorApproval: approval.disallowAuthorApproval }
       });
-      return mapDraft(inserted.rows[0]);
+      return mapDraft(onlyRow(inserted));
     });
   }
 
-  async getDraft(input = {}) {
+  async getDraft(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const draftId = normalizeUuid(input.draftId, 'policy draft id');
@@ -803,11 +902,11 @@ class GovernanceStore {
          AND d.authored_by_identity_key=$4`,
       [draftId, policyId, scope.scopeKey, actor.identityKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
-    return mapDraft(result.rows[0]);
+    if (!rowsOf(result)[0]) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
+    return mapDraft(onlyRow(result));
   }
 
-  async updateDraft(input = {}) {
+  async updateDraft(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const draftId = normalizeUuid(input.draftId, 'policy draft id');
@@ -828,7 +927,7 @@ class GovernanceStore {
            AND d.authored_by_identity_key=$4 FOR UPDATE`,
         [draftId, policyId, scope.scopeKey, actor.identityKey]
       );
-      const draft = found.rows[0];
+      const draft = rowsOf(found)[0];
       if (!draft) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
       if (Number(draft.revision) !== expectedRevision) {
         throw new GovernanceError('Policy draft changed; reload before saving', 'GOVERNANCE_DRAFT_REVISION_CONFLICT', 409, {
@@ -850,11 +949,11 @@ class GovernanceStore {
         details: { draftId, previousRevision: expectedRevision, revision: nextRevision, documentHash,
           requiredApprovals: approval.requiredApprovals, disallowAuthorApproval: approval.disallowAuthorApproval }
       });
-      return mapDraft(updated.rows[0]);
+      return mapDraft(onlyRow(updated));
     });
   }
 
-  async submitDraft(input = {}) {
+  async submitDraft(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const draftId = normalizeUuid(input.draftId, 'policy draft id');
@@ -875,7 +974,7 @@ class GovernanceStore {
            AND d.authored_by_identity_key=$4 FOR UPDATE`,
         [draftId, policyId, scope.scopeKey, actor.identityKey]
       );
-      const draft = found.rows[0];
+      const draft = rowsOf(found)[0];
       if (!draft) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
       if (Number(draft.revision) !== expectedRevision) {
         throw new GovernanceError('Policy draft changed; reload before submitting', 'GOVERNANCE_DRAFT_REVISION_CONFLICT', 409, {
@@ -896,7 +995,7 @@ class GovernanceStore {
         'SELECT COALESCE(MAX(version_number),0)::int AS version_number FROM nv_governance_policy_versions WHERE policy_id=$1',
         [policyId]
       );
-      const versionNumber = Number(maxResult.rows[0] && maxResult.rows[0].version_number || 0) + 1;
+      const versionNumber = Number(rowsOf(maxResult)[0]?.version_number || 0) + 1;
       const inserted = await client.query(
         `INSERT INTO nv_governance_policy_versions(
           version_id,policy_id,version_number,document,document_hash,authored_by_identity_key,authored_by_login,
@@ -915,11 +1014,11 @@ class GovernanceStore {
         details: { sourceDraftId: draftId, versionNumber, documentHash,
           requiredApprovals: approval.requiredApprovals, disallowAuthorApproval: approval.disallowAuthorApproval }
       });
-      return mapVersion(inserted.rows[0]);
+      return mapVersion(onlyRow(inserted));
     });
   }
 
-  async listVersions(input = {}) {
+  async listVersions(input: Fields = {}) {
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
     const capped = boundedListLimit(input.limit);
@@ -930,10 +1029,10 @@ class GovernanceStore {
        ORDER BY v.version_number DESC,v.created_at DESC LIMIT $3`,
       [policyId, scope.scopeKey, capped]
     );
-    return result.rows.map(mapVersion);
+    return rowsOf(result).map(mapVersion);
   }
 
-  async getVersionInScope(input = {}) {
+  async getVersionInScope(input: Fields = {}) {
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
     const scope = normalizePolicyScope(input.scope);
@@ -943,12 +1042,12 @@ class GovernanceStore {
        WHERE v.version_id=$1 AND v.policy_id=$2 AND p.scope_key=$3 AND p.archived_at IS NULL`,
       [versionId, policyId, scope.scopeKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Policy version was not found', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
-    return mapVersion(result.rows[0]);
+    if (!rowsOf(result)[0]) throw new GovernanceError('Policy version was not found', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
+    return mapVersion(onlyRow(result));
   }
 
 
-  async reviewVersionInScope(client, input) {
+  async reviewVersionInScope(client: Queryable, input: { readonly policyId: string; readonly versionId: string; readonly scopeKey: string }): Promise<Row> {
     const result = await client.query(
       `SELECT v.policy_id,v.version_id,v.version_number,v.authored_by_identity_key,v.authored_by_login,
               v.required_approvals,v.disallow_author_approval,p.scope_key,
@@ -959,11 +1058,11 @@ class GovernanceStore {
        WHERE v.policy_id=$1 AND v.version_id=$2 AND p.scope_key=$3 AND p.archived_at IS NULL`,
       [input.policyId, input.versionId, input.scopeKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Policy version was not found', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
-    return result.rows[0];
+    if (!rowsOf(result)[0]) throw new GovernanceError('Policy version was not found', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
+    return onlyRow(result);
   }
 
-  async reviewRows(client, versionId) {
+  async reviewRows(client: Queryable, versionId: string) {
     const assignments = await client.query(
       `SELECT assignment_id,policy_id,version_id,reviewer_identity_key,reviewer_login,
               reviewer_access_level,reviewer_provider_role,authorization_source,
@@ -980,10 +1079,10 @@ class GovernanceStore {
        WHERE version_id=$1 AND assignment_id IS NOT NULL ORDER BY created_at ASC,approval_id ASC`,
       [versionId]
     );
-    return { assignments: assignments.rows, decisions: decisions.rows };
+    return { assignments: rowsOf(assignments), decisions: rowsOf(decisions) };
   }
 
-  async getReviewState(input = {}) {
+  async getReviewState(input: Fields = {}) {
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
     const scope = normalizePolicyScope(input.scope);
@@ -992,7 +1091,7 @@ class GovernanceStore {
     return reviewResponse(version, rows.assignments, rows.decisions);
   }
 
-  async claimReviewer(input = {}) {
+  async claimReviewer(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
@@ -1032,7 +1131,7 @@ class GovernanceStore {
         [assignmentId, policyId, versionId, actor.identityKey, actor.login, evidence.accessLevel,
          evidence.providerRole, evidence.source, evidence.fetchedAt, evidence.expiresAt, this.now().toISOString()]
       );
-      const assignment = inserted.rows[0];
+      const assignment = onlyRow(inserted);
       await this.appendAudit(client, {
         policyId, versionId, scopeKey: scope.scopeKey, eventType: 'reviewer.assigned', actor,
         details: {
@@ -1051,7 +1150,7 @@ class GovernanceStore {
     });
   }
 
-  async recordReviewDecision(input = {}) {
+  async recordReviewDecision(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
@@ -1098,7 +1197,7 @@ class GovernanceStore {
          evidence.accessLevel, evidence.providerRole, evidence.source, evidence.fetchedAt, evidence.expiresAt,
          this.now().toISOString()]
       );
-      const recorded = inserted.rows[0];
+      const recorded = onlyRow(inserted);
       await this.appendAudit(client, {
         policyId, versionId, scopeKey: scope.scopeKey, eventType: 'approval.recorded', actor,
         details: {
@@ -1119,15 +1218,15 @@ class GovernanceStore {
     });
   }
 
-  async activateVersion(input) {
+  async activateVersion(input: Fields) {
     return this.changeActiveVersion('activate', input);
   }
 
-  async rollbackVersion(input) {
+  async rollbackVersion(input: Fields) {
     return this.changeActiveVersion('rollback', input);
   }
 
-  async changeActiveVersion(action, input = {}) {
+  async changeActiveVersion(action: 'activate' | 'rollback', input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
@@ -1140,7 +1239,7 @@ class GovernanceStore {
     const simulationRequest = input.simulationRequest === undefined ? null : normalizeSimulationRequest(input.simulationRequest);
     const suppliedSimulation = simulationRequest ? null : activationSimulationEvidenceOf(input.simulationEvidence, input.expectedSimulationHash);
     const simulationHash = String(input.expectedSimulationHash || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(simulationHash)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
+    if (!isSha256Hex(simulationHash)) throw new GovernanceError('Simulation evidence hash is invalid', 'GOVERNANCE_SIMULATION_INVALID', 400);
     const activationId = normalizeUuid(this.idFactory(), 'activation id');
     /*
      * The simulation is pure but not cheap, so it runs from an unlocked read
@@ -1161,7 +1260,7 @@ class GovernanceStore {
          WHERE v.version_id=$1 AND v.policy_id=$2 AND p.scope_key=$3`,
         [versionId, policyId, scope.scopeKey]
       ).catch(error => { throw translateDatabaseError(error); });
-      const seen = snapshot.rows[0];
+      const seen = rowsOf(snapshot)[0];
       if (seen) {
         const inputs = {
           documentHash: seen.document_hash,
@@ -1189,13 +1288,14 @@ class GovernanceStore {
       request: { policyId, versionId, expectedRevision, reason, simulationHash },
       // Preserve existing receipts while binding the actual scenarios too. A
       // copied report hash must not replay an otherwise different request.
-      validateReplay: simulationRequest ? async (client, response) => {
+      validateReplay: simulationRequest ? async (client: PoolClient, response: unknown): Promise<void> => {
         const recorded = await client.query(
           `SELECT scenario_set_hash FROM nv_governance_activation_evidence
            WHERE activation_id=$1 AND policy_id=$2 AND version_id=$3 AND scope_key=$4`,
-          [response.activationId, policyId, versionId, scope.scopeKey]
+          [read(response, 'activationId'), policyId, versionId, scope.scopeKey]
         );
-        if (!recorded.rows[0] || recorded.rows[0].scenario_set_hash !== sha256Stable(simulationRequest)) {
+        const evidenceRow = rowsOf(recorded)[0];
+        if (!evidenceRow || evidenceRow.scenario_set_hash !== sha256Stable(simulationRequest)) {
           throw new GovernanceError('Idempotency-Key was already used for a different governance request', 'GOVERNANCE_IDEMPOTENCY_CONFLICT', 409);
         }
         activationAuthorizationEvidenceOf(authorization, this.now());
@@ -1217,7 +1317,7 @@ class GovernanceStore {
          FOR UPDATE OF h`,
         [versionId, policyId, scope.scopeKey]
       );
-      const state = found.rows[0];
+      const state = rowsOf(found)[0];
       if (!state) throw new GovernanceError('Policy version was not found in this repository policy', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
       const currentRevision = Number(state.revision || 0);
       if (currentRevision !== expectedRevision) {
@@ -1261,7 +1361,7 @@ class GovernanceStore {
            WHERE p.scope_key=$1 AND p.archived_at IS NULL AND h.active_version_id IS NOT NULL`,
           [scope.scopeKey]
         );
-        if (Number(activeCount.rows[0] && activeCount.rows[0].active_policy_count || 0) >= 100) {
+        if (Number(rowsOf(activeCount)[0]?.active_policy_count || 0) >= 100) {
           throw new GovernanceError(
             'This repository has reached the supported active-policy limit',
             'GOVERNANCE_ACTIVE_POLICY_LIMIT_REACHED',
@@ -1280,8 +1380,8 @@ class GovernanceStore {
            ORDER BY a.resulting_revision DESC,a.created_at DESC LIMIT 1`,
           [policyId, versionId]
         );
-        if (!prior.rows[0]) throw new GovernanceError('Rollback target has no prior evidence-backed activation', 'GOVERNANCE_ROLLBACK_TARGET_INVALID', 409);
-        rollbackSourceActivationId = prior.rows[0].activation_id;
+        if (!rowsOf(prior)[0]) throw new GovernanceError('Rollback target has no prior evidence-backed activation', 'GOVERNANCE_ROLLBACK_TARGET_INVALID', 409);
+        rollbackSourceActivationId = onlyRow(prior).activation_id;
       } else {
         const prior = await client.query(
           `SELECT 1 FROM nv_governance_activations a
@@ -1289,7 +1389,7 @@ class GovernanceStore {
            WHERE a.policy_id=$1 AND a.version_id=$2 LIMIT 1`,
           [policyId, versionId]
         );
-        if (prior.rows[0]) throw new GovernanceError('Previously active versions must use the rollback workflow', 'GOVERNANCE_USE_ROLLBACK', 409);
+        if (rowsOf(prior)[0]) throw new GovernanceError('Previously active versions must use the rollback workflow', 'GOVERNANCE_USE_ROLLBACK', 409);
         const rows = await this.reviewRows(client, versionId);
         const review = reviewResponse(state, rows.assignments, rows.decisions);
         if (review.status === 'rejected') throw new GovernanceError('A rejected policy version cannot be activated', 'GOVERNANCE_VERSION_REJECTED', 409);
@@ -1360,15 +1460,15 @@ class GovernanceStore {
         }
       });
       return {
-        activationId: activation.rows[0].activation_id,
+        activationId: onlyRow(activation).activation_id,
         policyId,
         versionId,
         previousVersionId: state.active_version_id || null,
         rollbackSourceActivationId,
         action,
-        revision: Number(head.rows[0].revision),
+        revision: Number(onlyRow(head).revision),
         simulationHash: simulation.simulationHash,
-        updatedAt: head.rows[0].updated_at
+        updatedAt: onlyRow(head).updated_at
       };
     });
   }
@@ -1379,7 +1479,7 @@ class GovernanceStore {
    * repository. Every one of these appends to the ledger; none of them edits a
    * record of something that already happened.
    */
-  lifecycleReason(value, label) {
+  lifecycleReason(value: unknown, label: string): string {
     const reason = requiredText(value, label, 4000);
     if (REVIEW_SENSITIVE_TEXT_RX.test(reason)) {
       throw new GovernanceError(`${label} appears to contain sensitive credential material`, 'GOVERNANCE_SENSITIVE_TEXT', 400);
@@ -1387,7 +1487,7 @@ class GovernanceStore {
     return reason;
   }
 
-  async lockedPolicyHead(client, scope, policyId, { archived = false } = {}) {
+  async lockedPolicyHead(client: Queryable, scope: RepositoryScope, policyId: unknown, { archived = false }: { readonly archived?: boolean } = {}): Promise<Row> {
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`nv-governance:${policyId}`]);
     const found = await client.query(
       `SELECT p.policy_id,p.policy_key,p.name,p.archived_at,h.active_version_id,h.revision,
@@ -1399,13 +1499,13 @@ class GovernanceStore {
         FOR UPDATE OF p,h`,
       [policyId, scope.scopeKey]
     );
-    if (!found.rows[0]) throw new GovernanceError(archived ? 'No archived policy with that id exists here' : 'Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
-    return found.rows[0];
+    if (!rowsOf(found)[0]) throw new GovernanceError(archived ? 'No archived policy with that id exists here' : 'Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
+    return onlyRow(found);
   }
 
   /* Switches off whatever version a locked head points at. The caller holds
    * the active-set and policy locks and has checked the revision. */
-  async deactivateLocked(client, { scope, state, actor, reason, authorization, resetId = null }) {
+  async deactivateLocked(client: Queryable, { scope, state, actor, reason, authorization, resetId = null }: LockedChange & { readonly authorization: AuthorizationEvidence }) {
     const activationId = normalizeUuid(this.idFactory(), 'activation id');
     const currentRevision = Number(state.revision || 0);
     const resultingRevision = currentRevision + 1;
@@ -1443,10 +1543,10 @@ class GovernanceStore {
         reason: reason.slice(0, 1000)
       }
     });
-    return { activationId, previousVersionId: state.active_version_id, revision: resultingRevision, updatedAt: head.rows[0].updated_at };
+    return { activationId, previousVersionId: state.active_version_id, revision: resultingRevision, updatedAt: onlyRow(head).updated_at };
   }
 
-  async archiveLocked(client, { scope, state, actor, reason, resetId = null, deactivated }) {
+  async archiveLocked(client: Queryable, { scope, state, actor, reason, resetId = null, deactivated }: LockedChange & { readonly deactivated: unknown }): Promise<unknown> {
     const archivedAt = this.now().toISOString();
     const updated = await client.query(
       `UPDATE nv_governance_policies SET archived_at=$1
@@ -1465,10 +1565,10 @@ class GovernanceStore {
         reason: reason.slice(0, 1000)
       }
     });
-    return updated.rows[0].archived_at;
+    return onlyRow(updated).archived_at;
   }
 
-  async deactivatePolicy(input = {}) {
+  async deactivatePolicy(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
@@ -1495,7 +1595,7 @@ class GovernanceStore {
     });
   }
 
-  async archivePolicy(input = {}) {
+  async archivePolicy(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
@@ -1526,7 +1626,7 @@ class GovernanceStore {
     });
   }
 
-  async restorePolicy(input = {}) {
+  async restorePolicy(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
@@ -1544,7 +1644,7 @@ class GovernanceStore {
           WHERE scope_key=$1 AND policy_key=$2 AND archived_at IS NULL AND policy_id<>$3 LIMIT 1`,
         [scope.scopeKey, state.policy_key, policyId]
       );
-      if (clash.rows[0]) {
+      if (rowsOf(clash)[0]) {
         throw new GovernanceError('A current policy already uses this key; archive or rename it first', 'GOVERNANCE_POLICY_KEY_IN_USE', 409, { policyKey: state.policy_key });
       }
       await client.query(
@@ -1561,7 +1661,7 @@ class GovernanceStore {
     });
   }
 
-  async listArchivedPolicies(input = {}) {
+  async listArchivedPolicies(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const capped = boundedListLimit(input.limit);
     const result = await this.pool.query(
@@ -1575,7 +1675,7 @@ class GovernanceStore {
         LIMIT $2`,
       [scope.scopeKey, capped]
     );
-    return result.rows.map(row => ({
+    return rowsOf(result).map(row => ({
       policyId: row.policy_id,
       policyKey: row.policy_key,
       name: row.name,
@@ -1587,7 +1687,7 @@ class GovernanceStore {
     }));
   }
 
-  async discardDraft(input = {}) {
+  async discardDraft(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const draftId = normalizeUuid(input.draftId, 'policy draft id');
@@ -1609,7 +1709,7 @@ class GovernanceStore {
           FOR UPDATE OF d`,
         [draftId, policyId, scope.scopeKey]
       );
-      const draft = found.rows[0];
+      const draft = rowsOf(found)[0];
       if (!draft) throw new GovernanceError('Governance draft was not found', 'GOVERNANCE_DRAFT_NOT_FOUND', 404);
       const own = draft.authored_by_identity_key === actor.identityKey;
       if (!own && !allowOthers) {
@@ -1633,7 +1733,7 @@ class GovernanceStore {
     });
   }
 
-  async withdrawVersion(input = {}) {
+  async withdrawVersion(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
@@ -1677,7 +1777,7 @@ class GovernanceStore {
    * webhooks and the notification settings are left exactly as they were,
    * and every archived policy can be restored.
    */
-  async resetGovernance(input = {}) {
+  async resetGovernance(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const scope = normalizePolicyScope(input.scope);
     const reason = this.lifecycleReason(input.reason, 'Reason for resetting governance');
@@ -1699,11 +1799,11 @@ class GovernanceStore {
           LIMIT 501`,
         [scope.scopeKey]
       );
-      if (live.rows.length > 500) {
+      if (rowsOf(live).length > 500) {
         throw new GovernanceError('This repository has more policies than one reset can clear', 'GOVERNANCE_RESET_LIMIT_REACHED', 409, { maximum: 500 });
       }
       let deactivatedCount = 0;
-      for (const row of live.rows) {
+      for (const row of rowsOf(live)) {
         const state = await this.lockedPolicyHead(client, scope, row.policy_id);
         const deactivation = state.active_version_id
           ? await this.deactivateLocked(client, { scope, state, actor, reason, authorization, resetId })
@@ -1711,11 +1811,11 @@ class GovernanceStore {
         if (deactivation) deactivatedCount += 1;
         await this.archiveLocked(client, { scope, state, actor, reason, resetId, deactivated: !!deactivation });
       }
-      return { resetId, archivedCount: live.rows.length, deactivatedCount };
+      return { resetId, archivedCount: rowsOf(live).length, deactivatedCount };
     });
   }
 
-  async exceptionRowInScope(client, input = {}, lock = false) {
+  async exceptionRowInScope(client: Queryable, input: Fields = {}, lock = false): Promise<Row> {
     const exceptionId = normalizeUuid(input.exceptionId, 'exception id');
     const scope = normalizePolicyScope(input.scope);
     const result = await client.query(
@@ -1728,11 +1828,11 @@ class GovernanceStore {
        ${lock ? 'FOR SHARE OF r,p,v,h' : ''}`,
       [exceptionId, scope.scopeKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Exception request was not found in this repository scope', 'GOVERNANCE_EXCEPTION_NOT_FOUND', 404);
-    return result.rows[0];
+    if (!rowsOf(result)[0]) throw new GovernanceError('Exception request was not found in this repository scope', 'GOVERNANCE_EXCEPTION_NOT_FOUND', 404);
+    return onlyRow(result);
   }
 
-  async exceptionEventRows(client, exceptionId) {
+  async exceptionEventRows(client: Queryable, exceptionId: unknown): Promise<readonly Row[]> {
     const result = await client.query(
       `SELECT * FROM nv_governance_exception_events
        WHERE exception_id=$1 ORDER BY created_at ASC,event_id ASC`,
@@ -1741,7 +1841,7 @@ class GovernanceStore {
     return result.rows || [];
   }
 
-  async createExceptionRequest(input = {}) {
+  async createExceptionRequest(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const scope = normalizePolicyScope(input.scope);
     const policyId = normalizeUuid(input.policyId, 'policy id');
@@ -1766,7 +1866,7 @@ class GovernanceStore {
          FOR SHARE OF p,h,v`,
         [policyId, versionId, scope.scopeKey]
       );
-      const version = versionResult.rows[0];
+      const version = rowsOf(versionResult)[0];
       if (!version) throw new GovernanceError('Policy version was not found in this repository scope', 'GOVERNANCE_VERSION_NOT_FOUND', 404);
       if (version.active_version_id !== versionId) throw new GovernanceError('Exceptions can target only the currently active policy version', 'GOVERNANCE_EXCEPTION_VERSION_INACTIVE', 409);
       const operationTime = this.now();
@@ -1789,11 +1889,11 @@ class GovernanceStore {
         policyId, versionId, scopeKey: scope.scopeKey, eventType: 'exception.requested', actor,
         details: { exceptionId, kind: request.kind, action: request.action, ruleIds: request.ruleIds, targetHash: request.targetHash, expiresAt: request.expiresAt, documentHash: request.documentHash }
       });
-      return mapExceptionRequest({ ...inserted.rows[0], version_number: version.version_number, active_version_id: version.active_version_id, current_head_revision: version.current_head_revision }, [], operationTime);
+      return mapExceptionRequest({ ...rowsOf(inserted)[0], version_number: version.version_number, active_version_id: version.active_version_id, current_head_revision: version.current_head_revision }, [], operationTime);
     });
   }
 
-  async getException(input = {}) {
+  async getException(input: Fields = {}) {
     const client = await this.pool.connect();
     try {
       const row = await this.exceptionRowInScope(client, input, false);
@@ -1802,7 +1902,7 @@ class GovernanceStore {
     } finally { client.release(); }
   }
 
-  async listExceptions(input = {}) {
+  async listExceptions(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const versionId = normalizeUuid(input.versionId, 'policy version id');
@@ -1820,12 +1920,12 @@ class GovernanceStore {
         [scope.scopeKey, policyId, versionId, limit]
       );
       const output = [];
-      for (const row of result.rows) output.push(mapExceptionRequest(row, await this.exceptionEventRows(client, row.exception_id), this.now()));
+      for (const row of rowsOf(result)) output.push(mapExceptionRequest(row, await this.exceptionEventRows(client, row.exception_id), this.now()));
       return output;
     } finally { client.release(); }
   }
 
-  async decideException(input = {}) {
+  async decideException(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const scope = normalizePolicyScope(input.scope);
     const exceptionId = normalizeUuid(input.exceptionId, 'exception id');
@@ -1860,7 +1960,7 @@ class GovernanceStore {
            WHERE r.scope_key=$1 AND r.action=$2 AND r.expires_at>$3 AND approved.created_at<=$3 AND revoked.event_id IS NULL`,
           [scope.scopeKey, row.action, operationTime.toISOString()]
         );
-        if (Number(countResult.rows[0] && countResult.rows[0].active_count || 0) >= 100) {
+        if (Number(rowsOf(countResult)[0]?.active_count || 0) >= 100) {
           throw new GovernanceError(
             'Repository active-exception limit is reached for this mutation action',
             'GOVERNANCE_ACTIVE_EXCEPTION_LIMIT_EXCEEDED',
@@ -1882,13 +1982,13 @@ class GovernanceStore {
       await this.appendAudit(client, {
         policyId: row.policy_id, versionId: row.version_id, scopeKey: scope.scopeKey,
         eventType: decision === 'approve' ? 'exception.approved' : 'exception.rejected', actor,
-        details: { exceptionId, decision, expiresAt: new Date(row.expires_at).toISOString(), reason: reason.slice(0, 1000) }
+        details: { exceptionId, decision, expiresAt: dateOf(row.expires_at).toISOString(), reason: reason.slice(0, 1000) }
       });
-      return mapExceptionRequest(row, [...events, inserted.rows[0]], operationTime);
+      return mapExceptionRequest(row, [...events, onlyRow(inserted)], operationTime);
     });
   }
 
-  async revokeException(input = {}) {
+  async revokeException(input: Fields = {}) {
     const actor = actorOf(input.actor);
     const scope = normalizePolicyScope(input.scope);
     const exceptionId = normalizeUuid(input.exceptionId, 'exception id');
@@ -1925,11 +2025,11 @@ class GovernanceStore {
         eventType: 'exception.revoked', actor,
         details: { exceptionId, reason: reason.slice(0, 1000) }
       });
-      return mapExceptionRequest(row, [...events, inserted.rows[0]], operationTime);
+      return mapExceptionRequest(row, [...events, onlyRow(inserted)], operationTime);
     });
   }
 
-  async listActivationHistory(input = {}) {
+  async listActivationHistory(input: Fields = {}) {
     const policyId = normalizeUuid(input.policyId, 'policy id');
     const scope = normalizePolicyScope(input.scope);
     const capped = boundedListLimit(input.limit);
@@ -1944,7 +2044,7 @@ class GovernanceStore {
        ORDER BY a.resulting_revision DESC,a.created_at DESC LIMIT $3`,
       [policyId, scope.scopeKey, capped]
     );
-    return result.rows.map(row => ({
+    return rowsOf(result).map(row => ({
       activationId: row.activation_id,
       policyId: row.policy_id,
       versionId: row.version_id,
@@ -1972,10 +2072,10 @@ class GovernanceStore {
   }
 
 
-  async evaluateAndAppendPolicyDecision(input = {}) {
+  async evaluateAndAppendPolicyDecision(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const descriptor = input.descriptor;
-    if (!descriptor || descriptor.scopeKey !== scope.scopeKey) {
+    if (!descriptor || read(descriptor, 'scopeKey') !== scope.scopeKey) {
       throw new GovernanceError('Mutation descriptor does not match the governance scope', 'POLICY_DESCRIPTOR_INVALID', 500);
     }
     const decisionId = normalizeUuid(this.idFactory(), 'policy decision id');
@@ -1993,7 +2093,7 @@ class GovernanceStore {
          FOR SHARE OF p,h,v`,
         [scope.scopeKey]
       );
-      if (active.rows.length > 100) {
+      if (rowsOf(active).length > 100) {
         throw new GovernanceError(
           'Repository active-policy limit is exceeded',
           'GOVERNANCE_ACTIVE_POLICY_LIMIT_EXCEEDED',
@@ -2001,7 +2101,7 @@ class GovernanceStore {
           { maximum: 100 }
         );
       }
-      const activePolicies = active.rows.map(row => ({
+      const activePolicies = rowsOf(active).map(row => ({
         policyId: row.policy_id,
         policyKey: row.policy_key,
         versionId: row.active_version_id,
@@ -2022,17 +2122,17 @@ class GovernanceStore {
            AND r.expires_at > $4 AND e.created_at <= $4 AND revoked.event_id IS NULL
          ORDER BY r.policy_id ASC,r.exception_id ASC
          LIMIT 101`,
-        [scope.scopeKey, descriptor.action, activePolicies.map(item => item.versionId), createdAt]
+        [scope.scopeKey, read(descriptor, 'action'), activePolicies.map(item => item.versionId), createdAt]
       ) : { rows: [] };
-      if (exceptionRows.rows.length > 100) {
+      if (rowsOf(exceptionRows).length > 100) {
         throw new GovernanceError(
           'Repository active-exception limit is exceeded for this mutation action',
           'GOVERNANCE_ACTIVE_EXCEPTION_LIMIT_EXCEEDED',
           503,
-          { maximum: 100, action: descriptor.action }
+          { maximum: 100, action: read(descriptor, 'action') }
         );
       }
-      const activeExceptions = exceptionRows.rows.map(row => ({
+      const activeExceptions = rowsOf(exceptionRows).map(row => ({
         exceptionId: row.exception_id, policyId: row.policy_id, versionId: row.version_id,
         documentHash: row.document_hash, kind: row.kind, action: row.action, ruleIds: row.rule_ids,
         subjectIdentityKey: row.requested_by_identity_key, target: row.target, targetHash: row.target_hash,
@@ -2046,7 +2146,8 @@ class GovernanceStore {
          WHERE scope_key=$1 ORDER BY seq DESC LIMIT 1`,
         [scope.scopeKey]
       );
-      const previousHash = previous.rows[0] ? previous.rows[0].record_hash : POLICY_DECISION_GENESIS;
+      const previousRow = rowsOf(previous)[0];
+      const previousHash = previousRow ? previousRow.record_hash : POLICY_DECISION_GENESIS;
       const decisionHash = sha256Stable(decision);
       const recordHash = decisionRecordHash(this.secret, {
         decisionId,
@@ -2089,7 +2190,7 @@ class GovernanceStore {
    * no decision identifier is minted: this answers a question, it does not
    * record one.
    */
-  async resolveActivePolicySetInScope(input = {}) {
+  async resolveActivePolicySetInScope(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const action = String(input.action || '').trim();
     if (!action) throw new GovernanceError('An action is required to resolve the active policy set', 'POLICY_DESCRIPTOR_INVALID', 500);
@@ -2107,7 +2208,7 @@ class GovernanceStore {
          LIMIT 101`,
         [scope.scopeKey]
       );
-      if (active.rows.length > 100) {
+      if (rowsOf(active).length > 100) {
         throw new GovernanceError(
           'Repository active-policy limit is exceeded',
           'GOVERNANCE_ACTIVE_POLICY_LIMIT_EXCEEDED',
@@ -2115,7 +2216,7 @@ class GovernanceStore {
           { maximum: 100 }
         );
       }
-      const activePolicies = active.rows.map(row => ({
+      const activePolicies = rowsOf(active).map(row => ({
         policyId: row.policy_id,
         policyKey: row.policy_key,
         versionId: row.active_version_id,
@@ -2138,7 +2239,7 @@ class GovernanceStore {
          LIMIT 101`,
         [scope.scopeKey, action, activePolicies.map(item => item.versionId), resolvedAt]
       ) : { rows: [] };
-      if (exceptionRows.rows.length > 100) {
+      if (rowsOf(exceptionRows).length > 100) {
         throw new GovernanceError(
           'Repository active-exception limit is exceeded for this mutation action',
           'GOVERNANCE_ACTIVE_EXCEPTION_LIMIT_EXCEEDED',
@@ -2146,7 +2247,7 @@ class GovernanceStore {
           { maximum: 100, action }
         );
       }
-      const activeExceptions = exceptionRows.rows.map(row => ({
+      const activeExceptions = rowsOf(exceptionRows).map(row => ({
         exceptionId: row.exception_id, policyId: row.policy_id, versionId: row.version_id,
         documentHash: row.document_hash, kind: row.kind, action: row.action, ruleIds: row.rule_ids,
         subjectIdentityKey: row.requested_by_identity_key, target: row.target, targetHash: row.target_hash,
@@ -2162,7 +2263,7 @@ class GovernanceStore {
     }
   }
 
-  async listPolicyDecisionsInScope(input = {}) {
+  async listPolicyDecisionsInScope(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const limit = boundedDecisionLimit(input.limit, 100, 5000);
     if (input.beforeSeq != null && input.afterSeq != null) {
@@ -2187,10 +2288,10 @@ class GovernanceStore {
          WHERE scope_key=$1 AND seq ${comparison} $2 ORDER BY seq ${order} LIMIT $3`,
         [scope.scopeKey, cursor, limit]
       );
-      const decisions = result.rows.map(row => {
+      const decisions = rowsOf(result).map(row => {
         try {
           const decision = normalizePolicyDecision({
-            ...row.decision,
+            ...(row.decision as Fields),
             decisionId: row.decision_id,
             previousHash: row.previous_hash,
             recordHash: row.record_hash
@@ -2200,16 +2301,17 @@ class GovernanceStore {
             seq: Number(row.seq),
             ...decision,
             decisionHash: String(row.decision_hash || '').toLowerCase(),
-            createdAt: new Date(row.created_at).toISOString()
+            createdAt: dateOf(row.created_at).toISOString()
           });
         } catch {
           throw new GovernanceError('Stored policy decision evidence is invalid', 'POLICY_DECISION_CORRUPT', 500);
         }
       });
-      const countRow = counts.rows[0] || {};
+      const countRow = rowsOf(counts)[0] || {};
       const total = Number(countRow.total_count || 0);
       const remaining = Number(countRow.remaining_count || 0);
-      const nextSeq = decisions.length ? decisions[decisions.length - 1].seq : cursor;
+      const lastDecision = decisions[decisions.length - 1];
+      const nextSeq = lastDecision ? lastDecision.seq : cursor;
       const output = Object.freeze({
         decisions: Object.freeze(decisions),
         total,
@@ -2234,12 +2336,12 @@ class GovernanceStore {
    * without reading anything the identity could not already see one
    * repository at a time.
    */
-  async countMergeOutcomes(input = {}) {
+  async countMergeOutcomes(input: Fields = {}) {
     const identityKey = String(input.actorIdentityKey || '');
-    if (!/^[0-9a-f]{64}$/.test(identityKey)) {
+    if (!isIdentityKey(identityKey)) {
       throw new GovernanceError('Governance actor identity is invalid', 'GOVERNANCE_ACTOR_INVALID', 400);
     }
-    const since = new Date(input.since);
+    const since = dateOf(input.since);
     if (!Number.isFinite(since.getTime())) {
       throw new GovernanceError('Governance count start is invalid', 'GOVERNANCE_SINCE_INVALID', 400);
     }
@@ -2251,9 +2353,10 @@ class GovernanceStore {
           GROUP BY enforcement_outcome`,
         [identityKey, since.toISOString()]
       );
-      const counts = { allow: 0, warn: 0, block: 0 };
-      for (const row of result.rows) {
-        if (Object.prototype.hasOwnProperty.call(counts, row.enforcement_outcome)) counts[row.enforcement_outcome] = Number(row.n) || 0;
+      const counts: Record<string, number> = { allow: 0, warn: 0, block: 0 };
+      for (const row of rowsOf(result)) {
+        const outcome = String(row.enforcement_outcome);
+        if (Object.hasOwn(counts, outcome)) counts[outcome] = Number(row.n) || 0;
       }
       return Object.freeze(counts);
     } catch (error) {
@@ -2261,7 +2364,7 @@ class GovernanceStore {
     }
   }
 
-  async verifyPolicyDecisionChainInScope(input = {}) {
+  async verifyPolicyDecisionChainInScope(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const maxRecords = boundedDecisionLimit(input.limit, 50000, 100000);
     const client = await this.pool.connect();
@@ -2272,7 +2375,7 @@ class GovernanceStore {
           'SELECT count(*)::int AS total_count FROM nv_governance_policy_decisions WHERE scope_key=$1',
           [scope.scopeKey]
         );
-        const total = Number(countResult.rows[0] && countResult.rows[0].total_count || 0);
+        const total = Number(rowsOf(countResult)[0]?.total_count || 0);
         let expectedPrevious = POLICY_DECISION_GENESIS;
         let checked = 0;
         let lastSeq = 0;
@@ -2284,10 +2387,10 @@ class GovernanceStore {
              WHERE scope_key=$1 AND seq > $2 ORDER BY seq ASC LIMIT $3`,
             [scope.scopeKey, lastSeq, pageSize]
           );
-          if (!result.rows.length) {
+          if (!rowsOf(result).length) {
             return Object.freeze({ valid: false, checked, total, complete: false, reasonCode: 'POLICY_DECISION_CHAIN_MISMATCH', firstInvalidSeq: null, headHash: expectedPrevious });
           }
-          for (const row of result.rows) {
+          for (const row of rowsOf(result)) {
             const seq = Number(row.seq);
             if (!Number.isSafeInteger(seq) || seq <= lastSeq) {
               return Object.freeze({ valid: false, checked, total, complete: false, reasonCode: 'POLICY_DECISION_CHAIN_MISMATCH', firstInvalidSeq: Number.isFinite(seq) ? seq : null, headHash: expectedPrevious });
@@ -2298,7 +2401,7 @@ class GovernanceStore {
             } catch {
               return Object.freeze({ valid: false, checked, total, complete: false, reasonCode: 'POLICY_DECISION_INVALID', firstInvalidSeq: seq, headHash: expectedPrevious });
             }
-            const createdAt = new Date(row.created_at);
+            const createdAt = dateOf(row.created_at);
             if (!Number.isFinite(createdAt.getTime()) || decision.evaluatedAt !== createdAt.toISOString() ||
                 decision.mutationId !== row.mutation_id || String(row.previous_hash || '') !== expectedPrevious) {
               return Object.freeze({ valid: false, checked, total, complete: false, reasonCode: 'POLICY_DECISION_CHAIN_MISMATCH', firstInvalidSeq: seq, headHash: expectedPrevious });
@@ -2344,7 +2447,7 @@ class GovernanceStore {
     }
   }
 
-  async getDigitalTwinReadModelData(input = {}) {
+  async getDigitalTwinReadModelData(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const options = normalizeDigitalTwinOptions({ historyLimit: input.historyLimit, afterDecisionSeq: input.afterDecisionSeq, beforeDecisionSeq: input.beforeDecisionSeq });
     const descending = options.afterDecisionSeq == null;
@@ -2352,7 +2455,7 @@ class GovernanceStore {
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const snapshot = await client.query('SELECT transaction_timestamp() AS as_of');
-      const asOf = snapshot.rows[0] && snapshot.rows[0].as_of;
+      const asOf = rowsOf(snapshot)[0]?.as_of;
       const policyLimit = 201;
       const versionLimit = 1001;
       const pageLimit = options.historyLimit + 1;
@@ -2491,27 +2594,28 @@ class GovernanceStore {
         [scope.scopeKey, descending ? options.beforeDecisionSeq : options.afterDecisionSeq, pageLimit]
       );
       await client.query('COMMIT');
-      const policyComplete = policiesResult.rows.length < policyLimit;
-      const versionComplete = versionsResult.rows.length < versionLimit;
-      const draftComplete = draftsResult.rows.length < draftLimit;
-      const exceptionComplete = exceptionsResult.rows.length < pageLimit;
-      const activationComplete = activationsResult.rows.length < pageLimit;
-      const decisionComplete = decisionsResult.rows.length < pageLimit;
-      const decisions = decisionsResult.rows.slice(0, options.historyLimit);
+      const policyComplete = rowsOf(policiesResult).length < policyLimit;
+      const versionComplete = rowsOf(versionsResult).length < versionLimit;
+      const draftComplete = rowsOf(draftsResult).length < draftLimit;
+      const exceptionComplete = rowsOf(exceptionsResult).length < pageLimit;
+      const activationComplete = rowsOf(activationsResult).length < pageLimit;
+      const decisionComplete = rowsOf(decisionsResult).length < pageLimit;
+      const decisions = rowsOf(decisionsResult).slice(0, options.historyLimit);
+      const lastDecision = decisions[decisions.length - 1];
       return {
-        asOf: new Date(asOf).toISOString(),
+        asOf: dateOf(asOf).toISOString(),
         totals: {
-          policies: policiesResult.rows[0] ? Number(policiesResult.rows[0].total_policy_count) : 0,
-          activePolicies: policiesResult.rows[0] ? Number(policiesResult.rows[0].total_active_policy_count) : 0,
-          versions: versionsResult.rows[0] ? Number(versionsResult.rows[0].total_version_count) : 0
+          policies: rowsOf(policiesResult)[0] ? Number(onlyRow(policiesResult).total_policy_count) : 0,
+          activePolicies: rowsOf(policiesResult)[0] ? Number(onlyRow(policiesResult).total_active_policy_count) : 0,
+          versions: rowsOf(versionsResult)[0] ? Number(onlyRow(versionsResult).total_version_count) : 0
         },
-        policies: policiesResult.rows.slice(0, policyLimit - 1),
-        versions: versionsResult.rows.slice(0, versionLimit - 1),
-        drafts: draftsResult.rows.slice(0, draftLimit - 1),
-        exceptions: exceptionsResult.rows.slice(0, options.historyLimit),
-        activations: activationsResult.rows.slice(0, options.historyLimit),
+        policies: rowsOf(policiesResult).slice(0, policyLimit - 1),
+        versions: rowsOf(versionsResult).slice(0, versionLimit - 1),
+        drafts: rowsOf(draftsResult).slice(0, draftLimit - 1),
+        exceptions: rowsOf(exceptionsResult).slice(0, options.historyLimit),
+        activations: rowsOf(activationsResult).slice(0, options.historyLimit),
         decisions,
-        activeExceptionSummary: activeExceptionSummaryResult.rows,
+        activeExceptionSummary: rowsOf(activeExceptionSummaryResult),
         completeness: {
           policies: policyComplete,
           versions: versionComplete,
@@ -2521,8 +2625,8 @@ class GovernanceStore {
           decisions: decisionComplete
         },
         decisionOrder: descending ? 'desc' : 'asc',
-        nextDecisionSeq: !descending && !decisionComplete && decisions.length ? Number(decisions[decisions.length - 1].seq) : null,
-        nextBeforeDecisionSeq: descending && !decisionComplete && decisions.length ? Number(decisions[decisions.length - 1].seq) : null
+        nextDecisionSeq: !descending && !decisionComplete && lastDecision ? Number(lastDecision.seq) : null,
+        nextBeforeDecisionSeq: descending && !decisionComplete && lastDecision ? Number(lastDecision.seq) : null
       };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -2533,7 +2637,7 @@ class GovernanceStore {
   }
 
 
-  async eventRows(client, input = {}) {
+  async eventRows(client: Queryable, input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const afterSeq = eventCursor(input.afterSeq);
     const throughSeq = input.throughSeq == null || String(input.throughSeq).trim() === '' ? null : eventCursor(input.throughSeq, 'Governance event upper cursor');
@@ -2560,10 +2664,10 @@ class GovernanceStore {
         ORDER BY o.event_seq ASC LIMIT $5`,
       [scope.scopeKey, afterSeq, throughSeq, eventTypes, limit]
     );
-    return result.rows.map(eventFromJoinedRow);
+    return rowsOf(result).map(eventFromJoinedRow);
   }
 
-  async getGovernanceEvent(input = {}) {
+  async getGovernanceEvent(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const seq = eventCursor(input.eventSeq);
     if (seq < 1) throw new GovernanceError('Governance event sequence is invalid', 'GOVERNANCE_CURSOR_INVALID', 400);
@@ -2572,7 +2676,7 @@ class GovernanceStore {
     return rows[0];
   }
 
-  async getNotificationPreferences(input = {}) {
+  async getNotificationPreferences(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const result = await this.pool.query(
@@ -2580,7 +2684,7 @@ class GovernanceStore {
        WHERE scope_key=$1 AND identity_key=$2`,
       [scope.scopeKey, actor.identityKey]
     );
-    const row = result.rows[0];
+    const row = rowsOf(result)[0];
     return {
       ...normalizeNotificationPreferences(row ? { enabled: row.enabled, eventTypes: row.event_types } : {}),
       lastReadSeq: row ? Number(row.last_read_seq) : 0,
@@ -2588,7 +2692,7 @@ class GovernanceStore {
     };
   }
 
-  async updateNotificationPreferences(input = {}) {
+  async updateNotificationPreferences(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const preferences = normalizeNotificationPreferences(input.preferences);
@@ -2603,12 +2707,12 @@ class GovernanceStore {
          RETURNING enabled,event_types,last_read_seq,updated_at`,
         [scope.scopeKey, actor.identityKey, preferences.enabled, JSON.stringify(preferences.eventTypes), this.now().toISOString()]
       );
-      const row = result.rows[0];
+      const row = onlyRow(result);
       return { ...preferences, lastReadSeq: Number(row.last_read_seq), updatedAt: row.updated_at };
     });
   }
 
-  async markNotificationsRead(input = {}) {
+  async markNotificationsRead(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const throughSeq = eventCursor(input.throughSeq, 'Notification read cursor');
@@ -2617,7 +2721,7 @@ class GovernanceStore {
       operation: 'governance.notification.read', request: { throughSeq }
     }, async client => {
       const maximum = await client.query('SELECT COALESCE(max(event_seq),0)::bigint AS max_seq FROM nv_governance_event_outbox WHERE scope_key=$1 AND event_seq<=$2', [scope.scopeKey, throughSeq]);
-      const bounded = Number(maximum.rows[0] && maximum.rows[0].max_seq || 0);
+      const bounded = Number(rowsOf(maximum)[0]?.max_seq || 0);
       const result = await client.query(
         `INSERT INTO nv_governance_notification_preferences(scope_key,identity_key,enabled,event_types,last_read_seq,updated_at)
          VALUES($1,$2,true,$3::jsonb,$4,$5)
@@ -2625,12 +2729,12 @@ class GovernanceStore {
          RETURNING enabled,event_types,last_read_seq,updated_at`,
         [scope.scopeKey, actor.identityKey, JSON.stringify(DEFAULT_NOTIFICATION_EVENT_TYPES), bounded, this.now().toISOString()]
       );
-      const row = result.rows[0];
+      const row = onlyRow(result);
       return { ...normalizeNotificationPreferences({ enabled: row.enabled, eventTypes: row.event_types }), lastReadSeq: Number(row.last_read_seq), updatedAt: row.updated_at };
     });
   }
 
-  async listNotifications(input = {}) {
+  async listNotifications(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const preferences = await this.getNotificationPreferences({ scope, actor });
@@ -2639,6 +2743,7 @@ class GovernanceStore {
     if (!preferences.enabled || !preferences.eventTypes.length) return { preferences, events: [], unreadCount: 0, nextSeq: null, complete: true };
     const rows = await this.eventRows(this.pool, { scope, afterSeq, limit: limit + 1, eventTypes: preferences.eventTypes });
     const events = rows.slice(0, limit);
+    const lastEvent = events[events.length - 1];
     const unread = await this.pool.query(
       `SELECT count(*)::integer AS unread_count FROM nv_governance_event_outbox
        WHERE scope_key=$1 AND event_seq>$2 AND event_type=ANY($3::text[])`,
@@ -2647,19 +2752,19 @@ class GovernanceStore {
     return {
       preferences,
       events,
-      unreadCount: Number(unread.rows[0] && unread.rows[0].unread_count || 0),
-      nextSeq: events.length ? events[events.length - 1].eventSeq : null,
+      unreadCount: Number(rowsOf(unread)[0]?.unread_count || 0),
+      nextSeq: lastEvent ? lastEvent.eventSeq : null,
       complete: rows.length <= limit
     };
   }
 
-  async createWebhook(input = {}) {
+  async createWebhook(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const definition = normalizeWebhookDefinition(input.definition);
     const webhookId = normalizeUuid(this.idFactory(), 'webhook id');
     const salt = String(this.saltFactory()).trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(salt)) throw new GovernanceError('Webhook salt generator returned invalid output', 'GOVERNANCE_WEBHOOK_SECRET_INVALID', 500);
+    if (!isSha256Hex(salt)) throw new GovernanceError('Webhook salt generator returned invalid output', 'GOVERNANCE_WEBHOOK_SECRET_INVALID', 500);
     return this.idempotentTransaction({
       idempotencyKey: input.idempotencyKey, scopeKey: scope.scopeKey, actorIdentityKey: actor.identityKey,
       operation: 'governance.webhook.create', request: definition
@@ -2670,30 +2775,30 @@ class GovernanceStore {
         [webhookId, scope.scopeKey, scope.provider, scope.authority, scope.owner, scope.repo, definition.name, definition.url,
          JSON.stringify(definition.eventTypes), definition.enabled, salt, actor.identityKey, actor.login, this.now().toISOString()]
       );
-      return { webhook: mapWebhook(result.rows[0]), signingSecret: deriveWebhookSigningSecret(this.secret, scope.scopeKey, webhookId, salt, 1) };
+      return { webhook: mapWebhook(onlyRow(result)), signingSecret: deriveWebhookSigningSecret(this.secret, scope.scopeKey, webhookId, salt, 1) };
     });
   }
 
-  async listWebhooks(input = {}) {
+  async listWebhooks(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const result = await this.pool.query(
       `SELECT * FROM nv_governance_webhooks WHERE scope_key=$1 AND deleted_at IS NULL ORDER BY created_at ASC,webhook_id ASC LIMIT 100`,
       [scope.scopeKey]
     );
-    return result.rows.map(mapWebhook);
+    return rowsOf(result).map(mapWebhook);
   }
 
-  async webhookRowInScope(client, scope, webhookId, lock = false) {
+  async webhookRowInScope(client: Queryable, scope: RepositoryScope, webhookId: unknown, lock = false): Promise<Row> {
     const id = normalizeUuid(webhookId, 'webhook id');
     const result = await client.query(
       `SELECT * FROM nv_governance_webhooks WHERE webhook_id=$1 AND scope_key=$2 AND deleted_at IS NULL${lock ? ' FOR UPDATE' : ''}`,
       [id, scope.scopeKey]
     );
-    if (!result.rows[0]) throw new GovernanceError('Governance webhook was not found', 'GOVERNANCE_WEBHOOK_NOT_FOUND', 404);
-    return result.rows[0];
+    if (!rowsOf(result)[0]) throw new GovernanceError('Governance webhook was not found', 'GOVERNANCE_WEBHOOK_NOT_FOUND', 404);
+    return onlyRow(result);
   }
 
-  async updateWebhook(input = {}) {
+  async updateWebhook(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const webhookId = normalizeUuid(input.webhookId, 'webhook id');
@@ -2708,16 +2813,16 @@ class GovernanceStore {
          WHERE webhook_id=$6 AND scope_key=$7 AND deleted_at IS NULL RETURNING *`,
         [definition.name, definition.url, JSON.stringify(definition.eventTypes), definition.enabled, this.now().toISOString(), webhookId, scope.scopeKey]
       );
-      return mapWebhook(result.rows[0]);
+      return mapWebhook(onlyRow(result));
     });
   }
 
-  async rotateWebhookSecret(input = {}) {
+  async rotateWebhookSecret(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const webhookId = normalizeUuid(input.webhookId, 'webhook id');
     const salt = String(this.saltFactory()).trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(salt)) throw new GovernanceError('Webhook salt generator returned invalid output', 'GOVERNANCE_WEBHOOK_SECRET_INVALID', 500);
+    if (!isSha256Hex(salt)) throw new GovernanceError('Webhook salt generator returned invalid output', 'GOVERNANCE_WEBHOOK_SECRET_INVALID', 500);
     return this.idempotentTransaction({
       idempotencyKey: input.idempotencyKey, scopeKey: scope.scopeKey, actorIdentityKey: actor.identityKey,
       operation: 'governance.webhook.rotate', request: { webhookId }
@@ -2728,11 +2833,11 @@ class GovernanceStore {
         `UPDATE nv_governance_webhooks SET secret_salt=$1,secret_version=$2,updated_at=$3 WHERE webhook_id=$4 AND scope_key=$5 RETURNING *`,
         [salt, version, this.now().toISOString(), webhookId, scope.scopeKey]
       );
-      return { webhook: mapWebhook(result.rows[0]), signingSecret: deriveWebhookSigningSecret(this.secret, scope.scopeKey, webhookId, salt, version) };
+      return { webhook: mapWebhook(onlyRow(result)), signingSecret: deriveWebhookSigningSecret(this.secret, scope.scopeKey, webhookId, salt, version) };
     });
   }
 
-  async deleteWebhook(input = {}) {
+  async deleteWebhook(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const webhookId = normalizeUuid(input.webhookId, 'webhook id');
@@ -2745,11 +2850,11 @@ class GovernanceStore {
         `UPDATE nv_governance_webhooks SET enabled=false,deleted_at=$1,updated_at=$1 WHERE webhook_id=$2 AND scope_key=$3 RETURNING *`,
         [this.now().toISOString(), webhookId, scope.scopeKey]
       );
-      return mapWebhook(result.rows[0]);
+      return mapWebhook(onlyRow(result));
     });
   }
 
-  async listWebhookDeliveries(input = {}) {
+  async listWebhookDeliveries(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const webhookId = normalizeUuid(input.webhookId, 'webhook id');
     const limit = eventLimit(input.limit, 200, 100);
@@ -2760,10 +2865,10 @@ class GovernanceStore {
        ORDER BY d.created_at DESC,d.delivery_id DESC LIMIT $3`,
       [scope.scopeKey, webhookId, limit]
     );
-    return result.rows.map(mapWebhookDelivery);
+    return rowsOf(result).map(mapWebhookDelivery);
   }
 
-  async claimWebhookDeliveries(input = {}) {
+  async claimWebhookDeliveries(input: Fields = {}) {
     const limit = eventLimit(input.limit, 20, 10);
     const leaseSeconds = eventLimit(input.leaseSeconds, 300, 60);
     const result = await this.pool.query(
@@ -2783,7 +2888,7 @@ class GovernanceStore {
        ORDER BY updated.next_attempt_at ASC,updated.delivery_id ASC`,
       [limit, leaseSeconds]
     );
-    return result.rows.map(row => ({
+    return rowsOf(result).map(row => ({
       ...mapWebhookDelivery(row),
       scope: normalizePolicyScope({ provider: row.provider, baseUrl: `https://${row.authority}`, owner: row.owner, repo: row.repo }),
       url: row.endpoint_url,
@@ -2794,12 +2899,12 @@ class GovernanceStore {
     }));
   }
 
-  async recordWebhookDeliveryAttempt(input = {}) {
+  async recordWebhookDeliveryAttempt(input: Fields = {}) {
     const deliveryId = normalizeUuid(input.deliveryId, 'webhook delivery id');
     const eventHash = requiredText(input.eventHash, 'Webhook event hash', 64).toLowerCase();
     const signatureHash = requiredText(input.signatureHash, 'Webhook signature hash', 64).toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(eventHash) || !/^[0-9a-f]{64}$/.test(signatureHash)) throw new GovernanceError('Webhook attempt hashes are invalid', 'GOVERNANCE_WEBHOOK_ATTEMPT_INVALID', 400);
-    const requestTimestamp = new Date(input.requestTimestamp);
+    if (!isSha256Hex(eventHash) || !isSha256Hex(signatureHash)) throw new GovernanceError('Webhook attempt hashes are invalid', 'GOVERNANCE_WEBHOOK_ATTEMPT_INVALID', 400);
+    const requestTimestamp = dateOf(input.requestTimestamp);
     if (!Number.isFinite(requestTimestamp.getTime())) throw new GovernanceError('Webhook attempt timestamp is invalid', 'GOVERNANCE_WEBHOOK_ATTEMPT_INVALID', 400);
     const delivered = input.delivered === true;
     const terminal = input.terminal === true;
@@ -2810,7 +2915,7 @@ class GovernanceStore {
     if (!delivered && !errorCode) throw new GovernanceError('Webhook failure requires a bounded error code', 'GOVERNANCE_WEBHOOK_ATTEMPT_INVALID', 400);
     return this.transaction(async client => {
       const current = await client.query('SELECT * FROM nv_governance_webhook_deliveries WHERE delivery_id=$1 FOR UPDATE', [deliveryId]);
-      const row = current.rows[0];
+      const row = rowsOf(current)[0];
       if (!row) throw new GovernanceError('Webhook delivery was not found', 'GOVERNANCE_WEBHOOK_DELIVERY_NOT_FOUND', 404);
       if (row.status !== 'delivering') throw new GovernanceError('Webhook delivery is not leased for delivery', 'GOVERNANCE_WEBHOOK_DELIVERY_STATE_INVALID', 409);
       const attemptNumber = Number(row.attempt_count) + 1;
@@ -2824,17 +2929,17 @@ class GovernanceStore {
         [attemptId, deliveryId, attemptNumber, eventHash, requestTimestamp.toISOString(), signatureHash, resultState, statusCode, errorCode, operationTime.toISOString()]
       );
       const delays = [60, 300, 1800, 7200];
-      const nextAttempt = delivered || resultState === 'dead-letter' ? operationTime : new Date(operationTime.getTime() + delays[attemptNumber - 1] * 1000);
+      const nextAttempt = delivered || resultState === 'dead-letter' ? operationTime : new Date(operationTime.getTime() + Number(delays[attemptNumber - 1]) * 1000);
       const updated = await client.query(
         `UPDATE nv_governance_webhook_deliveries SET status=$1,attempt_count=$2,next_attempt_at=$3,lease_until=NULL,last_status_code=$4,last_error_code=$5,delivered_at=$6,updated_at=$7
          WHERE delivery_id=$8 RETURNING *`,
         [resultState, attemptNumber, nextAttempt.toISOString(), statusCode, errorCode, delivered ? operationTime.toISOString() : null, operationTime.toISOString(), deliveryId]
       );
-      return mapWebhookDelivery(updated.rows[0]);
+      return mapWebhookDelivery(onlyRow(updated));
     });
   }
 
-  async createEvidenceExport(input = {}) {
+  async createEvidenceExport(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const actor = actorOf(input.actor);
     const format = String(input.format || '').trim().toLowerCase();
@@ -2844,7 +2949,7 @@ class GovernanceStore {
     const limit = eventLimit(input.limit, 1000, 1000);
     const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
     if (!idempotencyKey) throw new GovernanceError('Evidence export requires an Idempotency-Key', 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED', 400);
-    const keyHash = crypto.createHash('sha256').update(idempotencyKey).digest('hex');
+    const keyHash = createHash('sha256').update(idempotencyKey).digest('hex');
     const requestHash = sha256Stable({ format, afterSeq, requestedThrough, limit });
     const client = await this.pool.connect();
     try {
@@ -2854,13 +2959,13 @@ class GovernanceStore {
         `SELECT * FROM nv_governance_exports WHERE scope_key=$1 AND actor_identity_key=$2 AND idempotency_key_hash=$3`,
         [scope.scopeKey, actor.identityKey, keyHash]
       );
-      if (existing.rows[0]) {
-        if (existing.rows[0].request_hash !== requestHash) throw new GovernanceError('Idempotency-Key was already used for a different evidence export', 'GOVERNANCE_IDEMPOTENCY_CONFLICT', 409);
+      if (rowsOf(existing)[0]) {
+        if (onlyRow(existing).request_hash !== requestHash) throw new GovernanceError('Idempotency-Key was already used for a different evidence export', 'GOVERNANCE_IDEMPOTENCY_CONFLICT', 409);
         await client.query('COMMIT');
-        return exportRowEnvelope(existing.rows[0]);
+        return exportRowEnvelope(onlyRow(existing));
       }
       const maxResult = await client.query('SELECT COALESCE(max(event_seq),0)::bigint AS max_seq FROM nv_governance_event_outbox WHERE scope_key=$1', [scope.scopeKey]);
-      const maximum = Number(maxResult.rows[0] && maxResult.rows[0].max_seq || 0);
+      const maximum = Number(rowsOf(maxResult)[0]?.max_seq || 0);
       const throughSeq = requestedThrough == null ? maximum : Math.min(requestedThrough, maximum);
       if (throughSeq && throughSeq <= afterSeq) throw new GovernanceError('Evidence export range is empty or invalid', 'GOVERNANCE_EXPORT_RANGE_INVALID', 400);
       const events = throughSeq ? await this.eventRows(client, { scope, afterSeq, throughSeq, limit: limit + 1 }) : [];
@@ -2881,7 +2986,7 @@ class GovernanceStore {
     } finally { client.release(); }
   }
 
-  async listEvidenceExports(input = {}) {
+  async listEvidenceExports(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const limit = eventLimit(input.limit, 200, 100);
     const result = await this.pool.query(
@@ -2889,23 +2994,23 @@ class GovernanceStore {
        FROM nv_governance_exports WHERE scope_key=$1 ORDER BY created_at DESC,export_id DESC LIMIT $2`,
       [scope.scopeKey, limit]
     );
-    return result.rows.map(row => ({ exportId: row.export_id, format: row.export_format, afterEventSeq: Number(row.after_event_seq), throughEventSeq: row.through_event_seq == null ? null : Number(row.through_event_seq), recordCount: Number(row.record_count), contentHash: row.content_hash, manifest: row.manifest, signature: row.signature, actorLogin: row.actor_login, createdAt: row.created_at }));
+    return rowsOf(result).map(row => ({ exportId: row.export_id, format: row.export_format, afterEventSeq: Number(row.after_event_seq), throughEventSeq: row.through_event_seq == null ? null : Number(row.through_event_seq), recordCount: Number(row.record_count), contentHash: row.content_hash, manifest: row.manifest, signature: row.signature, actorLogin: row.actor_login, createdAt: row.created_at }));
   }
 
-  async getEvidenceExport(input = {}) {
+  async getEvidenceExport(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const exportId = normalizeUuid(input.exportId, 'export id');
     const result = await this.pool.query('SELECT * FROM nv_governance_exports WHERE export_id=$1 AND scope_key=$2', [exportId, scope.scopeKey]);
-    if (!result.rows[0]) throw new GovernanceError('Evidence export was not found', 'GOVERNANCE_EXPORT_NOT_FOUND', 404);
-    return exportRowEnvelope(result.rows[0]);
+    if (!rowsOf(result)[0]) throw new GovernanceError('Evidence export was not found', 'GOVERNANCE_EXPORT_NOT_FOUND', 404);
+    return exportRowEnvelope(onlyRow(result));
   }
 
-  async verifyEvidenceExport(input = {}) {
+  async verifyEvidenceExport(input: Fields = {}) {
     const envelope = await this.getEvidenceExport(input);
     return verifySignedEvidenceExport(envelope, this.secret);
   }
 
-  async getPolicyState(policyId) {
+  async getPolicyState(policyId: unknown) {
     const id = normalizeUuid(policyId, 'policy id');
     const result = await this.pool.query(
       `SELECT p.*,h.active_version_id,h.revision,h.updated_at,
@@ -2916,7 +3021,7 @@ class GovernanceStore {
        WHERE p.policy_id=$1`,
       [id]
     );
-    const row = result.rows[0];
+    const row = rowsOf(result)[0];
     if (!row) throw new GovernanceError('Governance policy was not found', 'GOVERNANCE_POLICY_NOT_FOUND', 404);
     return {
       ...mapPolicy(row),
@@ -2928,7 +3033,7 @@ class GovernanceStore {
     };
   }
 
-  async verifyAudit(policyId, limit = 5000) {
+  async verifyAudit(policyId: unknown, limit: unknown = 5000) {
     const id = normalizeUuid(policyId, 'policy id');
     const capped = Math.min(Math.max(Number(limit) || 1, 1), 5000);
     const result = await this.pool.query(
@@ -2937,7 +3042,7 @@ class GovernanceStore {
        FROM nv_governance_audit WHERE policy_id=$1 ORDER BY seq ASC LIMIT $2`,
       [id, capped]
     );
-    const records = result.rows.map(row => ({
+    const records = rowsOf(result).map(row => ({
       eventId: row.event_id,
       policyId: row.policy_id,
       versionId: row.version_id,
@@ -2948,12 +3053,11 @@ class GovernanceStore {
       detailsHash: row.details_hash,
       previousHash: row.previous_hash,
       recordHash: row.record_hash,
-      createdAt: new Date(row.created_at).toISOString()
+      createdAt: dateOf(row.created_at).toISOString()
     }));
     const verification = verifyGovernanceAuditChain(this.secret, records);
-    const total = Number(result.rows[0] && result.rows[0].total_count || 0);
+    const total = Number(rowsOf(result)[0]?.total_count || 0);
     return { ...verification, total, complete: records.length === total };
   }
 }
 
-module.exports = { GovernanceStore, translateDatabaseError };

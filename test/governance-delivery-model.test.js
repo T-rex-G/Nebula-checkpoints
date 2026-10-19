@@ -13,7 +13,7 @@ const {
   buildGovernanceEvent,
   buildSignedEvidenceExport,
   verifySignedEvidenceExport
-} = require('../src/governance-delivery');
+} = require('../apps/api/src/modules/kepler/index.ts');
 const { isPublicAddress } = require('../apps/api/src/platform/network/public-address.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Widget', scopeKey: 'github:github.com:acme/widget' };

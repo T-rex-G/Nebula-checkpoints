@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { createGovernanceApiService } = require('../src/governance-api');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
 function authorization(level, actor = 'a') {
   return {
     schemaVersion: 1,

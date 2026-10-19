@@ -7,6 +7,10 @@
     "version": 1,
     "shape": "264684779af56da61f65eb481dd2f614f8e8e38dc791003f104dcf4345a97525"
   },
+  "canonical-json.ts": {
+    "version": 1,
+    "shape": "9e5af47845f405e38a6e777796634e4d16d4ea1eedf26d8fe1bce00cb42e2c2e"
+  },
   "capability.ts": {
     "version": 1,
     "shape": "a7dbcc0d7ffee9697ea9247f2b9c660f8dc093179add425541ab73b3ec40a2f7"

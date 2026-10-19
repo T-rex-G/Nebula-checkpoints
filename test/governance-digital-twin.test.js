@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 let twin = {};
-try { twin = require('../src/governance-digital-twin'); } catch {}
+try { twin = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['buildPolicyDigitalTwinReadModel', 'normalizeDigitalTwinOptions']) {
   assert.strictEqual(typeof twin[name], 'function', `${name} must be implemented`);
 }

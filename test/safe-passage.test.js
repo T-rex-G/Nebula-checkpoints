@@ -27,8 +27,8 @@ for (const name of ['SafePassageError', 'SAFE_PASSAGE_KIND', 'offerSafePassage']
 const { SAFE_PASSAGE_KIND, offerSafePassage } = safePassage;
 
 const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { activePolicySetStepEvaluator, evaluateActivePolicySet } = require('../src/governance-enforcement');
-const { policyDocumentHash } = require('../src/governance-model');
+const { activePolicySetStepEvaluator, evaluateActivePolicySet } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 const { pathFactsForAction } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
@@ -248,7 +248,7 @@ for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)
  * asked for.
  * ------------------------------------------------------------------ */
 
-const { getPolicyTemplate, listPolicyTemplates, generateRepositoryBaseline } = require('../src/governance-templates');
+const { getPolicyTemplate, listPolicyTemplates, generateRepositoryBaseline } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(
   listPolicyTemplates().some(entry => entry.templateId === 'protected-paths-review'),

@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 let templates = {};
-try { templates = require('../src/governance-templates'); } catch {}
+try { templates = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['listPolicyTemplates', 'getPolicyTemplate', 'generateRepositoryBaseline', 'TEMPLATE_CATALOG']) {
   assert(templates[name], `${name} must be implemented`);
 }

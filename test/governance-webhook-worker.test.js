@@ -8,9 +8,9 @@ const {
   processWebhookDeliveryBatch,
   sendPinnedHttpsWebhook,
   startWebhookWorker
-} = require('../src/governance-webhook-worker');
+} = require('../apps/api/src/modules/kepler/index.ts');
 const { CODES: GUARDED_FETCH_CODES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
-const { verifyWebhookSignature } = require('../src/governance-delivery');
+const { verifyWebhookSignature } = require('../apps/api/src/modules/kepler/index.ts');
 
 const scope = { provider: 'github', baseUrl: 'https://github.com', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
 const event = {

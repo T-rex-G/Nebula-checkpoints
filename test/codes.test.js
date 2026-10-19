@@ -41,7 +41,7 @@ const COMPOSED = Object.freeze({
   'apps/api/src/platform/authorization/security-foundation.ts `${codePrefix}_INVALID`': { codes: ['CSRF_INVALID', 'STEP_UP_INVALID'] },
   'apps/api/src/platform/authorization/security-foundation.ts `${codePrefix}_EXPIRED`': { codes: ['CSRF_EXPIRED', 'STEP_UP_EXPIRED'] },
   /* The status a webhook destination answered with, when it was not a success. */
-  'src/governance-webhook-worker.js `WEBHOOK_HTTP_${statusCode}`': { family: 'WEBHOOK_HTTP', pattern: '^WEBHOOK_HTTP_[1-5][0-9]{2}$' }
+  'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts `WEBHOOK_HTTP_${statusCode}`': { family: 'WEBHOOK_HTTP', pattern: '^WEBHOOK_HTTP_[1-5][0-9]{2}$' }
 });
 const FAMILIES = Object.fromEntries(Object.values(COMPOSED).filter(entry => entry.family).map(entry => [entry.family, entry.pattern]));
 

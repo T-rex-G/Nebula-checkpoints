@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 let governance = {};
-try { governance = require('../src/governance-model'); } catch {}
+try { governance = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 
 for (const name of [
   'GovernanceError', 'normalizePolicyScope', 'normalizePolicyKey', 'normalizePolicyDocument',

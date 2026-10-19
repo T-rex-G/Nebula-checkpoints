@@ -23,7 +23,7 @@
 
 const crypto = require('crypto');
 const { RULES, ENGINE, assertAuditActive } = require('./code-audit');
-const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('./code-audit-policy');
+const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('../apps/api/src/modules/kepler/index.ts');
 const { TIERS } = require('./uranus-reach');
 const { standardsFor } = require('./security-standards');
 const { AUDIT_WATCH_STATES: WATCH_STATES } = require('../packages/contracts/src/evidence.ts');

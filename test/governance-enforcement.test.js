@@ -1,13 +1,13 @@
 'use strict';
 const assert = require('assert');
 let runtime = {};
-try { runtime = require('../src/governance-enforcement'); } catch {}
+try { runtime = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['GovernanceEnforcementError', 'evaluateActivePolicySet', 'normalizePolicyDecision', 'createGovernanceRuntime']) {
   assert(runtime[name], `${name} must be implemented`);
 }
 const { evaluateActivePolicySet, normalizePolicyDecision, createGovernanceRuntime } = runtime;
 const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { policyDocumentHash } = require('../src/governance-model');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 
 const authorization = {
   schemaVersion: 1,
@@ -50,6 +50,17 @@ assert.strictEqual(warn.rolloutMode, 'warn');
 const block = evaluateActivePolicySet({ scope: authorization.scope, descriptor, activePolicies: [active('10000000-0000-4000-8000-000000000001', 'block-policy', 'block', 'deny')] });
 assert.strictEqual(block.enforcementOutcome, 'block');
 assert.strictEqual(block.blockCode, 'POLICY_MUTATION_BLOCKED');
+
+/*
+ * A descriptor whose actor login is not text is refused as a mismatch. The
+ * decision built from it carries the login as text, so the comparison with
+ * the descriptor used to reach for a string method the login did not have and
+ * fail with a TypeError instead of the refusal.
+ */
+assert.throws(
+  () => evaluateActivePolicySet({ scope: authorization.scope, descriptor: { ...descriptor, actorLogin: 12345 }, activePolicies: [] }),
+  error => error.name === 'GovernanceEnforcementError' && error.code === 'MUTATION_POLICY_DECISION_MISMATCH' && error.status === 500
+);
 
 const withoutRuleControlsDocument = { schemaVersion: 1, enforcement: { mode: 'block' }, rules: [
   { id: 'deny-reset', action: 'branch.reset', effect: 'deny' }

@@ -1,74 +1,111 @@
-'use strict';
-
-const crypto = require('crypto');
-const { MUTATION_ACTIONS } = require('../packages/contracts/src/mutation.ts');
-const { evaluatePolicyDocument } = require('./governance-simulation');
-const {
+import { createHash } from 'node:crypto';
+import { MUTATION_ACTIONS, isMutationAction } from '../../../../../../packages/contracts/src/mutation.ts';
+import type { MutationActionName, MutationDescriptor, MutationRisk, PolicyEvaluator, PolicyOutcome } from '../../../../../../packages/contracts/src/mutation.ts';
+import { isPolicyKey, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
+import { evaluatePolicyDocument } from './governance-simulation.ts';
+import type { MatchedRule } from './governance-simulation.ts';
+import {
   normalizePolicyDocument,
   policyDocumentHash,
   normalizePolicyScope,
   normalizeUuid,
   normalizeIdentityKey,
-  normalizePolicyKey,
-  stableJson
-} = require('./governance-model');
-const { deriveControlMapping, normalizeControlMapping, normalizeControlRefs, CONTROL_CATALOG } = require('./control-catalog');
-const { applyPolicyExceptions } = require('./governance-exceptions');
+  normalizePolicyKey
+} from './governance-model.ts';
+import { stableJson } from '../../../../../../packages/contracts/src/canonical-json.ts';
+import type { EnforcementMode, PolicyDocument, PolicyEffect } from './governance-model.ts';
+import { deriveControlMapping, normalizeControlMapping, normalizeControlRefs, CONTROL_CATALOG } from './control-catalog.ts';
+import type { ControlMapping } from './control-catalog.ts';
+import { applyPolicyExceptions } from './governance-exceptions.ts';
+import type { ExceptionApplication } from './governance-exceptions.ts';
 
-const EFFECT_RANK = Object.freeze({ allow: 0, 'require-approval': 1, deny: 2 });
-const MODE_RANK = Object.freeze({ observe: 0, warn: 1, block: 2 });
+type Fields = Readonly<Record<string, unknown>>;
+
+const EFFECT_RANK: Readonly<Record<PolicyEffect, number>> = Object.freeze({ allow: 0, 'require-approval': 1, deny: 2 });
+const MODE_RANK: Readonly<Record<EnforcementMode, number>> = Object.freeze({ observe: 0, warn: 1, block: 2 });
 const MAX_DECISION_BYTES = 256 * 1024;
-const POLICY_DECISION_GENESIS = 'NV-POLICY-DECISION-GENESIS-V1';
+export const POLICY_DECISION_GENESIS = 'NV-POLICY-DECISION-GENESIS-V1';
 
-class GovernanceEnforcementError extends Error {
-  constructor(message, code, status = 400, details) {
+/* Set only when the refusal carries details of its own, so it is typed here rather than declared as a field that would always exist. */
+export interface GovernanceEnforcementError {
+  readonly details?: unknown;
+}
+
+export class GovernanceEnforcementError extends Error {
+  override readonly name = 'GovernanceEnforcementError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 400, details: unknown = undefined) {
     super(message);
-    this.name = 'GovernanceEnforcementError';
     this.code = code;
     this.status = status;
-    if (details !== undefined) this.details = details;
+    if (details !== undefined) (this as { details?: unknown }).details = details;
   }
 }
 
-function fail(message, code = 'POLICY_DECISION_INVALID', status = 400, details) {
+function fail(message: string, code = 'POLICY_DECISION_INVALID', status = 400, details: unknown = undefined): never {
   throw new GovernanceEnforcementError(message, code, status, details);
 }
 
-function isPlainObject(value) {
+function isPlainObject(value: unknown): value is Fields {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
+  const proto: unknown = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 
-function deepFreeze(value) {
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
   return Object.freeze(value);
 }
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : stableJson(value), 'utf8').digest('hex');
+function sha256(value: unknown): string {
+  return createHash('sha256').update(typeof value === 'string' ? value : stableJson(value), 'utf8').digest('hex');
 }
 
-function hash(value, label) {
+function hash(value: unknown, label: string): string {
   const normalized = String(value || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(normalized)) fail(`${label} is invalid`);
+  if (!isSha256Hex(normalized)) fail(`${label} is invalid`);
   return normalized;
 }
 
-function boundedText(value, label, max = 200) {
+function boundedText(value: unknown, label: string, max = 200): string {
   const text = String(value == null ? '' : value).trim();
   if (!text || text.length > max || /[\u0000-\u001f\u007f]/.test(text)) fail(`${label} is invalid`);
   return text;
 }
 
-function normalizeEnforcementMode(input) {
+function isPolicyEffect(value: string): value is PolicyEffect {
+  return Object.hasOwn(EFFECT_RANK, value);
+}
+
+function isPolicyOutcome(value: string): value is PolicyOutcome {
+  return value === 'allow' || value === 'warn' || value === 'block';
+}
+
+function isEnforcementMode(value: string): value is EnforcementMode {
+  return Object.hasOwn(MODE_RANK, value);
+}
+
+/* The list a field holds, or none when it holds something else. */
+function listOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+export function normalizeEnforcementMode(input: unknown): EnforcementMode {
   const mode = input == null || input === '' ? 'observe' : String(input).trim().toLowerCase();
-  if (!Object.prototype.hasOwnProperty.call(MODE_RANK, mode)) fail('Policy enforcement mode is invalid', 'GOVERNANCE_ENFORCEMENT_INVALID');
+  if (!isEnforcementMode(mode)) fail('Policy enforcement mode is invalid', 'GOVERNANCE_ENFORCEMENT_INVALID');
   return mode;
 }
 
-function descriptorEvidenceHash(descriptor) {
+export function descriptorEvidenceHash(descriptor: unknown): string {
   if (!isPlainObject(descriptor)) fail('Mutation descriptor evidence is invalid', 'POLICY_DESCRIPTOR_INVALID', 500);
   return sha256({
     mutationId: descriptor.mutationId,
@@ -85,7 +122,18 @@ function descriptorEvidenceHash(descriptor) {
   });
 }
 
-function normalizeActivePolicy(input) {
+interface ActivePolicy {
+  readonly policyId: string;
+  readonly policyKey: string;
+  readonly versionId: string;
+  readonly versionNumber: number;
+  readonly headRevision: number;
+  readonly documentHash: string;
+  readonly document: PolicyDocument;
+  readonly enforcementMode: EnforcementMode;
+}
+
+function normalizeActivePolicy(input: unknown): ActivePolicy {
   if (!isPlainObject(input)) fail('Active policy is invalid', 'POLICY_ACTIVE_SET_INVALID', 500);
   const document = normalizePolicyDocument(input.document);
   const documentHash = policyDocumentHash(document);
@@ -109,11 +157,34 @@ function normalizeActivePolicy(input) {
   };
 }
 
-function effectiveEffectOf(effects) {
+function effectiveEffectOf(effects: readonly PolicyEffect[]): PolicyEffect {
   return [...effects].sort((a, b) => EFFECT_RANK[b] - EFFECT_RANK[a] || a.localeCompare(b))[0] || 'allow';
 }
 
-function policySetBodyOf(policyEvaluations) {
+/* One active policy's answer for the mutation, as a decision records it. */
+export interface PolicyEvaluationEntry {
+  readonly policyId: string;
+  readonly policyKey: string;
+  readonly versionId: string;
+  readonly versionNumber: number;
+  readonly headRevision: number;
+  readonly documentHash: string;
+  readonly enforcementMode: EnforcementMode;
+  readonly effect: PolicyEffect;
+  readonly source: 'matched-rules' | 'default-allow';
+  readonly conflict: boolean;
+  readonly matchedRuleIds: readonly string[];
+  readonly matchedRules: readonly MatchedRule[];
+  readonly unsupportedRuleActions: readonly string[];
+  readonly evaluationHash: string;
+  /* Engine version 2 onwards: what the policy said before exceptions, and which exceptions lifted which rules. */
+  readonly originalEffect?: PolicyEffect;
+  readonly originalConflict?: boolean;
+  readonly waivedRuleIds?: readonly string[];
+  readonly exceptionApplications?: readonly ExceptionApplication[];
+}
+
+function policySetBodyOf(policyEvaluations: readonly PolicyEvaluationEntry[]): readonly Fields[] {
   return policyEvaluations.map(item => ({
     policyId: item.policyId,
     policyKey: item.policyKey,
@@ -125,7 +196,7 @@ function policySetBodyOf(policyEvaluations) {
   }));
 }
 
-function appliedExceptionBodyOf(policyEvaluations) {
+function appliedExceptionBodyOf(policyEvaluations: readonly PolicyEvaluationEntry[]): readonly Fields[] {
   return policyEvaluations.flatMap(item => (item.exceptionApplications || []).map(exception => ({
     policyId: item.policyId, versionId: item.versionId, documentHash: item.documentHash,
     exceptionId: exception.exceptionId, kind: exception.kind, subjectIdentityKey: exception.subjectIdentityKey,
@@ -135,24 +206,30 @@ function appliedExceptionBodyOf(policyEvaluations) {
   }))).sort((a, b) => a.policyId.localeCompare(b.policyId) || a.exceptionId.localeCompare(b.exceptionId));
 }
 
-function enforcementSemantics(policyEvaluations, category) {
+interface EnforcementSemantics {
+  readonly effectiveEffect: PolicyEffect;
+  readonly rolloutMode: EnforcementMode;
+  readonly enforcementOutcome: PolicyOutcome;
+  readonly warningCodes: readonly string[];
+  readonly blockCode: string | null;
+}
+
+function enforcementSemantics(policyEvaluations: readonly PolicyEvaluationEntry[], category: unknown): EnforcementSemantics {
   const effectiveEffect = effectiveEffectOf(policyEvaluations.map(item => item.effect));
   const relevant = policyEvaluations.filter(item => item.effect !== 'allow');
   const blocking = relevant.filter(item => item.enforcementMode === 'block');
   const warning = relevant.filter(item => item.enforcementMode === 'warn');
   const observed = relevant.filter(item => item.enforcementMode === 'observe');
-  let enforcementOutcome = 'allow';
-  let blockCode = null;
+  let enforcementOutcome: PolicyOutcome = 'allow';
+  let blockCode: string | null = null;
   if (blocking.length) {
     enforcementOutcome = 'block';
     blockCode = blocking.some(item => item.effect === 'deny') ? 'POLICY_MUTATION_BLOCKED' : 'POLICY_APPROVAL_REQUIRED';
   } else if (warning.length) {
     enforcementOutcome = 'warn';
   }
-  let rolloutMode = relevant.length
-    ? [...relevant].sort((a, b) => MODE_RANK[b.enforcementMode] - MODE_RANK[a.enforcementMode])[0].enforcementMode
-    : 'observe';
-  const warningCodes = [];
+  let rolloutMode: EnforcementMode = [...relevant].sort((a, b) => MODE_RANK[b.enforcementMode] - MODE_RANK[a.enforcementMode])[0]?.enforcementMode ?? 'observe';
+  const warningCodes: string[] = [];
   const warningEvidence = [...warning];
   if (category === 'governance' && enforcementOutcome === 'block') {
     warningEvidence.push(...blocking);
@@ -183,22 +260,32 @@ function enforcementSemantics(policyEvaluations, category) {
   };
 }
 
-function evaluateActivePolicySet(input = {}) {
+export interface ActivePolicySetInput {
+  readonly scope?: unknown;
+  readonly descriptor?: unknown;
+  readonly activePolicies?: unknown;
+  readonly activeExceptions?: unknown;
+  readonly evaluatedAt?: unknown;
+}
+
+export function evaluateActivePolicySet(input: ActivePolicySetInput = {}): PolicyDecision {
   const scope = normalizePolicyScope(input.scope);
   const descriptor = input.descriptor;
-  if (!isPlainObject(descriptor) || descriptor.scopeKey !== scope.scopeKey || !MUTATION_ACTIONS[descriptor.action]) {
+  if (!isPlainObject(descriptor) || descriptor.scopeKey !== scope.scopeKey || !isMutationAction(descriptor.action)) {
     fail('Mutation descriptor does not match the policy evaluation scope', 'POLICY_DESCRIPTOR_INVALID', 500);
   }
-  const evaluatedAt = new Date(input.evaluatedAt || Date.now());
+  const action = descriptor.action;
+  const evaluatedAt = new Date((input.evaluatedAt || Date.now()) as string | number | Date);
   if (!Number.isFinite(evaluatedAt.getTime())) fail('Policy evaluation timestamp is invalid', 'POLICY_DECISION_INVALID', 500);
-  const activeExceptions = Array.isArray(input.activeExceptions) ? input.activeExceptions : [];
-  const policies = (Array.isArray(input.activePolicies) ? input.activePolicies : [])
+  const activeExceptions = listOf(input.activeExceptions);
+  const policies = listOf(input.activePolicies)
     .map(normalizeActivePolicy)
     .sort((a, b) => a.policyKey.localeCompare(b.policyKey) || a.policyId.localeCompare(b.policyId));
-  const policyEvaluations = policies.map(policy => {
+  const governanceActor = read(descriptor.authorization, 'governanceActor');
+  const policyEvaluations: PolicyEvaluationEntry[] = policies.map(policy => {
     const evaluation = evaluatePolicyDocument(policy.document, {
       schemaVersion: 1,
-      scenarios: [{ id: 'runtime-mutation', action: descriptor.action, attributes: descriptor.metadata || {} }]
+      scenarios: [{ id: 'runtime-mutation', action, attributes: descriptor.metadata || {} }]
     });
     if (evaluation.unsupportedRuleActions.length) {
       fail(
@@ -208,7 +295,9 @@ function evaluateActivePolicySet(input = {}) {
         { actions: evaluation.unsupportedRuleActions }
       );
     }
+    /* One scenario went in, so one result comes out. */
     const result = evaluation.results[0];
+    if (!result) throw new TypeError('Policy evaluation returned no result for the mutation');
     const base = {
       policyId: policy.policyId,
       policyKey: policy.policyKey,
@@ -225,9 +314,9 @@ function evaluateActivePolicySet(input = {}) {
       unsupportedRuleActions: evaluation.unsupportedRuleActions,
       evaluationHash: evaluation.evaluationHash
     };
-    const applied = applyPolicyExceptions(base, activeExceptions, descriptor.action, evaluatedAt, {
-      actorIdentityKey: descriptor.authorization && descriptor.authorization.governanceActor && descriptor.authorization.governanceActor.verified
-        ? descriptor.authorization.governanceActor.identityKey
+    const applied = applyPolicyExceptions(base, activeExceptions, action, evaluatedAt, {
+      actorIdentityKey: governanceActor && read(governanceActor, 'verified')
+        ? read(governanceActor, 'identityKey')
         : null,
       metadata: descriptor.metadata
     });
@@ -248,13 +337,13 @@ function evaluateActivePolicySet(input = {}) {
 
   const semantics = enforcementSemantics(policyEvaluations, descriptor.category);
   const policySetBody = policySetBodyOf(policyEvaluations);
-  const controlMapping = deriveControlMapping({ action: descriptor.action, policyEvaluations });
+  const controlMapping = deriveControlMapping({ action, policyEvaluations });
   const decision = {
     schemaVersion: 1,
     engineVersion: 2,
     mutationId: descriptor.mutationId,
     scope,
-    action: descriptor.action,
+    action,
     category: descriptor.category,
     risk: descriptor.risk,
     actor: { identityKey: descriptor.actorIdentityKey, login: descriptor.actorLogin },
@@ -275,31 +364,31 @@ function evaluateActivePolicySet(input = {}) {
   return normalizePolicyDecision(decision, descriptor);
 }
 
-function normalizeMatchedRule(input) {
+function normalizeMatchedRule(input: unknown): MatchedRule {
   if (!isPlainObject(input)) fail('Matched policy rule is invalid');
   const id = String(input.id || '').trim().toLowerCase();
   const effect = String(input.effect || '').trim().toLowerCase();
-  if (!/^[a-z][a-z0-9._-]{1,63}$/.test(id) || !Object.prototype.hasOwnProperty.call(EFFECT_RANK, effect)) fail('Matched policy rule is invalid');
-  let controlRefs;
+  if (!isPolicyKey(id) || !isPolicyEffect(effect)) fail('Matched policy rule is invalid');
+  let controlRefs: readonly string[];
   try { controlRefs = normalizeControlRefs(input.controlRefs || []); }
   catch { fail('Matched policy control references are invalid'); }
   return { id, effect, ...(controlRefs.length ? { controlRefs } : {}) };
 }
 
-function normalizeExceptionApplication(input, matchedRules) {
+function normalizeExceptionApplication(input: unknown, matchedRules: readonly MatchedRule[]): ExceptionApplication {
   if (!isPlainObject(input)) fail('Policy exception application is invalid');
   const kind = String(input.kind || '').trim().toLowerCase();
-  if (!['exception', 'waiver'].includes(kind)) fail('Policy exception kind is invalid');
-  const ruleIds = Array.isArray(input.ruleIds) ? [...new Set(input.ruleIds.map(value => String(value || '').trim().toLowerCase()))].sort() : [];
-  if (!ruleIds.length || ruleIds.length > 50 || ruleIds.some(id => !/^[a-z][a-z0-9._-]{1,63}$/.test(id))) fail('Policy exception rule evidence is invalid');
+  if (kind !== 'exception' && kind !== 'waiver') fail('Policy exception kind is invalid');
+  const ruleIds = [...new Set(lowerCaseList(input.ruleIds))].sort();
+  if (!ruleIds.length || ruleIds.length > 50 || ruleIds.some(id => !isPolicyKey(id))) fail('Policy exception rule evidence is invalid');
   const expectedEffect = kind === 'exception' ? 'deny' : 'require-approval';
   const rules = new Map(matchedRules.map(rule => [rule.id, rule.effect]));
   if (ruleIds.some(id => rules.get(id) !== expectedEffect)) fail('Policy exception rule evidence is inconsistent');
-  const approvedAt = new Date(input.approvedAt);
-  const expiresAt = new Date(input.expiresAt);
+  const approvedAt = new Date(input.approvedAt as string | number | Date);
+  const expiresAt = new Date(input.expiresAt as string | number | Date);
   if (!Number.isFinite(approvedAt.getTime()) || !Number.isFinite(expiresAt.getTime()) || approvedAt >= expiresAt) fail('Policy exception time evidence is invalid');
   const targetHash = String(input.targetHash || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(targetHash)) fail('Policy exception target hash is invalid');
+  if (!isSha256Hex(targetHash)) fail('Policy exception target hash is invalid');
   return {
     exceptionId: normalizeUuid(input.exceptionId, 'exception id'),
     kind,
@@ -313,29 +402,29 @@ function normalizeExceptionApplication(input, matchedRules) {
   };
 }
 
-function normalizePolicyEvaluation(input, engineVersion = 1) {
+function lowerCaseList(value: unknown): string[] {
+  return listOf(value).map(item => String(item || '').trim().toLowerCase());
+}
+
+function normalizePolicyEvaluation(input: unknown, engineVersion = 1): PolicyEvaluationEntry {
   if (!isPlainObject(input)) fail('Policy evaluation entry is invalid');
   const mode = normalizeEnforcementMode(input.enforcementMode);
   const effect = String(input.effect || '').trim().toLowerCase();
-  if (!Object.prototype.hasOwnProperty.call(EFFECT_RANK, effect)) fail('Policy evaluation effect is invalid');
+  if (!isPolicyEffect(effect)) fail('Policy evaluation effect is invalid');
   const source = String(input.source || '').trim();
-  if (!['matched-rules', 'default-allow'].includes(source)) fail('Policy evaluation source is invalid');
-  const matchedRules = Array.isArray(input.matchedRules) ? input.matchedRules.map(normalizeMatchedRule) : [];
-  const matchedRuleIds = Array.isArray(input.matchedRuleIds) ? input.matchedRuleIds.map(value => String(value || '').trim().toLowerCase()) : [];
+  if (source !== 'matched-rules' && source !== 'default-allow') fail('Policy evaluation source is invalid');
+  const matchedRules = listOf(input.matchedRules).map(normalizeMatchedRule);
+  const matchedRuleIds = lowerCaseList(input.matchedRuleIds);
   if (stableJson(matchedRuleIds) !== stableJson(matchedRules.map(item => item.id))) fail('Policy matched-rule evidence is inconsistent');
-  const unsupportedRuleActions = Array.isArray(input.unsupportedRuleActions)
-    ? [...new Set(input.unsupportedRuleActions.map(value => String(value || '').trim().toLowerCase()))].sort()
-    : [];
+  const unsupportedRuleActions = [...new Set(lowerCaseList(input.unsupportedRuleActions))].sort();
   if (unsupportedRuleActions.some(value => !/^[a-z][a-z0-9._-]{1,99}$/.test(value))) fail('Unsupported policy actions are invalid');
   const expectedSource = matchedRules.length ? 'matched-rules' : 'default-allow';
   const originalEffect = engineVersion >= 2 ? String(input.originalEffect || '').trim().toLowerCase() : effect;
   const originalConflict = engineVersion >= 2 ? !!input.originalConflict : !!input.conflict;
   const exceptionApplications = engineVersion >= 2
-    ? (Array.isArray(input.exceptionApplications) ? input.exceptionApplications.map(item => normalizeExceptionApplication(item, matchedRules)) : [])
+    ? listOf(input.exceptionApplications).map(item => normalizeExceptionApplication(item, matchedRules))
     : [];
-  const waivedRuleIds = engineVersion >= 2
-    ? (Array.isArray(input.waivedRuleIds) ? [...new Set(input.waivedRuleIds.map(value => String(value || '').trim().toLowerCase()))].sort() : [])
-    : [];
+  const waivedRuleIds = engineVersion >= 2 ? [...new Set(lowerCaseList(input.waivedRuleIds))].sort() : [];
   const applicationRuleIds = [...new Set(exceptionApplications.flatMap(item => item.ruleIds))].sort();
   const matchedIds = new Set(matchedRuleIds);
   if (waivedRuleIds.some(id => !matchedIds.has(id)) || stableJson(waivedRuleIds) !== stableJson(applicationRuleIds)) {
@@ -356,7 +445,7 @@ function normalizePolicyEvaluation(input, engineVersion = 1) {
       !Number.isSafeInteger(headRevision) || headRevision < 1) {
     fail('Policy evaluation version evidence is invalid');
   }
-  const output = {
+  const output: PolicyEvaluationEntry = {
     policyId: normalizeUuid(input.policyId, 'policy id'),
     policyKey: normalizePolicyKey(input.policyKey),
     versionId: normalizeUuid(input.versionId, 'policy version id'),
@@ -372,32 +461,68 @@ function normalizePolicyEvaluation(input, engineVersion = 1) {
     unsupportedRuleActions,
     evaluationHash: hash(input.evaluationHash, 'Policy evaluation hash')
   };
-  if (engineVersion >= 2) Object.assign(output, { originalEffect, originalConflict, waivedRuleIds, exceptionApplications });
-  return output;
+  /* The original effect was just shown to equal the one its matched rules give, so it is an effect. */
+  return engineVersion >= 2 ? { ...output, originalEffect: expectedOriginalEffect, originalConflict, waivedRuleIds, exceptionApplications } : output;
 }
 
-function normalizePolicyDecision(input, descriptor = null) {
+/* A verified policy decision: what the gateway acts on and the decision ledger records. */
+export interface PolicyDecision {
+  readonly schemaVersion: 1;
+  readonly engineVersion: 1 | 2;
+  readonly mutationId: string;
+  readonly scope: RepositoryScope;
+  readonly action: MutationActionName;
+  readonly category: string;
+  readonly risk: MutationRisk;
+  readonly actor: { readonly identityKey: string; readonly login: string };
+  readonly descriptorHash: string;
+  readonly source: 'active-policy-set' | 'no-active-policy' | 'evaluation-unavailable';
+  readonly policySetHash: string;
+  readonly exceptionSetHash?: string | null;
+  readonly activePolicyCount: number;
+  readonly policyEvaluations: readonly PolicyEvaluationEntry[];
+  readonly effectiveEffect: PolicyEffect;
+  readonly rolloutMode: EnforcementMode;
+  readonly enforcementOutcome: PolicyOutcome;
+  readonly warningCodes: readonly string[];
+  readonly blockCode: string | null;
+  readonly controlMapping: ControlMapping;
+  readonly evaluatedAt: string;
+  readonly decisionId?: string;
+  readonly previousHash?: string;
+  readonly recordHash?: string;
+}
+
+const DECISION_FIELDS = new Set([
+  'schemaVersion', 'engineVersion', 'mutationId', 'scope', 'action', 'category', 'risk', 'actor', 'descriptorHash', 'source',
+  'policySetHash', 'exceptionSetHash', 'activePolicyCount', 'policyEvaluations', 'effectiveEffect', 'rolloutMode',
+  'enforcementOutcome', 'warningCodes', 'blockCode', 'controlMapping', 'evaluatedAt',
+  'decisionId', 'previousHash', 'recordHash'
+]);
+const BLOCK_CODES = [
+  'POLICY_MUTATION_BLOCKED',
+  'POLICY_APPROVAL_REQUIRED',
+  'POLICY_EVALUATION_UNAVAILABLE',
+  'POLICY_UNSUPPORTED_ACTIVE_RULES'
+];
+
+export function normalizePolicyDecision(input: unknown, descriptor: unknown = null): PolicyDecision {
   if (!isPlainObject(input)) fail('Policy decision must be an object');
-  const allowed = new Set([
-    'schemaVersion', 'engineVersion', 'mutationId', 'scope', 'action', 'category', 'risk', 'actor', 'descriptorHash', 'source',
-    'policySetHash', 'exceptionSetHash', 'activePolicyCount', 'policyEvaluations', 'effectiveEffect', 'rolloutMode',
-    'enforcementOutcome', 'warningCodes', 'blockCode', 'controlMapping', 'evaluatedAt',
-    'decisionId', 'previousHash', 'recordHash'
-  ]);
-  for (const key of Object.keys(input)) if (!allowed.has(key)) fail(`Unsupported policy decision field: ${key}`);
+  for (const key of Object.keys(input)) if (!DECISION_FIELDS.has(key)) fail(`Unsupported policy decision field: ${key}`);
   const engineVersion = Number(input.engineVersion);
-  if (Number(input.schemaVersion) !== 1 || ![1, 2].includes(engineVersion)) fail('Policy decision schema is unsupported');
+  if (Number(input.schemaVersion) !== 1 || (engineVersion !== 1 && engineVersion !== 2)) fail('Policy decision schema is unsupported');
   const scope = normalizePolicyScope(input.scope);
   const mutationId = normalizeUuid(input.mutationId, 'mutation id');
   const action = String(input.action || '').trim().toLowerCase();
+  if (!isMutationAction(action)) fail('Policy decision action evidence is invalid');
   const definition = MUTATION_ACTIONS[action];
-  if (!definition || input.category !== definition.category || input.risk !== definition.risk) fail('Policy decision action evidence is invalid');
+  if (input.category !== definition.category || input.risk !== definition.risk) fail('Policy decision action evidence is invalid');
   const actor = input.actor;
   if (!isPlainObject(actor)) fail('Policy decision actor is invalid');
   const normalizedActor = { identityKey: normalizeIdentityKey(actor.identityKey, 'policy decision actor'), login: boundedText(actor.login, 'Policy decision actor login') };
   const source = String(input.source || '').trim();
-  if (!['active-policy-set', 'no-active-policy', 'evaluation-unavailable'].includes(source)) fail('Policy decision source is invalid');
-  const evaluations = Array.isArray(input.policyEvaluations) ? input.policyEvaluations.map(item => normalizePolicyEvaluation(item, engineVersion)) : [];
+  if (source !== 'active-policy-set' && source !== 'no-active-policy' && source !== 'evaluation-unavailable') fail('Policy decision source is invalid');
+  const evaluations = listOf(input.policyEvaluations).map(item => normalizePolicyEvaluation(item, engineVersion));
   const activePolicyCount = Number(input.activePolicyCount);
   if (!Number.isSafeInteger(activePolicyCount) || activePolicyCount < 0 || activePolicyCount > 100 || activePolicyCount !== evaluations.length) {
     fail('Policy decision active-policy count is invalid');
@@ -405,19 +530,14 @@ function normalizePolicyDecision(input, descriptor = null) {
   const effectiveEffect = String(input.effectiveEffect || '').trim();
   const rolloutMode = normalizeEnforcementMode(input.rolloutMode);
   const enforcementOutcome = String(input.enforcementOutcome || '').trim();
-  if (!Object.prototype.hasOwnProperty.call(EFFECT_RANK, effectiveEffect) || !['allow', 'warn', 'block'].includes(enforcementOutcome)) fail('Policy enforcement outcome is invalid');
-  const warningCodes = Array.isArray(input.warningCodes) ? [...new Set(input.warningCodes.map(value => String(value || '').trim()))].sort() : [];
+  if (!isPolicyEffect(effectiveEffect) || !isPolicyOutcome(enforcementOutcome)) fail('Policy enforcement outcome is invalid');
+  const warningCodes = [...new Set(listOf(input.warningCodes).map(value => String(value || '').trim()))].sort();
   if (warningCodes.length > 32 || warningCodes.some(value => !/^[A-Z][A-Z0-9_]{2,79}$/.test(value))) fail('Policy warning codes are invalid');
   const blockCode = input.blockCode == null ? null : String(input.blockCode).trim();
-  if ((enforcementOutcome === 'block') !== !!blockCode || (blockCode && ![
-    'POLICY_MUTATION_BLOCKED',
-    'POLICY_APPROVAL_REQUIRED',
-    'POLICY_EVALUATION_UNAVAILABLE',
-    'POLICY_UNSUPPORTED_ACTIVE_RULES'
-  ].includes(blockCode))) {
+  if ((enforcementOutcome === 'block') !== !!blockCode || (blockCode && !BLOCK_CODES.includes(blockCode))) {
     fail('Policy block code is invalid');
   }
-  const evaluatedAt = new Date(input.evaluatedAt);
+  const evaluatedAt = new Date(input.evaluatedAt as string | number | Date);
   if (!Number.isFinite(evaluatedAt.getTime())) fail('Policy decision timestamp is invalid');
   const normalizedControlMapping = normalizeControlMapping(input.controlMapping);
   const normalizedPolicySetHash = hash(input.policySetHash, 'Policy set hash');
@@ -462,7 +582,7 @@ function normalizePolicyDecision(input, descriptor = null) {
       fail('Policy decision evidence is inconsistent');
     }
   }
-  const output = {
+  const output: PolicyDecision = {
     schemaVersion: 1,
     engineVersion,
     mutationId,
@@ -485,25 +605,27 @@ function normalizePolicyDecision(input, descriptor = null) {
     controlMapping: normalizedControlMapping,
     evaluatedAt: evaluatedAt.toISOString()
   };
+  let recorded = output;
   if (input.decisionId != null || input.previousHash != null || input.recordHash != null) {
-    output.decisionId = normalizeUuid(input.decisionId, 'policy decision id');
+    const decisionId = normalizeUuid(input.decisionId, 'policy decision id');
     const previousHash = String(input.previousHash || '').trim();
-    if (previousHash !== POLICY_DECISION_GENESIS && !/^[0-9a-f]{64}$/.test(previousHash)) fail('Policy decision previous hash is invalid');
-    output.previousHash = previousHash;
-    output.recordHash = hash(input.recordHash, 'Policy decision record hash');
+    if (previousHash !== POLICY_DECISION_GENESIS && !isSha256Hex(previousHash)) fail('Policy decision previous hash is invalid');
+    recorded = { ...output, decisionId, previousHash, recordHash: hash(input.recordHash, 'Policy decision record hash') };
   }
   if (descriptor) {
-    if (mutationId !== descriptor.mutationId || scope.scopeKey !== descriptor.scopeKey || action !== descriptor.action ||
-        output.descriptorHash !== descriptorEvidenceHash(descriptor) ||
-        normalizedActor.identityKey !== descriptor.actorIdentityKey || normalizedActor.login.toLowerCase() !== descriptor.actorLogin.toLowerCase()) {
+    const actorLogin = read(descriptor, 'actorLogin');
+    if (mutationId !== read(descriptor, 'mutationId') || scope.scopeKey !== read(descriptor, 'scopeKey') || action !== read(descriptor, 'action') ||
+        recorded.descriptorHash !== descriptorEvidenceHash(descriptor) ||
+        normalizedActor.identityKey !== read(descriptor, 'actorIdentityKey') ||
+        typeof actorLogin !== 'string' || normalizedActor.login.toLowerCase() !== actorLogin.toLowerCase()) {
       fail('Policy decision does not match the active mutation', 'MUTATION_POLICY_DECISION_MISMATCH', 500);
     }
   }
-  if (Buffer.byteLength(stableJson(output), 'utf8') > MAX_DECISION_BYTES) fail('Policy decision is too large', 'POLICY_DECISION_TOO_LARGE', 500);
-  return deepFreeze(output);
+  if (Buffer.byteLength(stableJson(recorded), 'utf8') > MAX_DECISION_BYTES) fail('Policy decision is too large', 'POLICY_DECISION_TOO_LARGE', 500);
+  return deepFreeze(recorded);
 }
 
-function unavailableControlMapping(reasons = ['POLICY_EVALUATION_UNAVAILABLE']) {
+function unavailableControlMapping(reasons: readonly string[] = ['POLICY_EVALUATION_UNAVAILABLE']): ControlMapping {
   const body = {
     schemaVersion: 1,
     status: 'unavailable',
@@ -519,7 +641,9 @@ function unavailableControlMapping(reasons = ['POLICY_EVALUATION_UNAVAILABLE']) 
   return normalizeControlMapping({ ...body, mappingHash: sha256(body) });
 }
 
-function descriptorPolicyScope(descriptor) {
+type ScopedDescriptor = Pick<MutationDescriptor, 'provider' | 'authority' | 'owner' | 'repo' | 'scopeKey'>;
+
+function descriptorPolicyScope(descriptor: ScopedDescriptor): Fields {
   return {
     provider: descriptor.provider,
     baseUrl: `https://${descriptor.authority}`,
@@ -529,7 +653,7 @@ function descriptorPolicyScope(descriptor) {
   };
 }
 
-function unavailableDecision(descriptor, failureMode, now, failureCode = 'POLICY_EVALUATION_FAILED') {
+function unavailableDecision(descriptor: MutationDescriptor, failureMode: string, now: () => Date | number | string, failureCode: unknown = 'POLICY_EVALUATION_FAILED'): PolicyDecision {
   const controlPlaneRecovery = descriptor.category === 'governance';
   const unsupportedActiveRules = failureCode === 'POLICY_UNSUPPORTED_ACTIVE_RULES';
   const block = !controlPlaneRecovery && (failureMode === 'block' || unsupportedActiveRules);
@@ -567,32 +691,58 @@ function unavailableDecision(descriptor, failureMode, now, failureCode = 'POLICY
   return normalizePolicyDecision(body, descriptor);
 }
 
-function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new Date(), onError = () => {} } = {}) {
+/* The decision store the runtime writes through: it evaluates and records in one step. */
+export interface DecisionStore {
+  evaluateAndAppendPolicyDecision(input: { readonly scope: Fields; readonly descriptor: MutationDescriptor }): Promise<unknown>;
+}
+
+export interface GovernanceRuntimeOptions {
+  readonly store?: DecisionStore | null;
+  readonly failureMode?: string;
+  readonly now?: () => Date | number | string;
+  readonly onError?: (event: Readonly<{ code: string; action: string; scopeKey: string }>) => void;
+}
+
+export interface GovernanceRuntime extends PolicyEvaluator {
+  verify(decision: unknown, descriptor?: unknown): PolicyDecision;
+  evaluate(descriptor: MutationDescriptor): Promise<PolicyDecision>;
+}
+
+export function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new Date(), onError = () => {} }: GovernanceRuntimeOptions = {}): GovernanceRuntime {
   if (!store || typeof store.evaluateAndAppendPolicyDecision !== 'function') throw new TypeError('Governance runtime requires a decision store');
+  const decisions = store;
   const mode = String(failureMode || '').trim().toLowerCase();
   if (!['warn', 'block'].includes(mode)) throw new TypeError('Governance runtime failure mode must be warn or block');
   /* The mutation gateway's policy port: the decision for a descriptor, and the verification of any decision against one. */
   return Object.freeze({
     verify: normalizePolicyDecision,
-    async evaluate(descriptor) {
+    async evaluate(descriptor: MutationDescriptor): Promise<PolicyDecision> {
       try {
-        const decision = await store.evaluateAndAppendPolicyDecision({
+        const decision = await decisions.evaluateAndAppendPolicyDecision({
           scope: descriptorPolicyScope(descriptor),
           descriptor
         });
         return normalizePolicyDecision(decision, descriptor);
       } catch (error) {
+        const code = read(error, 'code');
         try {
           onError(Object.freeze({
-            code: String(error && error.code || 'POLICY_EVALUATION_FAILED').slice(0, 100),
+            code: String(error && code || 'POLICY_EVALUATION_FAILED').slice(0, 100),
             action: descriptor.action,
             scopeKey: descriptor.scopeKey
           }));
-        } catch {}
-        return unavailableDecision(descriptor, mode, now, error && error.code);
+        } catch { /* a failing observer does not change the decision */ }
+        return unavailableDecision(descriptor, mode, now, error && code);
       }
     }
   });
+}
+
+export interface StepEvaluatorInput {
+  readonly scope?: unknown;
+  readonly activePolicies?: unknown;
+  readonly activeExceptions?: unknown;
+  readonly evaluatedAt?: unknown;
 }
 
 /*
@@ -600,17 +750,6 @@ function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new 
  * judged by the active policy set that refused the original, through the same
  * evaluation, recording nothing. The platform asks; governance answers.
  */
-function activePolicySetStepEvaluator({ scope, activePolicies, activeExceptions, evaluatedAt } = {}) {
+export function activePolicySetStepEvaluator({ scope, activePolicies, activeExceptions, evaluatedAt }: StepEvaluatorInput = {}): (descriptor: MutationDescriptor) => PolicyDecision {
   return descriptor => evaluateActivePolicySet({ scope, descriptor, activePolicies, activeExceptions, evaluatedAt });
 }
-
-module.exports = Object.freeze({
-  GovernanceEnforcementError,
-  POLICY_DECISION_GENESIS,
-  normalizeEnforcementMode,
-  descriptorEvidenceHash,
-  evaluateActivePolicySet,
-  activePolicySetStepEvaluator,
-  normalizePolicyDecision,
-  createGovernanceRuntime
-});

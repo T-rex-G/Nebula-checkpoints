@@ -149,7 +149,17 @@ const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platfor
 const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
-const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
+const {
+  activePolicySetStepEvaluator,
+  assertGovernanceAuthorization,
+  clockOf,
+  createGovernanceApiService,
+  createGovernanceRuntime,
+  GovernanceStore,
+  normalizePolicyScope,
+  projectGovernanceInterfaceAccess,
+  startWebhookWorker
+} = require('./apps/api/src/modules/kepler/index.ts');
 const { createMutationGateway, normalizeMutationDescriptor } = require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { normalizeFileBatch, summarizeBatchItems } = require('./apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 const { pathFactsForAction } = require('./apps/api/src/platform/mutation-gateway/protected-paths.ts');
@@ -158,10 +168,6 @@ const {
   selectRepositories: selectActivityRepositories,
   feed: buildActivityFeed
 } = require('./src/activity-feed');
-const { activePolicySetStepEvaluator, createGovernanceRuntime } = require('./src/governance-enforcement');
-const { GovernanceStore } = require('./src/governance-store');
-const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
-const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const { auditRepository, assertAuditActive } = require('./src/code-audit');
@@ -173,7 +179,6 @@ const {
   CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
   previewMergePolicies, summarizeDecisions, VOCABULARY: TRIAGE_VOCABULARY
 } = require('./src/code-audit-triage');
-const { clockOf } = require('./src/code-audit-policy');
 const { exploitedInProduction } = require('./src/uranus-reach');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
@@ -201,7 +206,6 @@ const { summarizePosture } = require('./src/posture-summary');
 const { pullListItem } = require('./src/pull-list');
 const { buildInbox } = require('./src/findings-inbox');
 const codeowners = require('./packages/contracts/src/codeowners.ts');
-const { normalizePolicyScope } = require('./src/governance-model');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
@@ -8008,7 +8012,7 @@ app.post('/api/repo/:owner/:repo/code-audit/history/clear', providerSessionAcces
 });
 
 /*
- * Each open finding's clock (src/code-audit-policy.js): the days the audited
+ * Each open finding's clock (apps/api/src/modules/kepler/domain/code-audit-policy.ts): the days the audited
  * branch gives its severity, from the date the kept history first saw it. A
  * server without a history has no such date and draws no clocks, rather than
  * starting every clock again at each audit.

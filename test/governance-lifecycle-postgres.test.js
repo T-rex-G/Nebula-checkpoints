@@ -22,9 +22,9 @@ const path = require('path');
 const { Client, Pool } = require('pg');
 
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { GovernanceStore } = require('../src/governance-store');
-const { createGovernanceApiService } = require('../src/governance-api');
-const { DEFAULT_NOTIFICATION_EVENT_TYPES } = require('../src/governance-delivery');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
+const { DEFAULT_NOTIFICATION_EVENT_TYPES } = require('../apps/api/src/modules/kepler/index.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();

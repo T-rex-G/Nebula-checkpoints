@@ -18,7 +18,7 @@ const { Client, Pool } = require('pg');
 
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { CodeAuditHistory } = require('../src/code-audit-history');
-const { GovernanceStore } = require('../src/governance-store');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');

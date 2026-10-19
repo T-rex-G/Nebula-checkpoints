@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { stableJson } = require('./governance-model');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 
 const REPORT_SCHEMA_VERSION = '1.0.0';
 const DEFAULT_TIMEOUT_MS = 45_000;

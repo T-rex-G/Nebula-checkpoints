@@ -6,10 +6,10 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { GovernanceStore } = require('../src/governance-store');
-const { createGovernanceApiService } = require('../src/governance-api');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
 const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { createGovernanceRuntime } = require('../src/governance-enforcement');
+const { createGovernanceRuntime } = require('../apps/api/src/modules/kepler/index.ts');
 
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
 if (!ADMIN_URL) throw new Error('NV_TEST_DATABASE_URL is required for governance activation PostgreSQL tests');
@@ -193,7 +193,7 @@ const rejects = (promise, code) => assert.rejects(promise, error => {
     assert.strictEqual((await activeSet()).activePolicies.length, 100, 'replacing an active version does not consume another slot');
     {
       /* The impact simulation is computed before the activation takes its locks, never while holding them. */
-      const { simulatePolicyImpact } = require('../src/governance-simulation');
+      const { simulatePolicyImpact } = require('../apps/api/src/modules/kepler/index.ts');
       const checkedOut = [];
       const observed = new GovernanceStore(pool, { secret: 'activation-postgres-secret-0123456789abcdef',
         simulate: input => { checkedOut.push(pool.totalCount - pool.idleCount); return simulatePolicyImpact(input); } });

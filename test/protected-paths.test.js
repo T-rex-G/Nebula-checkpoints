@@ -20,7 +20,7 @@ for (const name of ['PATH_COVERAGE', 'ACTION_PATH_SEMANTICS', 'pathFactsForActio
 
 const { PATH_COVERAGE, ACTION_PATH_SEMANTICS, pathFactsForAction } = protectedPaths;
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { evaluatePolicyDocument } = require('../src/governance-simulation');
+const { evaluatePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(Object.isFrozen(PATH_COVERAGE), 'path coverage vocabulary must be immutable');
 assert(Object.isFrozen(ACTION_PATH_SEMANTICS), 'action path semantics must be immutable');
@@ -170,7 +170,7 @@ assert.throws(
 const { expandProtectedPaths } = protectedPaths;
 assert(expandProtectedPaths, 'expandProtectedPaths must be implemented');
 
-const { normalizePolicyDocument } = require('../src/governance-model');
+const { normalizePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 function documentFor(declarations, options) {
   const expansion = expandProtectedPaths(declarations, options);
@@ -299,7 +299,7 @@ assert.throws(() => expandProtectedPaths([]), error => error.code === 'PROTECTED
  * The template an operator actually reaches for
  * ------------------------------------------------------------------ */
 
-const { getPolicyTemplate, listPolicyTemplates } = require('../src/governance-templates');
+const { getPolicyTemplate, listPolicyTemplates } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(
   listPolicyTemplates().some(entry => entry.templateId === 'protected-paths'),
@@ -363,8 +363,8 @@ assert(
  * ------------------------------------------------------------------ */
 
 const { createMutationGateway, normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
-const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
-const { policyDocumentHash } = require('../src/governance-model');
+const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 void createGovernanceRuntime;
 
 const gatewayAuthorization = {

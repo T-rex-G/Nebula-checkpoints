@@ -277,7 +277,8 @@ function fixtureClaimRequirements() {
     'scripts/build-web.js',
     'apps/web/vite.config.js',
     'src/test-matrix.js',
-    'src/governance-model.js',
+    'packages/contracts/src/canonical-json.ts',
+    'packages/contracts/src/guards.ts',
     'test/example.test.js'
   ];
   try {
@@ -305,11 +306,21 @@ function fixtureClaimRequirements() {
       path.join(trustedRoot, 'src', 'test-matrix.js'),
       path.join(candidateRoot, 'src', 'test-matrix.js')
     );
-    fs.appendFileSync(path.join(candidateRoot, 'src', 'governance-model.js'), '// forged hash\n');
+    fs.appendFileSync(path.join(candidateRoot, 'packages', 'contracts', 'src', 'canonical-json.ts'), '// forged hash\n');
     assert.throws(
       () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
-      /does not match trusted source: src\/governance-model\.js/,
+      /does not match trusted source: packages\/contracts\/src\/canonical-json\.ts/,
       'the candidate must not replace the matrix report canonicalizer'
+    );
+    fs.copyFileSync(
+      path.join(trustedRoot, 'packages', 'contracts', 'src', 'canonical-json.ts'),
+      path.join(candidateRoot, 'packages', 'contracts', 'src', 'canonical-json.ts')
+    );
+    fs.appendFileSync(path.join(candidateRoot, 'packages', 'contracts', 'src', 'guards.ts'), '// forged guard\n');
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /does not match trusted source: packages\/contracts\/src\/guards\.ts/,
+      'the candidate must not replace the guard the canonicalizer is built on'
     );
   } finally {
     fs.rmSync(trustedRoot, { recursive: true, force: true });

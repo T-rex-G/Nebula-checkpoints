@@ -204,13 +204,13 @@ const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutati
 assert.throws(() => normalizeMutationDescriptor({ action: 'constructor' }), error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_ACTION_UNKNOWN' && error.status === 400);
 const { executionContractForAction } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 assert.throws(() => executionContractForAction('constructor'), error => error.code === 'MUTATION_EXECUTION_UNKNOWN');
-const exceptions = require('../src/governance-exceptions');
+const exceptions = require('../apps/api/src/modules/kepler/index.ts');
 const exceptionRequest = Object.values(exceptions).find(value => typeof value === 'function' && value.name === 'normalizeExceptionRequest');
 assert(exceptionRequest, 'governance-exceptions exports normalizeExceptionRequest');
 for (const action of ['constructor', '__proto__']) {
   assert.throws(() => exceptionRequest({ kind: 'exception', action }, {}), error => error.code === 'GOVERNANCE_EXCEPTION_ACTION_INVALID');
 }
-const { normalizeSimulationRequest } = require('../src/governance-simulation');
+const { normalizeSimulationRequest } = require('../apps/api/src/modules/kepler/index.ts');
 for (const action of ['constructor', '__proto__']) {
   assert.throws(() => normalizeSimulationRequest({ schemaVersion: 1, scenarios: [{ id: 'one', action }] }),
     error => error.code === 'SIMULATION_ACTION_UNKNOWN');

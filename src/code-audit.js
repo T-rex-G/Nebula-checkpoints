@@ -79,7 +79,7 @@ const { usageIndex, tierOf, riskOf, exploitedInProduction } = require('./uranus-
 const { lookupExploitIntel } = require('./exploit-intel');
 const ecosystems = require('./ecosystems');
 const licences = require('./licences');
-const auditPolicy = require('./code-audit-policy');
+const auditPolicy = require('../apps/api/src/modules/kepler/index.ts');
 
 /* Cancellation reasons can contain private context; only this fixed error leaves the audit. */
 function assertAuditActive(signal) {

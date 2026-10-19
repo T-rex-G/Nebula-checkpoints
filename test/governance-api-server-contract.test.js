@@ -9,8 +9,11 @@ const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform'
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
-assert(server.includes("require('./src/governance-api')"), 'server must load the governance API boundary');
-assert(server.includes("require('./src/governance-store')"), 'server must load the durable governance store');
+/* The server reaches governance through the Kepler module's index only. */
+const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
+assert(kepler, 'the server must load governance through the Kepler index');
+assert(/\bcreateGovernanceApiService\b/.test(kepler[1]), 'server must load the governance API boundary');
+assert(/\bGovernanceStore\b/.test(kepler[1]), 'server must load the durable governance store');
 assert(server.includes('function governanceAccess('), 'server must expose one governance authorization middleware');
 assert(server.includes('function governanceMutationContext('), 'governance writes must use one mutation gateway middleware');
 assert(server.includes('req.governance.authorization'), 'governance boundary must retain only server-derived authorization evidence');

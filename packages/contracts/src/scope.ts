@@ -3,7 +3,8 @@
  *
  * One scope names one repository at one provider authority, and its scopeKey
  * is how every store, cache and audit record compares two of them. Ported
- * from src/governance-model.js with its behaviour and codes unchanged.
+ * from the governance model (then src/governance-model.js) with its
+ * behaviour and codes unchanged.
  */
 import { isPlainObject, refuseWithContractError } from './guards.ts';
 import type { Refuse } from './guards.ts';

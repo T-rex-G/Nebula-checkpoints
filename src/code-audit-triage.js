@@ -30,8 +30,7 @@
 const crypto = require('crypto');
 const { score, priorities, LEDGER } = require('./code-audit');
 const { TIERS } = require('./uranus-reach');
-const { clockOf, DEFAULT_SLA } = require('./code-audit-policy');
-const { evaluatePolicyDocument } = require('./governance-simulation');
+const { clockOf, DEFAULT_SLA, evaluatePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 const DISPOSITIONS = Object.freeze(['accepted-risk', 'false-positive']);
 const FALSE_POSITIVE_REASONS = Object.freeze(['not-reachable', 'validated', 'test-code', 'not-sensitive', 'misread']);

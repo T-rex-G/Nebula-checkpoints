@@ -1,54 +1,64 @@
-'use strict';
-
-const crypto = require('crypto');
-const {
-  GovernanceError,
+import { createHash } from 'node:crypto';
+import {
   normalizePolicyScope,
   normalizePolicyDocument,
   normalizeApprovalPolicy,
-  policyDocumentHash,
-  stableJson
-} = require('./governance-model');
-const { expandProtectedPaths } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
+  policyDocumentHash
+} from './governance-model.ts';
+import { stableJson } from '../../../../../../packages/contracts/src/canonical-json.ts';
+import type { ApprovalPolicy, PolicyDocument } from './governance-model.ts';
+import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
+import { expandProtectedPaths } from '../../../platform/mutation-gateway/protected-paths.ts';
+
+type Fields = Readonly<Record<string, unknown>>;
 
 const TEMPLATE_CATALOG_ID = 'nebulaverse-policy-template-catalog';
 const TEMPLATE_CATALOG_VERSION = '1.3.0';
 const MAX_FACTS_BYTES = 16 * 1024;
 const MAX_PROTECTED_BRANCHES = 50;
-const SAFE_BRANCH_RX = /^[A-Za-z0-9._\/-]{1,255}$/;
+const SAFE_BRANCH_RX = /^[A-Za-z0-9._/-]{1,255}$/;
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SENSITIVE_RX = /(?:token|secret|password|privatekey|authorization|cookie)/i;
 const SENSITIVE_VALUE_RX = /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/i;
 
-class GovernanceTemplateError extends Error {
-  constructor(message, code, status = 400, details) {
+/* Set only when the refusal carries details of its own, so it is typed here rather than declared as a field that would always exist. */
+export interface GovernanceTemplateError {
+  readonly details?: unknown;
+}
+
+export class GovernanceTemplateError extends Error {
+  override readonly name = 'GovernanceTemplateError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 400, details: unknown = undefined) {
     super(message);
-    this.name = 'GovernanceTemplateError';
     this.code = code;
     this.status = status;
-    if (details !== undefined) this.details = details;
+    if (details !== undefined) (this as { details?: unknown }).details = details;
   }
 }
 
-function fail(message, code, status = 400, details) {
+function fail(message: string, code: string, status = 400, details: unknown = undefined): never {
   throw new GovernanceTemplateError(message, code, status, details);
 }
 
-function deepFreeze(value) {
+function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const item of Object.values(value)) deepFreeze(item);
   return Object.freeze(value);
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+/* A detached copy of catalogue data, which is JSON throughout. */
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : stableJson(value), 'utf8').digest('hex');
+function sha256(value: unknown): string {
+  return createHash('sha256').update(typeof value === 'string' ? value : stableJson(value), 'utf8').digest('hex');
 }
 
-function normalizeBranch(value, label) {
+function normalizeBranch(value: unknown, label: string): string {
   const text = String(value == null ? '' : value).trim().replace(/^refs\/heads\//, '');
   if (!text || !SAFE_BRANCH_RX.test(text) || SENSITIVE_VALUE_RX.test(text) || text.includes('..') || text.startsWith('/') || text.endsWith('/')) {
     fail(`${label} is invalid`, 'GOVERNANCE_BASELINE_FACTS_INVALID');
@@ -56,42 +66,68 @@ function normalizeBranch(value, label) {
   return text;
 }
 
-function normalizeRepositoryFacts(input, scope) {
+/* What the server resolved about a repository, and how complete that is. */
+export interface RepositoryFacts {
+  readonly schemaVersion: 1;
+  readonly defaultBranch: string | null;
+  readonly protectedBranches: readonly string[];
+  readonly pullRequestsEnabled: boolean | null;
+  readonly visibility: string | null;
+  readonly archived: boolean;
+  readonly branchesComplete: boolean;
+  readonly protectedBranchesTruncated: boolean;
+  readonly resolvedForScopeKey: string;
+}
+
+export function normalizeRepositoryFacts(input: unknown, scope: RepositoryScope): RepositoryFacts {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     fail('Repository facts are required', 'GOVERNANCE_BASELINE_FACTS_INVALID');
   }
-  const proto = Object.getPrototypeOf(input);
+  const proto: unknown = Object.getPrototypeOf(input);
   if (proto !== Object.prototype && proto !== null) fail('Repository facts must be a plain JSON object', 'GOVERNANCE_BASELINE_FACTS_INVALID');
+  const fields = input as Fields;
   const allowed = new Set(['schemaVersion', 'defaultBranch', 'protectedBranches', 'pullRequestsEnabled', 'visibility', 'archived', 'branchesComplete', 'protectedBranchesTruncated', 'resolvedForScopeKey']);
-  for (const key of Object.keys(input)) {
+  for (const key of Object.keys(fields)) {
     if (DANGEROUS_KEYS.has(key.toLowerCase()) || SENSITIVE_RX.test(key) || !allowed.has(key)) {
       fail('Repository facts contain an unsupported or sensitive field', 'GOVERNANCE_BASELINE_FACTS_INVALID');
     }
-    if (typeof input[key] === 'string' && SENSITIVE_VALUE_RX.test(input[key])) {
+    const value = fields[key];
+    if (typeof value === 'string' && SENSITIVE_VALUE_RX.test(value)) {
       fail('Repository facts appear to contain credential material', 'GOVERNANCE_BASELINE_FACTS_INVALID');
     }
   }
-  if (Number(input.schemaVersion) !== 1) fail('Only repository facts schema version 1 is supported', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const defaultBranch = input.defaultBranch == null || input.defaultBranch === '' ? null : normalizeBranch(input.defaultBranch, 'Default branch');
-  if (input.protectedBranches != null && !Array.isArray(input.protectedBranches)) {
+  if (Number(fields.schemaVersion) !== 1) fail('Only repository facts schema version 1 is supported', 'GOVERNANCE_BASELINE_FACTS_INVALID');
+  const defaultBranch = fields.defaultBranch == null || fields.defaultBranch === '' ? null : normalizeBranch(fields.defaultBranch, 'Default branch');
+  if (fields.protectedBranches != null && !Array.isArray(fields.protectedBranches)) {
     fail('Protected branches must be an array', 'GOVERNANCE_BASELINE_FACTS_INVALID');
   }
-  if ((input.protectedBranches || []).length > MAX_PROTECTED_BRANCHES) fail('Too many protected branches', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const protectedBranches = [...new Set((input.protectedBranches || []).map(value => normalizeBranch(value, 'Protected branch')))].sort();
-  const pullRequestsEnabled = input.pullRequestsEnabled == null ? null : input.pullRequestsEnabled;
+  const listed = (fields.protectedBranches || []) as readonly unknown[];
+  if (listed.length > MAX_PROTECTED_BRANCHES) fail('Too many protected branches', 'GOVERNANCE_BASELINE_FACTS_INVALID');
+  const protectedBranches = [...new Set(listed.map(value => normalizeBranch(value, 'Protected branch')))].sort();
+  const pullRequestsEnabled = fields.pullRequestsEnabled == null ? null : fields.pullRequestsEnabled;
   if (pullRequestsEnabled !== null && typeof pullRequestsEnabled !== 'boolean') fail('Pull request capability is invalid', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const visibility = input.visibility == null ? null : String(input.visibility).trim().toLowerCase();
+  const visibility = fields.visibility == null ? null : String(fields.visibility).trim().toLowerCase();
   if (visibility !== null && !['private', 'internal', 'public', 'unknown'].includes(visibility)) fail('Repository visibility is invalid', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const archived = input.archived == null ? false : input.archived;
+  const archived = fields.archived == null ? false : fields.archived;
   if (typeof archived !== 'boolean') fail('Repository archived state is invalid', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const branchesComplete = input.branchesComplete == null ? false : input.branchesComplete;
-  const protectedBranchesTruncated = input.protectedBranchesTruncated == null ? false : input.protectedBranchesTruncated;
+  const branchesComplete = fields.branchesComplete == null ? false : fields.branchesComplete;
+  const protectedBranchesTruncated = fields.protectedBranchesTruncated == null ? false : fields.protectedBranchesTruncated;
   if (typeof branchesComplete !== 'boolean' || typeof protectedBranchesTruncated !== 'boolean') fail('Repository branch fact completeness is invalid', 'GOVERNANCE_BASELINE_FACTS_INVALID');
-  const resolvedForScopeKey = input.resolvedForScopeKey == null ? scope.scopeKey : String(input.resolvedForScopeKey).trim();
+  const resolvedForScopeKey = fields.resolvedForScopeKey == null ? scope.scopeKey : String(fields.resolvedForScopeKey).trim();
   if (resolvedForScopeKey !== scope.scopeKey) fail('Repository facts do not match the requested scope', 'GOVERNANCE_BASELINE_SCOPE_MISMATCH', 409);
-  const facts = { schemaVersion: 1, defaultBranch, protectedBranches, pullRequestsEnabled, visibility, archived, branchesComplete, protectedBranchesTruncated, resolvedForScopeKey };
+  const facts: RepositoryFacts = { schemaVersion: 1, defaultBranch, protectedBranches, pullRequestsEnabled, visibility, archived, branchesComplete, protectedBranchesTruncated, resolvedForScopeKey };
   if (Buffer.byteLength(stableJson(facts), 'utf8') > MAX_FACTS_BYTES) fail('Repository facts exceed the configured limit', 'GOVERNANCE_BASELINE_FACTS_TOO_LARGE', 413);
   return deepFreeze(facts);
+}
+
+/* A template: what it is called, how many must approve it, and the document it builds from a repository's facts. */
+interface TemplateDefinition {
+  readonly templateId: string;
+  readonly version: string;
+  readonly name: string;
+  readonly description: string;
+  readonly approvalPolicy: ApprovalPolicy;
+  buildDocument(facts: RepositoryFacts): Readonly<Record<string, unknown>>;
 }
 
 /*
@@ -99,7 +135,7 @@ function normalizeRepositoryFacts(input, scope) {
  * itself. Each one is here because changing it changes an enforcement decision
  * somewhere else, not because it is merely important.
  */
-const DEFAULT_PROTECTED_PATHS = Object.freeze([
+const DEFAULT_PROTECTED_PATHS: readonly { readonly pattern: string; readonly effect: string }[] = Object.freeze([
   Object.freeze({ pattern: '.github/workflows/**', effect: 'deny' }),
   Object.freeze({ pattern: '.github/actions/**', effect: 'deny' }),
   Object.freeze({ pattern: '.github/CODEOWNERS', effect: 'deny' }),
@@ -109,7 +145,7 @@ const DEFAULT_PROTECTED_PATHS = Object.freeze([
   Object.freeze({ pattern: '.gitattributes', effect: 'deny' })
 ]);
 
-function reviewDeclarations(defaultBranch) {
+function reviewDeclarations(defaultBranch: string): { pattern: string; effect: string; branch: string }[] {
   return DEFAULT_PROTECTED_PATHS.map(entry => ({
     pattern: entry.pattern,
     effect: 'require-approval',
@@ -117,7 +153,7 @@ function reviewDeclarations(defaultBranch) {
   }));
 }
 
-function protectedPathsDescription(expansion) {
+function protectedPathsDescription(expansion: ReturnType<typeof expandProtectedPaths>): string {
   const patterns = expansion.coverage.map(entry => entry.pattern).join(', ');
   const ancestors = [...new Set(expansion.coverage.flatMap(entry => entry.ancestorPaths))].sort();
   const wholeGuards = [...new Set(expansion.coverage.flatMap(entry => entry.wholeActionGuards))].sort();
@@ -134,7 +170,7 @@ function protectedPathsDescription(expansion) {
   ].filter(Boolean).join(' ');
 }
 
-const DEFINITIONS = Object.freeze([
+const DEFINITIONS: readonly TemplateDefinition[] = Object.freeze([
   Object.freeze({
     templateId: 'observe-baseline', version: '1.0.0',
     name: 'Observe-only baseline',
@@ -149,8 +185,8 @@ const DEFINITIONS = Object.freeze([
     name: 'Protected default branch',
     description: 'Observe-only safeguards for destructive repository and default-branch operations.',
     approvalPolicy: Object.freeze({ requiredApprovals: 1, disallowAuthorApproval: true }),
-    buildDocument(facts) {
-      const rules = [
+    buildDocument(facts: RepositoryFacts) {
+      const rules: Record<string, unknown>[] = [
         { id: 'repository-delete', action: 'repository.delete', effect: 'deny', description: 'Protect repository deletion.' }
       ];
       const protectedBranches = [...new Set([...(facts.protectedBranches || []), ...(facts.defaultBranch ? [facts.defaultBranch] : [])])].sort();
@@ -187,7 +223,7 @@ const DEFINITIONS = Object.freeze([
     name: 'Protected sensitive paths (review required)',
     description: 'Observe-only review requirement for sensitive paths on the default branch, leaving the change a route to a pull request.',
     approvalPolicy: Object.freeze({ requiredApprovals: 2, disallowAuthorApproval: true }),
-    buildDocument(facts) {
+    buildDocument(facts: RepositoryFacts) {
       const defaultBranch = facts && facts.defaultBranch ? String(facts.defaultBranch) : '';
       /*
        * Merging has to be held as well. The point of this posture is that a
@@ -286,9 +322,20 @@ const DEFINITIONS = Object.freeze([
   })
 ]);
 
-const PUBLIC_TEMPLATES = DEFINITIONS.map(definition => {
-  const genericFacts = { schemaVersion: 1, defaultBranch: null, protectedBranches: [], pullRequestsEnabled: null, visibility: null, archived: false, branchesComplete: false, protectedBranchesTruncated: false, resolvedForScopeKey: 'template:generic' };
-  const document = normalizePolicyDocument(definition.buildDocument(genericFacts));
+export interface TemplateSummary {
+  readonly templateId: string;
+  readonly version: string;
+  readonly name: string;
+  readonly description: string;
+  readonly approvalPolicy: ApprovalPolicy;
+  readonly compatibility: { readonly policySchemaVersions: readonly number[]; readonly providers: readonly string[]; readonly generatorVersion: number };
+  readonly templateHash: string;
+}
+
+const GENERIC_FACTS: RepositoryFacts = Object.freeze({ schemaVersion: 1, defaultBranch: null, protectedBranches: [], pullRequestsEnabled: null, visibility: null, archived: false, branchesComplete: false, protectedBranchesTruncated: false, resolvedForScopeKey: 'template:generic' });
+
+const PUBLIC_TEMPLATES: readonly TemplateSummary[] = DEFINITIONS.map(definition => {
+  const document = normalizePolicyDocument(definition.buildDocument(GENERIC_FACTS));
   const templateHash = sha256({
     catalogId: TEMPLATE_CATALOG_ID,
     catalogVersion: TEMPLATE_CATALOG_VERSION,
@@ -308,35 +355,77 @@ const PUBLIC_TEMPLATES = DEFINITIONS.map(definition => {
   });
 });
 
-const TEMPLATE_CATALOG = deepFreeze({
+export interface TemplateCatalog {
+  readonly catalogId: string;
+  readonly version: string;
+  readonly templateCount: number;
+  readonly catalogHash: string;
+}
+
+export const TEMPLATE_CATALOG: TemplateCatalog = deepFreeze({
   catalogId: TEMPLATE_CATALOG_ID,
   version: TEMPLATE_CATALOG_VERSION,
   templateCount: PUBLIC_TEMPLATES.length,
   catalogHash: sha256(PUBLIC_TEMPLATES)
 });
 
-function definitionOf(templateId) {
+function definitionOf(templateId: unknown): TemplateDefinition {
   const id = String(templateId || '').trim().toLowerCase();
   const definition = DEFINITIONS.find(item => item.templateId === id);
   if (!definition) fail('Policy template was not found', 'GOVERNANCE_TEMPLATE_NOT_FOUND', 404);
   return definition;
 }
 
-function listPolicyTemplates() {
+/* Every definition has its summary, built from the same list. */
+function summaryOf(definition: TemplateDefinition): TemplateSummary {
+  const summary = PUBLIC_TEMPLATES.find(item => item.templateId === definition.templateId);
+  if (!summary) throw new TypeError(`Policy template ${definition.templateId} has no catalogue summary`);
+  return summary;
+}
+
+export function listPolicyTemplates(): readonly TemplateSummary[] {
   return deepFreeze(PUBLIC_TEMPLATES.map(item => clone(item)).sort((a, b) => a.templateId.localeCompare(b.templateId)));
 }
 
-function getPolicyTemplate(templateId) {
+export interface PolicyTemplate extends TemplateSummary {
+  readonly catalog: TemplateCatalog;
+  readonly document: PolicyDocument;
+}
+
+export function getPolicyTemplate(templateId: unknown): PolicyTemplate {
   const definition = definitionOf(templateId);
-  const summary = PUBLIC_TEMPLATES.find(item => item.templateId === definition.templateId);
-  const document = normalizePolicyDocument(definition.buildDocument({ schemaVersion: 1, defaultBranch: null, protectedBranches: [], pullRequestsEnabled: null, visibility: null, archived: false, branchesComplete: false, protectedBranchesTruncated: false, resolvedForScopeKey: 'template:generic' }));
+  const summary = summaryOf(definition);
+  const document = normalizePolicyDocument(definition.buildDocument(GENERIC_FACTS));
   return deepFreeze({ ...clone(summary), catalog: clone(TEMPLATE_CATALOG), document });
 }
 
-function generateRepositoryBaseline(input = {}) {
-  const scope = normalizePolicyScope(input.scope);
-  const definition = definitionOf(input.templateId);
-  const facts = normalizeRepositoryFacts(input.facts, scope);
+export interface RepositoryBaseline {
+  readonly schemaVersion: 1;
+  readonly scope: RepositoryScope;
+  readonly document: PolicyDocument;
+  readonly documentHash: string;
+  readonly approvalPolicy: ApprovalPolicy;
+  readonly provenance: {
+    readonly schemaVersion: 1;
+    readonly catalogId: string;
+    readonly catalogVersion: string;
+    readonly catalogHash: string;
+    readonly templateId: string;
+    readonly templateVersion: string;
+    readonly templateHash: string;
+    readonly factsSource: 'server-resolved';
+    readonly factsHash: string;
+    readonly scopeHash: string;
+  };
+  readonly readiness: { readonly status: 'partial' | 'ready'; readonly warnings: readonly string[] };
+  readonly baselineHash: string;
+}
+
+export function generateRepositoryBaseline(input: unknown = {}): RepositoryBaseline {
+  const fields = input as Fields;
+  const scope = normalizePolicyScope(fields.scope);
+  const definition = definitionOf(fields.templateId);
+  const facts = normalizeRepositoryFacts(fields.facts, scope);
   const document = normalizePolicyDocument({
     ...definition.buildDocument(facts),
     metadata: {
@@ -356,32 +445,23 @@ function generateRepositoryBaseline(input = {}) {
   const approvalPolicy = normalizeApprovalPolicy(definition.approvalPolicy);
   const documentHash = policyDocumentHash(document);
   const provenance = {
-    schemaVersion: 1,
+    schemaVersion: 1 as const,
     catalogId: TEMPLATE_CATALOG.catalogId,
     catalogVersion: TEMPLATE_CATALOG.version,
     catalogHash: TEMPLATE_CATALOG.catalogHash,
     templateId: definition.templateId,
     templateVersion: definition.version,
-    templateHash: PUBLIC_TEMPLATES.find(item => item.templateId === definition.templateId).templateHash,
-    factsSource: 'server-resolved',
+    templateHash: summaryOf(definition).templateHash,
+    factsSource: 'server-resolved' as const,
     factsHash: sha256(facts),
     scopeHash: sha256(scope)
   };
-  const warnings = [];
+  const warnings: string[] = [];
   if (['protected-default-branch', 'protected-paths-review'].includes(definition.templateId) && !facts.defaultBranch) warnings.push('default-branch-unresolved');
   if (!facts.branchesComplete) warnings.push('branch-facts-incomplete');
   if (facts.protectedBranchesTruncated) warnings.push('protected-branches-truncated');
   if (facts.archived) warnings.push('repository-archived');
-  const readiness = { status: warnings.length ? 'partial' : 'ready', warnings };
+  const readiness = { status: warnings.length ? 'partial' as const : 'ready' as const, warnings };
   const baselineHash = sha256({ scope, documentHash, approvalPolicy, provenance, readiness });
   return deepFreeze({ schemaVersion: 1, scope, document, documentHash, approvalPolicy, provenance, readiness, baselineHash });
 }
-
-module.exports = Object.freeze({
-  GovernanceTemplateError,
-  TEMPLATE_CATALOG,
-  listPolicyTemplates,
-  getPolicyTemplate,
-  generateRepositoryBaseline,
-  normalizeRepositoryFacts
-});

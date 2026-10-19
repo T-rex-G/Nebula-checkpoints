@@ -170,8 +170,8 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * authorization and the request body to one method of the governance service
  * and returns what it answers. The role is checked twice, here and in the
  * service; every decision -- what may be switched off, whether a key is free,
- * whose draft it is, what a reset touches -- is in `src/governance-api.js` and
- * `src/governance-store.js`, and is tested against a real database.
+ * whose draft it is, what a reset touches -- is in `apps/api/src/modules/kepler/application/governance-api.ts` and
+ * `apps/api/src/modules/kepler/persistence/governance-store.ts`, and is tested against a real database.
  *
  * 166 to 167 adds the workspace posture read the overview scores. The handler
  * is one call: the credential classification, the recovery and exposure
@@ -222,7 +222,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * again after a decision. Each handler is a call into a module --
  * `src/code-audit-triage.js` (the decisions, how they lie over an audit, the
  * gate and its policy preview), `src/code-audit-history.js` (first-seen dates,
- * resolutions and the metrics) and `src/code-audit-policy.js` (the clock) --
+ * resolutions and the metrics) and `apps/api/src/modules/kepler/domain/code-audit-policy.ts` (the clock) --
  * each tested on its own, against a real database where it keeps rows.
  */
 /*

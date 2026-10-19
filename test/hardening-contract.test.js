@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
-for (const sourceFile of ['src/governance-api.js']) {
+for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-api.ts']) {
   const bytes = fs.readFileSync(path.join(root, sourceFile));
   const forbidden = [...bytes].filter(byte => (byte < 32 && ![9, 10, 13].includes(byte)) || byte === 127);
   assert.strictEqual(forbidden.length, 0, `${sourceFile} must not contain literal control bytes`);

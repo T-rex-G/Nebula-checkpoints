@@ -14,10 +14,10 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const store = fs.readFileSync(path.join(root, 'src', 'governance-store.js'), 'utf8');
+const store = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'persistence', 'governance-store.ts'), 'utf8');
 const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
-const { GovernanceStore } = require('../src/governance-store');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 const { offerSafePassage, ROUTABLE_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/safe-passage.ts');
 
 assert(server.includes("require('./apps/api/src/platform/mutation-gateway/safe-passage.ts')"), 'server must load the safe passage module');

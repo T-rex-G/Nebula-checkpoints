@@ -6,8 +6,8 @@ const ui = require('./semantic');
 const capabilityDocument = require('../../config/public-alpha-capabilities.json');
 const { projectCapabilities } = require('../../src/capability-registry');
 
-const { buildPolicyDigitalTwinReadModel } = require('../../src/governance-digital-twin');
-const { projectGovernanceInterfaceAccess } = require('../../src/governance-interface');
+const { buildPolicyDigitalTwinReadModel } = require('../../apps/api/src/modules/kepler/index.ts');
+const { projectGovernanceInterfaceAccess } = require('../../apps/api/src/modules/kepler/index.ts');
 
 const HEAD_SHA = 'a'.repeat(40);
 
@@ -408,7 +408,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
   };
   /* The team's decisions about the repository's findings, and every step of them, as the triage store keeps them. */
   const triageModule = require('../../src/code-audit-triage');
-  const { clockOf } = require('../../src/code-audit-policy');
+  const { clockOf } = require('../../apps/api/src/modules/kepler/index.ts');
   const { exploitedInProduction } = require('../../src/uranus-reach');
   state.triage = new Map();
   state.triageEvents = [];

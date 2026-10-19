@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const registry = require('../config/public-alpha-capabilities.json');
-const { stableJson } = require('../src/governance-model');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { run: runSecretScan } = require('./check-secrets');
 const {
@@ -540,8 +540,10 @@ const DEFAULT_TRUSTED_PROGRAM_PATHS = Object.freeze([
   /* The page build and its configuration run before every server the gate starts. */
   'scripts/build-web.js',
   'apps/web/vite.config.js',
+  /* The matrix runner and the canonical JSON it hashes its evidence with: everything it loads. */
   'src/test-matrix.js',
-  'src/governance-model.js'
+  'packages/contracts/src/canonical-json.ts',
+  'packages/contracts/src/guards.ts'
 ]);
 
 function assertTrustedQualificationPrograms(candidateRoot, trustedRoot, explicitPaths) {

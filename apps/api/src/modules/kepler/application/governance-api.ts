@@ -1,55 +1,93 @@
-'use strict';
-
-const dns = require('dns');
-const {
+import { promises as dnsPromises } from 'node:dns';
+import {
   normalizePolicyScope,
   normalizePolicyDocument,
   normalizeApprovalPolicy,
   policyDocumentHash
-} = require('./governance-model');
-const {
+} from '../domain/governance-model.ts';
+import type { ApprovalPolicy, PolicyDocument } from '../domain/governance-model.ts';
+import {
   GOVERNANCE_ROLE_NAMES,
   normalizeAuthorizationSnapshot
-} = require('../apps/api/src/platform/authorization/authorization-resolver.ts');
-const { simulatePolicyImpact, normalizeSimulationRequest } = require('./governance-simulation');
-const { listPolicyTemplates, getPolicyTemplate, generateRepositoryBaseline } = require('./governance-templates');
-const { buildPolicyDigitalTwinReadModel, normalizeDigitalTwinOptions } = require('./governance-digital-twin');
-const {
+} from '../../../platform/authorization/authorization-resolver.ts';
+import type { AuthorizationSnapshot, GovernanceRoleName } from '../../../../../../packages/contracts/src/actor.ts';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
+import { simulatePolicyImpact, normalizeSimulationRequest } from '../domain/governance-simulation.ts';
+import type { SimulationRequest } from '../domain/governance-simulation.ts';
+import { listPolicyTemplates, getPolicyTemplate, generateRepositoryBaseline } from '../domain/governance-templates.ts';
+import { buildPolicyDigitalTwinReadModel, normalizeDigitalTwinOptions } from '../domain/governance-digital-twin.ts';
+import {
   normalizeNotificationPreferences,
   normalizeWebhookDefinition,
   normalizeWebhookDestination
-} = require('./governance-delivery');
+} from '../delivery/governance-delivery.ts';
 
-const ROLE_SET = new Set(GOVERNANCE_ROLE_NAMES);
+type Fields = Readonly<Record<string, unknown>>;
 
-class GovernanceApiError extends Error {
-  constructor(message, code, status = 400) {
+const ROLE_SET: ReadonlySet<string> = new Set(GOVERNANCE_ROLE_NAMES);
+
+export class GovernanceApiError extends Error {
+  override readonly name = 'GovernanceApiError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'GovernanceApiError';
     this.code = code;
     this.status = status;
   }
 }
 
-function fail(message, code, status = 400) {
+function fail(message: string, code: string, status = 400): never {
   throw new GovernanceApiError(message, code, status);
 }
 
-function deepFreeze(value) {
+function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const item of Object.values(value)) deepFreeze(item);
   return Object.freeze(value);
 }
 
-function normalizeNow(now) {
+/* A field of something that may not be an object, read as plain JavaScript would. */
+function read(value: unknown, key: string): unknown {
+  return value == null ? undefined : (value as Fields)[key];
+}
+
+function isRoleName(value: string): value is GovernanceRoleName {
+  return ROLE_SET.has(value);
+}
+
+export type GovernanceClock = (() => number) | number;
+
+function normalizeNow(now: GovernanceClock | undefined): number {
   const timestamp = Number(typeof now === 'function' ? now() : Date.now());
   if (!Number.isFinite(timestamp)) fail('Governance authorization clock is invalid', 'GOVERNANCE_AUTHORIZATION_INVALID', 500);
   return timestamp;
 }
 
-function assertGovernanceAuthorization(input = {}) {
+export interface GovernanceActorRef {
+  readonly identityKey: string;
+  readonly login: string;
+}
+
+/* Who is asking, on which repository, with the authority the provider confirmed. */
+export interface GovernanceContext {
+  readonly scope: RepositoryScope;
+  readonly authorization: AuthorizationSnapshot;
+  readonly actor: GovernanceActorRef;
+}
+
+export interface AuthorizationCheck {
+  readonly requiredRole?: unknown;
+  readonly scope?: unknown;
+  readonly authorization?: unknown;
+  readonly now?: GovernanceClock;
+}
+
+export function assertGovernanceAuthorization(input: AuthorizationCheck = {}): GovernanceContext {
   const requiredRole = String(input.requiredRole || '').trim().toLowerCase();
-  if (!ROLE_SET.has(requiredRole)) fail('Governance role requirement is invalid', 'GOVERNANCE_ROLE_INVALID', 500);
+  if (!isRoleName(requiredRole)) fail('Governance role requirement is invalid', 'GOVERNANCE_ROLE_INVALID', 500);
   const scope = normalizePolicyScope(input.scope);
   const authorization = normalizeAuthorizationSnapshot(input.authorization);
   if (authorization.scope.scopeKey !== scope.scopeKey) {
@@ -80,19 +118,24 @@ function assertGovernanceAuthorization(input = {}) {
 }
 
 
-function bodyObject(value) {
+function bodyObject(value: unknown): Fields {
   if (value == null) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     fail('Governance review input must be a JSON object', 'GOVERNANCE_REVIEW_INPUT_INVALID', 400);
   }
-  const proto = Object.getPrototypeOf(value);
+  const proto: unknown = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) {
     fail('Governance review input must be a plain JSON object', 'GOVERNANCE_REVIEW_INPUT_INVALID', 400);
   }
-  return value;
+  return value as Fields;
 }
 
-function assertReviewInputFields(input, allowed) {
+/* The request body when it is an object of any kind, and nothing otherwise. */
+function bodyOrEmpty(value: unknown): Fields {
+  return value && typeof value === 'object' ? value as Fields : {};
+}
+
+function assertReviewInputFields(input: unknown, allowed: ReadonlySet<string>): Fields {
   const body = bodyObject(input);
   const forbiddenIdentity = new Set([
     'reviewer', 'reviewerIdentityKey', 'reviewerLogin', 'actor', 'actorIdentityKey', 'actorLogin',
@@ -107,7 +150,16 @@ function assertReviewInputFields(input, allowed) {
   return body;
 }
 
-function reviewerAuthorizationEvidence(authorization) {
+/* The provider's confirmation of a person's access, as a review, activation or exception records it. */
+export interface AuthorizationEvidence {
+  readonly accessLevel: number;
+  readonly providerRole: string | null;
+  readonly source: string;
+  readonly fetchedAt: string;
+  readonly expiresAt: string;
+}
+
+function authorizationEvidence(authorization: AuthorizationSnapshot): AuthorizationEvidence {
   return deepFreeze({
     accessLevel: authorization.repositoryAccess.level,
     providerRole: authorization.repositoryAccess.providerRole,
@@ -117,25 +169,26 @@ function reviewerAuthorizationEvidence(authorization) {
   });
 }
 
-function activatorAuthorizationEvidence(authorization) {
-  return deepFreeze({
-    accessLevel: authorization.repositoryAccess.level,
-    providerRole: authorization.repositoryAccess.providerRole,
-    source: authorization.repositoryAccess.source,
-    fetchedAt: authorization.evidence.fetchedAt,
-    expiresAt: authorization.evidence.expiresAt
-  });
+const reviewerAuthorizationEvidence = authorizationEvidence;
+const activatorAuthorizationEvidence = authorizationEvidence;
+const exceptionAuthorizationEvidence = authorizationEvidence;
+
+interface ActivationInput {
+  readonly expectedRevision: number;
+  readonly reason: string;
+  readonly simulationHash: string;
+  readonly simulationRequest: SimulationRequest;
 }
 
-function assertActivationInput(input) {
+function assertActivationInput(input: unknown): ActivationInput {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     fail('Governance activation input must be a JSON object', 'GOVERNANCE_ACTIVATION_INPUT_INVALID', 400);
   }
-  const proto = Object.getPrototypeOf(input);
+  const proto: unknown = Object.getPrototypeOf(input);
   if (proto !== Object.prototype && proto !== null) {
     fail('Governance activation input must be a plain JSON object', 'GOVERNANCE_ACTIVATION_INPUT_INVALID', 400);
   }
-  const body = input;
+  const body = input as Fields;
   const allowed = new Set(['expectedRevision', 'reason', 'simulation']);
   const forbidden = new Set([
     'actor', 'actorIdentityKey', 'actorLogin', 'role', 'roles', 'accessLevel',
@@ -157,21 +210,22 @@ function assertActivationInput(input) {
   if (!simulation || typeof simulation !== 'object' || Array.isArray(simulation)) {
     fail('Simulation evidence is required', 'GOVERNANCE_SIMULATION_REQUIRED', 400);
   }
-  const simulationKeys = Object.keys(simulation);
+  const evidence = simulation as Fields;
+  const simulationKeys = Object.keys(evidence);
   if (simulationKeys.some(key => !['simulationHash', 'request'].includes(key))) {
     fail('Simulation evidence contains an unsupported field', 'GOVERNANCE_SIMULATION_INPUT_INVALID', 400);
   }
-  const simulationHash = String(simulation.simulationHash || '').trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(simulationHash)) {
+  const simulationHash = String(evidence.simulationHash || '').trim().toLowerCase();
+  if (!isSha256Hex(simulationHash)) {
     fail('Simulation hash is invalid', 'GOVERNANCE_SIMULATION_HASH_INVALID', 400);
   }
-  if (!simulation.request || typeof simulation.request !== 'object' || Array.isArray(simulation.request)) {
+  if (!evidence.request || typeof evidence.request !== 'object' || Array.isArray(evidence.request)) {
     fail('Simulation request is required', 'GOVERNANCE_SIMULATION_INPUT_INVALID', 400);
   }
-  return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: normalizeSimulationRequest(simulation.request) });
+  return deepFreeze({ expectedRevision, reason, simulationHash, simulationRequest: normalizeSimulationRequest(evidence.request) });
 }
 
-function assertRequiredIdempotencyKey(value, label = 'Activation and rollback') {
+function assertRequiredIdempotencyKey(value: unknown, label = 'Activation and rollback'): string {
   const key = String(value == null ? '' : value).trim();
   if (!key) {
     fail(`${label} require an Idempotency-Key`, 'GOVERNANCE_IDEMPOTENCY_KEY_REQUIRED', 400);
@@ -182,55 +236,52 @@ function assertRequiredIdempotencyKey(value, label = 'Activation and rollback') 
   return key;
 }
 
+interface LifecycleInput {
+  expectedRevision?: number;
+  reason?: string;
+  confirm?: string;
+}
+
 /*
  * Input for the lifecycle operations. Same rule as activation: the body says
  * what to do and why; who is doing it, and with what authority, comes from the
  * verified session and is refused if the body tries to say it.
  */
-function assertLifecycleInput(input, allowedFields) {
+function assertLifecycleInput(input: unknown, allowedFields: readonly string[]): Readonly<LifecycleInput> {
   const body = input == null ? {} : input;
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     fail('Governance lifecycle input must be a JSON object', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
   }
-  const proto = Object.getPrototypeOf(body);
+  const proto: unknown = Object.getPrototypeOf(body);
   if (proto !== Object.prototype && proto !== null) {
     fail('Governance lifecycle input must be a plain JSON object', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
   }
+  const fields = body as Fields;
   const allowed = new Set(allowedFields);
   const forbidden = new Set([
     'actor', 'actorIdentityKey', 'actorLogin', 'role', 'roles', 'accessLevel',
     'permissions', 'installationPermissions', 'authorization', 'authorizationEvidence', 'allowOthers'
   ]);
-  for (const key of Object.keys(body)) {
+  for (const key of Object.keys(fields)) {
     if (forbidden.has(key)) fail('Governance identity and authority are derived by the server', 'GOVERNANCE_LIFECYCLE_IDENTITY_FORBIDDEN', 400);
     if (!allowed.has(key)) fail('Governance lifecycle input contains an unsupported field', 'GOVERNANCE_LIFECYCLE_INPUT_INVALID', 400);
   }
-  const result = {};
+  const result: LifecycleInput = {};
   if (allowed.has('expectedRevision')) {
-    const expectedRevision = Number(body.expectedRevision);
+    const expectedRevision = Number(fields.expectedRevision);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail('Expected revision is invalid', 'GOVERNANCE_REVISION_INVALID', 400);
     result.expectedRevision = expectedRevision;
   }
   if (allowed.has('reason')) {
-    const reason = String(body.reason == null ? '' : body.reason).trim();
+    const reason = String(fields.reason == null ? '' : fields.reason).trim();
     if (!reason || reason.length > 4000 || /[\x00-\x1f\x7f]/.test(reason)) fail('A reason is required', 'GOVERNANCE_LIFECYCLE_REASON_INVALID', 400);
     result.reason = reason;
   }
-  if (allowed.has('confirm')) result.confirm = String(body.confirm == null ? '' : body.confirm).trim();
+  if (allowed.has('confirm')) result.confirm = String(fields.confirm == null ? '' : fields.confirm).trim();
   return deepFreeze(result);
 }
 
-function exceptionAuthorizationEvidence(authorization) {
-  return deepFreeze({
-    accessLevel: authorization.repositoryAccess.level,
-    providerRole: authorization.repositoryAccess.providerRole,
-    source: authorization.repositoryAccess.source,
-    fetchedAt: authorization.evidence.fetchedAt,
-    expiresAt: authorization.evidence.expiresAt
-  });
-}
-
-function assertExceptionInputFields(input, allowed) {
+function assertExceptionInputFields(input: unknown, allowed: ReadonlySet<string>): Fields {
   const body = bodyObject(input);
   const forbidden = new Set([
     'actor', 'actorIdentityKey', 'actorLogin', 'requester', 'requesterIdentityKey', 'approver',
@@ -244,7 +295,7 @@ function assertExceptionInputFields(input, allowed) {
   return body;
 }
 
-function assertDeliveryInputFields(input, allowed) {
+function assertDeliveryInputFields(input: unknown, allowed: ReadonlySet<string>): Fields {
   const body = bodyObject(input);
   const forbiddenIdentity = new Set([
     'actor', 'actorIdentityKey', 'actorLogin', 'identityKey', 'login', 'role', 'roles',
@@ -262,7 +313,13 @@ function assertDeliveryInputFields(input, allowed) {
   return body;
 }
 
-function integerInput(value, label, options = {}) {
+interface IntegerOptions {
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly defaultValue?: number;
+}
+
+function integerInput(value: unknown, label: string, options: IntegerOptions = {}): number | null {
   if (value == null || String(value).trim() === '') return options.defaultValue == null ? null : options.defaultValue;
   const number = Number(value);
   const minimum = options.minimum == null ? 0 : options.minimum;
@@ -273,47 +330,126 @@ function integerInput(value, label, options = {}) {
   return number;
 }
 
-function normalizedVersionInput(input = {}) {
-  const document = normalizePolicyDocument(input.document);
-  const approvalPolicy = normalizeApprovalPolicy(input.approvalPolicy);
+interface VersionInput {
+  readonly document: PolicyDocument;
+  readonly documentHash: string;
+  readonly approvalPolicy: ApprovalPolicy;
+}
+
+function normalizedVersionInput(input: unknown = {}): VersionInput {
+  const document = normalizePolicyDocument(read(input, 'document'));
+  const approvalPolicy = normalizeApprovalPolicy(read(input, 'approvalPolicy'));
   return deepFreeze({ document, documentHash: policyDocumentHash(document), approvalPolicy });
 }
 
-function requireStore(store) {
-  const methods = [
-    'listPolicies', 'createPolicy', 'getPolicyStateInScope',
-    'createDraft', 'getDraft', 'updateDraft', 'submitDraft',
-    'listVersions', 'getVersionInScope', 'getReviewState', 'claimReviewer', 'recordReviewDecision',
-    'activateVersion', 'rollbackVersion', 'listActivationHistory',
-    'createExceptionRequest', 'getException', 'listExceptions', 'decideException', 'revokeException',
-    'listPolicyDecisionsInScope', 'verifyPolicyDecisionChainInScope',
-    'getNotificationPreferences', 'updateNotificationPreferences', 'markNotificationsRead', 'listNotifications',
-    'createWebhook', 'listWebhooks', 'updateWebhook', 'rotateWebhookSecret', 'deleteWebhook', 'listWebhookDeliveries',
-    'createEvidenceExport', 'listEvidenceExports', 'getEvidenceExport', 'verifyEvidenceExport'
-  ];
-  if (!store || methods.some(method => typeof store[method] !== 'function')) {
-    throw new TypeError('Governance API service requires a complete governance store');
-  }
-  return store;
+type StoreCall = (input: Fields) => Promise<unknown>;
+
+/* The governance store as this service uses it. The store's own module defines what each call answers. */
+export interface GovernanceApiStore {
+  readonly listPolicies: StoreCall;
+  readonly createPolicy: StoreCall;
+  getPolicyStateInScope(input: Fields): Promise<{ readonly activeVersionId?: unknown }>;
+  readonly createDraft: StoreCall;
+  getDraft(input: Fields): Promise<{ readonly document?: unknown; readonly requiredApprovals?: unknown; readonly disallowAuthorApproval?: unknown }>;
+  readonly updateDraft: StoreCall;
+  readonly submitDraft: StoreCall;
+  readonly listVersions: StoreCall;
+  getVersionInScope(input: Fields): Promise<{ readonly versionId?: unknown }>;
+  readonly getReviewState: StoreCall;
+  readonly claimReviewer: StoreCall;
+  readonly recordReviewDecision: StoreCall;
+  readonly activateVersion: StoreCall;
+  readonly rollbackVersion: StoreCall;
+  readonly listActivationHistory: StoreCall;
+  readonly createExceptionRequest: StoreCall;
+  readonly getException: StoreCall;
+  readonly listExceptions: StoreCall;
+  readonly decideException: StoreCall;
+  readonly revokeException: StoreCall;
+  readonly listPolicyDecisionsInScope: StoreCall;
+  readonly verifyPolicyDecisionChainInScope: StoreCall;
+  readonly getNotificationPreferences: StoreCall;
+  readonly updateNotificationPreferences: StoreCall;
+  readonly markNotificationsRead: StoreCall;
+  readonly listNotifications: StoreCall;
+  readonly createWebhook: StoreCall;
+  readonly listWebhooks: StoreCall;
+  readonly updateWebhook: StoreCall;
+  readonly rotateWebhookSecret: StoreCall;
+  readonly deleteWebhook: StoreCall;
+  readonly listWebhookDeliveries: StoreCall;
+  readonly createEvidenceExport: StoreCall;
+  readonly listEvidenceExports: StoreCall;
+  readonly getEvidenceExport: StoreCall;
+  readonly verifyEvidenceExport: StoreCall;
+  /* Optional: the read model's data, and the lifecycle a store written before them may lack. */
+  readonly getDigitalTwinReadModelData?: StoreCall;
+  readonly deactivatePolicy?: StoreCall;
+  readonly archivePolicy?: StoreCall;
+  readonly restorePolicy?: StoreCall;
+  readonly listArchivedPolicies?: StoreCall;
+  readonly discardDraft?: StoreCall;
+  readonly withdrawVersion?: StoreCall;
+  readonly resetGovernance?: StoreCall;
 }
 
-function createGovernanceApiService(options = {}) {
+type LifecycleCall = 'deactivatePolicy' | 'archivePolicy' | 'restorePolicy' | 'listArchivedPolicies' | 'discardDraft' | 'withdrawVersion' | 'resetGovernance';
+
+const REQUIRED_STORE_METHODS = [
+  'listPolicies', 'createPolicy', 'getPolicyStateInScope',
+  'createDraft', 'getDraft', 'updateDraft', 'submitDraft',
+  'listVersions', 'getVersionInScope', 'getReviewState', 'claimReviewer', 'recordReviewDecision',
+  'activateVersion', 'rollbackVersion', 'listActivationHistory',
+  'createExceptionRequest', 'getException', 'listExceptions', 'decideException', 'revokeException',
+  'listPolicyDecisionsInScope', 'verifyPolicyDecisionChainInScope',
+  'getNotificationPreferences', 'updateNotificationPreferences', 'markNotificationsRead', 'listNotifications',
+  'createWebhook', 'listWebhooks', 'updateWebhook', 'rotateWebhookSecret', 'deleteWebhook', 'listWebhookDeliveries',
+  'createEvidenceExport', 'listEvidenceExports', 'getEvidenceExport', 'verifyEvidenceExport'
+];
+
+function requireStore(store: unknown): GovernanceApiStore {
+  const candidate = store as Fields | null | undefined;
+  if (!candidate || REQUIRED_STORE_METHODS.some(method => typeof candidate[method] !== 'function')) {
+    throw new TypeError('Governance API service requires a complete governance store');
+  }
+  /* Every method the service calls unconditionally is present and callable; what each answers is the store's contract. */
+  return candidate as unknown as GovernanceApiStore;
+}
+
+/* One call into the service: who is asking, on which repository, and what the request carried. */
+export type ServiceInput = Fields;
+
+export interface RepositoryFactsRequest {
+  readonly scope: RepositoryScope;
+  readonly authorization: AuthorizationSnapshot;
+  readonly actor: GovernanceActorRef;
+}
+
+export interface GovernanceApiOptions {
+  readonly store?: unknown;
+  readonly now?: () => number;
+  readonly resolveRepositoryFacts?: (request: RepositoryFactsRequest) => Promise<unknown>;
+  readonly resolveWebhookAddresses?: (hostname: string) => Promise<unknown>;
+}
+
+export function createGovernanceApiService(options: GovernanceApiOptions = {}) {
   const store = requireStore(options.store);
   /* The lifecycle methods are looked up when used rather than demanded up
    * front, so a store written before them still builds a service for
    * everything else. */
-  const lifecycleStore = name => {
-    if (typeof store[name] !== 'function') fail('This governance operation is not available', 'GOVERNANCE_OPERATION_UNAVAILABLE', 501);
-    return input => store[name](input);
+  const lifecycleStore = (name: LifecycleCall): StoreCall => {
+    const call = store[name];
+    if (typeof call !== 'function') fail('This governance operation is not available', 'GOVERNANCE_OPERATION_UNAVAILABLE', 501);
+    return input => call.call(store, input);
   };
   const now = typeof options.now === 'function' ? options.now : Date.now;
   const resolveRepositoryFacts = typeof options.resolveRepositoryFacts === 'function'
     ? options.resolveRepositoryFacts
-    : async ({ scope }) => ({ schemaVersion: 1, defaultBranch: null, protectedBranches: [], pullRequestsEnabled: null, visibility: null, archived: false, resolvedForScopeKey: scope.scopeKey });
+    : async ({ scope }: RepositoryFactsRequest) => ({ schemaVersion: 1, defaultBranch: null, protectedBranches: [], pullRequestsEnabled: null, visibility: null, archived: false, resolvedForScopeKey: scope.scopeKey });
   const resolveWebhookAddresses = typeof options.resolveWebhookAddresses === 'function'
     ? options.resolveWebhookAddresses
-    : async hostname => dns.promises.lookup(hostname, { all: true, verbatim: true });
-  const authorize = (input, requiredRole) => assertGovernanceAuthorization({
+    : async (hostname: string) => dnsPromises.lookup(hostname, { all: true, verbatim: true });
+  const authorize = (input: ServiceInput, requiredRole: GovernanceRoleName): GovernanceContext => assertGovernanceAuthorization({
     authorization: input.authorization,
     scope: input.scope,
     requiredRole,
@@ -321,12 +457,12 @@ function createGovernanceApiService(options = {}) {
   });
 
   return Object.freeze({
-    async getNotificationPreferences(input = {}) {
+    async getNotificationPreferences(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getNotificationPreferences({ scope: context.scope, actor: context.actor });
     },
 
-    async updateNotificationPreferences(input = {}) {
+    async updateNotificationPreferences(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       const body = assertDeliveryInputFields(input.input, new Set(['enabled', 'eventTypes']));
       return store.updateNotificationPreferences({
@@ -337,7 +473,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async markNotificationsRead(input = {}) {
+    async markNotificationsRead(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       const body = assertDeliveryInputFields(input.input, new Set(['throughSeq']));
       return store.markNotificationsRead({
@@ -348,7 +484,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listNotifications(input = {}) {
+    async listNotifications(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listNotifications({
         scope: context.scope,
@@ -358,7 +494,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async createWebhook(input = {}) {
+    async createWebhook(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertDeliveryInputFields(input.input, new Set(['name', 'url', 'eventTypes', 'enabled']));
       const definition = normalizeWebhookDefinition(body);
@@ -368,12 +504,12 @@ function createGovernanceApiService(options = {}) {
       return store.createWebhook({ scope: context.scope, actor: context.actor, definition, idempotencyKey: input.idempotencyKey });
     },
 
-    async listWebhooks(input = {}) {
+    async listWebhooks(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       return store.listWebhooks({ scope: context.scope });
     },
 
-    async updateWebhook(input = {}) {
+    async updateWebhook(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertDeliveryInputFields(input.input, new Set(['name', 'url', 'eventTypes', 'enabled']));
       const definition = normalizeWebhookDefinition(body);
@@ -383,19 +519,19 @@ function createGovernanceApiService(options = {}) {
       return store.updateWebhook({ scope: context.scope, actor: context.actor, webhookId: input.webhookId, definition, idempotencyKey: input.idempotencyKey });
     },
 
-    async rotateWebhookSecret(input = {}) {
+    async rotateWebhookSecret(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       assertDeliveryInputFields(input.input, new Set());
       return store.rotateWebhookSecret({ scope: context.scope, actor: context.actor, webhookId: input.webhookId, idempotencyKey: input.idempotencyKey });
     },
 
-    async deleteWebhook(input = {}) {
+    async deleteWebhook(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       assertDeliveryInputFields(input.input, new Set());
       return store.deleteWebhook({ scope: context.scope, actor: context.actor, webhookId: input.webhookId, idempotencyKey: input.idempotencyKey });
     },
 
-    async listWebhookDeliveries(input = {}) {
+    async listWebhookDeliveries(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       return store.listWebhookDeliveries({
         scope: context.scope,
@@ -404,7 +540,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async createEvidenceExport(input = {}) {
+    async createEvidenceExport(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       const body = assertDeliveryInputFields(input.input, new Set(['format', 'afterEventSeq', 'throughEventSeq', 'limit']));
       return store.createEvidenceExport({
@@ -418,7 +554,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listEvidenceExports(input = {}) {
+    async listEvidenceExports(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listEvidenceExports({
         scope: context.scope,
@@ -426,27 +562,27 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getEvidenceExport(input = {}) {
+    async getEvidenceExport(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getEvidenceExport({ scope: context.scope, exportId: input.exportId });
     },
 
-    async verifyEvidenceExport(input = {}) {
+    async verifyEvidenceExport(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.verifyEvidenceExport({ scope: context.scope, exportId: input.exportId });
     },
 
-    async listPolicyTemplates(input = {}) {
+    async listPolicyTemplates(input: ServiceInput = {}) {
       authorize(input, 'reader');
       return listPolicyTemplates();
     },
 
-    async getPolicyTemplate(input = {}) {
+    async getPolicyTemplate(input: ServiceInput = {}) {
       authorize(input, 'reader');
       return getPolicyTemplate(input.templateId);
     },
 
-    async generateRepositoryBaseline(input = {}) {
+    async generateRepositoryBaseline(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       const body = bodyObject(input.input);
       const allowed = new Set(['templateId']);
@@ -461,7 +597,7 @@ function createGovernanceApiService(options = {}) {
       return generateRepositoryBaseline({ scope: context.scope, templateId, facts });
     },
 
-    async getPolicyDigitalTwin(input = {}) {
+    async getPolicyDigitalTwin(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       if (typeof store.getDigitalTwinReadModelData !== 'function') {
         fail('Digital Twin read model storage is unavailable', 'GOVERNANCE_DIGITAL_TWIN_UNAVAILABLE', 503);
@@ -470,24 +606,24 @@ function createGovernanceApiService(options = {}) {
       const data = await store.getDigitalTwinReadModelData({ scope: context.scope, ...pagination });
       return buildPolicyDigitalTwinReadModel({ scope: context.scope, data, options: pagination });
     },
-    async listPolicies(input = {}) {
+    async listPolicies(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listPolicies({ scope: context.scope, limit: input.limit });
     },
 
-    async listPolicyDecisions(input = {}) {
+    async listPolicyDecisions(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listPolicyDecisionsInScope({ scope: context.scope, limit: input.limit, afterSeq: input.afterSeq, beforeSeq: input.beforeSeq });
     },
 
-    async verifyPolicyDecisionChain(input = {}) {
+    async verifyPolicyDecisionChain(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.verifyPolicyDecisionChainInScope({ scope: context.scope, limit: input.limit });
     },
 
-    async createPolicy(input = {}) {
+    async createPolicy(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
-      const body = input.input && typeof input.input === 'object' ? input.input : {};
+      const body = bodyOrEmpty(input.input);
       return store.createPolicy({
         scope: context.scope,
         actor: context.actor,
@@ -498,18 +634,18 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getPolicy(input = {}) {
+    async getPolicy(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
     },
 
-    async validatePolicyVersion(input = {}) {
+    async validatePolicyVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
       return normalizedVersionInput(input.input || {});
     },
 
-    async createDraft(input = {}) {
+    async createDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       const version = normalizedVersionInput(input.input || {});
       return store.createDraft({
@@ -521,7 +657,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getDraft(input = {}) {
+    async getDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       return store.getDraft({
         policyId: input.policyId,
@@ -531,9 +667,9 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async updateDraft(input = {}) {
+    async updateDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
-      const body = input.input && typeof input.input === 'object' ? input.input : {};
+      const body = bodyOrEmpty(input.input);
       const version = normalizedVersionInput(body);
       return store.updateDraft({
         policyId: input.policyId,
@@ -546,7 +682,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async validateDraft(input = {}) {
+    async validateDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       const draft = await store.getDraft({
         policyId: input.policyId,
@@ -563,9 +699,9 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async submitDraft(input = {}) {
+    async submitDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
-      const body = input.input && typeof input.input === 'object' ? input.input : {};
+      const body = bodyOrEmpty(input.input);
       return store.submitDraft({
         policyId: input.policyId,
         draftId: input.draftId,
@@ -576,7 +712,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listVersions(input = {}) {
+    async listVersions(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       await store.getPolicyStateInScope({ policyId: input.policyId, scope: context.scope });
       return store.listVersions({
@@ -586,7 +722,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getVersion(input = {}) {
+    async getVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getVersionInScope({
         policyId: input.policyId,
@@ -595,7 +731,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async simulateVersion(input = {}) {
+    async simulateVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       const policy = await store.getPolicyStateInScope({
         policyId: input.policyId,
@@ -624,7 +760,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getReviewState(input = {}) {
+    async getReviewState(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getReviewState({
         policyId: input.policyId,
@@ -633,7 +769,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async claimReviewer(input = {}) {
+    async claimReviewer(input: ServiceInput = {}) {
       const context = authorize(input, 'reviewer');
       assertReviewInputFields(input.input, new Set());
       return store.claimReviewer({
@@ -646,7 +782,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async recordReviewDecision(input = {}) {
+    async recordReviewDecision(input: ServiceInput = {}) {
       const context = authorize(input, 'reviewer');
       const body = assertReviewInputFields(input.input, new Set(['decision', 'rationale']));
       return store.recordReviewDecision({
@@ -661,7 +797,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listExceptions(input = {}) {
+    async listExceptions(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listExceptions({
         policyId: input.policyId,
@@ -671,12 +807,12 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async getException(input = {}) {
+    async getException(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.getException({ exceptionId: input.exceptionId, scope: context.scope });
     },
 
-    async createException(input = {}) {
+    async createException(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       const body = assertExceptionInputFields(input.input, new Set(['kind', 'action', 'ruleIds', 'target', 'reason', 'expiresAt']));
       return store.createExceptionRequest({
@@ -690,7 +826,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async decideException(input = {}) {
+    async decideException(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertExceptionInputFields(input.input, new Set(['decision', 'reason']));
       return store.decideException({
@@ -704,7 +840,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async revokeException(input = {}) {
+    async revokeException(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertExceptionInputFields(input.input, new Set(['reason']));
       return store.revokeException({
@@ -717,7 +853,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async activateVersion(input = {}) {
+    async activateVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
@@ -735,7 +871,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async rollbackVersion(input = {}) {
+    async rollbackVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'activator');
       const body = assertActivationInput(input.input);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey);
@@ -753,7 +889,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listActivationHistory(input = {}) {
+    async listActivationHistory(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return store.listActivationHistory({ policyId: input.policyId, scope: context.scope, limit: input.limit });
     },
@@ -765,7 +901,7 @@ function createGovernanceApiService(options = {}) {
      * own drafts and take back their own versions; an administrator can do
      * either for anybody, which is how stale work gets cleaned up.
      */
-    async deactivatePolicy(input = {}) {
+    async deactivatePolicy(input: ServiceInput = {}) {
       const context = authorize(input, 'activator');
       const body = assertLifecycleInput(input.input, ['expectedRevision', 'reason']);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'Switching a policy off and archiving it');
@@ -776,7 +912,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async archivePolicy(input = {}) {
+    async archivePolicy(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertLifecycleInput(input.input, ['expectedRevision', 'reason']);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'Switching a policy off and archiving it');
@@ -787,7 +923,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async restorePolicy(input = {}) {
+    async restorePolicy(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertLifecycleInput(input.input, ['reason']);
       return lifecycleStore('restorePolicy')({
@@ -796,12 +932,12 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async listArchivedPolicies(input = {}) {
+    async listArchivedPolicies(input: ServiceInput = {}) {
       const context = authorize(input, 'reader');
       return lifecycleStore('listArchivedPolicies')({ scope: context.scope, limit: input.limit });
     },
 
-    async discardDraft(input = {}) {
+    async discardDraft(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       const body = assertLifecycleInput(input.input, ['expectedRevision']);
       return lifecycleStore('discardDraft')({
@@ -811,7 +947,7 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async withdrawVersion(input = {}) {
+    async withdrawVersion(input: ServiceInput = {}) {
       const context = authorize(input, 'author');
       const body = assertLifecycleInput(input.input, ['reason']);
       return lifecycleStore('withdrawVersion')({
@@ -821,14 +957,14 @@ function createGovernanceApiService(options = {}) {
       });
     },
 
-    async resetGovernance(input = {}) {
+    async resetGovernance(input: ServiceInput = {}) {
       const context = authorize(input, 'administrator');
       const body = assertLifecycleInput(input.input, ['reason', 'confirm']);
       const idempotencyKey = assertRequiredIdempotencyKey(input.idempotencyKey, 'A governance reset and its confirmation');
       /* Typed, not clicked: the repository's own name, the same confirmation
        * deleting the repository asks for. */
       const expected = `${context.scope.owner}/${context.scope.repo}`.toLowerCase();
-      if (body.confirm.toLowerCase() !== expected) {
+      if ((body.confirm || '').toLowerCase() !== expected) {
         fail('Type the repository name exactly to reset its governance', 'GOVERNANCE_RESET_CONFIRMATION_REQUIRED', 400);
       }
       return lifecycleStore('resetGovernance')({
@@ -839,9 +975,3 @@ function createGovernanceApiService(options = {}) {
     }
   });
 }
-
-module.exports = Object.freeze({
-  GovernanceApiError,
-  assertGovernanceAuthorization,
-  createGovernanceApiService
-});

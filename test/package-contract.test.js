@@ -61,13 +61,13 @@ const required = [
   'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js',
   'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'apps/web/src/features/governance/governance-ui.js',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'apps/web/src/features/governance/governance-ui.js',
   'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md',
   'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md',
-  'apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'src/governance-model.js',
-  'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js',
-  'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'db/migrations/007_governance.sql',
+  'apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'apps/api/src/modules/kepler/domain/governance-model.ts',
+  'apps/api/src/modules/kepler/persistence/governance-store.ts', 'apps/api/src/modules/kepler/application/governance-api.ts', 'apps/api/src/modules/kepler/domain/governance-simulation.ts',
+  'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts', 'apps/api/src/modules/kepler/domain/governance-exceptions.ts',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'db/migrations/007_governance.sql',
   'db/migrations/008_governance_drafts.sql', 'db/migrations/009_governance_reviews.sql',
   'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql',
   'db/migrations/012_governance_exceptions.sql', 'db/migrations/013_governance_notifications_exports.sql', 'scripts/package-release.js', 'scripts/foundation-gate.js'
@@ -486,7 +486,7 @@ for (const program of publicAlphaPrograms) {
   assert(programIndex > previousProgramIndex, `test:unit must run ${program} after ${releaseProgram}`);
   previousProgramIndex = programIndex;
 }
-for (const source of ['apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'apps/web/src/features/governance/governance-ui.js', 'src/capability-registry.js']) {
+for (const source of ['apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'apps/api/src/modules/kepler/domain/governance-model.ts', 'apps/api/src/modules/kepler/persistence/governance-store.ts', 'apps/api/src/modules/kepler/application/governance-api.ts', 'apps/api/src/modules/kepler/domain/governance-simulation.ts', 'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts', 'apps/api/src/modules/kepler/domain/governance-exceptions.ts', 'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'apps/web/src/features/governance/governance-ui.js', 'src/capability-registry.js']) {
   assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
@@ -500,8 +500,8 @@ for (const artifact of [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'apps/web/src/features/governance/governance-ui.js',
-  'src/control-catalog.js', 'src/governance-enforcement.js',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'apps/web/src/features/governance/governance-ui.js',
+  'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts',
   'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql'
 ]) {
   assert(verifyScript.includes(artifact), `build verification missing ${artifact}`);

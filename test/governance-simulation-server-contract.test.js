@@ -5,8 +5,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-assert(fs.existsSync(path.join(root, 'src', 'governance-simulation.js')), 'simulation module must exist');
-assert(server.includes("require('./src/governance-simulation')") || fs.readFileSync(path.join(root, 'src', 'governance-api.js'), 'utf8').includes("require('./governance-simulation')"), 'governance service must load simulation');
+const kepler = path.join(root, 'apps', 'api', 'src', 'modules', 'kepler');
+assert(fs.existsSync(path.join(kepler, 'domain', 'governance-simulation.ts')), 'simulation module must exist');
+assert(/import \{[^}]*\bsimulatePolicyImpact\b[^}]*\} from '\.\.\/domain\/governance-simulation\.ts'/.test(fs.readFileSync(path.join(kepler, 'application', 'governance-api.ts'), 'utf8')), 'governance service must load simulation');
 const route = "app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate'";
 assert(server.includes(route), 'simulation route must exist');
 assert(server.includes("(?:GOVERNANCE|MUTATION|AUTHORIZATION|SIMULATION|POLICY)_"), 'simulation and policy errors must remain bounded API errors');
@@ -18,5 +19,4 @@ assert(server.includes("new RegExp(`${prefix}/[^/]+/versions/[^/]+/simulate$`)")
 assert(pkg.scripts['test:unit'].includes('governance-simulation.test.js'), 'unit manifest must run simulation tests');
 assert(pkg.scripts['test:unit'].includes('governance-simulation-api.test.js'), 'unit manifest must run simulation API tests');
 assert(pkg.scripts['test:unit'].includes('governance-simulation-server-contract.test.js'), 'unit manifest must run simulation route contract');
-assert(pkg.scripts['check:syntax'].includes('src/governance-simulation.js'), 'syntax manifest must include simulation module');
 console.log('governance simulation server contract tests passed');

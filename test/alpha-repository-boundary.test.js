@@ -516,8 +516,10 @@ Module._load = function load(request, parent, isMain) {
       })
     };
   }
-  if (request === './src/governance-webhook-worker' && parent && /server\.js$/.test(parent.filename)) {
-    return { startWebhookWorker: () => ({ stop() {} }) };
+  /* Governance is reached through the Kepler index; its webhook worker is held still. */
+  if (/^\.\/apps\/api\/src\/modules\/kepler\/index\.[jt]s$/.test(request) && parent && /server\.js$/.test(parent.filename)) {
+    const real = originalLoad.call(this, request, parent, isMain);
+    return { ...real, startWebhookWorker: () => ({ stop() {} }) };
   }
   /*
    * The pool module is an ES module (apps/api), and an ES module's own imports

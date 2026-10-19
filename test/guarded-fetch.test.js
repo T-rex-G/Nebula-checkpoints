@@ -22,7 +22,7 @@ const https = require('https');
 const {
   PROFILES, CODES, MAX_RESPONSE_BYTES, GuardedFetchError,
   normalizeTarget, validateAddresses, guardedFetch, createGuardedSession
-} = require('../src/guarded-fetch');
+} = require('../apps/api/src/platform/network/guarded-fetch.ts');
 
 /* ---- The code registry ------------------------------------------------ */
 
@@ -36,9 +36,10 @@ const {
  * together mean neither list can drift.
  */
 {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'guarded-fetch.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'network', 'guarded-fetch.ts'), 'utf8');
   /* The registry's own literals are the declaration, not a use of a code. */
-  const withoutRegistry = source.replace(/const CODES = Object\.freeze\(\{[\s\S]*?\n\}\);/, '');
+  const withoutRegistry = source.replace(/const CODES = Object\.freeze\(\{[\s\S]*?\n\} as const\);/, '');
+  assert.notStrictEqual(withoutRegistry, source, 'the registry declaration must be found, or every code reads as thrown');
   const thrown = new Set((withoutRegistry.match(/'GUARDED_FETCH_[A-Z_]+'/g) || []).map(text => text.slice(1, -1)));
   const registered = new Set(Object.values(CODES));
 
@@ -725,6 +726,23 @@ function fakeRequestImpl(behaviour) {
       `${profile} must not share connections`
     );
   }
+  /*
+   * A profile is a name in the rule table, not any property an object has. The
+   * table was an ordinary object, so `constructor` found Object's own
+   * constructor, passed the lookup and crashed on its missing method list with
+   * a TypeError instead of being refused.
+   */
+  for (const profile of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    await assert.rejects(
+      guardedFetch({ url: 'https://example.com/', profile, method: 'GET', addresses: [{ address: '93.184.216.34', family: 4 }] }),
+      error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_PROFILE_INVALID',
+      `the inherited name ${profile} is refused as an unknown profile`
+    );
+    assert.throws(
+      () => normalizeTarget('https://example.com/', profile),
+      error => error instanceof GuardedFetchError && error.code === 'GUARDED_FETCH_PROFILE_INVALID'
+    );
+  }
   {
     const session = createGuardedSession({ profile: PROFILES.PROVIDER_READ, resolveAddresses: async () => [] });
     await assert.rejects(
@@ -1063,7 +1081,7 @@ function fakeRequestImpl(behaviour) {
       error => error.code === 'GUARDED_FETCH_REFUSED', 'still anonymous');
 
     /* TXT records: a public name only, bounded, "none" told apart from "unknown". */
-    const { guardedTxt } = require('../src/guarded-fetch');
+    const { guardedTxt } = require('../apps/api/src/platform/network/guarded-fetch.ts');
     const long = [['v=spf1 ', 'include:_spf.example.net -all'], ...Array.from({ length: 40 }, () => ['x'.repeat(3000)])];
     const records = await guardedTxt('_dmarc.Example.com.', { resolveTxt: async name => { assert.strictEqual(name, '_dmarc.example.com'); return long; } });
     assert.strictEqual(records.length, 32);

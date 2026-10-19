@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { hashJson, evidenceRecordHash } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const {
   createCsrfToken,
   createStepUpGrant,
@@ -147,7 +147,7 @@ const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 const { hashJson, evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
-const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'key-derivation'));
+const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'platform', 'crypto', 'key-derivation.ts'));
 const sessionSecret = process.env.SESSION_SECRET;
 const originalLoad = Module._load;
 const originalSetInterval = global.setInterval;
@@ -500,7 +500,8 @@ Module._load = function load(request, parent, isMain) {
       }
     };
   }
-  if (request === './src/migrations' && parent && /server\.js$/.test(parent.filename)) {
+  /* .ts as the source names it, .js as the compiled tree does. */
+  if (/^\.\/apps\/api\/src\/platform\/persistence\/migrations\.[jt]s$/.test(request) && parent && /server\.js$/.test(parent.filename)) {
     return {
       loadMigrations: () => [{ id: '015_alpha_privacy' }],
       runMigrations: async () => ({ applied: [], total: 15 }),
@@ -515,6 +516,16 @@ Module._load = function load(request, parent, isMain) {
   }
   if (request === './src/governance-webhook-worker' && parent && /server\.js$/.test(parent.filename)) {
     return { startWebhookWorker: () => ({ stop() {} }) };
+  }
+  /*
+   * The pool module is an ES module (apps/api), and an ES module's own imports
+   * do not pass through Module._load, so its pg cannot be swapped from here.
+   * The seam is the module the server asks for instead: the same exports, with
+   * a pool built from this fixture's Pool.
+   */
+  if (/^\.\/apps\/api\/src\/platform\/persistence\/database-pool\.[jt]s$/.test(request) && parent && /server\.js$/.test(parent.filename)) {
+    const real = originalLoad.call(this, request, parent, isMain);
+    return { ...real, createDatabasePool: (connectionString, onIdleError) => new Pool({ connectionString }).on('error', onIdleError) };
   }
   if (request === 'pg') return { Pool };
   if (request === 'dns') {

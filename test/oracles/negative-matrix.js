@@ -16,7 +16,7 @@ const http = require('http');
 const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
-const { deriveKey, KEY_PURPOSES } = require('../../src/key-derivation');
+const { deriveKey, KEY_PURPOSES } = require('../../apps/api/src/platform/crypto/key-derivation.ts');
 const { withLifetime } = require('../fixtures/local-session');
 const { serverEntry } = require('../helpers/server-entry');
 

@@ -22,9 +22,9 @@ const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { SingleUseStore } = require('../src/single-use-store');
-const { RateLimitStore } = require('../src/rate-limit-store');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { SingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
+const { RateLimitStore } = require('../apps/api/src/platform/rate-limit/rate-limit-store.ts');
 
 const root = path.resolve(__dirname, '..');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -65,7 +65,7 @@ function startInstance(port, databaseUrl) {
       /*
        * The test server is a container on the same host, not a hosted
        * database, and it speaks no TLS. Production still refuses to disable it
-       * -- src/config.js throws on sslmode=disable when NODE_ENV is production
+       * -- apps/api/src/platform/config/config.ts throws on sslmode=disable when NODE_ENV is production
        * regardless of this flag -- so the switch cannot be turned on where it
        * would matter.
        */
@@ -124,7 +124,7 @@ let instanceB = null;
   try {
     /* The schema the instances will share. */
     await withClient(databaseUrl, client =>
-      runMigrations(client, loadMigrations(path.join(root, 'db', 'migrations'))));
+      runMigrations(client, { directory: path.join(root, 'db', 'migrations') }));
 
     /*
      * A single-use grant is spent once, across connections. Two stores on two

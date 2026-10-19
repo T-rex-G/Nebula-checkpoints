@@ -10,7 +10,7 @@ const {
   signWebhookPayload
 } = require('./governance-delivery');
 const { stableJson } = require('./governance-model');
-const { PROFILES, CODES: GUARDED_FETCH_CODES, GuardedFetchError, guardedFetch } = require('./guarded-fetch');
+const { PROFILES, CODES: GUARDED_FETCH_CODES, GuardedFetchError, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 
 const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -47,7 +47,7 @@ function permanentStatus(statusCode) {
 
 /*
  * The webhook's entry point, now a thin caller of the one outbound path in
- * src/guarded-fetch.js rather than a second implementation of it.
+ * apps/api/src/platform/network/guarded-fetch.ts rather than a second implementation of it.
  *
  * Two things are preserved deliberately. The destination's addresses are
  * handed over rather than resolved again -- a second lookup is a second chance

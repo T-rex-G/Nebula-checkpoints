@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { compareSnapshots, normalizeBranchName, normalizeCommitSha, referenceSha } = require('../src/intelligence');
-const { memorySingleUseStore } = require('../src/single-use-store');
+const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);

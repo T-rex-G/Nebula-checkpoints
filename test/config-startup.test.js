@@ -9,7 +9,7 @@ const {
   normalizeGovernanceRuntimeFailureMode,
   loadGithubAppConfig,
   loadAlphaAccessConfig
-} = require('../src/config');
+} = require('../apps/api/src/platform/config/config.ts');
 
 assert.strictEqual(typeof normalizeDatabaseUrl, 'function');
 assert.strictEqual(typeof normalizeGovernanceRuntimeFailureMode, 'function');

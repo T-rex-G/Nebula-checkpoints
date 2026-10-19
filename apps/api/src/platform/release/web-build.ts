@@ -1,4 +1,3 @@
-'use strict';
 /*
  * The built browser application, as the server serves it.
  *
@@ -12,32 +11,37 @@
  * the release fingerprint in /api/version: the fingerprint names the source,
  * this names what was built from it, and qualification compares both.
  */
-const fs = require('fs');
-const path = require('path');
-const { directoryDigest } = require('./directory-digest');
+import { existsSync, readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import { directoryDigest } from './directory-digest.ts';
 
-function servedAssetsDigest(root) {
+export interface WebBuild {
+  readonly root: string;
+  readonly index: string;
+  readonly serviceWorker: string;
+  readonly servedAssetsSha256: string;
+}
+
+export function servedAssetsDigest(root: string): string {
   return directoryDigest(root, 'the browser build');
 }
 
-function loadWebBuild(root) {
+export function loadWebBuild(root: string): WebBuild {
   const indexFile = path.join(root, 'index.html');
   const workerFile = path.join(root, 'sw.js');
-  if (!fs.existsSync(indexFile) || !fs.existsSync(workerFile)) {
+  if (!existsSync(indexFile) || !existsSync(workerFile)) {
     throw new Error(`The browser application is not built (${path.relative(process.cwd(), root) || root}); run npm run build:web`);
   }
   return Object.freeze({
     root,
-    index: fs.readFileSync(indexFile, 'utf8'),
-    serviceWorker: fs.readFileSync(workerFile, 'utf8'),
+    index: readFileSync(indexFile, 'utf8'),
+    serviceWorker: readFileSync(workerFile, 'utf8'),
     servedAssetsSha256: servedAssetsDigest(root)
   });
 }
 
 /* Content-hashed files never change under their names; everything else is revalidated. */
-function webCacheControl(root, filePath) {
+export function webCacheControl(root: string, filePath: string): string {
   const relative = path.relative(root, filePath).split(path.sep).join('/');
   return relative.startsWith('build/') ? 'public, max-age=31536000, immutable' : 'no-cache';
 }
-
-module.exports = { loadWebBuild, servedAssetsDigest, webCacheControl };

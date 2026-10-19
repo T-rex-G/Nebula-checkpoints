@@ -1,9 +1,7 @@
-'use strict';
+import pkg from '../../../../../package.json' with { type: 'json' };
 
-const pkg = require('../package.json');
-
-const PRODUCT_NAME = 'Nebulaverse-X';
-const APP_VERSION = String(pkg.version || '').trim();
+export const PRODUCT_NAME = 'Nebulaverse-X';
+export const APP_VERSION: string = String(pkg.version || '').trim();
 if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(APP_VERSION)) {
   throw new Error('package.json contains an invalid application version');
 }
@@ -18,4 +16,3 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(APP_VERSION)) {
  * (scripts/build-web.js), so no URL a visitor can read derives from this
  * version, and two builds share a name only when they share the bytes.
  */
-module.exports = Object.freeze({ PRODUCT_NAME, APP_VERSION });

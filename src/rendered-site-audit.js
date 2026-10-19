@@ -4,7 +4,7 @@ const { chromium } = require('playwright-core');
 const axe = require('axe-core');
 const zlib = require('zlib');
 const { privatePathSegment } = require('./site-url-privacy');
-const { guardedFetch, PROFILES } = require('./guarded-fetch');
+const { guardedFetch, PROFILES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 
 const LIMITS = Object.freeze({ requests: 80, bytes: 20 * 1024 * 1024, resourceBytes: 2 * 1024 * 1024, deadlineMs: 90000, resourceMs: 10000, screenshots: 2 });
 const VIEWPORTS = Object.freeze([{ name: 'Desktop', width: 1440, height: 900 }, { name: 'Mobile', width: 390, height: 844 }]);

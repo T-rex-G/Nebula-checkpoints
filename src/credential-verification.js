@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const { PROFILES, guardedFetch } = require('./guarded-fetch');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 
 /*
  * Asking the provider that issued a credential whether it is still live.

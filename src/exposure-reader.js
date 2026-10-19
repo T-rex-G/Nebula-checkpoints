@@ -1,6 +1,6 @@
 'use strict';
 
-const { PROFILES, guardedFetch } = require('./guarded-fetch');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const { MAX_ARCHIVE_BYTES, archiveKind, openArchive } = require('./exposure-archives');
 const { PATH_RULES } = require('./exposure-rules');
 

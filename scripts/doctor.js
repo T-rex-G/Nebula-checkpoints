@@ -29,7 +29,7 @@
  */
 
 const { ENTRIES, GROUPS } = require('../src/config-registry');
-const config = require('../src/config');
+const config = require('../apps/api/src/platform/config/config.ts');
 
 const RUNTIME_GROUPS = Object.freeze([
   'server', 'database', 'oauth', 'github-app',

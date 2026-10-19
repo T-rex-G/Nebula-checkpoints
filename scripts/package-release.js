@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { PRODUCT_NAME, APP_VERSION } = require('../src/version');
-const { shouldIncludeReleasePath } = require('../src/release-fingerprint');
+const { PRODUCT_NAME, APP_VERSION } = require('../apps/api/src/platform/release/version.ts');
+const { shouldIncludeReleasePath } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const { runFoundationGate } = require('./foundation-gate');
 
 const root = path.resolve(__dirname, '..');

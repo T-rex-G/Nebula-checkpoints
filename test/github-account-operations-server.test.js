@@ -9,7 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
 
 const root = path.resolve(__dirname, '..');

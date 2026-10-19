@@ -5,7 +5,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { GovernanceStore } = require('../src/governance-store');
 const { createGovernanceApiService } = require('../src/governance-api');
 const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
@@ -50,7 +50,7 @@ const rejects = (promise, code) => assert.rejects(promise, error => {
   const pool = new Pool({ connectionString: scratch.toString(), max: 4 });
   try {
     const client = await pool.connect();
-    try { await runMigrations(client, loadMigrations(path.join(__dirname, '../db/migrations'))); }
+    try { await runMigrations(client, { directory: path.join(__dirname, '../db/migrations') }); }
     finally { client.release(); }
     const store = new GovernanceStore(pool, { secret: 'activation-postgres-secret-0123456789abcdef' });
     const service = createGovernanceApiService({ store });

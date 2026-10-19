@@ -26,7 +26,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'route-surface-test-secret-0123456789abcdef-0123456789abcdef';
@@ -119,8 +119,8 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  *
  *   A new route's *logic* belongs in a module under src/ behind a narrow
  *   contract, with server.js holding only the registration. That is the
- *   pattern that has actually worked here -- src/single-use-store.js,
- *   src/live-stream.js and src/rate-limit-identity.js each took real logic
+ *   pattern that has actually worked here -- apps/api/src/platform/rate-limit/single-use-store.ts,
+ *   src/live-stream.js and apps/api/src/platform/rate-limit/rate-limit-identity.ts each took real logic
  *   out and each made what remained smaller and testable on its own.
  *
  * What was measured and deliberately not done: lifting a whole URL prefix
@@ -187,7 +187,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 168 to 169 adds the anonymous site check. The handler throttles per
  * identity and calls one function; the requests, the rules and the scoring are
  * in `src/site-check.js`, and the anonymous transport profile it uses is in
- * `src/guarded-fetch.js`, each tested where it lives.
+ * `apps/api/src/platform/network/guarded-fetch.ts`, each tested where it lives.
  *
  * 169 to 171 adds `/.well-known/security.txt` and `/robots.txt`. Both are
  * static text built from configuration: the security contact a researcher

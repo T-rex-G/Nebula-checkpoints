@@ -1,6 +1,5 @@
-'use strict';
-
-const crypto = require('crypto');
+import { createHash } from 'node:crypto';
+import { errorCode, type Queryable, type QueryOutcome } from '../persistence/queryable.ts';
 
 /*
  * The durable half of the single-use guard contract that
@@ -22,14 +21,18 @@ const crypto = require('crypto');
  * clock they share is the one attached to the table.
  */
 
-const GUARD_KINDS = Object.freeze(['step-up', 'github-app-state', 'restore-authorization']);
-const DEFAULT_SWEEP_BATCH = 500;
-const MAX_SWEEP_BATCH = 5000;
+export const GUARD_KINDS: readonly string[] = Object.freeze(['step-up', 'github-app-state', 'restore-authorization']);
+export const DEFAULT_SWEEP_BATCH = 500;
+export const MAX_SWEEP_BATCH = 5000;
 
-class SingleUseStoreError extends Error {
-  constructor(message, code = 'SINGLE_USE_STORE_UNAVAILABLE', status = 503) {
+/* Field order is the order the properties were always set in: name, code, status. */
+export class SingleUseStoreError extends Error {
+  override readonly name = 'SingleUseStoreError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code = 'SINGLE_USE_STORE_UNAVAILABLE', status = 503) {
     super(message);
-    this.name = 'SingleUseStoreError';
     this.code = code;
     this.status = status;
   }
@@ -40,11 +43,11 @@ class SingleUseStoreError extends Error {
  * value arriving under two kinds must not produce one key, or a guard consumed
  * as one kind would silently consume the other.
  */
-function guardKeyFor(kind, key) {
-  return crypto.createHash('sha256').update(`nv/single-use/${kind}\u001f${key}`, 'utf8').digest('hex');
+export function guardKeyFor(kind: string, key: string): string {
+  return createHash('sha256').update(`nv/single-use/${kind}\u001f${key}`, 'utf8').digest('hex');
 }
 
-function requireKind(kind) {
+function requireKind(kind: unknown): string {
   const value = String(kind || '');
   if (!GUARD_KINDS.includes(value)) {
     throw new TypeError(`Unknown single-use guard kind: ${String(kind)}`);
@@ -56,7 +59,7 @@ function requireKind(kind) {
  * Expiries cross as epoch milliseconds because that is what the callers hold,
  * and land as timestamptz because that is what the clock comparison needs.
  */
-function requireExpiry(expiresAt) {
+function requireExpiry(expiresAt: unknown): number {
   const value = Number(expiresAt);
   if (!Number.isFinite(value) || value <= 0) {
     throw new TypeError('A single-use guard requires a positive expiry in epoch milliseconds');
@@ -74,11 +77,18 @@ function requireExpiry(expiresAt) {
  * without bound. Expired entries may be discarded, but a live grant must
  * never be forgotten: at capacity a new claim is refused until space expires.
  */
-function memorySingleUseStore(map, { maxEntries = 5000 } = {}) {
+/* One claim: the guard's key, when it lapses and the caller's now, both in epoch milliseconds. */
+export interface MemoryClaim {
+  readonly key: unknown;
+  readonly expiresAt: number;
+  readonly now: number;
+}
+
+export function memorySingleUseStore(map: Map<unknown, unknown>, { maxEntries = 5000 }: { readonly maxEntries?: unknown } = {}): { consumeOnce(claim: MemoryClaim): boolean } {
   if (!(map instanceof Map)) throw new TypeError('An in-process single-use guard requires a Map');
   const ceiling = Math.max(100, Number(maxEntries) || 5000);
   return {
-    consumeOnce({ key, expiresAt, now: currentTime }) {
+    consumeOnce({ key, expiresAt, now: currentTime }: MemoryClaim): boolean {
       const consumedUntil = Number(map.get(key) || 0);
       if (consumedUntil >= currentTime) return false;
       for (const [id, until] of map) {
@@ -92,8 +102,16 @@ function memorySingleUseStore(map, { maxEntries = 5000 } = {}) {
   };
 }
 
-class SingleUseStore {
-  constructor(options = {}) {
+export interface SingleUseStoreOptions {
+  readonly pool?: Queryable;
+  readonly sweepBatch?: unknown;
+}
+
+export class SingleUseStore {
+  readonly pool: Queryable;
+  readonly sweepBatch: number;
+
+  constructor(options: SingleUseStoreOptions = {}) {
     const pool = options && options.pool;
     if (!pool || typeof pool.query !== 'function') {
       throw new TypeError('SingleUseStore requires a pg-compatible pool');
@@ -119,16 +137,12 @@ class SingleUseStore {
    * its replacement disagreeing by one millisecond at the boundary is the kind
    * of difference that only shows up as an unreproducible replay.
    */
-  /**
-   * @param {{ kind?: string, key?: string|null, expiresAt?: number }} [claim]
-   * @returns {Promise<boolean>} true when this caller is the one that claimed it
-   */
-  async consumeOnce({ kind, key, expiresAt } = {}) {
+  async consumeOnce({ kind, key, expiresAt }: { readonly kind?: string; readonly key?: string | null; readonly expiresAt?: number } = {}): Promise<boolean> {
     const guardKind = requireKind(kind);
     const guardKey = guardKeyFor(guardKind, String(key == null ? '' : key));
     const expiry = requireExpiry(expiresAt);
 
-    let result;
+    let result: QueryOutcome;
     try {
       result = await this.pool.query(
         `INSERT INTO nv_single_use_guards (guard_kind, guard_key, expires_at)
@@ -147,10 +161,11 @@ class SingleUseStore {
        * answer "unspent" on every instance that has not seen the grant.
        */
       throw new SingleUseStoreError(
-        `Single-use guard storage is unavailable: ${(error && error.code) || 'query failed'}`
+        `Single-use guard storage is unavailable: ${errorCode(error) || 'query failed'}`
       );
     }
-    return Array.isArray(result && result.rows) && result.rows.length === 1;
+    const rows = result && result.rows;
+    return Array.isArray(rows) && rows.length === 1;
   }
 
   /*
@@ -159,16 +174,13 @@ class SingleUseStore {
    * under pressure is a guard that fails open exactly when it matters, which
    * is what the ten-thousand-entry ceiling on the Map it replaces did.
    */
-  /**
-   * @param {{ limit?: number }} [options]
-   * @returns {Promise<number>} how many expired rows were removed
-   */
-  async sweepExpired({ limit } = {}) {
+  /* Returns how many expired rows were removed. */
+  async sweepExpired({ limit }: { readonly limit?: number } = {}): Promise<number> {
     const batch = Math.min(
       MAX_SWEEP_BATCH,
       Math.max(1, Number(limit) || this.sweepBatch)
     );
-    let result;
+    let result: QueryOutcome;
     try {
       result = await this.pool.query(
         `DELETE FROM nv_single_use_guards
@@ -182,19 +194,10 @@ class SingleUseStore {
       );
     } catch (error) {
       throw new SingleUseStoreError(
-        `Single-use guard sweep failed: ${(error && error.code) || 'query failed'}`
+        `Single-use guard sweep failed: ${errorCode(error) || 'query failed'}`
       );
     }
     return Number(result && result.rowCount) || 0;
   }
 }
 
-module.exports = Object.freeze({
-  GUARD_KINDS,
-  DEFAULT_SWEEP_BATCH,
-  MAX_SWEEP_BATCH,
-  SingleUseStore,
-  SingleUseStoreError,
-  memorySingleUseStore,
-  guardKeyFor
-});

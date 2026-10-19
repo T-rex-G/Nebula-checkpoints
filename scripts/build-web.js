@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { stripJsComments } = require('../src/public-assets');
-const { servedAssetsDigest } = require('../src/web-build');
+const { servedAssetsDigest } = require('../apps/api/src/platform/release/web-build.ts');
 
 const ROOT = path.resolve(__dirname, '..');
 const WEB = path.join(ROOT, 'apps', 'web');

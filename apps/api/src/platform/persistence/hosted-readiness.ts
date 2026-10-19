@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * property, environment key, hosted default, absolute maximum.
  *
@@ -33,9 +31,14 @@ const HOSTED_ALPHA_LIMITS = Object.freeze([
   ['uploadConcurrency', 'NV_UPLOAD_CONCURRENCY', 1, 4],
   ['uploadTimeoutMinutes', 'NV_UPLOAD_TIMEOUT_MINUTES', 10, 60],
   ['staleUploadHours', 'NV_STALE_UPLOAD_HOURS', 2, 72]
-]);
+] as const);
 
-function boundedInteger(env, key, fallback, minimum, maximum) {
+export type HostedAlphaLimitProperty = (typeof HOSTED_ALPHA_LIMITS)[number][0];
+export type HostedAlphaLimits = Readonly<Record<HostedAlphaLimitProperty, number>>;
+
+type Environment = Readonly<Record<string, string | undefined>>;
+
+export function boundedInteger(env: Environment, key: string, fallback: number, minimum: number, maximum: number): number {
   const raw = String(env[key] == null ? fallback : env[key]).trim();
   if (!/^\d+$/.test(raw)) throw new TypeError(`${key} must be an integer`);
   const value = Number(raw);
@@ -45,8 +48,8 @@ function boundedInteger(env, key, fallback, minimum, maximum) {
   return value;
 }
 
-function loadHostedAlphaLimits(env = process.env) {
-  const limits = {};
+export function loadHostedAlphaLimits(env: Environment = process.env): HostedAlphaLimits {
+  const limits = {} as Record<HostedAlphaLimitProperty, number>;
   for (const [property, key, fallback, maximum] of HOSTED_ALPHA_LIMITS) {
     limits[property] = boundedInteger(env, key, fallback, 1, maximum);
   }
@@ -58,13 +61,31 @@ function loadHostedAlphaLimits(env = process.env) {
  * this table rather than restating it. Returned as plain data because a caller
  * that had to parse the source would be the second source of truth again.
  */
-function hostedAlphaLimitBounds() {
+export interface HostedAlphaLimitBound {
+  readonly property: HostedAlphaLimitProperty;
+  readonly key: string;
+  readonly fallback: number;
+  readonly minimum: number;
+  readonly maximum: number;
+}
+
+export function hostedAlphaLimitBounds(): readonly HostedAlphaLimitBound[] {
   return Object.freeze(HOSTED_ALPHA_LIMITS.map(([property, key, fallback, maximum]) =>
     Object.freeze({ property, key, fallback, minimum: 1, maximum })));
 }
 
-function databaseReadiness(input = {}) {
-  let state = 'connected';
+export type DatabaseState = 'connected' | 'waking' | 'quota-warning' | 'unavailable' | 'migration-mismatch';
+
+export interface DatabaseReadinessInput {
+  readonly required?: boolean;
+  readonly connected?: boolean;
+  readonly waking?: boolean;
+  readonly migrationMatch?: boolean;
+  readonly quotaWarning?: boolean;
+}
+
+export function databaseReadiness(input: DatabaseReadinessInput = {}): Readonly<{ state: DatabaseState; ok: boolean; retryable: boolean; message: string }> {
+  let state: DatabaseState = 'connected';
   if (input.required && input.connected && input.migrationMatch === false) {
     state = 'migration-mismatch';
   } else if (input.required && !input.connected && input.waking) {
@@ -75,7 +96,7 @@ function databaseReadiness(input = {}) {
     state = 'quota-warning';
   }
 
-  const states = {
+  const states: Record<DatabaseState, { ok: boolean; retryable: boolean; message: string }> = {
     connected: { ok: true, retryable: false, message: 'Database is connected.' },
     waking: { ok: false, retryable: true, message: 'Database is waking; retry shortly.' },
     'quota-warning': { ok: true, retryable: false, message: 'Database is connected with a quota warning.' },
@@ -89,7 +110,15 @@ function databaseReadiness(input = {}) {
   return Object.freeze({ state, ...states[state] });
 }
 
-function hostedConfigProjection(input = {}) {
+export interface HostedConfigInput {
+  readonly profile?: unknown;
+  readonly alphaMode?: unknown;
+  readonly termsVersion?: unknown;
+  readonly limits?: unknown;
+  readonly database?: { readonly state?: unknown } | null;
+}
+
+export function hostedConfigProjection(input: HostedConfigInput = {}) {
   return Object.freeze({
     profile: String(input.profile || ''),
     alphaMode: String(input.alphaMode || ''),
@@ -99,10 +128,3 @@ function hostedConfigProjection(input = {}) {
   });
 }
 
-module.exports = {
-  boundedInteger,
-  loadHostedAlphaLimits,
-  hostedAlphaLimitBounds,
-  databaseReadiness,
-  hostedConfigProjection
-};

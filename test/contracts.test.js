@@ -262,7 +262,7 @@ assert.deepEqual(envelope.publicErrorBody({ message: 'token=abc', code: 'X_FAILE
 });
 assert.equal(envelope.publicErrorBody({ message: 'Plain', code: 'lowercase' }, { correlationId: 'nvx-0123456789abcdef' }, mint).code, 'OPERATION_FAILED');
 assert.equal(envelope.publicErrorBody({ providerChanged: false }, { correlationId: 'nvx-0123456789abcdef' }, mint).correlationId, 'nvx-0123456789abcdef');
-assert.equal(require('../src/public-errors').publicErrorBody({}, {}).correlationId.length, 20);
+assert.equal(require('../apps/api/src/http/errors.ts').publicErrorBody({}, {}).correlationId.length, 20);
 
 /* ------------------------------------------------------------- 3. adoption */
 

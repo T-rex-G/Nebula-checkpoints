@@ -1,6 +1,4 @@
-'use strict';
-
-const crypto = require('crypto');
+import { hkdfSync } from 'node:crypto';
 
 /*
  * One configured SESSION_SECRET backed every keyed construction in the server.
@@ -30,10 +28,10 @@ const crypto = require('crypto');
  * random salt would have to be distributed to every process that must derive
  * the same keys.
  */
-const HKDF_SALT = 'nebulaverse-x/hkdf/v1';
-const DERIVED_KEY_BYTES = 32;
+export const HKDF_SALT = 'nebulaverse-x/hkdf/v1';
+export const DERIVED_KEY_BYTES = 32;
 
-const KEY_PURPOSES = Object.freeze({
+export const KEY_PURPOSES = Object.freeze({
   SESSION_CONTENT: 'session-content-aes-256-gcm',
   OFFLINE_CACHE_SCOPE: 'offline-cache-scope-hmac',
   GITHUB_APP_STATE_REPLAY: 'github-app-state-replay-hmac',
@@ -69,18 +67,20 @@ const KEY_PURPOSES = Object.freeze({
    * not verify as a grant for the other.
    */
   EXPOSURE_READABILITY_AUTHORIZATION: 'exposure-readability-authorization-hmac'
-});
+} as const);
 
-const PURPOSE_LABELS = Object.freeze(Object.values(KEY_PURPOSES));
+export type KeyPurpose = (typeof KEY_PURPOSES)[keyof typeof KEY_PURPOSES];
 
-function assertPurpose(purpose) {
-  if (!PURPOSE_LABELS.includes(purpose)) {
+const PURPOSE_LABELS: readonly string[] = Object.freeze(Object.values(KEY_PURPOSES));
+
+function assertPurpose(purpose: unknown): KeyPurpose {
+  if (typeof purpose !== 'string' || !PURPOSE_LABELS.includes(purpose)) {
     throw new TypeError(`Unknown key derivation purpose: ${String(purpose)}`);
   }
-  return purpose;
+  return purpose as KeyPurpose;
 }
 
-function assertSecret(secret) {
+function assertSecret(secret: unknown): string {
   const value = typeof secret === 'string' ? secret : '';
   if (!value) throw new TypeError('Key derivation requires a non-empty secret');
   return value;
@@ -91,13 +91,13 @@ function assertSecret(secret) {
  * needs exactly 32 bytes, and createHmac accepts a Buffer without reinterpreting
  * it.
  */
-function deriveKey(secret, purpose, length = DERIVED_KEY_BYTES) {
-  assertSecret(secret);
-  assertPurpose(purpose);
+export function deriveKey(secret: unknown, purpose: unknown, length: number = DERIVED_KEY_BYTES): Buffer {
+  const input = assertSecret(secret);
+  const label = assertPurpose(purpose);
   if (!Number.isInteger(length) || length < 16 || length > 64) {
     throw new TypeError('Derived key length must be between 16 and 64 bytes');
   }
-  return Buffer.from(crypto.hkdfSync('sha256', secret, HKDF_SALT, `nebulaverse-x/${purpose}`, length));
+  return Buffer.from(hkdfSync('sha256', input, HKDF_SALT, `nebulaverse-x/${label}`, length));
 }
 
 /*
@@ -106,14 +106,7 @@ function deriveKey(secret, purpose, length = DERIVED_KEY_BYTES) {
  * them as UTF-8 and silently replace every invalid sequence, collapsing distinct
  * derived keys onto the same replacement-character string.
  */
-function deriveSecret(secret, purpose) {
+export function deriveSecret(secret: unknown, purpose: unknown): string {
   return deriveKey(secret, purpose).toString('base64url');
 }
 
-module.exports = Object.freeze({
-  DERIVED_KEY_BYTES,
-  HKDF_SALT,
-  KEY_PURPOSES,
-  deriveKey,
-  deriveSecret
-});

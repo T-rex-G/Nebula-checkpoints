@@ -2,9 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { memorySingleUseStore } = require('../src/single-use-store');
+const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 const { writeLiveClient, DROPPED } = require('../src/live-stream');
-const { guardedFetch, PROFILES } = require('../src/guarded-fetch');
+const { guardedFetch, PROFILES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const { createExposureRunner } = require('../src/exposure-worker');
 const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('../src/exposure-findings');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');

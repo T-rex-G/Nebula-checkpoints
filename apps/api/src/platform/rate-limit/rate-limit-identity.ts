@@ -1,6 +1,4 @@
-'use strict';
-
-const crypto = require('crypto');
+import { createHmac } from 'node:crypto';
 
 /*
  * The API rate limiter keyed its buckets on the session cookie as it arrived:
@@ -36,32 +34,38 @@ const crypto = require('crypto');
  * value taken from one namespace cannot be replayed into another.
  */
 
-const IDENTITY_KINDS = Object.freeze({
+export const IDENTITY_KINDS = Object.freeze({
   SESSION: 'session',
   ACCOUNT: 'account',
   ADDRESS: 'address',
   UNATTRIBUTED: 'unattributed'
-});
+} as const);
 
-const MAX_IDENTITY_BYTES = 512;
+export type IdentityKind = (typeof IDENTITY_KINDS)[keyof typeof IDENTITY_KINDS];
+
+export const MAX_IDENTITY_BYTES = 512;
 const DIGEST_CHARS = 32;
 
 /* A field is only usable as identity if it is text the payload actually holds. */
-function stableText(value) {
+function stableText(value: unknown): string {
   if (typeof value !== 'string') return '';
   const text = value.trim();
   if (!text || Buffer.byteLength(text, 'utf8') > MAX_IDENTITY_BYTES) return '';
   return text;
 }
 
-function activeAccount(session) {
-  const accounts = Array.isArray(session.accounts) ? session.accounts : [];
+/* What the limiter reads of a session: every field is checked before it is used. */
+type SessionView = Readonly<Record<string, unknown>>;
+
+function activeAccount(session: SessionView): SessionView | null {
+  const accounts: readonly unknown[] = Array.isArray(session.accounts) ? session.accounts : [];
   if (!accounts.length) return null;
-  const index = Number.isInteger(session.active) && session.active >= 0 && session.active < accounts.length
-    ? session.active
+  const active = session.active;
+  const index = typeof active === 'number' && Number.isInteger(active) && active >= 0 && active < accounts.length
+    ? active
     : 0;
   const account = accounts[index];
-  return account && typeof account === 'object' ? account : null;
+  return account && typeof account === 'object' ? account as SessionView : null;
 }
 
 /*
@@ -70,16 +74,22 @@ function activeAccount(session) {
  * session identity and an address identity cannot collide even if their
  * remaining parts were ever to match.
  */
-function identityOf(session, address) {
+interface Identity {
+  readonly kind: IdentityKind;
+  readonly parts: readonly string[];
+}
+
+function identityOf(session: unknown, address: unknown): Identity {
   if (session && typeof session === 'object') {
-    const sid = stableText(session.sid);
+    const view = session as SessionView;
+    const sid = stableText(view.sid);
     if (sid) return { kind: IDENTITY_KINDS.SESSION, parts: ['sid', sid] };
 
-    const security = session.security && typeof session.security === 'object' ? session.security : {};
+    const security: SessionView = view.security && typeof view.security === 'object' ? view.security as SessionView : {};
     const nonce = stableText(security.sessionNonce);
     if (nonce) return { kind: IDENTITY_KINDS.SESSION, parts: ['nonce', nonce] };
 
-    const account = activeAccount(session);
+    const account = activeAccount(view);
     if (account) {
       const login = stableText(account.login);
       if (login) {
@@ -107,7 +117,7 @@ function identityOf(session, address) {
  * identity's fields can produce another's message — a login containing the
  * separator would otherwise be able to impersonate a provider and login pair.
  */
-function identityMessage(kind, parts) {
+function identityMessage(kind: IdentityKind, parts: readonly string[]): string {
   return [kind, ...parts].map(part => `${Buffer.byteLength(part, 'utf8')}:${part}`).join('|');
 }
 
@@ -116,7 +126,14 @@ function identityMessage(kind, parts) {
  * caller can keep namespaces apart or report on attribution without holding the
  * identity itself.
  */
-function rateLimitIdentity({ session, address, hmacKey, namespace = 'api' }) {
+export interface RateLimitIdentityInput {
+  readonly session?: unknown;
+  readonly address?: unknown;
+  readonly hmacKey: unknown;
+  readonly namespace?: unknown;
+}
+
+export function rateLimitIdentity({ session, address, hmacKey, namespace = 'api' }: RateLimitIdentityInput): { key: string; kind: IdentityKind } {
   if (!Buffer.isBuffer(hmacKey) && typeof hmacKey !== 'string') {
     throw new TypeError('Rate limit identity requires a derived HMAC key');
   }
@@ -124,8 +141,7 @@ function rateLimitIdentity({ session, address, hmacKey, namespace = 'api' }) {
   if (!scope) throw new TypeError('Rate limit identity requires a namespace');
 
   const { kind, parts } = identityOf(session, address);
-  const digest = crypto
-    .createHmac('sha256', hmacKey)
+  const digest = createHmac('sha256', hmacKey)
     .update(identityMessage(kind, parts), 'utf8')
     .digest('base64url')
     .slice(0, DIGEST_CHARS);
@@ -133,8 +149,3 @@ function rateLimitIdentity({ session, address, hmacKey, namespace = 'api' }) {
   return { key: `${scope}:${kind}:${digest}`, kind };
 }
 
-module.exports = Object.freeze({
-  IDENTITY_KINDS,
-  MAX_IDENTITY_BYTES,
-  rateLimitIdentity
-});

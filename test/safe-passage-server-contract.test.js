@@ -15,7 +15,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const store = fs.readFileSync(path.join(root, 'src', 'governance-store.js'), 'utf8');
-const publicErrors = fs.readFileSync(path.join(root, 'src', 'public-errors.js'), 'utf8');
+const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
 const { GovernanceStore } = require('../src/governance-store');
 const { offerSafePassage, ROUTABLE_ACTIONS } = require('../src/safe-passage');
@@ -36,7 +36,13 @@ assert(
 
 /* The public error contract itself is untouched: the route rides beside it, not
  * inside it, so every other refusal answers exactly as it did. */
-assert(!publicErrors.includes('safePassage'), 'the public error body must not gain a safe passage field');
+{
+  const refusal = Object.assign(new Error('Approval is required'), {
+    code: 'POLICY_APPROVAL_REQUIRED', status: 403, safePassage: { action: 'pull.merge' }
+  });
+  assert(!Object.hasOwn(publicErrorBody(refusal), 'safePassage'),
+    'the public error body must not gain a safe passage field, even from an error that carries one');
+}
 
 /* Building an offer must never change the outcome of a refusal that is already
  * decided, so the helper swallows its own failures. */

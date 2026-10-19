@@ -7,9 +7,9 @@ const { spawn } = require('child_process');
 
 const port = 22000 + Math.floor(Math.random() * 5000);
 const root = path.resolve(__dirname, '..');
-const { APP_VERSION } = require('../src/version');
-const { servedAssetsDigest } = require('../src/web-build');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { APP_VERSION } = require('../apps/api/src/platform/release/version.ts');
+const { servedAssetsDigest } = require('../apps/api/src/platform/release/web-build.ts');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const releaseTreeSha256 = computeReleaseFingerprint(root);
 const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['smoke-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');

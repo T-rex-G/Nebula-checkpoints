@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { createDatabasePool, DATABASE_BUDGETS } = require('../../src/database-pool');
+const { createDatabasePool, DATABASE_BUDGETS } = require('../../apps/api/src/platform/persistence/database-pool.ts');
 const root = path.join(__dirname, '../..');
 const adminUrl = String(process.env.NV_TEST_DATABASE_URL || '');
 if (!adminUrl) throw new Error('NV_TEST_DATABASE_URL is required for the real database resilience gate');

@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const net = require('net');
 const { normalizePolicyScope, stableJson } = require('./governance-model');
+const { isPublicAddress } = require('../apps/api/src/platform/network/public-address.ts');
 
 const SUPPORTED_EVENT_TYPES = Object.freeze([
   'policy.created', 'draft.created', 'draft.updated', 'version.created',
@@ -121,66 +122,6 @@ function normalizeWebhookDefinition(input = {}) {
   const enabled = input.enabled == null ? true : input.enabled;
   if (typeof enabled !== 'boolean') fail('Webhook enabled state is invalid', 'GOVERNANCE_WEBHOOK_INVALID');
   return deepFreeze({ schemaVersion: 1, name, url, eventTypes: normalizeEventTypes(input.eventTypes), enabled });
-}
-function ipv4Number(address) {
-  const parts = address.split('.').map(Number);
-  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
-  return (((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3]) >>> 0;
-}
-function inV4(value, base, prefix) {
-  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-  return (value & mask) === (ipv4Number(base) & mask);
-}
-function expandIpv6(address) {
-  let text = String(address || '').toLowerCase();
-  const zone = text.indexOf('%');
-  if (zone >= 0) text = text.slice(0, zone);
-  if (text.includes('.')) {
-    const last = text.lastIndexOf(':');
-    const v4 = ipv4Number(text.slice(last + 1));
-    if (v4 == null) return null;
-    text = `${text.slice(0, last)}:${((v4 >>> 16) & 0xffff).toString(16)}:${(v4 & 0xffff).toString(16)}`;
-  }
-  const halves = text.split('::');
-  if (halves.length > 2) return null;
-  const left = halves[0] ? halves[0].split(':') : [];
-  const right = halves[1] ? halves[1].split(':') : [];
-  const missing = 8 - left.length - right.length;
-  if (missing < 0 || (halves.length === 1 && missing !== 0)) return null;
-  const pieces = [...left, ...Array(missing).fill('0'), ...right];
-  if (pieces.length !== 8 || pieces.some(piece => !/^[0-9a-f]{1,4}$/.test(piece))) return null;
-  return pieces.map(piece => parseInt(piece, 16));
-}
-function isPublicAddress(addressInput) {
-  const address = String(addressInput || '').trim();
-  const family = net.isIP(address);
-  if (family === 4) {
-    const value = ipv4Number(address);
-    if (value == null) return false;
-    const blocked = [
-      ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
-      ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
-      ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
-      ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]
-    ];
-    return !blocked.some(([base, prefix]) => inV4(value, base, prefix));
-  }
-  if (family === 6) {
-    const parts = expandIpv6(address);
-    if (!parts) return false;
-    const allZero = parts.every(part => part === 0);
-    if (allZero || (parts.slice(0, 7).every(part => part === 0) && parts[7] === 1)) return false;
-    if ((parts[0] & 0xfe00) === 0xfc00) return false;
-    if ((parts[0] & 0xffc0) === 0xfe80) return false;
-    if ((parts[0] & 0xff00) === 0xff00) return false;
-    if (parts[0] === 0x2001 && parts[1] === 0x0db8) return false;
-    if (parts.slice(0, 5).every(part => part === 0) && parts[5] === 0xffff) {
-      const v4 = `${parts[6] >> 8}.${parts[6] & 255}.${parts[7] >> 8}.${parts[7] & 255}`;
-      return isPublicAddress(v4);
-    }
-    return true;
-  }
-  return false;
 }
 function normalizeWebhookDestination(rawUrl, addressesInput) {
   const parsed = normalizeWebhookUrl(rawUrl);
@@ -391,7 +332,6 @@ module.exports = Object.freeze({
   normalizeNotificationPreferences,
   normalizeWebhookDefinition,
   normalizeWebhookDestination,
-  isPublicAddress,
   deriveWebhookSigningSecret,
   signWebhookPayload,
   verifyWebhookSignature,

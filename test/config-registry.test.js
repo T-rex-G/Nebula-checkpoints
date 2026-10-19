@@ -27,7 +27,7 @@ const path = require('path');
 const { ENTRIES, GROUPS } = require('../src/config-registry');
 
 const root = path.join(__dirname, '..');
-const SCANNED_ROOTS = ['src', 'scripts', 'ci', 'db', 'server.js'];
+const SCANNED_ROOTS = ['src', 'apps/api/src', 'scripts', 'ci', 'db', 'server.js'];
 
 const READ_PATTERNS = [
   /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
@@ -50,7 +50,7 @@ function readsInSource() {
       }
       return;
     }
-    if (!/\.(js|cjs|mjs)$/.test(target)) return;
+    if (!/\.(?:[cm]?js|ts)$/.test(target)) return;
     const source = fs.readFileSync(target, 'utf8');
     for (const pattern of READ_PATTERNS) {
       for (const match of source.matchAll(pattern)) {

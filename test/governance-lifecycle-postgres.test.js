@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { GovernanceStore } = require('../src/governance-store');
 const { createGovernanceApiService } = require('../src/governance-api');
 const { DEFAULT_NOTIFICATION_EVENT_TYPES } = require('../src/governance-delivery');
@@ -103,7 +103,7 @@ async function rejects(promise, code) {
   const scratchUrl = urlForDatabase(ADMIN_URL, databaseName);
   const pool = new Pool({ connectionString: scratchUrl, max: 4 });
   try {
-    await withClient(scratchUrl, client => runMigrations(client, loadMigrations(DIRECTORY)));
+    await withClient(scratchUrl, client => runMigrations(client, { directory: DIRECTORY }));
     const store = new GovernanceStore(pool, { secret: 'governance-lifecycle-secret-0123456789abcdef' });
     const service = createGovernanceApiService({ store });
     const call = (method, authorization, extra = {}) => service[method]({ scope, authorization, ...extra });

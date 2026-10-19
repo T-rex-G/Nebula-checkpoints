@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { CodeAuditHistory } = require('../src/code-audit-history');
 const { GovernanceStore } = require('../src/governance-store');
 const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
@@ -73,7 +73,7 @@ function triageRow(repo, seed, disposition, expiresAt, rule = 'SEC-011') {
   url.pathname = `/${databaseName}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
   try {
-    await withClient(url.toString(), client => runMigrations(client, loadMigrations(DIRECTORY)));
+    await withClient(url.toString(), client => runMigrations(client, { directory: DIRECTORY }));
     const history = new CodeAuditHistory({ pool });
 
     /*

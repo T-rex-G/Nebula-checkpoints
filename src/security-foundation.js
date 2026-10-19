@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { memorySingleUseStore } = require('./single-use-store');
+const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 const { ASSURANCE_LEVELS } = require('../packages/contracts/src/mutation.ts');
 
 const TOKEN_VERSION = 1;

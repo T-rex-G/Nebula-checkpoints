@@ -12,10 +12,12 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { CodeAuditHistory, createAuditWatch, compactAudit, LIMITS } = require('../src/code-audit-history');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
@@ -91,16 +93,30 @@ async function withClient(connectionString, run) {
   url.pathname = `/${databaseName}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
   try {
-    const migrations = loadMigrations(DIRECTORY);
+    /*
+     * The release before 032, applied for real: a directory holding every
+     * migration that precedes it. (Passing the filtered list as the options, as
+     * this test once did, applied all of them, 032 included, so the row below
+     * was written after the column existed and the upgrade was never run.)
+     */
+    const before032 = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-before-032-'));
+    for (const migration of loadMigrations(DIRECTORY).filter(item => item.id < '032_code_audit_analysis_coverage')) {
+      fs.writeFileSync(path.join(before032, migration.file), migration.sql);
+    }
     await withClient(url.toString(), async client => {
-      await runMigrations(client, migrations.filter(migration => migration.id !== '032_code_audit_analysis_coverage'));
+      await runMigrations(client, { directory: before032, logger: { info() {} } });
+      assert.strictEqual((await client.query(
+        "SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'nv_code_audits' AND column_name = 'analysis_complete'"
+      )).rows[0].n, 0, 'the database is at the release before 032');
       const legacyRow = { ...compactAudit(auditResult()).audit, audit_id: crypto.randomUUID(),
         provider: scope.provider, authority: scope.authority, owner_login: scope.owner, repo_name: 'BeforeAnalysisMigration',
         identity_key: IDENTITY, recorded_at: new Date(T0).toISOString() };
       delete legacyRow.analysis_complete;
       const columns = Object.keys(legacyRow);
       await client.query(`INSERT INTO nv_code_audits (${columns.join(',')}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(',')})`, Object.values(legacyRow));
-      await runMigrations(client, migrations);
+      fs.rmSync(before032, { recursive: true, force: true });
+      const upgrade = await runMigrations(client, { directory: DIRECTORY, logger: { info() {} } });
+      assert.strictEqual(upgrade.applied[0], '032_code_audit_analysis_coverage', 'the upgrade starts at 032');
       assert.strictEqual((await client.query('SELECT analysis_complete FROM nv_code_audits WHERE audit_id=$1', [legacyRow.audit_id])).rows[0].analysis_complete, null,
         'migration preserves an existing audit without inventing analysis proof');
     });

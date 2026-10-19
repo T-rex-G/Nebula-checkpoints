@@ -46,7 +46,8 @@ const COMPOSED = Object.freeze({
 const FAMILIES = Object.fromEntries(Object.values(COMPOSED).filter(entry => entry.family).map(entry => [entry.family, entry.pattern]));
 
 /* The platform's own codes: compared against, never sent. */
-const PLATFORM_CODES = Object.freeze(['ABORT_ERR', 'ECONNREFUSED', 'ENOENT', 'ERR_BUFFER_TOO_LARGE', 'ERR_WORKER_OUT_OF_MEMORY', 'ETIMEDOUT', 'MODULE_NOT_FOUND']);
+/* The resolver's answers for a name with no record (ENODATA, ENOTFOUND, NXDOMAIN) are among them. */
+const PLATFORM_CODES = Object.freeze(['ABORT_ERR', 'ECONNREFUSED', 'ENODATA', 'ENOENT', 'ENOTFOUND', 'ERR_BUFFER_TOO_LARGE', 'ERR_WORKER_OUT_OF_MEMORY', 'ETIMEDOUT', 'MODULE_NOT_FOUND', 'NXDOMAIN']);
 
 /* Codes only a browser mock sends, each with its reason. */
 const MOCK_ONLY_CODES = Object.freeze({

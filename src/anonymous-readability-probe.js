@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const { PROFILES, guardedFetch } = require('./guarded-fetch');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const { KEY_KINDS, classifyKey } = require('./supabase-key-kinds');
 
 /*

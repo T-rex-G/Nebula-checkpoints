@@ -24,7 +24,7 @@ function serverEntry(root = path.resolve(__dirname, '..', '..')) {
 
 /* What /api/version must say about the runtime the tests started: its mode, and in the compiled one its tree's digest. */
 function serverIdentity(root = path.resolve(__dirname, '..', '..')) {
-  const { describeServerRuntime } = require('../../src/server-runtime');
+  const { describeServerRuntime } = require('../../apps/api/src/platform/release/server-runtime.ts');
   const runtime = describeServerRuntime(process.env.NV_SERVER_RUNTIME === 'compiled' ? path.join(root, 'dist', 'server') : root);
   return runtime.buildSha256 ? { serverRuntime: runtime.mode, serverBuildSha256: runtime.buildSha256 } : { serverRuntime: runtime.mode };
 }

@@ -22,7 +22,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const {
   EXPOSURE_CONFIG_VERSION,
   ExposureStore,
@@ -118,7 +118,7 @@ async function claim(store, now = T0) {
   const pool = new Pool({ connectionString: scratchUrl, max: 4 });
   try {
     await withClient(scratchUrl, async client => {
-      await runMigrations(client, loadMigrations(DIRECTORY));
+      await runMigrations(client, { directory: DIRECTORY });
     });
     const store = new ExposureStore({ pool });
 

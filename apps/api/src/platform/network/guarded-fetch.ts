@@ -1,10 +1,8 @@
-'use strict';
-
-const dns = require('dns');
-const http = require('http');
-const https = require('https');
-const net = require('net');
-const { isPublicAddress } = require('./governance-delivery');
+import * as dns from 'node:dns';
+import * as http from 'node:http';
+import * as https from 'node:https';
+import { isIP } from 'node:net';
+import { isPublicAddress } from './public-address.ts';
 
 /*
  * One outbound path for everything this application reaches on somebody else's
@@ -32,7 +30,7 @@ const { isPublicAddress } = require('./governance-delivery');
  * configured endpoint safe to post a signed payload to.
  */
 
-const PROFILES = Object.freeze({
+export const PROFILES = Object.freeze({
   /* A signed POST to an endpoint the reader configured. Its URL policy is the
      one that shipped: no query, no fragment, port 443, and the body is bytes
      that have already been signed and must not be touched. */
@@ -102,9 +100,25 @@ const PROFILES = Object.freeze({
    * borrowed to send a body, or the credential it carries, anywhere else.
    */
   PROVIDER_QUERY: 'provider-query'
-});
+} as const);
 
-const PROFILE_RULES = Object.freeze({
+export type Profile = (typeof PROFILES)[keyof typeof PROFILES];
+
+/* What a profile may do. Absent flags are false. */
+interface ProfileRule {
+  readonly methods: readonly string[];
+  readonly query: boolean;
+  readonly readsBody: boolean;
+  readonly headers?: boolean;
+  readonly truncates?: boolean;
+  readonly tls?: boolean;
+  readonly plainHttp?: boolean;
+  readonly binary?: boolean;
+  readonly hosts?: readonly string[];
+  readonly paths?: readonly string[];
+}
+
+const PROFILE_RULES: Readonly<Record<string, ProfileRule>> = Object.freeze({
   [PROFILES.WEBHOOK]: Object.freeze({ methods: Object.freeze(['POST']), query: false, readsBody: false }),
   [PROFILES.PROVIDER_READ]: Object.freeze({ methods: Object.freeze(['GET', 'HEAD']), query: true, readsBody: true }),
   [PROFILES.CREDENTIAL_VERIFY]: Object.freeze({ methods: Object.freeze(['GET', 'POST']), query: false, readsBody: true }),
@@ -117,7 +131,7 @@ const PROFILE_RULES = Object.freeze({
 });
 
 /* The profiles that never carry a credential, and what the refusal says. */
-const ANONYMOUS = Object.freeze({
+const ANONYMOUS: Readonly<Record<string, string>> = Object.freeze({
   [PROFILES.SITE_PROBE]: 'A site probe must be anonymous',
   [PROFILES.RENDERED_SITE]: 'A rendered site request must be anonymous',
   [PROFILES.ADVISORY_QUERY]: 'An advisory query must be anonymous',
@@ -126,8 +140,10 @@ const ANONYMOUS = Object.freeze({
 });
 
 /* Response headers as a probe may see them: lower-cased names, bounded values. */
-function boundedHeaders(raw) {
-  const out = {};
+export type ProbeHeaders = Readonly<Record<string, string | string[]>>;
+
+function boundedHeaders(raw: http.IncomingHttpHeaders | null | undefined): ProbeHeaders {
+  const out: Record<string, string | string[]> = {};
   let count = 0;
   for (const [name, value] of Object.entries(raw || {})) {
     if (count++ >= 64) break;
@@ -137,15 +153,15 @@ function boundedHeaders(raw) {
   return Object.freeze(out);
 }
 
-const MAX_RESPONSE_BYTES = 256 * 1024;
+export const MAX_RESPONSE_BYTES = 256 * 1024;
 /* A deployed site's script bundle runs to a few megabytes; a site probe may read one, and still cuts it there. */
-const MAX_SITE_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const MAX_SITE_RESPONSE_BYTES = 2 * 1024 * 1024;
 /* A recursive tree may exceed the default. Only repository reads opt into
    this larger bound; webhook and credential-probe limits stay unchanged. */
 const MAX_PROVIDER_RESPONSE_BYTES = 8 * 1024 * 1024;
-const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_DEADLINE_MS = 20_000;
-const MAX_DNS_ANSWERS = 32;
+export const DEFAULT_TIMEOUT_MS = 10_000;
+export const DEFAULT_DEADLINE_MS = 20_000;
+export const MAX_DNS_ANSWERS = 32;
 
 /*
  * Every code this transport can raise, in one frozen set. It exists so a
@@ -156,7 +172,7 @@ const MAX_DNS_ANSWERS = 32;
  * generic the caller falls back to, and a permanent misconfiguration is
  * recorded as a transient failure and retried forever.
  */
-const CODES = Object.freeze({
+export const CODES = Object.freeze({
   BODY_TOO_LARGE: 'GUARDED_FETCH_BODY_TOO_LARGE',
   DEADLINE: 'GUARDED_FETCH_DEADLINE',
   DNS_INVALID: 'GUARDED_FETCH_DNS_INVALID',
@@ -169,7 +185,7 @@ const CODES = Object.freeze({
   TIMEOUT: 'GUARDED_FETCH_TIMEOUT',
   TRANSPORT_FAILED: 'GUARDED_FETCH_TRANSPORT_FAILED',
   URL_INVALID: 'GUARDED_FETCH_URL_INVALID'
-});
+} as const);
 
 /*
  * Carries a code and nothing else. A verification probe sends a discovered
@@ -178,17 +194,26 @@ const CODES = Object.freeze({
  * response body. So no message here is built from caller input, and the
  * underlying failure contributes its code rather than its text.
  */
-class GuardedFetchError extends Error {
-  constructor(message, code = 'GUARDED_FETCH_REFUSED', transportCode = null) {
+/* Set only when the failure underneath carried a code of its own, so it is typed here rather than declared as a field that would always exist. */
+export interface GuardedFetchError {
+  readonly transportCode?: string;
+}
+
+export class GuardedFetchError extends Error {
+  override readonly name = 'GuardedFetchError';
+  readonly code: string;
+
+  constructor(message: string, code = 'GUARDED_FETCH_REFUSED', transportCode: unknown = null) {
     super(message);
-    this.name = 'GuardedFetchError';
     this.code = code;
-    if (transportCode) this.transportCode = String(transportCode).slice(0, 40);
+    if (transportCode) (this as { transportCode?: string }).transportCode = String(transportCode).slice(0, 40);
   }
 }
 
-function rules(profile) {
-  const rule = PROFILE_RULES[String(profile || '')];
+/* Own keys only: an inherited name such as `constructor` is not a profile. */
+function rules(profile: unknown): ProfileRule {
+  const name = String(profile || '');
+  const rule = Object.hasOwn(PROFILE_RULES, name) ? PROFILE_RULES[name] : undefined;
   if (!rule) throw new GuardedFetchError('Unknown outbound profile', 'GUARDED_FETCH_PROFILE_INVALID');
   return rule;
 }
@@ -200,9 +225,9 @@ function rules(profile) {
  * on the reader's. The trailing dot is stripped first because a fully
  * qualified name is the same host and must not be a way around the check.
  */
-function normalizeTarget(rawUrl, profile, options = {}) {
+export function normalizeTarget(rawUrl: unknown, profile: unknown, options: { readonly plainHttp?: boolean } = {}): URL {
   const rule = rules(profile);
-  let parsed;
+  let parsed: URL;
   try { parsed = new URL(String(rawUrl || '').trim()); }
   catch { throw new GuardedFetchError('Outbound target must be an absolute URL', 'GUARDED_FETCH_URL_INVALID'); }
 
@@ -251,18 +276,24 @@ function normalizeTarget(rawUrl, profile, options = {}) {
  * and filtering the set down to the acceptable half is how the next lookup
  * gets through -- so one private answer disqualifies all of them.
  */
-function validateAddresses(answers) {
-  const list = Array.isArray(answers) ? answers : [];
+export interface AddressAnswer {
+  readonly address: string;
+  readonly family: number;
+}
+
+export function validateAddresses(answers: unknown): AddressAnswer[] {
+  const list: readonly unknown[] = Array.isArray(answers) ? answers : [];
   if (!list.length) {
     throw new GuardedFetchError('Outbound target did not resolve', 'GUARDED_FETCH_DNS_INVALID');
   }
   if (list.length > MAX_DNS_ANSWERS) {
     throw new GuardedFetchError('Outbound target resolved to an implausible number of addresses', 'GUARDED_FETCH_DNS_INVALID');
   }
-  return list.map(item => {
-    const address = String(item && item.address || '').trim();
-    const family = Number(item && item.family) || net.isIP(address);
-    if (![4, 6].includes(family) || net.isIP(address) !== family) {
+  return list.map(entry => {
+    const item = (entry && typeof entry === 'object' ? entry : {}) as { readonly address?: unknown; readonly family?: unknown };
+    const address = String(entry && item.address || '').trim();
+    const family = Number(entry && item.family) || isIP(address);
+    if (![4, 6].includes(family) || isIP(address) !== family) {
       throw new GuardedFetchError('Outbound target resolved to a malformed address', 'GUARDED_FETCH_DNS_INVALID');
     }
     if (!isPublicAddress(address)) {
@@ -272,8 +303,8 @@ function validateAddresses(answers) {
   });
 }
 
-function boundedInteger(value, fallback, min, max) {
-  return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
 }
 
 /*
@@ -293,8 +324,8 @@ function boundedInteger(value, fallback, min, max) {
  */
 const MIN_CREDENTIAL_LENGTH = 8;
 
-function assertCredentialNotInUrl(target, headers) {
-  const source = headers && typeof headers === 'object' ? headers : {};
+function assertCredentialNotInUrl(target: URL, headers: unknown): void {
+  const source: object = headers && typeof headers === 'object' ? headers : {};
   const href = target.href;
   for (const [name, value] of Object.entries(source)) {
     if (!/^(?:authorization|proxy-authorization|private-token|x-api-key)$/i.test(name)) continue;
@@ -312,19 +343,22 @@ function assertCredentialNotInUrl(target, headers) {
   }
 }
 
-function lookupAll(hostname) {
+/* Resolves a name to its answers: the system resolver by default, a fake in tests. */
+export type Resolver = (hostname: string) => unknown;
+
+function lookupAll(hostname: string): Promise<dns.LookupAddress[]> {
   return dns.promises.lookup(hostname, { all: true, verbatim: true });
 }
 
 /* A resolution that cannot outlive the request it serves. */
-async function resolveWithin(resolver, hostname, remainingMs, signal) {
-  let dnsDeadline;
-  let onAbort;
+async function resolveWithin(resolver: Resolver, hostname: string, remainingMs: number, signal: AbortSignal | null | undefined): Promise<unknown> {
+  let dnsDeadline: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
     if (signal && signal.aborted) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
     return await Promise.race([
       Promise.resolve().then(() => resolver(hostname)),
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         onAbort = () => reject(new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE));
         if (signal) signal.addEventListener('abort', onAbort, { once: true });
         dnsDeadline = setTimeout(() => reject(new GuardedFetchError(
@@ -334,7 +368,7 @@ async function resolveWithin(resolver, hostname, remainingMs, signal) {
     ]);
   } catch (error) {
     if (error instanceof GuardedFetchError) throw error;
-    throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', error && error.code);
+    throw new GuardedFetchError('Outbound target could not be resolved', 'GUARDED_FETCH_DNS_INVALID', errorCode(error));
   } finally {
     clearTimeout(dnsDeadline);
     if (signal && onAbort) signal.removeEventListener('abort', onAbort);
@@ -346,7 +380,13 @@ async function resolveWithin(resolver, hostname, remainingMs, signal) {
  * a flag on the object, so a caller cannot make an agent of its own look like
  * one of these by setting a property on it.
  */
-const SESSION_AGENTS = new WeakMap();
+interface MintedPool {
+  readonly hostname: string;
+  readonly address: string;
+  readonly profile: string;
+}
+
+const SESSION_AGENTS = new WeakMap<object, MintedPool>();
 const MAX_SESSION_POOLS = 8;
 const DEFAULT_SESSION_SOCKETS = 6;
 const DEFAULT_SESSION_DNS_TTL_MS = 30_000;
@@ -374,7 +414,22 @@ const DEFAULT_SESSION_DNS_TTL_MS = 30_000;
  *
  * Closing it destroys every socket. A session lives for one scan.
  */
-function createGuardedSession(options = {}) {
+export interface GuardedSessionOptions {
+  readonly profile?: string;
+  readonly maxSockets?: number;
+  readonly dnsTtlMs?: number;
+  readonly resolveAddresses?: Resolver;
+  readonly now?: () => number;
+  readonly Agent?: typeof https.Agent;
+  readonly requestImpl?: RequestImpl;
+}
+
+export interface GuardedSession {
+  request(input?: GuardedFetchInput): Promise<GuardedResponse>;
+  close(): void;
+}
+
+export function createGuardedSession(options: GuardedSessionOptions = {}): GuardedSession {
   const profile = String(options.profile || '');
   rules(profile);
   if (profile !== PROFILES.PROVIDER_READ) {
@@ -386,25 +441,25 @@ function createGuardedSession(options = {}) {
   const now = typeof options.now === 'function' ? options.now : Date.now;
   const Agent = typeof options.Agent === 'function' ? options.Agent : https.Agent;
   const requestImpl = typeof options.requestImpl === 'function' ? options.requestImpl : undefined;
-  const pins = new Map();
-  const pools = new Map();
+  const pins = new Map<string, { readonly pinned: AddressAnswer; readonly expiresAt: number }>();
+  const pools = new Map<string, https.Agent>();
   const controller = new AbortController();
   let closed = false;
 
-  function refused() {
+  function refused(): GuardedFetchError {
     return new GuardedFetchError('This session has been closed', 'GUARDED_FETCH_REFUSED');
   }
 
-  async function pinFor(hostname, signal) {
+  async function pinFor(hostname: string, signal: AbortSignal): Promise<AddressAnswer> {
     const cached = pins.get(hostname);
     if (cached && cached.expiresAt > now()) return cached.pinned;
     const answers = await resolveWithin(resolver, hostname, DEFAULT_DEADLINE_MS, signal);
-    const pinned = validateAddresses(answers)[0];
+    const pinned = validateAddresses(answers)[0] as AddressAnswer;
     pins.set(hostname, { pinned, expiresAt: now() + ttlMs });
     return pinned;
   }
 
-  function poolFor(hostname, pinned) {
+  function poolFor(hostname: string, pinned: AddressAnswer): https.Agent {
     const key = `${hostname}\u0000${pinned.address}`;
     let agent = pools.get(key);
     if (agent) return agent;
@@ -412,9 +467,12 @@ function createGuardedSession(options = {}) {
        handful of distinct addresses is a name answering strangely, and the
        oldest pool is closed rather than kept. */
     if (pools.size >= MAX_SESSION_POOLS) {
-      const [oldestKey, oldest] = pools.entries().next().value;
-      pools.delete(oldestKey);
-      oldest.destroy();
+      const first = pools.entries().next().value;
+      if (first) {
+        const [oldestKey, oldest] = first;
+        pools.delete(oldestKey);
+        oldest.destroy();
+      }
     }
     agent = new Agent({ keepAlive: true, maxSockets, maxFreeSockets: maxSockets, timeout: 15_000, scheduling: 'lifo' });
     SESSION_AGENTS.set(agent, Object.freeze({ hostname, address: pinned.address, profile }));
@@ -422,7 +480,7 @@ function createGuardedSession(options = {}) {
     return agent;
   }
 
-  async function request(input = {}) {
+  async function request(input: GuardedFetchInput = {}): Promise<GuardedResponse> {
     if (closed) throw refused();
     if (String(input.profile || '') !== profile) {
       throw new GuardedFetchError('A session serves only the profile it was opened for', 'GUARDED_FETCH_PROFILE_INVALID');
@@ -440,7 +498,7 @@ function createGuardedSession(options = {}) {
     });
   }
 
-  function close() {
+  function close(): void {
     closed = true;
     controller.abort();
     for (const agent of pools.values()) agent.destroy();
@@ -451,11 +509,47 @@ function createGuardedSession(options = {}) {
   return Object.freeze({ request, close });
 }
 
-async function guardedFetch(input = {}) {
+/* The request a socket is opened for, and the response it answers with: the subset of node:http's both sides use, so tests can stand in for either. */
+export type RequestImpl = (options: https.RequestOptions, onResponse: (response: http.IncomingMessage) => void) => http.ClientRequest;
+
+export interface GuardedFetchInput {
+  readonly profile?: string;
+  readonly url?: unknown;
+  readonly method?: string;
+  readonly headers?: http.OutgoingHttpHeaders | null;
+  readonly body?: unknown;
+  readonly signal?: AbortSignal | null;
+  readonly deadlineMs?: number;
+  readonly timeoutMs?: number;
+  readonly maxResponseBytes?: number;
+  readonly plainHttp?: boolean;
+  readonly agent?: unknown;
+  readonly addresses?: unknown;
+  readonly resolveAddresses?: Resolver;
+  readonly requestImpl?: RequestImpl;
+  readonly responseType?: 'buffer' | 'text';
+}
+
+export interface GuardedResponse {
+  readonly statusCode: number;
+  readonly headers?: ProbeHeaders;
+  readonly tls?: PeerTls;
+  readonly body?: string | Buffer;
+  readonly bodyUnread?: boolean;
+  readonly truncated?: boolean;
+  readonly plain?: boolean;
+}
+
+/* The driver's or the system's error code, when the failure carries one. */
+function errorCode(error: unknown): unknown {
+  return error && typeof error === 'object' ? (error as { readonly code?: unknown }).code : undefined;
+}
+
+export async function guardedFetch(input: GuardedFetchInput = {}): Promise<GuardedResponse> {
   const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_DEADLINE_MS, 1, 120_000);
   const startedAt = Date.now();
   const rule = rules(input.profile);
-  const aborted = () => input.signal && input.signal.aborted;
+  const aborted = (): boolean | null | undefined => input.signal && input.signal.aborted;
   if (aborted()) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
   const method = String(input.method || '').toUpperCase();
   if (!rule.methods.includes(method)) {
@@ -467,11 +561,14 @@ async function guardedFetch(input = {}) {
   if (plain && input.agent != null) throw new GuardedFetchError('A plain-HTTP probe never shares a connection', 'GUARDED_FETCH_REFUSED');
   assertCredentialNotInUrl(target, input.headers);
   /* A site probe, an advisory or licence query and an exploit-intelligence read are anonymous by construction: no credential and no cookie. */
-  if (ANONYMOUS[input.profile] && Object.keys(input.headers || {}).some(name =>
+  const profile = String(input.profile || '');
+  const anonymous = Object.hasOwn(ANONYMOUS, profile) ? ANONYMOUS[profile] : undefined;
+  if (anonymous && Object.keys(input.headers || {}).some(name =>
     /^(?:authorization|proxy-authorization|cookie|private-token|x-api-key)$/i.test(name))) {
-    throw new GuardedFetchError(ANONYMOUS[input.profile], 'GUARDED_FETCH_REFUSED');
+    throw new GuardedFetchError(anonymous, 'GUARDED_FETCH_REFUSED');
   }
-  if ([PROFILES.RENDERED_SITE, PROFILES.SITE_PROBE].includes(input.profile) && Object.keys(input.headers || {}).some(name =>
+  const siteRead = profile === PROFILES.RENDERED_SITE || profile === PROFILES.SITE_PROBE;
+  if (siteRead && Object.keys(input.headers || {}).some(name =>
     !/^(?:accept|accept-language|accept-encoding|user-agent|origin|referer|range)$/i.test(name))) {
     throw new GuardedFetchError('Site reads accept only anonymous browser headers', CODES.REFUSED);
   }
@@ -483,11 +580,11 @@ async function guardedFetch(input = {}) {
     throw new GuardedFetchError('This profile may not reach that path', 'GUARDED_FETCH_REFUSED');
   }
   const body = input.body == null ? null : String(input.body);
-  if ([PROFILES.SITE_PROBE, PROFILES.RENDERED_SITE].includes(input.profile) && body !== null) {
+  if (siteRead && body !== null) {
     throw new GuardedFetchError('Anonymous site reads cannot carry a request body', CODES.REFUSED);
   }
   const maxBytes = boundedInteger(input.maxResponseBytes, MAX_RESPONSE_BYTES, 1024,
-    input.profile === PROFILES.PROVIDER_READ || input.profile === PROFILES.THREAT_INTEL || input.profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES
+    profile === PROFILES.PROVIDER_READ || profile === PROFILES.THREAT_INTEL || profile === PROFILES.PROVIDER_QUERY ? MAX_PROVIDER_RESPONSE_BYTES
       : rule.truncates ? MAX_SITE_RESPONSE_BYTES : MAX_RESPONSE_BYTES);
   if (body !== null && Buffer.byteLength(body, 'utf8') > MAX_RESPONSE_BYTES) {
     throw new GuardedFetchError('Outbound body exceeds the transport limit', 'GUARDED_FETCH_BODY_TOO_LARGE');
@@ -501,7 +598,7 @@ async function guardedFetch(input = {}) {
    * validated here -- trusting them because they arrived as a parameter would
    * make the guard optional.
    */
-  let answers;
+  let answers: unknown;
   if (Array.isArray(input.addresses)) {
     answers = input.addresses;
   } else {
@@ -515,7 +612,8 @@ async function guardedFetch(input = {}) {
   /* Validation before a socket exists: a refused address must never reach one. */
   const validated = validateAddresses(answers);
   if (aborted()) throw new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
-  const pinned = validated[0];
+  /* validateAddresses returns at least one answer or throws. */
+  const pinned = validated[0] as AddressAnswer;
 
   /*
    * A pool, only when a guarded session minted it, and only for the address
@@ -525,17 +623,17 @@ async function guardedFetch(input = {}) {
    * address -- and this check keeps it at the boundary, so a caller that
    * passed the wrong pool is refused rather than trusted.
    */
-  let agent = false;
+  let agent: https.Agent | false = false;
   if (input.agent != null) {
-    const minted = SESSION_AGENTS.get(input.agent);
+    const minted = typeof input.agent === 'object' ? SESSION_AGENTS.get(input.agent) : undefined;
     if (!minted || minted.hostname !== target.hostname || minted.address !== pinned.address
       || minted.profile !== input.profile) {
       throw new GuardedFetchError('Only a guarded session may supply a connection pool', 'GUARDED_FETCH_REFUSED');
     }
-    agent = input.agent;
+    agent = input.agent as https.Agent;
   }
 
-  const requestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : plain ? http.request : https.request;
+  const requestImpl: RequestImpl = typeof input.requestImpl === 'function' ? input.requestImpl : plain ? http.request : https.request;
   const timeoutMs = boundedInteger(input.timeoutMs, DEFAULT_TIMEOUT_MS, 1000, 30_000);
   const remainingMs = deadlineMs - (Date.now() - startedAt);
   if (remainingMs <= 0) {
@@ -543,20 +641,20 @@ async function guardedFetch(input = {}) {
   }
   /* Never accept-encoding: the bound that matters is on the bytes a caller
      ends up holding, and a small compressed body can become an enormous one. */
-  const headers = { ...(input.headers || {}) };
+  const headers: http.OutgoingHttpHeaders = { ...(input.headers || {}) };
   for (const name of Object.keys(headers)) if (name.toLowerCase() === 'accept-encoding') delete headers[name];
 
-  return new Promise((resolve, reject) => {
+  return new Promise<GuardedResponse>((resolve, reject) => {
     let settled = false;
-    let request = null;
-    const finish = (fn, value) => {
+    let request: http.ClientRequest | null = null;
+    const finish = <T>(fn: (value: T) => void, value: T): void => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
       if (input.signal) input.signal.removeEventListener('abort', onAbort);
       fn(value);
     };
-    const onAbort = () => {
+    const onAbort = (): void => {
       const error = new GuardedFetchError('Outbound request was cancelled', CODES.DEADLINE);
       if (request && typeof request.destroy === 'function') request.destroy(error);
       finish(reject, error);
@@ -591,7 +689,7 @@ async function guardedFetch(input = {}) {
       /* The certificate is still checked against the name, not the pinned
          address: pinning decides where the bytes go, not who may answer. */
       ...(plain ? {} : { servername: target.hostname }),
-      lookup: (_hostname, options, callback) => {
+      lookup: (_hostname: string, options: dns.LookupOptions, callback: (error: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void) => {
         /* Node's family auto-selection asks for all:true. Both callback
            forms must return the same validated pin, never resolve again. */
         if (options && options.all) callback(null, [{ ...pinned }]);
@@ -604,7 +702,7 @@ async function guardedFetch(input = {}) {
       agent
     }, response => {
       const statusCode = Number(response.statusCode || 0);
-      const seen = rule.headers ? { headers: boundedHeaders(response.headers) } : {};
+      const seen: { headers?: ProbeHeaders; tls?: PeerTls } = rule.headers ? { headers: boundedHeaders(response.headers) } : {};
       /* Plain HTTP answers with a status and headers, and its body is never read. */
       if (plain) {
         if (typeof response.destroy === 'function') response.destroy();
@@ -616,7 +714,7 @@ async function guardedFetch(input = {}) {
       }
 
       const binary = rule.binary && input.responseType === 'buffer';
-      const resultBody = chunks => binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8');
+      const resultBody = (chunks: Buffer[]): string | Buffer => binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8');
       if (rule.readsBody && !binary) {
         const encoding = String((response.headers || {})['content-encoding'] || '').trim().toLowerCase();
         if (encoding && encoding !== 'identity' && rule.truncates) {
@@ -632,8 +730,8 @@ async function guardedFetch(input = {}) {
       }
 
       let received = 0;
-      const chunks = [];
-      response.on('data', chunk => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer | string) => {
         received += chunk.length;
         if (received > maxBytes && rule.truncates) {
           chunks.push(Buffer.from(chunk).subarray(0, Math.max(0, chunk.length - (received - maxBytes))));
@@ -652,26 +750,27 @@ async function guardedFetch(input = {}) {
       response.on('end', () => finish(resolve, rule.readsBody
         ? { statusCode, ...seen, body: resultBody(chunks) }
         : { statusCode }));
-      response.on('error', error => finish(reject, new GuardedFetchError(
-        'Outbound response failed', 'GUARDED_FETCH_TRANSPORT_FAILED', error && error.code
+      response.on('error', (error: unknown) => finish(reject, new GuardedFetchError(
+        'Outbound response failed', 'GUARDED_FETCH_TRANSPORT_FAILED', errorCode(error)
       )));
       response.resume();
       return undefined;
     });
 
-    request.on('timeout', () => {
+    const issued = request;
+    issued.on('timeout', () => {
       const error = new GuardedFetchError('Outbound request timed out', 'GUARDED_FETCH_TIMEOUT');
-      if (typeof request.destroy === 'function') request.destroy(error);
+      if (typeof issued.destroy === 'function') issued.destroy(error);
       finish(reject, error);
     });
-    request.on('error', error => finish(reject, error instanceof GuardedFetchError
+    issued.on('error', (error: unknown) => finish(reject, error instanceof GuardedFetchError
       ? error
-      : new GuardedFetchError('Outbound request failed', 'GUARDED_FETCH_TRANSPORT_FAILED', error && error.code)));
-      request.end(body == null ? undefined : body);
+      : new GuardedFetchError('Outbound request failed', 'GUARDED_FETCH_TRANSPORT_FAILED', errorCode(error))));
+      issued.end(body == null ? undefined : body);
     } catch (error) {
       if (request && typeof request.destroy === 'function') request.destroy();
       finish(reject, error instanceof GuardedFetchError ? error : new GuardedFetchError(
-        'Outbound request failed', CODES.TRANSPORT_FAILED, error && error.code
+        'Outbound request failed', CODES.TRANSPORT_FAILED, errorCode(error)
       ));
     }
   });
@@ -683,8 +782,21 @@ async function guardedFetch(input = {}) {
  * organisation's name and the TLS version. Nothing else of the certificate
  * crosses back.
  */
-function peerTls(socket) {
+export interface PeerTls {
+  readonly protocol: string | null;
+  readonly validTo: string | null;
+  readonly issuer: string | null;
+}
+
+/* The two TLS socket methods read here; a plain socket has neither. */
+interface PeerSocket {
+  readonly getPeerCertificate?: (detailed: boolean) => { readonly valid_to?: string; readonly issuer?: { readonly O?: string; readonly CN?: string } } | null;
+  readonly getProtocol?: () => string | null;
+}
+
+function peerTls(socketInput: unknown): PeerTls | null {
   try {
+    const socket = socketInput as PeerSocket | null | undefined;
     if (!socket || typeof socket.getPeerCertificate !== 'function') return null;
     const certificate = socket.getPeerCertificate(false) || {};
     const protocol = typeof socket.getProtocol === 'function' ? String(socket.getProtocol() || '') : '';
@@ -712,36 +824,28 @@ function peerTls(socket) {
 const MAX_TXT_RECORDS = 32;
 const MAX_TXT_RECORD_BYTES = 2048;
 const TXT_NAME = /^(?=.{1,253}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
-async function guardedTxt(name, options = {}) {
+export interface GuardedTxtOptions {
+  readonly resolveTxt?: Resolver;
+  readonly deadlineMs?: number;
+  readonly signal?: AbortSignal | null;
+}
+
+export async function guardedTxt(name: unknown, options: GuardedTxtOptions = {}): Promise<readonly string[]> {
   const hostname = String(name || '').trim().toLowerCase().replace(/\.$/, '');
   if (!TXT_NAME.test(hostname) || /(?:^|\.)(?:localhost|local|internal)$/.test(hostname)) {
     throw new GuardedFetchError('A DNS lookup needs a public domain name', 'GUARDED_FETCH_URL_INVALID');
   }
-  const resolver = typeof options.resolveTxt === 'function' ? options.resolveTxt : host => dns.promises.resolveTxt(host);
+  const resolver: Resolver = typeof options.resolveTxt === 'function' ? options.resolveTxt : (host: string) => dns.promises.resolveTxt(host);
   const deadlineMs = boundedInteger(options.deadlineMs, 5000, 1, 15_000);
-  let records;
+  let records: unknown;
   try {
     records = await resolveWithin(resolver, hostname, deadlineMs, options.signal);
   } catch (error) {
-    if (['ENODATA', 'ENOTFOUND', 'NXDOMAIN'].includes(error && error.transportCode)) return Object.freeze([]);
+    const transportCode = error && typeof error === 'object' ? (error as { readonly transportCode?: unknown }).transportCode : undefined;
+    if (typeof transportCode === 'string' && ['ENODATA', 'ENOTFOUND', 'NXDOMAIN'].includes(transportCode)) return Object.freeze([]);
     throw error;
   }
-  return Object.freeze((Array.isArray(records) ? records : []).slice(0, MAX_TXT_RECORDS)
+  return Object.freeze((Array.isArray(records) ? records as unknown[] : []).slice(0, MAX_TXT_RECORDS)
     .map(chunks => (Array.isArray(chunks) ? chunks.join('') : String(chunks || '')).slice(0, MAX_TXT_RECORD_BYTES)));
 }
 
-module.exports = Object.freeze({
-  PROFILES,
-  CODES,
-  MAX_RESPONSE_BYTES,
-  MAX_DNS_ANSWERS,
-  DEFAULT_TIMEOUT_MS,
-  DEFAULT_DEADLINE_MS,
-  GuardedFetchError,
-  normalizeTarget,
-  validateAddresses,
-  createGuardedSession,
-  guardedFetch,
-  guardedTxt,
-  MAX_SITE_RESPONSE_BYTES
-});

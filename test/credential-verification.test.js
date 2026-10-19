@@ -30,8 +30,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
-const { PROFILES, guardedFetch } = require('../src/guarded-fetch');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const {
   ADAPTERS,
   DEFAULT_TRANSPORT,

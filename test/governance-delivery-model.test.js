@@ -6,7 +6,6 @@ const {
   DEFAULT_NOTIFICATION_EVENT_TYPES,
   normalizeNotificationPreferences,
   normalizeWebhookDefinition,
-  isPublicAddress,
   normalizeWebhookDestination,
   deriveWebhookSigningSecret,
   signWebhookPayload,
@@ -15,6 +14,7 @@ const {
   buildSignedEvidenceExport,
   verifySignedEvidenceExport
 } = require('../src/governance-delivery');
+const { isPublicAddress } = require('../apps/api/src/platform/network/public-address.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Widget', scopeKey: 'github:github.com:acme/widget' };
 const secret = 's'.repeat(64);

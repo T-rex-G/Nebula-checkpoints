@@ -7,7 +7,7 @@ const path = require('path');
 const {
   computeReleaseFingerprint,
   shouldIncludeReleasePath
-} = require('../src/release-fingerprint');
+} = require('../apps/api/src/platform/release/release-fingerprint.ts');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-release-fingerprint-'));
 try {

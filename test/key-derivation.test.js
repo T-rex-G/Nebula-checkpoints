@@ -12,7 +12,7 @@ const {
   KEY_PURPOSES,
   deriveKey,
   deriveSecret
-} = require('../src/key-derivation');
+} = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const SECRET = 'derivation-test-secret-0123456789abcdef0123456789';
 const purposes = Object.values(KEY_PURPOSES);

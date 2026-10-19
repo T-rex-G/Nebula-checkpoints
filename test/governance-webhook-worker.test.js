@@ -9,7 +9,7 @@ const {
   sendPinnedHttpsWebhook,
   startWebhookWorker
 } = require('../src/governance-webhook-worker');
-const { CODES: GUARDED_FETCH_CODES } = require('../src/guarded-fetch');
+const { CODES: GUARDED_FETCH_CODES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const { verifyWebhookSignature } = require('../src/governance-delivery');
 
 const scope = { provider: 'github', baseUrl: 'https://github.com', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };

@@ -181,7 +181,7 @@ for (const file of MODULES) {
  */
 {
   const loader = fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8');
-  const { webCacheControl } = require('../src/web-build');
+  const { webCacheControl } = require('../apps/api/src/platform/release/web-build.ts');
   const built = path.join(root, 'dist', 'web');
   for (const name of MODULES) {
     assert(loader.includes(`import('./${name}')`), `${name} must be imported through the build, not by a fixed URL`);

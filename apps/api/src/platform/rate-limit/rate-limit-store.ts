@@ -1,6 +1,5 @@
-'use strict';
-
-const crypto = require('crypto');
+import { createHash } from 'node:crypto';
+import { errorCode, type Queryable, type QueryOutcome } from '../persistence/queryable.ts';
 
 /*
  * The shared half of the rate limit. The counters it replaces lived in
@@ -21,37 +20,57 @@ const crypto = require('crypto');
  * its own comparison instead of both being quietly rounded to the same one.
  */
 
-const NAMESPACES = Object.freeze(['api', 'webhook']);
-const DEFAULT_SWEEP_BATCH = 500;
-const MAX_SWEEP_BATCH = 5000;
+export const NAMESPACES: readonly string[] = Object.freeze(['api', 'webhook']);
+export const DEFAULT_SWEEP_BATCH = 500;
+export const MAX_SWEEP_BATCH = 5000;
 
-class RateLimitStoreError extends Error {
-  constructor(message, code = 'RATE_LIMIT_STORE_UNAVAILABLE', status = 503) {
+/* Field order is the order the properties were always set in: name, code, status. */
+export class RateLimitStoreError extends Error {
+  override readonly name = 'RateLimitStoreError';
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code = 'RATE_LIMIT_STORE_UNAVAILABLE', status = 503) {
     super(message);
-    this.name = 'RateLimitStoreError';
     this.code = code;
     this.status = status;
   }
 }
 
-function bucketKeyFor(namespace, key) {
-  return crypto.createHash('sha256').update(`nv/rate-limit/${namespace}\u001f${key}`, 'utf8').digest('hex');
+export function bucketKeyFor(namespace: string, key: string): string {
+  return createHash('sha256').update(`nv/rate-limit/${namespace}\u001f${key}`, 'utf8').digest('hex');
 }
 
-function requireNamespace(namespace) {
+function requireNamespace(namespace: unknown): string {
   const value = String(namespace || '');
   if (!NAMESPACES.includes(value)) throw new TypeError(`Unknown rate limit namespace: ${String(namespace)}`);
   return value;
 }
 
-function requirePositiveInteger(value, label) {
+function requirePositiveInteger(value: unknown, label: string): number {
   const number = Number(value);
   if (!Number.isInteger(number) || number <= 0) throw new TypeError(`${label} must be a positive integer`);
   return number;
 }
 
-class RateLimitStore {
-  constructor(options = {}) {
+export interface RateLimitStoreOptions {
+  readonly pool?: Queryable;
+  readonly sweepBatch?: unknown;
+}
+
+export interface RateLimitCountRequest {
+  readonly namespace?: string;
+  readonly key?: unknown;
+  readonly windowMs?: number;
+  readonly limit?: number;
+  readonly inclusiveReset?: boolean;
+}
+
+export class RateLimitStore {
+  readonly pool: Queryable;
+  readonly sweepBatch: number;
+
+  constructor(options: RateLimitStoreOptions = {}) {
     const pool = options && options.pool;
     if (!pool || typeof pool.query !== 'function') throw new TypeError('RateLimitStore requires a pg-compatible pool');
     this.pool = pool;
@@ -68,22 +87,18 @@ class RateLimitStore {
    * The count is returned as well as the verdict, because a limiter that can
    * only say yes or no cannot tell an operator how close a caller was.
    */
-  /**
+  /*
    * Every field is optional to the checker and required at run time: the
    * validators below reject a missing one with a message, which is a better
    * answer than a destructuring crash.
-   *
-   * @param {{ namespace?: string, key?: unknown, windowMs?: number, limit?: number,
-   *   inclusiveReset?: boolean }} [request]
-   * @returns {Promise<{ allowed: boolean, count: number, limit: number }>}
    */
-  async count({ namespace, key, windowMs, limit, inclusiveReset = false } = {}) {
+  async count({ namespace, key, windowMs, limit, inclusiveReset = false }: RateLimitCountRequest = {}): Promise<{ allowed: boolean; count: number; limit: number }> {
     const bucketNamespace = requireNamespace(namespace);
     const bucketKey = bucketKeyFor(bucketNamespace, String(key == null ? '' : key));
     const window = requirePositiveInteger(windowMs, 'Rate limit window');
     const ceiling = requirePositiveInteger(limit, 'Rate limit ceiling');
 
-    let result;
+    let result: QueryOutcome;
     try {
       result = await this.pool.query(
         `INSERT INTO nv_rate_limit_buckets (bucket_namespace, bucket_key, window_started_at, request_count)
@@ -111,7 +126,7 @@ class RateLimitStore {
        * this caller before.
        */
       throw new RateLimitStoreError(
-        `Rate limit storage is unavailable: ${(error && error.code) || 'query failed'}`
+        `Rate limit storage is unavailable: ${errorCode(error) || 'query failed'}`
       );
     }
 
@@ -121,14 +136,10 @@ class RateLimitStore {
 
   /* Closed windows only, a bounded slice at a time. A live window is never
      discarded to make room: that is a limit failing open under load. */
-  /**
-   * @param {{ windowMs?: number, limit?: number }} [request]
-   * @returns {Promise<number>}
-   */
-  async sweepClosed({ windowMs, limit } = {}) {
+  async sweepClosed({ windowMs, limit }: { readonly windowMs?: number; readonly limit?: number } = {}): Promise<number> {
     const window = requirePositiveInteger(windowMs, 'Rate limit window');
     const batch = Math.min(MAX_SWEEP_BATCH, Math.max(1, Number(limit) || this.sweepBatch));
-    let result;
+    let result: QueryOutcome;
     try {
       result = await this.pool.query(
         `DELETE FROM nv_rate_limit_buckets
@@ -141,17 +152,9 @@ class RateLimitStore {
         [window, batch]
       );
     } catch (error) {
-      throw new RateLimitStoreError(`Rate limit sweep failed: ${(error && error.code) || 'query failed'}`);
+      throw new RateLimitStoreError(`Rate limit sweep failed: ${errorCode(error) || 'query failed'}`);
     }
     return Number(result && result.rowCount) || 0;
   }
 }
 
-module.exports = Object.freeze({
-  NAMESPACES,
-  DEFAULT_SWEEP_BATCH,
-  MAX_SWEEP_BATCH,
-  RateLimitStore,
-  RateLimitStoreError,
-  bucketKeyFor
-});

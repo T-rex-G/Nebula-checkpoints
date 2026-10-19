@@ -24,7 +24,7 @@
 const path = require('path');
 const { Pool } = require('pg');
 const { AlphaAccessStore } = require('../src/alpha-access-store');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const { hashJson } = require('../src/intelligence');
 
 const SCHEMA_VERSION = '1.0.0';

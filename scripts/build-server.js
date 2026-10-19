@@ -26,8 +26,8 @@
 const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
-const { discoverReleaseFiles } = require('../src/release-fingerprint');
-const { COMPILED_DIRECTORY, serverBuildDigest } = require('../src/server-runtime');
+const { discoverReleaseFiles } = require('../apps/api/src/platform/release/release-fingerprint.ts');
+const { COMPILED_DIRECTORY, serverBuildDigest } = require('../apps/api/src/platform/release/server-runtime.ts');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, COMPILED_DIRECTORY);

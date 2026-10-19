@@ -9,8 +9,8 @@ const {
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface, normalizeProviderBranches
 } = require('../src/intelligence');
-const { normalizeDatabaseUrl } = require('../src/config');
-const { KEY_PURPOSES, deriveSecret } = require('../src/key-derivation');
+const { normalizeDatabaseUrl } = require('../apps/api/src/platform/config/config.ts');
+const { KEY_PURPOSES, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 assert.strictEqual(stableJson({ b: 2, a: 1 }), '{"a":1,"b":2}');
 assert.strictEqual(stableJson({ z: [2, { b: true, a: false }], a: null }), '{"a":null,"z":[2,{"a":false,"b":true}]}');

@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
 

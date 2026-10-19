@@ -12,7 +12,7 @@ const {
   decryptBackupFile,
   validateBackupManifest
 } = require('../src/backup-format');
-const { ADVISORY_LOCK_ID, runMigrations, verifyMigrations } = require('../src/migrations');
+const { ADVISORY_LOCK_ID, runMigrations, verifyMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 const COMMANDS = Object.freeze({
   backup: Object.freeze({ '--output-dir': 'outputDir' }),

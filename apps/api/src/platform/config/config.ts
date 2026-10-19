@@ -1,8 +1,10 @@
-'use strict';
+import { createPrivateKey } from 'node:crypto';
+import { isIP } from 'node:net';
+import { loadHostedAlphaLimits } from '../persistence/hosted-readiness.ts';
 
-const crypto = require('crypto');
-const net = require('net');
-const { loadHostedAlphaLimits } = require('./hosted-readiness');
+export { loadHostedAlphaLimits };
+
+type Environment = Readonly<Record<string, string | undefined>>;
 
 /*
  * Which forwarding hops to believe. An explicit NV_TRUSTED_PROXIES list of
@@ -13,15 +15,15 @@ const { loadHostedAlphaLimits } = require('./hosted-readiness');
  * every anonymous visitor in the ingress's single rate-limit bucket. Anywhere
  * else nothing is trusted, so a direct client cannot choose its own address.
  */
-function loadTrustedProxies(raw, env = process.env) {
+export function loadTrustedProxies(raw: unknown, env: Environment | null | undefined = process.env): string[] | 1 | false {
   const value = String(raw || '').trim();
   if (!value) return String((env && env.RENDER) || '').trim().toLowerCase() === 'true' ? 1 : false;
   const entries = value.split(',').map(part => part.trim());
   for (const entry of entries) {
     const parts = entry.split('/');
-    const family = net.isIP(parts[0]);
+    const family = isIP(parts[0] ?? '');
     const prefix = parts.length === 2 ? Number(parts[1]) : family === 4 ? 32 : 128;
-    if (!family || parts.length > 2 || (parts.length === 2 && !/^\d{1,3}$/.test(parts[1]))
+    if (!family || parts.length > 2 || (parts.length === 2 && !/^\d{1,3}$/.test(parts[1] ?? ''))
       || !Number.isInteger(prefix) || prefix <= 0 || prefix > (family === 4 ? 32 : 128)) {
       throw new Error('NV_TRUSTED_PROXIES must contain explicit proxy IP addresses or non-universal CIDR ranges');
     }
@@ -29,10 +31,10 @@ function loadTrustedProxies(raw, env = process.env) {
   return entries;
 }
 
-function normalizeDatabaseUrl(raw, options = {}) {
+export function normalizeDatabaseUrl(raw: unknown, options: { readonly production?: unknown; readonly insecure?: unknown } = {}): string {
   const value = String(raw || '').trim();
   if (!value) return '';
-  let url;
+  let url: URL;
   try { url = new URL(value); }
   catch { throw new Error('DATABASE_URL is not a valid PostgreSQL URL'); }
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('DATABASE_URL must use postgres:// or postgresql://');
@@ -50,15 +52,15 @@ function normalizeDatabaseUrl(raw, options = {}) {
 }
 
 
-function normalizeGovernanceRuntimeFailureMode(raw) {
+export function normalizeGovernanceRuntimeFailureMode(raw: unknown): 'warn' | 'block' {
   const mode = String(raw || '').trim().toLowerCase() || 'warn';
   if (!['warn', 'block'].includes(mode)) {
     throw new Error('NV_GOVERNANCE_RUNTIME_FAILURE_MODE must be warn or block');
   }
-  return mode;
+  return mode as 'warn' | 'block';
 }
 
-function loadAlphaAccessConfig(env = process.env, options = {}) {
+export function loadAlphaAccessConfig(env: Environment = process.env, options: { readonly databaseUrl?: unknown } = {}) {
   const mode = String(env.NV_ALPHA_ACCESS_MODE || 'off').trim().toLowerCase();
   if (!['off', 'invite'].includes(mode)) {
     throw new Error('NV_ALPHA_ACCESS_MODE must be off or invite');
@@ -88,7 +90,7 @@ function loadAlphaAccessConfig(env = process.env, options = {}) {
   });
 }
 
-function normalizeGithubPrivateKey(env) {
+function normalizeGithubPrivateKey(env: Environment): string {
   const raw = String(env.GITHUB_APP_PRIVATE_KEY || '').trim();
   const encoded = String(env.GITHUB_APP_PRIVATE_KEY_BASE64 || '').trim();
   if (raw && encoded) throw new Error('GitHub App configuration must use only one private-key environment variable');
@@ -100,7 +102,7 @@ function normalizeGithubPrivateKey(env) {
   value = String(value || '').replace(/\\n/g, '\n').trim();
   if (!value) return '';
   try {
-    const key = crypto.createPrivateKey(value);
+    const key = createPrivateKey(value);
     if (key.asymmetricKeyType !== 'rsa') throw new Error('not RSA');
   } catch {
     throw new Error('GitHub App private key must be a valid RSA private key');
@@ -108,8 +110,8 @@ function normalizeGithubPrivateKey(env) {
   return `${value}\n`;
 }
 
-function requireHttpsUrl(raw, label, production) {
-  let parsed;
+function requireHttpsUrl(raw: unknown, label: string, production: boolean): URL {
+  let parsed: URL;
   try { parsed = new URL(String(raw || '').trim()); }
   catch { throw new Error(`${label} must be a valid absolute URL`); }
   if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error(`${label} must use http or https`);
@@ -118,7 +120,7 @@ function requireHttpsUrl(raw, label, production) {
   return parsed;
 }
 
-function loadGithubAppConfig(env = process.env, options = {}) {
+export function loadGithubAppConfig(env: Environment = process.env, options: { readonly production?: unknown } = {}) {
   const appSpecificValues = [
     env.GITHUB_APP_ID, env.GITHUB_APP_SLUG, env.GITHUB_APP_CLIENT_ID,
     env.GITHUB_APP_CLIENT_SECRET, env.GITHUB_APP_PRIVATE_KEY,
@@ -138,7 +140,7 @@ function loadGithubAppConfig(env = process.env, options = {}) {
     callbackRaw = new URL('/api/github-app/oauth/callback', base).toString();
   }
 
-  const missing = [];
+  const missing: string[] = [];
   if (!appIdText) missing.push('GITHUB_APP_ID');
   if (!slug) missing.push('GITHUB_APP_SLUG');
   if (!clientId) missing.push('GITHUB_APP_CLIENT_ID');
@@ -181,11 +183,3 @@ function loadGithubAppConfig(env = process.env, options = {}) {
   });
 }
 
-module.exports = {
-  loadTrustedProxies,
-  normalizeDatabaseUrl,
-  normalizeGovernanceRuntimeFailureMode,
-  loadHostedAlphaLimits,
-  loadGithubAppConfig,
-  loadAlphaAccessConfig
-};

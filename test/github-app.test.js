@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { loadGithubAppConfig } = require('../src/config');
+const { loadGithubAppConfig } = require('../apps/api/src/platform/config/config.ts');
 const {
   GithubAppError,
   createGithubAppJwt,

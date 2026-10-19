@@ -7,8 +7,8 @@ const { spawn } = require('child_process');
 const { Client } = require('pg');
 const { test: base, expect } = require('@playwright/test');
 const { startGithubBoundary } = require('./github-boundary');
-const { loadMigrations } = require('../../src/migrations');
-const { computeReleaseFingerprint } = require('../../src/release-fingerprint');
+const { loadMigrations } = require('../../apps/api/src/platform/persistence/migrations.ts');
+const { computeReleaseFingerprint } = require('../../apps/api/src/platform/release/release-fingerprint.ts');
 const { checkDeployment } = require('../../scripts/check-deployment-readiness');
 const { serverEntry } = require('../helpers/server-entry');
 

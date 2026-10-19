@@ -1,10 +1,9 @@
-'use strict';
-const { Pool } = require('pg');
+import pg from 'pg';
 
 // Server-side deadlines cancel work on PostgreSQL; the slightly longer client
 // deadline also bounds a lost response. Acquisition and idle transaction limits
 // prevent an unavailable connection or abandoned lock from consuming the pool.
-const DATABASE_BUDGETS = Object.freeze({
+export const DATABASE_BUDGETS = Object.freeze({
   max: 3,
   connectionTimeoutMillis: 5000,
   idleTimeoutMillis: 30000,
@@ -14,10 +13,10 @@ const DATABASE_BUDGETS = Object.freeze({
   idle_in_transaction_session_timeout: 15000
 });
 
-function createDatabasePool(connectionString, onIdleError) {
-  const pool = new Pool({ connectionString, ...DATABASE_BUDGETS, enableChannelBinding: true });
-  const reported = new WeakSet();
-  function report(error) {
+export function createDatabasePool(connectionString: string, onIdleError: (error: Error) => void): pg.Pool {
+  const pool = new pg.Pool({ connectionString, ...DATABASE_BUDGETS, enableChannelBinding: true });
+  const reported = new WeakSet<Error>();
+  function report(error: Error): void {
     if (reported.has(error)) return;
     reported.add(error);
     onIdleError(error);
@@ -31,4 +30,3 @@ function createDatabasePool(connectionString, onIdleError) {
   pool.on('connect', client => client.on('error', report));
   return pool;
 }
-module.exports = { DATABASE_BUDGETS, createDatabasePool };

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { PRODUCT_NAME } = require('../../src/version.js');
+const { PRODUCT_NAME } = require('../api/src/platform/release/version.ts');
 const { stripCssComments, stripHtmlComments } = require('../../src/public-assets.js');
 
 export default defineConfig({

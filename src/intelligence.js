@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { KEY_PURPOSES, deriveSecret } = require('./key-derivation');
+const { KEY_PURPOSES, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const MAX_REASON_COUNT = 12;
 

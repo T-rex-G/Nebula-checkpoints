@@ -10,9 +10,9 @@ const net = require('net');
 const { spawn } = require('child_process');
 const { Client, Pool } = require('pg');
 const vm = require('vm');
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
 
 const root = path.join(__dirname, '..');
@@ -94,7 +94,7 @@ async function main() {
     created = true;
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
-    await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
+    await runMigrations(client, { directory: path.join(root, 'db/migrations') });
     // Execute the production persistence functions against independent pool
     // connections. Both requests carry stale middleware/session snapshots.
     const safetyPool = new Pool({ connectionString: databaseUrl.toString() });

@@ -30,7 +30,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { SKIP_REASONS } = require('../src/exposure-reader');
 const { fingerprintFor, fingerprintKeyId } = require('../src/exposure-findings');
 const { RULES_VERSION, DETECTION_ENGINE_VERSION } = require('../src/exposure-detection');

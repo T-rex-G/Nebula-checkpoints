@@ -5,7 +5,7 @@ const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 const express = require('express');
-const { loadTrustedProxies } = require('../src/config');
+const { loadTrustedProxies } = require('../apps/api/src/platform/config/config.ts');
 const port = 29000 + Math.floor(Math.random() * 900);
 const child = spawn(process.execPath, [serverEntry()], {
   cwd: path.join(__dirname, '..'),

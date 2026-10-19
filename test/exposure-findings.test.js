@@ -23,7 +23,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { adapterForCandidate } = require('../src/credential-verification');
 const { detectInText } = require('../src/exposure-detection');
 const {

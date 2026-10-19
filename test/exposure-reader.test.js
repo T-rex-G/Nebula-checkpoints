@@ -23,7 +23,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { PROFILES, guardedFetch } = require('../src/guarded-fetch');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const {
   DEFAULT_TRANSPORT,
   MAX_BLOB_BYTES,

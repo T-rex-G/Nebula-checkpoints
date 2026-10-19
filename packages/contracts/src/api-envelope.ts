@@ -8,7 +8,7 @@
  * reference also comes back as a header, so an answer the edge produced
  * without a body still has one when the server saw the request.
  *
- * publicErrorBody is ported from src/public-errors.js with its behaviour
+ * publicErrorBody is ported from apps/api/src/http/errors.ts with its behaviour
  * unchanged; minting a reference is left to the caller's platform.
  */
 import { CORRELATION_ID } from './ids.ts';

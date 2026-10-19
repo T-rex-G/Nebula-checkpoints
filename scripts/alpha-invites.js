@@ -1,14 +1,15 @@
 'use strict';
 
+const path = require('path');
 const {
   parseRepositoryScope
 } = require('../src/alpha-access');
 const {
   normalizeDatabaseUrl,
   loadAlphaAccessConfig
-} = require('../src/config');
+} = require('../apps/api/src/platform/config/config.ts');
 const { AlphaAccessStore } = require('../src/alpha-access-store');
-const { runMigrations } = require('../src/migrations');
+const { runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 const ISSUE_WARNING =
   'This plaintext invitation is shown once. Store and transmit it securely.';
@@ -208,7 +209,7 @@ function publicListView(row) {
 async function migrate(pool, migrationRunner) {
   const client = await pool.connect();
   try {
-    await migrationRunner(client, { logger: { info() {} } });
+    await migrationRunner(client, { directory: path.join(__dirname, '..', 'db', 'migrations'), logger: { info() {} } });
   } finally {
     client.release();
   }

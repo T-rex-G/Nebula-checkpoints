@@ -87,11 +87,11 @@ const {
   loadHostedAlphaLimits,
   loadGithubAppConfig,
   loadAlphaAccessConfig
-} = require('./src/config');
+} = require('./apps/api/src/platform/config/config.ts');
 const {
   databaseReadiness,
   hostedConfigProjection
-} = require('./src/hosted-readiness');
+} = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
 const { AlphaAccessStore, AlphaAccessOperationalError } = require('./src/alpha-access-store');
 const { AlphaPrivacyStore } = require('./src/alpha-privacy-store');
 const { alphaActorLabel, alphaRetentionPolicy, sanitizeFeedback, providerRevocationGuidance } = require('./src/alpha-privacy');
@@ -105,15 +105,15 @@ const {
   repositoryAllowed,
   inviteUnbound
 } = require('./src/alpha-access');
-const { PRODUCT_NAME, APP_VERSION } = require('./src/version');
-const { computeReleaseFingerprint } = require('./src/release-fingerprint');
-const { describeServerRuntime } = require('./src/server-runtime');
-const { loadWebBuild, webCacheControl } = require('./src/web-build');
+const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
+const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
+const { describeServerRuntime } = require('./apps/api/src/platform/release/server-runtime.ts');
+const { loadWebBuild, webCacheControl } = require('./apps/api/src/platform/release/web-build.ts');
 const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
 const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
-// The compiled fallback (src/server-runtime.js, ADR-088) still names the source it
+// The compiled fallback (apps/api/src/platform/release/server-runtime.ts, ADR-088) still names the source it
 // was built from, and names its own tree beside it.
 const SERVER_RUNTIME = describeServerRuntime(__dirname);
 const RELEASE_TREE_SHA256 = computeReleaseFingerprint(SERVER_RUNTIME.sourceRoot);
@@ -129,9 +129,9 @@ const WEB_BUILD = loadWebBuild(WEB_ROOT);
  * shell cache it replaces. A stamp that only names the version leaves a
  * returning browser with new HTML and cache-first scripts from an older build.
  */
-const { createCorrelationId, publicErrorBody } = require('./src/public-errors');
-const { loadMigrations, runMigrations, verifyMigrations } = require('./src/migrations');
-const { scanUploadFile, scannerStatus } = require('./src/file-security');
+const { createCorrelationId, publicErrorBody } = require('./apps/api/src/http/errors.ts');
+const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
+const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
 const {
   createCsrfToken, verifyCsrfToken, createStepUpGrant, verifyStepUpGrant,
   normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp, scopeHash
@@ -139,14 +139,14 @@ const {
 const {
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker
 } = require('./src/github-app');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./src/key-derivation');
-const { rateLimitIdentity } = require('./src/rate-limit-identity');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./apps/api/src/platform/crypto/key-derivation.ts');
+const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./src/local-session-policy');
-const { createDatabasePool } = require('./src/database-pool');
+const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
 const localSessionPolicy = createLocalSessionPolicy();
-const { SingleUseStore, memorySingleUseStore } = require('./src/single-use-store');
+const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
 const { writeLiveClient } = require('./src/live-stream');
-const { RateLimitStore } = require('./src/rate-limit-store');
+const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
 const { resolveProviderAccount } = require('./src/provider-credentials');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./src/authorization-resolver');
 const { projectGovernanceInterfaceAccess } = require('./src/governance-interface');
@@ -163,7 +163,7 @@ const { GovernanceStore } = require('./src/governance-store');
 const { assertGovernanceAuthorization, createGovernanceApiService } = require('./src/governance-api');
 const { startWebhookWorker } = require('./src/governance-webhook-worker');
 const { DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker } = require('./src/exposure-worker');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./src/guarded-fetch');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const { auditRepository, assertAuditActive } = require('./src/code-audit');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
@@ -237,7 +237,7 @@ if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') <
 }
 /*
  * Every keyed construction below derives its own key from SECRET through a
- * distinct HKDF purpose. See src/key-derivation.js for why the previous shared
+ * distinct HKDF purpose. See apps/api/src/platform/crypto/key-derivation.ts for why the previous shared
  * key was a hazard even though nothing was exploitable.
  */
 const SESSION_CONTENT_KEY = deriveKey(SECRET, KEY_PURPOSES.SESSION_CONTENT);
@@ -607,7 +607,7 @@ app.use('/api', (req, res, next) => {
  * cookie as it arrived. A caller cannot forge a sealed payload without
  * SESSION_SECRET, so it cannot mint bucket identities, and the fields the
  * derivation reads survive a reseal, so writing a session back no longer
- * returns it to zero. src/rate-limit-identity.js records what the previous
+ * returns it to zero. apps/api/src/platform/rate-limit/rate-limit-identity.ts records what the previous
  * key did instead.
  */
 const API_RATE_WINDOW_MS = 60000;

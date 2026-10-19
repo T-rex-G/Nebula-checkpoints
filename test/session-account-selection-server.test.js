@@ -21,9 +21,9 @@ const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken } = require('../src/security-foundation');
 
 const root = path.join(__dirname, '..');
@@ -93,7 +93,7 @@ async function main() {
     created = true;
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
-    await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
+    await runMigrations(client, { directory: path.join(root, 'db/migrations') });
     const port = await freePort();
     child = spawn(process.execPath, ['-r', './test/fixtures/github-account-operations-fetch.js', serverEntry()], {
       cwd: root,

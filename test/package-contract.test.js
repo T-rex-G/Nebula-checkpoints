@@ -53,7 +53,7 @@ const required = [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -94,7 +94,19 @@ const syntaxGate = [
   pkg.scripts['check:syntax'],
   pkg.scripts['postcheck:syntax']
 ].filter(Boolean).join(' && ');
-const syntaxChecks = source => syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
+/*
+ * `node --check` reads JavaScript only. TypeScript is parsed by the strict
+ * checker of the project that holds it, so a .ts source counts as checked when
+ * the typecheck gate runs that project.
+ */
+const TYPED_PROJECTS = Object.freeze([['apps/api/src/', 'apps/api'], ['apps/web/src/', 'apps/web'], ['packages/contracts/src/', 'packages/contracts']]);
+const syntaxChecks = source => {
+  if (/\.tsx?$/.test(source)) {
+    const project = TYPED_PROJECTS.find(([prefix]) => source.startsWith(prefix));
+    return Boolean(project) && String(pkg.scripts.typecheck || '').split(/\s*&&\s*/).includes(`tsc --project ${project[1]}`);
+  }
+  return syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
+};
 const dependencyLock = JSON.parse(read('package-lock.json'));
 assert.strictEqual(pkg.dependencies.dompurify, '3.4.16', 'DOMPurify must include the alpha.17 XSS fix');
 assert.strictEqual(dependencyLock.packages['node_modules/dompurify'].version, '3.4.16');
@@ -243,7 +255,7 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr57)) {
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
 
 const uxArtifacts = [
-  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -255,7 +267,7 @@ const uxPrograms = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js'
 ];
 const uxSyntaxSources = [
-  'src/public-errors.js', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js'
 ];
@@ -594,7 +606,7 @@ for (const allowed of [
 ]) assert.strictEqual(shouldInclude(allowed), true, allowed);
 
 const hostedOperationsSources = [
-  'src/hosted-readiness.js',
+  'apps/api/src/platform/persistence/hosted-readiness.ts',
   'src/backup-format.js',
   'scripts/alpha-db.js',
   'scripts/alpha-smoke.js',

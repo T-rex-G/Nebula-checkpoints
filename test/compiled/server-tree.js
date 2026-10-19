@@ -13,8 +13,8 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
-const { describeServerRuntime } = require('../../src/server-runtime');
-const { listFiles } = require('../../src/directory-digest');
+const { describeServerRuntime } = require('../../apps/api/src/platform/release/server-runtime.ts');
+const { listFiles } = require('../../apps/api/src/platform/release/directory-digest.ts');
 
 const root = path.resolve(__dirname, '..', '..');
 const compiled = path.join(root, 'dist', 'server');

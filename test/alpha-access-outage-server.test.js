@@ -24,7 +24,7 @@ const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { AlphaAccessStore } = require('../src/alpha-access-store');
 
 const root = path.join(__dirname, '..');
@@ -64,7 +64,7 @@ async function main() {
     created = true;
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
-    await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
+    await runMigrations(client, { directory: path.join(root, 'db/migrations') });
     const store = new AlphaAccessStore({ pool: { query: (...args) => client.query(...args), connect: async () => ({ query: (...args) => client.query(...args), release() {} }) }, pepper });
     const port = await freePort();
     child = spawn(process.execPath, [serverEntry()], {

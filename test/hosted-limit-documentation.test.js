@@ -17,7 +17,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { loadHostedAlphaLimits, hostedAlphaLimitBounds } = require('../src/hosted-readiness');
+const { loadHostedAlphaLimits, hostedAlphaLimitBounds } = require('../apps/api/src/platform/persistence/hosted-readiness.ts');
 const { ENTRIES } = require('../src/config-registry');
 
 const root = path.join(__dirname, '..');

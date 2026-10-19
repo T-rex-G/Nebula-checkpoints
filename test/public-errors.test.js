@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { createCorrelationId, publicErrorBody } = require('../src/public-errors');
+const { createCorrelationId, publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
 assert.strictEqual(
   createCorrelationId(() => Buffer.from('0123456789abcdef', 'hex')),

@@ -8,7 +8,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { createGithubAppState } = require('../src/github-app');
 const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
 const port = 30100 + Math.floor(Math.random() * 500);

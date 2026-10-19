@@ -1,9 +1,7 @@
-'use strict';
-
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
+import { createHash, type Hash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const DOMAIN = Buffer.from('nebulaverse-x.release-tree.v1\0', 'utf8');
 const MAX_FILES = 20_000;
@@ -12,20 +10,25 @@ const MAX_DEPTH = 64;
 const MAX_PATH_BYTES = 1024;
 const MAX_FILE_BYTES = 512 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
-const FORBIDDEN_SEGMENTS = Object.freeze([
+const FORBIDDEN_SEGMENTS: readonly string[] = Object.freeze([
   '.git', '.hg', '.svn', '.superpowers', '.agents', '.codex',
   '.cache', '.npm', '.yarn', '.pnpm-store', '.turbo', '.next',
   'node_modules', 'bower_components', '__MACOSX', 'coverage',
   'playwright-report', 'test-results', '.tmp', 'tmp', '.temp', 'temp',
   'dist', 'build', 'out'
 ]);
-const FORBIDDEN_NAMES = Object.freeze(['.DS_Store', '.eslintcache']);
+const FORBIDDEN_NAMES: readonly string[] = Object.freeze(['.DS_Store', '.eslintcache']);
 
-function fail(message) {
+export interface ReleaseFile {
+  readonly absolute: string;
+  readonly relative: string;
+}
+
+function fail(message: string): never {
   throw new TypeError(message);
 }
 
-function normalizeReleasePath(relative) {
+function normalizeReleasePath(relative: unknown): string | null {
   const normalized = String(relative || '').replace(/\\/g, '/');
   if (
     !normalized ||
@@ -37,23 +40,23 @@ function normalizeReleasePath(relative) {
   return normalized;
 }
 
-function hasForbiddenLocation(normalized) {
+function hasForbiddenLocation(normalized: string): boolean {
   const parts = normalized.split('/');
   if (parts.some(part => FORBIDDEN_SEGMENTS.includes(part))) return true;
   if (normalized !== '.env.example' && parts.some(part => part.startsWith('.env'))) return true;
   return normalized === 'staging/evidence' || normalized.startsWith('staging/evidence/');
 }
 
-function shouldTraverseReleaseDirectory(relative) {
+export function shouldTraverseReleaseDirectory(relative: unknown): boolean {
   const normalized = normalizeReleasePath(relative);
   return normalized !== null && !hasForbiddenLocation(normalized);
 }
 
-function shouldIncludeReleasePath(relative) {
+export function shouldIncludeReleasePath(relative: unknown): boolean {
   const normalized = normalizeReleasePath(relative);
   if (normalized === null || hasForbiddenLocation(normalized)) return false;
   const parts = normalized.split('/');
-  const name = parts[parts.length - 1];
+  const name = parts[parts.length - 1] ?? '';
   if (FORBIDDEN_NAMES.includes(name) || name.startsWith('._')) return false;
   if (/\.(?:log|zip|sha256)$/i.test(name)) return false;
   if (/-Public-Alpha-(?:Qualification\.json|Closeout\.md)$/i.test(name)) return false;
@@ -62,10 +65,10 @@ function shouldIncludeReleasePath(relative) {
   return true;
 }
 
-function discoverReleaseFiles(root) {
-  const files = [];
+export function discoverReleaseFiles(root: string): ReleaseFile[] {
+  const files: ReleaseFile[] = [];
   let entries = 0;
-  function visit(directory, prefix, depth) {
+  function visit(directory: string, prefix: string, depth: number): void {
     if (depth > MAX_DEPTH) fail('release tree exceeds the safe directory depth');
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       entries += 1;
@@ -89,13 +92,13 @@ function discoverReleaseFiles(root) {
   return files;
 }
 
-function hashStableFile(hash, file, totalBytes) {
+function hashStableFile(hash: Hash, file: ReleaseFile, totalBytes: number): number {
   const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
-  let descriptor;
+  let descriptor: number;
   try {
     descriptor = fs.openSync(file.absolute, flags);
   } catch (error) {
-    fail(`release tree cannot open a regular file: ${file.relative}: ${error.code || 'unknown error'}`);
+    fail(`release tree cannot open a regular file: ${file.relative}: ${(error as NodeJS.ErrnoException).code || 'unknown error'}`);
   }
   try {
     const before = fs.fstatSync(descriptor, { bigint: true });
@@ -156,7 +159,7 @@ function hashStableFile(hash, file, totalBytes) {
  * ignored files, and a server must not fail to boot over a local-tooling
  * concern. When git cannot answer, nothing is claimed either way.
  */
-function ignoredPathsWithinRelease(root) {
+function ignoredPathsWithinRelease(root: string): string[] | null {
   const result = spawnSync(
     'git',
     ['-C', root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'],
@@ -169,7 +172,7 @@ function ignoredPathsWithinRelease(root) {
     .filter(relative => shouldIncludeReleasePath(relative));
 }
 
-function assertCleanReleaseTree(rootDirectory) {
+export function assertCleanReleaseTree(rootDirectory: unknown): void {
   const root = fs.realpathSync(path.resolve(String(rootDirectory || '')));
   const ignored = ignoredPathsWithinRelease(root);
   if (ignored === null || ignored.length === 0) return;
@@ -182,10 +185,10 @@ function assertCleanReleaseTree(rootDirectory) {
   );
 }
 
-function computeReleaseFingerprint(rootDirectory, options = {}) {
+export function computeReleaseFingerprint(rootDirectory: unknown, options: { readonly requireClean?: boolean } = {}): string {
   if (options && options.requireClean) assertCleanReleaseTree(rootDirectory);
   const requestedRoot = path.resolve(String(rootDirectory || ''));
-  let rootMetadata;
+  let rootMetadata: fs.Stats;
   try {
     rootMetadata = fs.lstatSync(requestedRoot);
   } catch {
@@ -196,7 +199,7 @@ function computeReleaseFingerprint(rootDirectory, options = {}) {
   }
   const root = fs.realpathSync(requestedRoot);
   const files = discoverReleaseFiles(root);
-  const hash = crypto.createHash('sha256');
+  const hash = createHash('sha256');
   hash.update(DOMAIN);
   const count = Buffer.alloc(4);
   count.writeUInt32BE(files.length, 0);
@@ -206,10 +209,3 @@ function computeReleaseFingerprint(rootDirectory, options = {}) {
   return hash.digest('hex');
 }
 
-module.exports = Object.freeze({
-  assertCleanReleaseTree,
-  computeReleaseFingerprint,
-  discoverReleaseFiles,
-  shouldIncludeReleasePath,
-  shouldTraverseReleaseDirectory
-});

@@ -181,3 +181,39 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - multi-instance, migrations, release, staging gate, typecheck, lint, syntax, secrets, docs and inventory green.
 - **Carried by the plan to F2:** the hosted gates still compare only `releaseTreeSha256`. F2 makes them also require the candidate's `servedAssetsSha256` and, for a compiled server, its `serverBuildSha256`.
 - **Next:** D1 (platform leaves to `.ts` inside `apps/api`).
+
+### D1 — The platform leaves in strict TypeScript
+
+- **Sixteen modules moved from `src/` into `apps/api/src`** as strict TypeScript ES modules, behaviour unchanged. The CommonJS server, scripts and tests `require()` them by their new paths. 122 require sites were rewritten mechanically, and the path text in checks and comments was updated with them.
+  - `platform/release`: `version`, `release-fingerprint`, and the three C4 helpers `directory-digest`, `server-runtime` and `web-build`.
+  - `platform/config`: `config`.
+  - `platform/persistence`: `database-pool`, `migrations`, and `hosted-readiness`, which `config` reads. Placed as the Phase A inventory owns it.
+  - `platform/network`: `guarded-fetch`.
+  - `platform/files`: `file-security`.
+  - `platform/rate-limit`: `rate-limit-identity`, `rate-limit-store`, `single-use-store`.
+  - `platform/crypto`: `key-derivation`. The inventory placed it in identity-access. It is the HKDF primitive behind the session cookie, CSRF, step-up, the evidence ledger and Pulsar's own keys, so placing it there would make Pulsar depend on identity-access for a primitive.
+  - `http/errors.ts`: the public error mapping, where the target tree puts it.
+  - New: `platform/persistence/queryable.ts`, the one query interface the stores and the migrator take, so a fake drives them without pretending to be a pool.
+- **A platform no longer reaches into a product module.** `guarded-fetch` took its address policy (`isPublicAddress`) from Kepler's webhook model. The policy now lives in `platform/network/public-address.ts`. Kepler reads it from there and no longer exports it.
+- **Where the migrations are is said, not assumed.** `runMigrations` and `verifyMigrations` now require `{ directory }`. Every production caller already named it except the invite CLI, which now does. The refusal caught a slip in ten tests, which passed `loadMigrations(...)`'s list where the options belong. It was read as "no options" and applied the default directory.
+  - In one test that hid a gap. The audit-history test meant to apply every migration before 032, write a legacy row, then upgrade. Its first call applied 032 as well, so the upgrade was never run. It now applies a real pre-032 directory, checks the column is absent, and requires the upgrade to start at 032. The claim it makes, that 032 keeps a legacy audit's analysis proof unknown, holds.
+  - The change also keeps `migrations.ts` free of `import.meta`. Playwright compiles a required `.ts` file to CommonJS, where `import.meta` cannot exist, and the integration fixture requires the migrator.
+- **Defects the port found, each with a test that failed first:**
+  - *Inherited names were outbound profiles.* The profile table was an ordinary object, so `constructor`, `toString` and their kin passed the lookup and crashed on a missing method list with a TypeError instead of a refusal. Lookups are now by own key. The new test fails on the old lookup.
+  - *The type-check proof proved less than it said.* `test/typecheck.test.js` planted its error in a copy of a file that failed the strict fixture before the error was added. It now copies files shown to pass unchanged, so the planted error is the only difference. It proves both checkers: the remaining JavaScript, and a strict server module.
+- **Kept exactly:**
+  - Error objects keep their own-property order (name, code, then status or transportCode). `transportCode` stays absent unless set. Ordinary class fields are used: Playwright's loader rejects `declare` fields, and the browser specs import server modules.
+  - Byte coercion in the upload scan accepts what it did.
+  - Applied migration ids are compared as the database returns them.
+- **Gates that moved with the code:**
+  - `node --check` reads JavaScript only, so `.ts` files leave the syntax manifest. The package contract counts a `.ts` source as checked when the typecheck gate runs its project.
+  - `jsconfig.json` drops the moved files; `apps/api/tsconfig.json` checks them strictly.
+  - The code catalogue, configuration registry and boundary tests read `apps/api/src`. The resolver's no-record answers (`ENODATA`, `ENOTFOUND`, `NXDOMAIN`) are declared platform codes.
+  - One fixture swapped `pg` through `Module._load`, which an ES module's own imports never pass through. It now substitutes the pool module the server requires, under either runtime's extension.
+- **Checks:**
+  - unit gate (250 programs) green;
+  - typecheck under all four projects, lint, syntax, secrets, docs and inventory green;
+  - migrations, database resilience, multi-instance, Exposure store, audit history, governance lifecycle, staging gate and release green on PostgreSQL;
+  - the compiled server builds deterministically, and all 27 server programs pass against it;
+  - Playwright loads every browser and integration spec.
+- **Next:** D2 (break cycle N-01 with a `PolicyEvaluator` port).

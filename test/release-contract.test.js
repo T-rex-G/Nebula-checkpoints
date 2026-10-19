@@ -13,14 +13,14 @@ assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
 assert.strictEqual(pkg.engines.node, '22.23.1');
 assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.1\n');
 
-const { APP_VERSION, PRODUCT_NAME } = require('../src/version');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { servedAssetsDigest } = require('../src/web-build');
+const { APP_VERSION, PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
+const { servedAssetsDigest } = require('../apps/api/src/platform/release/web-build.ts');
 const expectedReleaseTreeSha256 = computeReleaseFingerprint(root);
 const expectedServedAssetsSha256 = servedAssetsDigest(path.join(root, 'dist', 'web'));
 assert.strictEqual(APP_VERSION, pkg.version);
 assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
-assert.deepStrictEqual(Object.keys(require('../src/version')).sort(), ['APP_VERSION', 'PRODUCT_NAME'],
+assert.deepStrictEqual(Object.keys(require('../apps/api/src/platform/release/version.ts')).sort(), ['APP_VERSION', 'PRODUCT_NAME'],
   'no asset stamp is derived from the version any more: the build names files by their content');
 
 const port = 27000 + Math.floor(Math.random() * 1000);

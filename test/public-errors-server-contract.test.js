@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes("require('./src/public-errors')"));
+assert(server.includes("require('./apps/api/src/http/errors.ts')"));
 assert(server.includes("res.setHeader('X-Nebulaverse-Correlation-Id'"));
 assert(server.includes('res.locals.correlationId'));
 assert(server.includes('publicErrorBody(error'));

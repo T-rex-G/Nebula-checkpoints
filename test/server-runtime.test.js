@@ -9,7 +9,7 @@ const assert = require('assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { describeServerRuntime, isCompiledRoot, serverBuildDigest } = require('../src/server-runtime');
+const { describeServerRuntime, isCompiledRoot, serverBuildDigest } = require('../apps/api/src/platform/release/server-runtime.ts');
 const { serverEntry } = require('./helpers/server-entry');
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-server-runtime-'));

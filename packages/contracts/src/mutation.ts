@@ -22,7 +22,7 @@ import type { AuthorizationSnapshot } from './actor.ts';
 import { normalizePolicyScope } from './scope.ts';
 import type { Provider, RepositoryScope } from './scope.ts';
 
-export const MUTATION_CONTRACT_VERSION = 1;
+export const MUTATION_CONTRACT_VERSION = 2;
 
 export const MUTATING_METHODS = Object.freeze(['POST', 'PUT', 'PATCH', 'DELETE'] as const);
 export type MutatingMethod = (typeof MUTATING_METHODS)[number];
@@ -201,6 +201,34 @@ export interface MutationDescriptor {
   readonly execution: ExecutionContract;
   readonly security: MutationSecurity;
   readonly authorization: AuthorizationSnapshot;
+}
+
+/*
+ * The policy port the gateway is given. The gateway decides nothing about
+ * policy: the composition root hands it an evaluator that answers for a
+ * descriptor, and a verifier that refuses any answer not well formed or not
+ * bound to that very descriptor. The gateway acts only on a verified decision
+ * and only on an outcome it knows, so a policy module is something it is
+ * handed, never something it imports.
+ */
+export const POLICY_OUTCOMES = Object.freeze(['allow', 'warn', 'block'] as const);
+export type PolicyOutcome = (typeof POLICY_OUTCOMES)[number];
+
+/* What the gateway reads of a verified decision. */
+export interface VerifiedPolicyDecision {
+  readonly decisionId?: string | null;
+  readonly source: string;
+  readonly effectiveEffect: string;
+  readonly rolloutMode: string;
+  readonly enforcementOutcome: PolicyOutcome;
+  readonly warningCodes: readonly string[];
+  readonly blockCode: string | null;
+  readonly controlMapping: { readonly status: string; readonly mappingHash?: string | null };
+}
+
+export interface PolicyEvaluator {
+  evaluate(descriptor: MutationDescriptor): Promise<unknown>;
+  verify(decision: unknown, descriptor: MutationDescriptor): VerifiedPolicyDecision;
 }
 
 const SENSITIVE_KEY_RX = /(?:accesstoken|refreshtoken|token|secret|password|privatekey|authorization|cookie)/i;

@@ -9,7 +9,8 @@ const {
   policyDocumentHash,
   stableJson
 } = require('./governance-model');
-const { MUTATION_ACTIONS, normalizeMutationMetadata } = require('./mutation-gateway');
+/* The catalogue and the metadata guard are the mutation contract's; the gateway is not imported here, so policy and the gateway that consults it share no cycle. */
+const { MUTATION_ACTIONS, normalizeMutationMetadata } = require('../packages/contracts/src/mutation.ts');
 
 const EXCEPTION_KINDS = Object.freeze({ exception: 'deny', waiver: 'require-approval' });
 const MIN_DURATION_MS = 5 * 60 * 1000;

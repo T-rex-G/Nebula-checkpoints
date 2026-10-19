@@ -40,8 +40,8 @@
     "shape": "5b628461bbb9fc9f82ab949f4e20a11281e586f0c1e5260da7bb33cbe63f9ca2"
   },
   "mutation.ts": {
-    "version": 1,
-    "shape": "56518f011895c1851492aca60166639c224d015a3ed2dcb9101f6ff52921b18b"
+    "version": 2,
+    "shape": "20a7cfcba38d9170e95e3da8338ba0772ef62e4bf36600db115b84f343125a08"
   },
   "offline-cache-policy.ts": {
     "version": 1,

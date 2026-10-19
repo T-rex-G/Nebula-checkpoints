@@ -334,8 +334,9 @@ const governanceRuntime = createGovernanceRuntime({
     }
   }
 });
+/* The gateway is handed its policy port here, the one place both are built; it imports no policy module. */
 const mutationGateway = createMutationGateway({
-  policyEvaluator: descriptor => governanceRuntime.evaluate(descriptor),
+  policyEvaluator: governanceRuntime,
   eventSink(event) {
     if (!event || !['policy.evaluated', 'policy.blocked'].includes(event.type)) return;
     console.log(JSON.stringify({

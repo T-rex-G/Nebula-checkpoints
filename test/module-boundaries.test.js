@@ -14,8 +14,9 @@
  *    and the shared contracts import neither.
  *  - A module of the server is reached through its index only, and its domain
  *    layer imports no transport, persistence or process package.
- *  - No dependency cycle, except the ones recorded below with the commit that
- *    removes them.
+ *  - No dependency cycle anywhere in the backend: one graph over server.js,
+ *    src, apps and packages, so a cycle that runs through a TypeScript module
+ *    and back into the CommonJS server is seen as well.
  */
 const assert = require('assert/strict');
 const fs = require('fs');
@@ -25,10 +26,14 @@ const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const rel = file => path.relative(root, file).split(path.sep).join('/');
 
-/* The one cycle the baseline had (N-01). Removed in Phase D2; the list then becomes empty. */
-const RECORDED_CYCLES = Object.freeze([
-  ['src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-simulation.js', 'src/mutation-gateway.js']
-]);
+/*
+ * The baseline had one cycle, N-01: the mutation gateway, governance
+ * simulation, enforcement and exceptions, each requiring the next. D2 broke it
+ * -- the gateway is handed its policy port and imports no policy module, and
+ * policy reads the action catalogue from the mutation contract -- so the
+ * record is empty and any cycle fails.
+ */
+const RECORDED_CYCLES = Object.freeze([]);
 
 const DOMAIN_FORBIDDEN = /^(?:node:)?(?:child_process|cluster|dgram|dns|fs|fs\/promises|http|https|http2|net|tls|worker_threads)$|^(?:express|pg|playwright-core)$/;
 
@@ -242,9 +247,10 @@ for (const file of legacy) {
   for (const literal of entryPathLiterals(source)) legacyEntries.push(`${rel(file)}: names the entry file ${literal}; only apps/api/src/entrypoint.ts may`);
   const { requires } = importsOf(source);
   legacyEdges.set(rel(file), requires.map(specifier => resolveRelative(file, specifier)).filter(Boolean).map(rel)
-    .filter(target => target === 'server.js' || target.startsWith('src/')));
+    .filter(target => target === 'server.js' || /^(?:src|apps|packages)\//.test(target)));
 }
-assert.deepStrictEqual(stronglyConnected(legacyEdges), RECORDED_CYCLES.map(cycle => [...cycle].sort()),
-  'the server\'s dependency cycles changed: a new one appeared, or a recorded one is gone and must be struck from the list');
+const backend = new Map([...[...edges].filter(([name]) => !name.startsWith('apps/web/')), ...legacyEdges]);
+assert.deepStrictEqual(stronglyConnected(backend), RECORDED_CYCLES.map(cycle => [...cycle].sort()),
+  'the backend\'s dependency cycles changed: a new one appeared, or a recorded one is gone and must be struck from the list');
 assert.deepStrictEqual(legacyEntries, [], 'a worker or child process started by a path written at its spawn site');
-console.log(`  ok  ${legacy.length} CommonJS server files: no stray entry paths, ${RECORDED_CYCLES.length} recorded cycle, no new one`);
+console.log(`  ok  ${legacy.length} CommonJS server files: no stray entry paths; ${backend.size} backend files, no dependency cycle`);

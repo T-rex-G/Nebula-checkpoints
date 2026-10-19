@@ -10,7 +10,7 @@ const { executionContractForAction, validateCoverageInventory } = require('./mut
 const mutation = require('../packages/contracts/src/mutation.ts');
 const { deepFreeze } = require('../packages/contracts/src/guards.ts');
 
-const { MUTATION_ACTIONS } = mutation;
+const { MUTATION_ACTIONS, POLICY_OUTCOMES } = mutation;
 const MUTATING_METHODS = new Set(mutation.MUTATING_METHODS);
 const OPERATION_ID_DOMAIN = 'nebulaverse-x.provider-write.operation-id.v1';
 const MAX_OPERATION_TARGET_BYTES = 64 * 1024;
@@ -167,9 +167,23 @@ function publicEvent(type, descriptor, extra = {}) {
   });
 }
 
-function createMutationGateway({ eventSink, policyEvaluator } = {}) {
+/*
+ * The policy port (packages/contracts/src/mutation.ts, PolicyEvaluator): an
+ * evaluator and the verifier of what it answers, handed in by the composition
+ * root. The gateway imports no policy module, so the security core is not part
+ * of a dependency cycle with the policy engine it consults.
+ */
+function requirePolicyEvaluator(policyEvaluator) {
+  if (policyEvaluator == null) return null;
+  if (typeof policyEvaluator !== 'object' || typeof policyEvaluator.evaluate !== 'function' || typeof policyEvaluator.verify !== 'function') {
+    throw new TypeError('Mutation gateway policyEvaluator must provide evaluate(descriptor) and verify(decision, descriptor)');
+  }
+  return policyEvaluator;
+}
+
+function createMutationGateway({ eventSink, policyEvaluator: evaluatorInput } = {}) {
   if (eventSink != null && typeof eventSink !== 'function') throw new TypeError('Mutation gateway eventSink must be a function');
-  if (policyEvaluator != null && typeof policyEvaluator !== 'function') throw new TypeError('Mutation gateway policyEvaluator must be a function');
+  const policyEvaluator = requirePolicyEvaluator(evaluatorInput);
   const storage = new AsyncLocalStorage();
   const emit = event => {
     if (!eventSink) return;
@@ -205,9 +219,12 @@ function createMutationGateway({ eventSink, policyEvaluator } = {}) {
     try {
       let context = descriptor;
       if (policyEvaluator) {
-        const rawDecision = await policyEvaluator(descriptor);
-        const { normalizePolicyDecision } = require('./governance-enforcement');
-        const policyDecision = normalizePolicyDecision(rawDecision, descriptor);
+        const rawDecision = await policyEvaluator.evaluate(descriptor);
+        const policyDecision = policyEvaluator.verify(rawDecision, descriptor);
+        /* An outcome the gateway does not know is not permission: it is refused, never read as "not block". */
+        if (!policyDecision || typeof policyDecision !== 'object' || !POLICY_OUTCOMES.includes(policyDecision.enforcementOutcome)) {
+          fail('Policy evaluation is unavailable', 'POLICY_EVALUATION_UNAVAILABLE', 503);
+        }
         context = deepFreeze({ ...descriptor, policyDecision });
         emit(publicEvent('policy.evaluated', descriptor, {
           decisionId: policyDecision.decisionId || null,

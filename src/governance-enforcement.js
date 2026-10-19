@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { MUTATION_ACTIONS } = require('./mutation-gateway');
+const { MUTATION_ACTIONS } = require('../packages/contracts/src/mutation.ts');
 const { evaluatePolicyDocument } = require('./governance-simulation');
 const {
   normalizePolicyDocument,
@@ -571,7 +571,9 @@ function createGovernanceRuntime({ store, failureMode = 'warn', now = () => new 
   if (!store || typeof store.evaluateAndAppendPolicyDecision !== 'function') throw new TypeError('Governance runtime requires a decision store');
   const mode = String(failureMode || '').trim().toLowerCase();
   if (!['warn', 'block'].includes(mode)) throw new TypeError('Governance runtime failure mode must be warn or block');
+  /* The mutation gateway's policy port: the decision for a descriptor, and the verification of any decision against one. */
   return Object.freeze({
+    verify: normalizePolicyDecision,
     async evaluate(descriptor) {
       try {
         const decision = await store.evaluateAndAppendPolicyDecision({

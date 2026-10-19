@@ -358,7 +358,7 @@ assert(
  * ------------------------------------------------------------------ */
 
 const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
-const { createGovernanceRuntime, evaluateActivePolicySet } = require('../src/governance-enforcement');
+const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../src/governance-enforcement');
 const { policyDocumentHash } = require('../src/governance-model');
 void createGovernanceRuntime;
 
@@ -405,12 +405,15 @@ function descriptorFor(action, base) {
 async function runThroughGateway(action, base) {
   const descriptor = descriptorFor(action, base);
   const gateway = createMutationGateway({
-    policyEvaluator: async () => evaluateActivePolicySet({
-      scope: gatewayAuthorization.scope,
-      descriptor,
-      activePolicies,
-      evaluatedAt: '2026-07-22T18:00:00.000Z'
-    })
+    policyEvaluator: {
+      evaluate: async () => evaluateActivePolicySet({
+        scope: gatewayAuthorization.scope,
+        descriptor,
+        activePolicies,
+        evaluatedAt: '2026-07-22T18:00:00.000Z'
+      }),
+      verify: normalizePolicyDecision
+    }
   });
   let providerCalled = false;
   let blocked = null;

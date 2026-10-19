@@ -217,3 +217,20 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - the compiled server builds deterministically, and all 27 server programs pass against it;
   - Playwright loads every browser and integration spec.
 - **Next:** D2 (break cycle N-01 with a `PolicyEvaluator` port).
+
+### D2 — Cycle N-01 broken
+
+- **The cycle.** The baseline's only backend dependency cycle ran through the security core. The mutation gateway lazily required governance enforcement for `normalizePolicyDecision`. Simulation, enforcement and exceptions each required the gateway for the action catalogue and the metadata guard.
+- **The port.** The mutation contract (version 2) declares `PolicyEvaluator`, the policy port the gateway is handed. It has two halves: `evaluate(descriptor)` answers for a descriptor, and `verify(decision, descriptor)` refuses any answer that is not well formed or not bound to that descriptor.
+  - Kepler's governance runtime is the port: `verify` is `normalizePolicyDecision`.
+  - The composition root (`server.js`) hands the runtime to the gateway. The gateway imports no policy module.
+  - A port without both halves is refused at construction, a bare evaluator function included, since nothing would then verify its answer.
+- **Policy reads the contract.** Simulation, enforcement and exceptions take `MUTATION_ACTIONS` and `normalizeMutationMetadata` from `packages/contracts/src/mutation.ts`, the same objects the gateway re-exports. Exceptions reads only the refusal's status, which the contract's refusal carries unchanged.
+- **One more guard, fail closed.** The gateway acts only on an outcome it knows (`POLICY_OUTCOMES`: allow, warn, block). It always did, through Kepler's own validator. Now that the verifier is handed in rather than imported, the gateway checks the outcome itself. A misspelt or missing outcome is refused as `POLICY_EVALUATION_UNAVAILABLE` (503), and the mutation never runs. Without the check, a verifier that passed a strange outcome through would let the mutation run, because only an exact `block` stops it.
+- **The check covers the whole backend.** `test/module-boundaries.test.js` now builds one graph over `server.js`, `src`, `apps/api` and `packages` (116 files) instead of two. A cycle that runs from the CommonJS server through a TypeScript module and back is caught. The recorded list is empty, so any cycle fails. It was shown to fail on a planted cross-language cycle.
+- **Tests:**
+  - loading the gateway alone loads no part of the policy engine;
+  - four malformed ports are refused;
+  - four unknown outcomes are refused before the mutation runs;
+  - the decision-mismatch and fail-closed cases now run through the port as the server wires it.
+- **Next:** D3 (`platform/authorization` and `platform/mutation-gateway` to TypeScript). The gateway's remaining reach into Kepler is `governance-model`'s scope normalizer, chosen for its error class. D3 settles it while converting the gateway.

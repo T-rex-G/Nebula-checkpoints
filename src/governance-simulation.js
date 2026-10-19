@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { MUTATION_ACTIONS } = require('./mutation-gateway');
+const { MUTATION_ACTIONS } = require('../packages/contracts/src/mutation.ts');
 const {
   normalizePolicyDocument,
   policyDocumentHash,

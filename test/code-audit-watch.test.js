@@ -8,7 +8,7 @@
 
 const assert = require('assert');
 const { watchComponents } = require('../src/code-audit-watch');
-const { KEV_URL, EPSS_URL, createIntelCache } = require('../src/exploit-intel');
+const { KEV_URL, EPSS_URL, createIntelCache } = require('../apps/api/src/modules/uranus/index.ts');
 const { compactAudit, compactAlert } = require('../src/code-audit-history');
 
 const kevEntry = (cveID, dateAdded, dueDate, ransomware = 'Unknown') => ({ cveID, dateAdded, dueDate, knownRansomwareCampaignUse: ransomware, vendorProject: 'x', product: 'y' });

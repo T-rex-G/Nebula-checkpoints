@@ -19,7 +19,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
 const { scanOffThread } = require('../src/code-audit-worker');
 
 /* A token-shaped fixture, built in pieces so no scanner mistakes it for a leak. */

@@ -1,4 +1,5 @@
-'use strict';
+import { ownEntry } from '../../../platform/values/fields.ts';
+import type { SourceFile } from './uranus-reach.ts';
 
 /*
  * Uranus: the attack surface, and who is let through it.
@@ -37,9 +38,9 @@
  * or ensures something, is read as a guard; the common middleware that is
  * not one -- body parsers, uploads, CORS, rate limits, loggers -- is not.
  */
-const AUTH_NAME = /(auth|session|access|guard|protect|permission|role|login|logged|jwt|token|signed|owner|admin|member|tenant|acl|rbac|passport|clerk|^require|^ensure|^verify|^check|^is[A-Z]|^can[A-Z]|^must|apiKey|bearer)/i;
+export const AUTH_NAME = /(auth|session|access|guard|protect|permission|role|login|logged|jwt|token|signed|owner|admin|member|tenant|acl|rbac|passport|clerk|^require|^ensure|^verify|^check|^is[A-Z]|^can[A-Z]|^must|apiKey|bearer)/i;
 const NOT_AUTH = /^(cors|helmet|compression|morgan|logger|json|urlencoded|raw|text|bodyParser|multer|upload|single|array|fields|none|any|static|rateLimit|rateLimiter|limiter|slowDown|timeout|cache|csrf|csrfProtection|validate\w*|express|router|next)$/i;
-const AUTH_BODY = /\b(getServerSession|getSession|auth\s*\(\s*\)|currentUser\s*\(|getUser\s*\(|getAuth\s*\(|auth\s*\.\s*getUser|auth\s*\.\s*api\s*\.\s*getSession|getToken\s*\(|verifyToken|verifyJwt|verifyJWT|jwt\s*\.\s*verify|jwtVerify|validateRequest|validateSession|verifySession|requireAuth|requireUser|requireSession|requireAdmin|getKindeServerSession|clerkClient|withAuth|isAuthenticated|req\s*\.\s*user\b|req\s*\.\s*auth\b|request\s*\.\s*auth\b|ctx\s*\.\s*state\s*\.\s*user|locals\s*\.\s*(user|session)|session\s*\??\s*\.\s*user|unauthori[sz]ed|Unauthori[sz]ed|forbidden|Forbidden|status\s*\(\s*40[13]\s*\)|status\s*:\s*40[13]|40[13]\s*\)|x-api-key|authorization)\b/;
+export const AUTH_BODY = /\b(getServerSession|getSession|auth\s*\(\s*\)|currentUser\s*\(|getUser\s*\(|getAuth\s*\(|auth\s*\.\s*getUser|auth\s*\.\s*api\s*\.\s*getSession|getToken\s*\(|verifyToken|verifyJwt|verifyJWT|jwt\s*\.\s*verify|jwtVerify|validateRequest|validateSession|verifySession|requireAuth|requireUser|requireSession|requireAdmin|getKindeServerSession|clerkClient|withAuth|isAuthenticated|req\s*\.\s*user\b|req\s*\.\s*auth\b|request\s*\.\s*auth\b|ctx\s*\.\s*state\s*\.\s*user|locals\s*\.\s*(user|session)|session\s*\??\s*\.\s*user|unauthori[sz]ed|Unauthori[sz]ed|forbidden|Forbidden|status\s*\(\s*40[13]\s*\)|status\s*:\s*40[13]|40[13]\s*\)|x-api-key|authorization)\b/;
 const PY_AUTH = /\b(login_required|jwt_required|current_user|get_current_user|get_current_active_user|requires_auth|token_required|verify_token|decode_token|jwt\s*\.\s*decode|is_authenticated|IsAuthenticated|permission_required|permission_classes|LoginRequiredMixin|abort\s*\(\s*40[13]|status_code\s*=\s*40[13]|HTTP_40[13]|Depends\s*\(\s*\w*(auth|user|current|verify|token|security|admin)\w*|Security\s*\()/i;
 /*
  * Go, Java and PHP, read from a handler's tokens joined by spaces: `c . Get ( "user" )`.
@@ -56,8 +57,8 @@ const MUTATION_PHP = /->\s*(save|delete|update|create|insert|forceDelete|destroy
 /* Records fetched by an id, and the caller tied to them, in Go, Java and PHP. */
 const CF_RECORD_LOOKUP = /\.\s*(First|Take|Find|FindByID|FindById|GetByID|GetById|FindOne|FindByPk|findById|getById|getReferenceById|getOne|findOne|find)\s*\(|\bem\s*\.\s*find\s*\(|::\s*(find|findOrFail|findOrNew|firstOrFail|findMany|where\s*\(\s*"id")\s*\(|->\s*(find|findOrFail|findOneBy|getRepository)\s*\(|WHERE\s+[\w."]*\bid\s*=/i;
 const CF_OWNER_BINDING = /(\bAuth\s*::\s*(id|user)\b|\bauth\s*\(\s*\)\s*->\s*(id|user)\b|->\s*user\s*\(\s*\)|\bgetUser\s*\(|\bPrincipal\b|\bprincipal\b|\bgetPrincipal\b|@\s*AuthenticationPrincipal\b|->\s*(authorize|can|cannot)\s*\(|\bGate\s*::|\bdenyAccessUnlessGranted\b|\bisGranted\b|\bIsGranted\b|\bpolicy\b|\bPolicy\b|\b(user_id|userId|UserID|owner_id|ownerId|OwnerID|tenant_id|tenantId|TenantID|author_id|authorId|AuthorID|account_id|accountId|AccountID|team_id|teamId|TeamID|org_id|orgId|OrgID)\b|\bclaims\s*\.\s*\w*(Sub|User|ID|Id)\b)/;
-const LANGUAGE_BODY_AUTH = Object.freeze({ go: GO_AUTH, java: JAVA_AUTH, php: PHP_AUTH });
-const LANGUAGE_MUTATION = Object.freeze({ go: MUTATION_GO, java: MUTATION_JAVA, php: MUTATION_PHP });
+const LANGUAGE_BODY_AUTH: Readonly<Record<string, RegExp>> = Object.freeze({ go: GO_AUTH, java: JAVA_AUTH, php: PHP_AUTH });
+const LANGUAGE_MUTATION: Readonly<Record<string, RegExp>> = Object.freeze({ go: MUTATION_GO, java: MUTATION_JAVA, php: MUTATION_PHP });
 const MUTATION_JS = /\.\s*(insert|insertOne|insertMany|update|updateOne|updateMany|upsert|deleteOne|deleteMany|destroy|create|createMany|save|findOneAndUpdate|findByIdAndUpdate|findByIdAndDelete|findOneAndDelete|findByIdAndRemove|bulkWrite|increment|decrement|setDoc|updateDoc|deleteDoc|addDoc|executeRaw|\$executeRaw|\$executeRawUnsafe|transaction)\s*\(|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b|\.\s*from\s*\(\s*\S+\s*\)\s*\.\s*(insert|update|upsert|delete)\b|\.\s*(delete|remove|deleteMany)\s*\(\s*\{|\.\s*delete\s*\(\s*\)\s*\.\s*(eq|match|in|neq|filter)\b/i;
 /*
  * A write in Python: a session told to add, delete or commit, an ORM call that
@@ -66,29 +67,65 @@ const MUTATION_JS = /\.\s*(insert|insertOne|insertMany|update|updateOne|updateMa
  * set's `.add(` or a dict's `.update(`.
  */
 const MUTATION_PY = /\b(?:session|db)\s*\.\s*(add|add_all|delete|merge|commit|flush)\s*\(|\.\s*(save|create|bulk_create|bulk_update|update_or_create|get_or_create|insert|insert_one|insert_many|update_one|update_many|delete_one|delete_many|replace_one|executemany)\s*\(|\.\s*update\s*\(\s*\w+\s*=|\.\s*delete\s*\(\s*\)|\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i;
-const PUBLIC_ROUTE = /(^|\/|-|_|\.)(login|log-in|signin|sign-in|signup|sign-up|register|logout|log-out|signout|sign-out|auth|oauth|oidc|sso|saml|callback|webhooks?|hooks?|health|healthz|healthcheck|ready|readyz|live|livez|ping|status|version|contact|subscribe|unsubscribe|newsletter|waitlist|forgot|reset|password|verify|verification|confirm|magic|magic-link|otp|invite|invitation|public|csp-report|report-uri|track|tracking|analytics|events?|beacon|feedback|stripe|paddle|lemonsqueezy|checkout|cron|og|sitemap|robots|manifest|favicon|revalidate|preview|share|feed|rss|search|graphql|trpc|session|csrf|captcha|recaptcha|turnstile|redeem|config|client-config|settings\.json)(\/|$|\.|-|_|\[|:)/i;
-const ADMIN_ROUTE = /(^|\/)(admin|administrator|debug|_debug|__debug__|internal|metrics|env|\.env|seed|reset-db|resetdb|flush|test-only|phpinfo|actuator|console|graphql-playground|playground|migrate|migrations|backup|export-all|impersonate|sudo|superuser|maintenance|dev-tools|devtools)(\/|$|\[|:|\.)/i;
+export const PUBLIC_ROUTE = /(^|\/|-|_|\.)(login|log-in|signin|sign-in|signup|sign-up|register|logout|log-out|signout|sign-out|auth|oauth|oidc|sso|saml|callback|webhooks?|hooks?|health|healthz|healthcheck|ready|readyz|live|livez|ping|status|version|contact|subscribe|unsubscribe|newsletter|waitlist|forgot|reset|password|verify|verification|confirm|magic|magic-link|otp|invite|invitation|public|csp-report|report-uri|track|tracking|analytics|events?|beacon|feedback|stripe|paddle|lemonsqueezy|checkout|cron|og|sitemap|robots|manifest|favicon|revalidate|preview|share|feed|rss|search|graphql|trpc|session|csrf|captcha|recaptcha|turnstile|redeem|config|client-config|settings\.json)(\/|$|\.|-|_|\[|:)/i;
+export const ADMIN_ROUTE = /(^|\/)(admin|administrator|debug|_debug|__debug__|internal|metrics|env|\.env|seed|reset-db|resetdb|flush|test-only|phpinfo|actuator|console|graphql-playground|playground|migrate|migrations|backup|export-all|impersonate|sudo|superuser|maintenance|dev-tools|devtools)(\/|$|\[|:|\.)/i;
 const ID_SOURCE = /\b(params|query|body|searchParams|args|path_params|kwargs)\s*\??\.\s*(get\s*\(\s*['"])?\w*(id|Id|ID|uuid|Uuid|UUID)['"]?\b|\[\s*['"]\w*(id|Id|ID|uuid)['"]\s*\]/;
 const RECORD_LOOKUP = /\.\s*(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findById|findByPk|findOne|findOneBy|findOneByOrFail|getItem|findOneAndUpdate|findByIdAndUpdate|findByIdAndDelete|findOneAndDelete)\s*\(|\.\s*(doc|document)\s*\(\s*\w|\.\s*(update|delete|destroy)\s*\(\s*\{\s*where\b|\.\s*eq\s*\(\s*['"]id['"]|where\s*:\s*\{\s*id\b|WHERE\s+[\w."]*\bid\s*=|objects\s*\.\s*(get|filter)\s*\(|get_object_or_404\s*\(|query\s*\.\s*get\s*\(|session\s*\.\s*get\s*\(/;
 const OWNER_BINDING = /\b(userId|user_id|ownerId|owner_id|authorId|author_id|createdBy|created_by|creatorId|creator_id|tenantId|tenant_id|orgId|org_id|organizationId|organization_id|accountId|account_id|teamId|team_id|workspaceId|workspace_id|memberId|member_id|profileId|profile_id|customerId|customer_id|uid|owner|user\s*\.\s*id|user\s*\.\s*sub|user\s*\?\.\s*id|session\s*\.\s*user|auth\s*\.\s*uid|auth\.uid|currentUser|current_user|request\s*\.\s*user|req\s*\.\s*user\s*\.\s*(id|_id|sub)|can\s*\(|cannot\s*\(|authorize|ability|policy|checkPermission|hasPermission|has_perm|isOwner|is_owner|assertOwner|ensureOwner|canAccess|canEdit|canView|canDelete|belongsTo|belongs_to|user\s*=\s*request\.user|filter\s*\(\s*user)\b/;
 const PROJECT_AUTH = /(spring-boot-starter-security|org\.springframework\.security|@EnableWebSecurity|javax\.annotation\.security|jakarta\.annotation\.security|laravel\/(sanctum|passport|breeze|fortify|jetstream|ui)|Illuminate\\Support\\Facades\\Auth|symfony\/security-bundle|Symfony\\Component\\Security|golang-jwt|dgrijalva\/jwt-go|lestrrat-go\/jwx|go-chi\/jwtauth|gin-contrib\/sessions|gorilla\/sessions|casbin|coreos\/go-oidc|markbates\/goth|next-auth|@auth\/|@clerk\/|@supabase\/(auth-helpers|ssr)|supabase\s*\.\s*auth|passport|lucia|better-auth|@kinde-oss|iron-session|express-session|jsonwebtoken|\bjose\b|jwt\s*\.\s*verify|getServerSession|firebase\/auth|firebase-admin|@auth0|auth0|keycloak|flask_login|flask_jwt|django\.contrib\.auth|fastapi_users|authlib|login_required|Depends\s*\(\s*get_current_user|@nestjs\/passport|AuthGuard|clerkMiddleware|withAuth|requireAuth)/;
 
-function text(route) {
+/* A middleware or router registration seen in the same file, and the words it was registered with. */
+export interface RouteUse {
+  readonly line: number;
+  readonly words: readonly string[];
+  readonly prefix?: string | null;
+}
+
+/*
+ * An endpoint as the flow analysis and the Go, Java and PHP reader find it:
+ * where it is, its method and pattern, the framework, what guards were seen
+ * on it, and the text of its handler.
+ */
+export interface Route {
+  method: string;
+  route?: string | null;
+  path: string;
+  line: number;
+  framework?: string;
+  language?: string;
+  action?: unknown;
+  authDecorated?: unknown;
+  middleware?: string[];
+  uses?: readonly RouteUse[];
+  bodyText?: string;
+  startLine?: number;
+  endLine?: number;
+  handlerPath?: string;
+  handlerLine?: number | null;
+}
+
+/* The pattern a language's handlers are checked with, by own name: an inherited name is no language. */
+function languagePattern(table: Readonly<Record<string, RegExp>>, language: string | undefined): RegExp | undefined {
+  return language === undefined ? undefined : ownEntry(table, language);
+}
+
+function text(route: Route): string {
   return String(route.bodyText || '');
 }
 
-function isGuarded(route) {
-  if (LANGUAGE_BODY_AUTH[route.language]) {
+function isGuarded(route: Route): boolean {
+  const bodyAuth = languagePattern(LANGUAGE_BODY_AUTH, route.language);
+  if (bodyAuth) {
     if (route.authDecorated) return true;
-    const guard = route.language === 'php' ? (word => LARAVEL_GUARD.test(word) || (AUTH_NAME.test(word) && !NOT_AUTH.test(word)))
-      : (word => AUTH_NAME.test(word) && !NOT_AUTH.test(word));
+    const guard = route.language === 'php' ? ((word: string) => LARAVEL_GUARD.test(word) || (AUTH_NAME.test(word) && !NOT_AUTH.test(word)))
+      : ((word: string) => AUTH_NAME.test(word) && !NOT_AUTH.test(word));
     if ((route.middleware || []).some(guard)) return true;
     /* r.Use(authMiddleware) on the same router, before this route */
     for (const use of route.uses || []) {
       if (use.line > route.line) continue;
       if (use.words.some(word => guard(word.replace(/^.*\./, '')) || guard(word))) return true;
     }
-    return LANGUAGE_BODY_AUTH[route.language].test(text(route));
+    return bodyAuth.test(text(route));
   }
   if (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django') {
     if (route.authDecorated) return true;
@@ -112,22 +149,23 @@ function isGuarded(route) {
  * A setter is not on the list: it changes an object in hand, not the store.
  */
 const WRITE_VERB = /\b(create|save|add|insert|update|upsert|delete|remove|destroy|put|store|persist|register|upload|send|post|submit|apply|import|enqueue|publish|write|charge|transfer|pay|refund|approve|reject|assign|invite|reset|change|edit|modify|patch|mark|toggle|commit|flush|exec|execute|run|process|handle|dispatch|emit|notify|mail|move|copy|rename|archive|restore|grant|revoke|ban|block|follow|like|vote|order|checkout|book|reserve|cancel)\w*\s*\(/i;
-function readsOnly(route, body) {
+function readsOnly(route: Route, body: string): boolean {
   if (!body || route.method !== 'POST') return false;
-  const writes = LANGUAGE_MUTATION[route.language] || (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django' ? MUTATION_PY : MUTATION_JS);
+  const writes = languagePattern(LANGUAGE_MUTATION, route.language) || (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django' ? MUTATION_PY : MUTATION_JS);
   /* the handler's own name and its annotations are not calls it makes */
   const calls = body.replace(/\b(?:async\s+)?(?:def|function|func)\s+[\w$]+/g, ' ').replace(/@\s*[\w.]+(?:\s*\([^)]*\))?/g, ' ').replace(/#\s*\[[^\]]*\]/g, ' ');
   return !writes.test(body) && !WRITE_VERB.test(calls);
 }
 
-function isMutation(route) {
+function isMutation(route: Route): boolean {
   const body = text(route);
   /* A server action is always a POST; what makes it a change is what its body writes. */
   if (route.method === 'ACTION') return MUTATION_JS.test(body);
   if (readsOnly(route, body)) return false;
   if (/^(POST|PUT|PATCH|DELETE)$/.test(route.method) || /,(POST|PUT|PATCH|DELETE)|(POST|PUT|PATCH|DELETE),/.test(route.method)) return true;
   if (route.framework === 'flask' || route.framework === 'fastapi' || route.framework === 'django') return MUTATION_PY.test(body);
-  if (LANGUAGE_MUTATION[route.language]) return LANGUAGE_MUTATION[route.language].test(body) || /\b[Mm]ethod\s*={2,3}\s*"(POST|PUT|PATCH|DELETE)"|\bcase\s+"(POST|PUT|PATCH|DELETE)"/.test(body);
+  const languageWrites = languagePattern(LANGUAGE_MUTATION, route.language);
+  if (languageWrites) return languageWrites.test(body) || /\b[Mm]ethod\s*={2,3}\s*"(POST|PUT|PATCH|DELETE)"|\bcase\s+"(POST|PUT|PATCH|DELETE)"/.test(body);
   if (/\bmethod\s*={2,3}\s*['"](POST|PUT|PATCH|DELETE)['"]/.test(body)) return true;
   return MUTATION_JS.test(body);
 }
@@ -139,8 +177,14 @@ function isMutation(route) {
  * declared with dependencies. Their presence turns "no guard seen" into
  * "confirm the guard".
  */
-function globalGuards(files) {
-  const found = [];
+/* A place a guard may live that the read cannot tie to one route. */
+export interface GlobalGuard {
+  readonly kind: 'middleware' | 'mounted' | 'django' | 'dependencies' | 'nest' | 'spring-security' | 'filter' | 'symfony';
+  readonly path: string;
+}
+
+function globalGuards(files: readonly SourceFile[]): GlobalGuard[] {
+  const found: GlobalGuard[] = [];
   for (const file of files) {
     const content = String(file.text || '');
     if (/^(src\/)?middleware\.(ts|js|mjs)$/.test(file.path)) found.push({ kind: 'middleware', path: file.path });
@@ -162,15 +206,16 @@ function globalGuards(files) {
 }
 
 /* Supabase edge functions whose platform JWT check is switched off in config.toml. */
-function openEdgeFunctions(files) {
+function openEdgeFunctions(files: readonly SourceFile[]): Set<string> {
   const config = files.find(file => file.path === 'supabase/config.toml');
-  const open = new Set();
-  if (!config || typeof config.text !== 'string') return open;
-  let current = null;
-  for (const raw of config.text.split('\n')) {
+  const open = new Set<string>();
+  const configText = config ? config.text : undefined;
+  if (typeof configText !== 'string') return open;
+  let current: string | null = null;
+  for (const raw of configText.split('\n')) {
     const line = raw.replace(/#.*$/, '').trim();
     const section = /^\[functions\.([A-Za-z0-9_-]+)\]$/.exec(line);
-    if (section) { current = section[1]; continue; }
+    if (section) { current = section[1] ?? null; continue; }
     if (/^\[/.test(line)) { current = null; continue; }
     if (current && /^verify_jwt\s*=\s*false$/.test(line)) open.add(current);
   }
@@ -181,13 +226,68 @@ function openEdgeFunctions(files) {
  * Every endpoint, what guards it, and the findings that follow from what is
  * missing. `routes` come from the flow analysis; `files` are the files read.
  */
-function analyseSurface({ routes, files }) {
+export type SurfaceAuth = 'guarded' | 'unknown' | 'open' | 'platform';
+
+/* One endpoint as the surface lists it. */
+export interface Surface {
+  readonly method: string;
+  readonly route: string | null;
+  readonly path: string;
+  readonly line: number;
+  readonly framework: string | undefined;
+  readonly auth: SurfaceAuth;
+  readonly mutation: boolean;
+  readonly publicByDesign: boolean;
+  readonly admin: boolean;
+  readonly action: boolean;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly handlerPath: string;
+  readonly separate: boolean;
+}
+
+/* Where a finding can be reached from: the endpoint, its guard and its framework. */
+export interface Reach {
+  readonly method: string;
+  readonly route: string | null;
+  readonly auth: SurfaceAuth;
+  readonly framework: string | undefined;
+}
+
+type Blocker = { readonly reason: 'global-guard'; readonly path: string; readonly kind: GlobalGuard['kind'] } | { readonly reason: 'no-auth-anywhere' } | { readonly reason: 'owner' };
+
+/* A surface finding before it is described: the rule, where, and how sure the read is. */
+export interface SurfaceFinding {
+  readonly rule: 'ACC-001' | 'ACC-002' | 'ACC-003' | 'ACC-004' | 'ACC-005';
+  readonly path: string;
+  readonly line: number;
+  readonly verdict: 'confirmed' | 'needs-validation';
+  readonly blocker: Blocker | null;
+  readonly reach: Reach;
+}
+
+export interface SurfaceReading {
+  readonly surfaces: Surface[];
+  readonly raw: SurfaceFinding[];
+  readonly projectHasAuth: boolean;
+  readonly globalGuards: GlobalGuard[];
+  readonly counts: {
+    readonly endpoints: number;
+    readonly actions: number;
+    readonly open: number;
+    readonly guarded: number;
+    readonly unknown: number;
+    readonly mutating: number;
+  };
+}
+
+export function analyseSurface({ routes, files }: { routes?: readonly Route[] | null; files?: readonly SourceFile[] | null }): SurfaceReading {
   const all = Array.isArray(files) ? files : [];
   const projectHasAuth = all.some(file => typeof file.text === 'string' && PROJECT_AUTH.test(file.text));
   const guards = globalGuards(all);
   const edgeOpen = openEdgeFunctions(all);
-  const surfaces = [];
-  const raw = [];
+  const surfaces: Surface[] = [];
+  const raw: SurfaceFinding[] = [];
   for (const route of routes || []) {
     const guarded = isGuarded(route);
     const mutation = isMutation(route);
@@ -195,10 +295,10 @@ function analyseSurface({ routes, files }) {
     const publicByDesign = Boolean(label && PUBLIC_ROUTE.test(label)) || /(^|\/)(auth|webhooks?|health|cron)(\/|\.|$)/i.test(route.path);
     const admin = Boolean(label && ADMIN_ROUTE.test(label));
     const edgeName = route.framework === 'supabase-edge' ? (/^supabase\/functions\/([^/]+)\//.exec(route.path) || [])[1] : null;
-    let auth = guarded ? 'guarded' : guards.length ? 'unknown' : 'open';
+    let auth: SurfaceAuth = guarded ? 'guarded' : guards.length ? 'unknown' : 'open';
     /* Next.js server actions and Supabase edge functions are guarded by the platform only where configured. */
     if (!guarded && edgeName && !edgeOpen.has(edgeName)) auth = 'platform';
-    const surface = {
+    const surface: Surface = {
       method: route.method, route: label, path: route.path, line: route.line, framework: route.framework,
       auth, mutation, publicByDesign, admin, action: Boolean(route.action),
       startLine: route.startLine || route.line, endLine: route.endLine || route.line,
@@ -209,12 +309,13 @@ function analyseSurface({ routes, files }) {
     };
     surfaces.push(surface);
 
-    const verdictFor = () => {
-      if (guards.length) return { verdict: 'needs-validation', blocker: { reason: 'global-guard', path: guards[0].path, kind: guards[0].kind } };
+    const verdictFor = (): { verdict: SurfaceFinding['verdict']; blocker: Blocker | null } => {
+      const guard = guards[0];
+      if (guard) return { verdict: 'needs-validation', blocker: { reason: 'global-guard', path: guard.path, kind: guard.kind } };
       if (!projectHasAuth) return { verdict: 'needs-validation', blocker: { reason: 'no-auth-anywhere' } };
       return { verdict: 'confirmed', blocker: null };
     };
-    const reach = { method: route.method, route: label, auth, framework: route.framework };
+    const reach: Reach = { method: route.method, route: label, auth, framework: route.framework };
     if (edgeName && edgeOpen.has(edgeName) && !guarded) {
       raw.push({ rule: 'ACC-005', path: route.path, line: route.line, verdict: 'confirmed', blocker: null, reach });
       continue;
@@ -223,7 +324,7 @@ function analyseSurface({ routes, files }) {
       /* A guarded endpoint that fetches a record by a caller's id and never ties it to the caller. */
       const body = text(route);
       const hasId = ID_SOURCE.test(body) || /[:[<{]\w*id\b/i.test(label || '');
-      const cfamily = Boolean(LANGUAGE_BODY_AUTH[route.language]);
+      const cfamily = Boolean(languagePattern(LANGUAGE_BODY_AUTH, route.language));
       const lookup = cfamily ? CF_RECORD_LOOKUP.test(body) : RECORD_LOOKUP.test(body);
       const owned = cfamily ? CF_OWNER_BINDING.test(body) || OWNER_BINDING.test(body) : OWNER_BINDING.test(body);
       if (hasId && lookup && !owned && !/supabase\s*\.\s*from\s*\(/.test(body)) {
@@ -263,7 +364,12 @@ function analyseSurface({ routes, files }) {
  * line the value entered on. A flow that enters outside any handler has no
  * reach to report.
  */
-function reachOf(flow, surfaces) {
+/* A traced flow, as far as its reach is concerned: where its value entered. */
+export interface TracedFlow {
+  readonly trace?: readonly { readonly path: string; readonly line: number }[] | null;
+}
+
+export function reachOf(flow: TracedFlow, surfaces: readonly Surface[]): Reach | null {
   const entry = flow.trace && flow.trace[0];
   if (!entry) return null;
   /* the handler's own lines first, the narrowest that holds the line; then a route whose handler follows it inline */
@@ -273,5 +379,3 @@ function reachOf(flow, surfaces) {
   if (!surface) return null;
   return { method: surface.method, route: surface.route, auth: surface.auth, framework: surface.framework };
 }
-
-module.exports = Object.freeze({ analyseSurface, reachOf, AUTH_NAME, AUTH_BODY, PUBLIC_ROUTE, ADMIN_ROUTE });

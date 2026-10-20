@@ -17,7 +17,7 @@ const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
 const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
-const audit = require('../../src/code-audit');
+const audit = require('../../apps/api/src/modules/uranus/index.ts');
 const site = require('../../src/site-check');
 
 test.use({ serviceWorkers: 'block' });

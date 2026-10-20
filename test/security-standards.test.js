@@ -9,7 +9,7 @@
  */
 
 const assert = require('assert');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
 const site = require('../src/site-check');
 
 const { STANDARDS_MAP: MAP, OWASP_EDITION, OWASP_2025, OWASP_2025_CWES, CWE_TOP25_2025, CWE_NAMES, standardsFor } = require('../apps/api/src/modules/posture/index.ts');

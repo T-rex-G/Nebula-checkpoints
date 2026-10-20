@@ -182,7 +182,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 167 to 168 adds the repository audit. The handler opens a guarded read
  * session, calls one function and closes the session; which files are read,
  * every rule, the registry lookups and the scoring are in
- * `src/code-audit.js` and tested there rule by rule.
+ * the Uranus module and tested there rule by rule.
  *
  * 168 to 169 adds the anonymous site check. The handler throttles per
  * identity and calls one function; the requests, the rules and the scoring are

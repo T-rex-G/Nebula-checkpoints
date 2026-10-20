@@ -10,8 +10,8 @@
  */
 
 const assert = require('assert');
-const lic = require('../src/licences');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const lic = audit.licences;
 
 /* ---- Reading a licence ------------------------------------------------------------ */
 {

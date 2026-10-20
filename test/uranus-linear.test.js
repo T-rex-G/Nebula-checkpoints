@@ -16,8 +16,7 @@
  */
 
 const assert = require('assert');
-const { analyse } = require('../src/code-audit');
-const { lexJs, matching, splitArgs } = require('../src/uranus-lex');
+const { analyse, lexJs, matching, splitArgs } = require('../apps/api/src/modules/uranus/index.ts');
 
 const SIZE = 200 * 1024;
 const fill = unit => unit.repeat(Math.floor(SIZE / unit.length));

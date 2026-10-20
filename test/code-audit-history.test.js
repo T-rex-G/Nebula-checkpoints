@@ -353,7 +353,7 @@ async function withClient(connectionString, run) {
     assert.deepStrictEqual(read.findings.filter(finding => finding.waived).map(finding => [finding.rule, finding.waived]), [['SEC-005', 'code']], 'a waived row says how it was waived');
     assert.strictEqual(read.findings.find(finding => finding.rule === 'DEP-003').firstSeenAt, new Date(T0).toISOString(), 'its clock started with the first audit that saw it');
     const dep = read.findings.find(finding => finding.rule === 'DEP-003');
-    assert.strictEqual(dep.title, require('../src/code-audit').RULES['DEP-003'].title);
+    assert.strictEqual(dep.title, require('../apps/api/src/modules/uranus/index.ts').RULES['DEP-003'].title);
     assert.deepStrictEqual(dep.package, { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0', advisories: ['GHSA-jpcq-cgw6-v4j6'], cves: ['CVE-2020-11023'], cvss: 6.1 });
     assert.deepStrictEqual([dep.exploited, dep.reach, dep.epss, dep.risk], [true, 'imported', 0.85, { score: 92, band: 'urgent' }]);
     assert.strictEqual(await history.read({ scope, identityKey: OTHER, auditId: second.auditId }), null, 'another identity reads nothing');

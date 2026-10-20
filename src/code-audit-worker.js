@@ -37,7 +37,7 @@
 
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const { entryFile } = require('../apps/api/src/entrypoint.ts');
-const { assertAuditActive } = require('./code-audit');
+const { assertAuditActive } = require('../apps/api/src/modules/uranus/index.ts');
 
 const KIND = 'nv-code-audit';
 
@@ -90,7 +90,7 @@ function publicFailure(code, message, status) {
 
 /* Run once in a worker: analyse what the main thread read, post the result, exit. */
 function runInWorker() {
-  const { analyse, scanRules } = require('./code-audit');
+  const { analyse, scanRules } = require('../apps/api/src/modules/uranus/index.ts');
   const { files, paths, registry, advisories, licences, intel, trace, extra, mode } = workerData;
   /* The rules alone, for a batch beyond the traced set: findings and flags out, no text. */
   if (mode === 'rules') {

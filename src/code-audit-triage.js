@@ -28,8 +28,7 @@
  */
 
 const crypto = require('crypto');
-const { score, priorities, LEDGER } = require('./code-audit');
-const { TIERS } = require('./uranus-reach');
+const { score, priorities, LEDGER, TIERS } = require('../apps/api/src/modules/uranus/index.ts');
 const { clockOf, DEFAULT_SLA, evaluatePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 const DISPOSITIONS = Object.freeze(['accepted-risk', 'false-positive']);

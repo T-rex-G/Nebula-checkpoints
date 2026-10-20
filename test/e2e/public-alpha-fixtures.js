@@ -409,7 +409,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
   /* The team's decisions about the repository's findings, and every step of them, as the triage store keeps them. */
   const triageModule = require('../../src/code-audit-triage');
   const { clockOf } = require('../../apps/api/src/modules/kepler/index.ts');
-  const { exploitedInProduction } = require('../../src/uranus-reach');
+  const { exploitedInProduction } = require('../../apps/api/src/modules/uranus/index.ts');
   state.triage = new Map();
   state.triageEvents = [];
   for (const seeded of scenario.auditHistorySeed) recordAudit(seeded);
@@ -847,7 +847,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         return fulfill({ error: 'This audit is no longer held by the server. It may have restarted. Run the audit again.', code: 'AUDIT_RUN_GONE' }, 404);
       }
       state.audits = (state.audits || 0) + 1;
-      const { analyse } = require('../../src/code-audit');
+      const { analyse } = require('../../apps/api/src/modules/uranus/index.ts');
       /* A remote database password, built in pieces so no scanner mistakes the fixture for a leak. */
       const databaseUrl = ['postgres://app:', 'Tr0ub4dor-and-3', '@db.demo-prod.example.com:5432/app'].join('');
       /*

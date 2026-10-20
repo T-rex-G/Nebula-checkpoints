@@ -8,7 +8,7 @@
  */
 
 const assert = require('assert');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
 
 function run(files, extra = {}) {
   return audit.analyse({ files, paths: extra.paths || files.map(file => file.path), registry: extra.registry, advisories: extra.advisories, intel: extra.intel });
@@ -460,6 +460,25 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   assert.deepStrictEqual(pnpm.map(entry => `${entry.name}@${entry.version}`), ['lodash@4.17.21', '@scope/pkg@1.0.0']);
   const poetry = audit.dependencyInventory([{ path: 'poetry.lock', text: '[[package]]\nname = "django"\nversion = "3.2.0"\n\n[[package]]\nname = "pytest"\nversion = "7.0.0"\ncategory = "dev"\n' }]);
   assert.deepStrictEqual(poetry.map(entry => `${entry.name}@${entry.version}${entry.dev ? ':dev' : ''}`), ['django@3.2.0', 'pytest@7.0.0:dev']);
+
+  /*
+   * A requirements file named for development or tests declares what only
+   * development needs, in the inventory as on the rules' own pass: the
+   * inventory used to read the file without its name and call every package
+   * in it one the application installs.
+   */
+  const requirements = audit.dependencyInventory([{ path: 'requirements-dev.txt', text: 'pytest==7.0.0\n' }, { path: 'requirements.txt', text: 'django==3.2.0\n' }]);
+  assert.deepStrictEqual(requirements.map(entry => `${entry.name}${entry.dev ? ':dev' : ''}`), ['pytest:dev', 'django']);
+}
+
+/* ---- Advisory records read as data ---------------------------------------------------- */
+{
+  /* A CVSS vector's values are looked up among the specification's own: a name every object inherits weighs nothing, and leaves no score. */
+  assert.strictEqual(audit.cvss3('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'), 9.8);
+  for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    assert.strictEqual(audit.cvss3(`CVSS:3.1/AV:${inherited}/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`), null, `${inherited} is no attack vector`);
+    assert.strictEqual(audit.cvss3(`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:${inherited}/I:H/A:H`), null, `${inherited} is no impact`);
+  }
 }
 
 /* ---- Exploit intelligence, reach and risk -------------------------------------------- */
@@ -577,6 +596,14 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   const partial = mixed.answers.get('npm:lodash@4.17.15');
   assert.notStrictEqual(partial, 'unknown', 'a well-formed advisory is reported even beside a malformed id');
   assert.deepStrictEqual([partial.partial, partial.advisories.map(advisory => advisory.id)], [true, ['GHSA-35jh-r3h4-6jhm']]);
+  /* An entry with no id written as one -- none at all, a bare string, a list -- names no advisory: never one called "undefined", never a second copy. */
+  for (const unnamed of [{ modified: '2024-01-01T00:00:00Z' }, 'GHSA-xxxx-yyyy-zzzz', { id: ['GHSA-35jh-r3h4-6jhm'] }]) {
+    const vague = await audit.lookupAdvisories(entries.slice(0, 1), async request => ({ statusCode: 200,
+      body: request.url.endsWith('/querybatch') ? JSON.stringify({ results: [{ vulns: [unnamed, { id: 'GHSA-35jh-r3h4-6jhm' }] }] }) : '{}' }));
+    const answer = vague.answers.get('npm:lodash@4.17.15');
+    assert.deepStrictEqual([answer.partial, answer.advisories.map(advisory => advisory.id)], [true, ['GHSA-35jh-r3h4-6jhm']], `${JSON.stringify(unnamed)} names no advisory`);
+    assert.deepStrictEqual(vague.ids.get('npm:lodash@4.17.15'), ['GHSA-35jh-r3h4-6jhm']);
+  }
 })().catch(error => {
   console.error(error && error.stack || error);
   process.exitCode = 1;
@@ -846,7 +873,7 @@ const paths = files => [...BASE, ...files].map(file => file.path);
   /* With exploit intelligence: only the advisory's CVE leaves, after the advisories, as its own stage. */
   const stages = [];
   const intelAsked = [];
-  const { createIntelCache, KEV_URL } = require('../src/exploit-intel');
+  const { createIntelCache, KEV_URL } = audit;
   const intelTransport = async input => {
     intelAsked.push(input);
     if (input.url === KEV_URL) return { statusCode: 200, body: JSON.stringify({ catalogVersion: '2026.09.27', vulnerabilities: [{ cveID: 'CVE-2024-43796', dateAdded: '2026-01-02', dueDate: '2026-01-23', knownRansomwareCampaignUse: 'Unknown' }] }) };

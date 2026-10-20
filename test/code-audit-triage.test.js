@@ -14,7 +14,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { analyse, score, priorities } = require('../src/code-audit');
+const { analyse, score, priorities } = require('../apps/api/src/modules/uranus/index.ts');
 const {
   VOCABULARY, REASONS, DISPOSITIONS, GATE_REASONS, GATE_STATES, normalizeDecision, inForce, applyTriage, rescore,
   openRows, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes, previewMergePolicies, summarizeDecisions

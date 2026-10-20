@@ -1,4 +1,4 @@
-'use strict';
+import type { Route, RouteUse } from './uranus-surface.ts';
 
 /*
  * Uranus for Go, Java and PHP: values followed from what a caller sends --
@@ -29,6 +29,132 @@
  * Findings name a rule, a path and lines. No code leaves this module.
  */
 
+/* ---- Types ----------------------------------------------------------------------- */
+
+export type Language = 'go' | 'java' | 'php';
+type CTokenKind = 'id' | 'str' | 'num' | 'punc' | 'shell';
+/* One token of Go, Java or PHP: its kind, its text and its line; a PHP string keeps the variables it interpolates. */
+export interface CToken {
+  readonly t: CTokenKind;
+  readonly v: string;
+  readonly line: number;
+  readonly interp?: readonly string[] | null;
+}
+type Tokens = readonly CToken[];
+/* A range of tokens, [start, end]: a parameter list's brackets, a body's braces, an argument's [start, end). */
+type Span = readonly [number, number];
+
+/* A token that matches nothing: what an index past either end of a list reads as. */
+const NO_TOKEN: CToken = Object.freeze({ t: 'punc', v: '', line: 0 });
+function at(tokens: Tokens, index: number): CToken {
+  return tokens[index] ?? NO_TOKEN;
+}
+
+export type SinkKind = 'sql' | 'command' | 'code' | 'ssrf' | 'path' | 'redirect' | 'html' | 'template' | 'deserialize' | 'mass' | 'xxe';
+interface SinkSpec {
+  readonly rule: string;
+  readonly severity: 'critical' | 'serious' | 'warning';
+  readonly label: string;
+}
+
+/* One step of a flow: where, and what happened to the value there. */
+export interface Step {
+  readonly path: string;
+  readonly line: number;
+  readonly role: 'entrypoint' | 'propagation' | 'sink';
+  readonly note: string;
+}
+interface Guard {
+  readonly path: string;
+  readonly line: number;
+}
+/* A value the walk follows: what kind of request input it came from, the steps it took, and what it became. */
+interface Value {
+  kind: string;
+  steps: Step[];
+  built: boolean;
+  sql: boolean;
+  html: boolean;
+  lead: string | null;
+  whole: boolean;
+  guarded: Guard | null;
+  via?: string[] | undefined;
+  param?: number;
+  weakRoute?: boolean;
+  requires?: string | null;
+}
+type Scope = Map<string, Value | null>;
+const ROLE_KEYS = ['request', 'writer', 'gin', 'echo', 'fiber', 'response'] as const;
+type Roles = Record<(typeof ROLE_KEYS)[number], Set<string>>;
+
+/* A function, method or closure: its parameter list, its body and the decorations written before it. */
+export interface FunctionInfo {
+  name?: string | null;
+  line: number;
+  params: Span;
+  body: Span;
+  receiver?: Span | null;
+  decorations: string[];
+  arrow?: boolean;
+  skipOnly?: boolean;
+  walked?: boolean;
+}
+/* What a walk reads of the function it is in; the top level of a PHP script has no parameters. */
+interface WalkFn {
+  readonly body: Span;
+  readonly decorations: readonly string[];
+  readonly params: Span | null;
+}
+interface Callee {
+  segments: string[];
+  name: string | null;
+  receiver: string | null;
+  constructed: boolean;
+  text: string;
+}
+interface HelperSink {
+  kind: SinkKind;
+  param: number;
+  path: string;
+  line: number;
+  steps: Step[];
+  flags: { built: boolean; sql: boolean; html: boolean };
+  requires: string | null;
+}
+interface Summary {
+  returns: Set<number>;
+  sinks: HelperSink[];
+  file?: string;
+}
+type Blocker = { reason: 'guarded'; path: string; line: number } | { reason: SinkKind } | { reason: 'weak-source' };
+/* A flow from a request to a sink, as the walk reports it. */
+export interface Flow {
+  readonly rule: string;
+  readonly kind: SinkKind;
+  readonly severity: SinkSpec['severity'];
+  readonly path: string;
+  readonly line: number;
+  readonly source: string;
+  readonly verdict: 'confirmed' | 'needs-validation';
+  readonly blocker: Blocker | null;
+  readonly trace: Step[];
+  readonly viaHelper: 'function' | 'file' | null;
+}
+/* A file as the C-family reader holds it. */
+export interface CFile {
+  readonly path: string;
+  readonly text: string;
+}
+/* An endpoint as the C-family reader finds it, with what it needs to find a handler written elsewhere. */
+export interface CRoute extends Route {
+  language: Language;
+  middleware: string[];
+  handlerName?: string | null;
+  controller?: string | null;
+  controllerAction?: string | null;
+  controllerPath?: string | null;
+}
+
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
 const MAX_TOKENS = 400000;
@@ -38,11 +164,11 @@ const ABSOLUTE_PREFIX = /^\s*[a-z][a-z0-9+.-]*:\/\/[^/${}\s%]+\//i;
 const LOCAL_PATH_PREFIX = /^\s*\/(?![/\\])/;
 
 /* A lookup table read by names from the code: no inherited keys, so `toString` or `constructor` finds nothing. */
-function table(entries) {
+function table<T>(entries: Readonly<Record<string, T>>): Readonly<Record<string, T>> {
   return Object.freeze(Object.assign(Object.create(null), entries));
 }
 
-const SINKS = table({
+export const SINKS: Readonly<Record<SinkKind, SinkSpec>> = Object.freeze(Object.assign(Object.create(null), {
   sql: { rule: 'SEC-001', severity: 'critical', label: 'a SQL statement' },
   command: { rule: 'SEC-011', severity: 'critical', label: 'a shell command' },
   code: { rule: 'SEC-010', severity: 'critical', label: 'code that is executed' },
@@ -54,31 +180,35 @@ const SINKS = table({
   deserialize: { rule: 'SEC-024', severity: 'critical', label: 'a deserializer' },
   mass: { rule: 'SEC-028', severity: 'serious', label: 'a record written as it arrived' },
   xxe: { rule: 'SEC-034', severity: 'serious', label: 'an XML parser that resolves external entities' }
-});
-const JUDGEMENT_SINKS = new Set(['mass']);
+}));
+const JUDGEMENT_SINKS: ReadonlySet<string> = new Set(['mass']);
 
 /* ---- Values ------------------------------------------------------------------------ */
 
-function taint(kind, path, line, note) {
+function taint(kind: string, path: string, line: number, note?: string): Value {
   return { kind, steps: [{ path, line, role: 'entrypoint', note: note || `${kind} enters here` }], built: false, sql: false, html: false, lead: null, whole: false, guarded: null };
 }
-function extend(value, path, line, note, patch = {}) {
+function extend(value: Value, path: string, line: number, note: string, patch?: Partial<Value>): Value;
+function extend(value: Value | null, path: string, line: number, note: string, patch?: Partial<Value>): Value | null;
+function extend(value: Value | null, path: string, line: number, note: string, patch: Partial<Value> = {}): Value | null {
   if (!value) return null;
   const last = value.steps[value.steps.length - 1];
-  const steps = last && last.path === path && last.line === line ? value.steps : [...value.steps, { path, line, role: 'propagation', note }];
+  const step: Step = { path, line, role: 'propagation', note };
+  const steps = last && last.path === path && last.line === line ? value.steps : [...value.steps, step];
   return { ...value, ...patch, steps: steps.slice(0, MAX_STEPS) };
 }
-function merge(a, b) {
+function merge(a: Value | null, b: Value | null): Value | null {
   if (!a) return b;
   if (!b) return a;
   /* a check on a name settles the merged value only if every tainted part came through that name */
-  const via = a.via && b.via ? a.via.filter(name => b.via.includes(name)) : undefined;
+  const bVia = b.via;
+  const via = a.via && bVia ? a.via.filter(name => bVia.includes(name)) : undefined;
   return { ...a, built: a.built || b.built, sql: a.sql || b.sql, html: a.html || b.html, whole: a.whole || b.whole, guarded: a.guarded || b.guarded, via };
 }
 
 /* ---- Lexing ------------------------------------------------------------------------ */
 
-const PUNCTUATION = ['...', '<<=', '>>=', '===', '!==', '<=>', '**=', '??=', '?->', '::', '->', '=>', ':=', '==', '!=', '<=', '>=', '&&', '||', '++', '--', '+=', '-=', '*=', '/=', '.=', '%=', '&=', '|=', '^=', '<<', '>>', '??', '<-'];
+const PUNCTUATION: readonly string[] = ['...', '<<=', '>>=', '===', '!==', '<=>', '**=', '??=', '?->', '::', '->', '=>', ':=', '==', '!=', '<=', '>=', '&&', '||', '++', '--', '+=', '-=', '*=', '/=', '.=', '%=', '&=', '|=', '^=', '<<', '>>', '??', '<-'];
 const PHP_INTERPOLATION = /\{?\$([A-Za-z_][A-Za-z0-9_]*)/g;
 
 /*
@@ -87,13 +217,13 @@ const PHP_INTERPOLATION = /\{?\$([A-Za-z_][A-Za-z0-9_]*)/g;
  * numbers and punctuation, each with its line. Comments are dropped; PHP's
  * inline HTML is skipped, and its short echo tag reads as `echo`.
  */
-function lex(text, language) {
-  const tokens = [];
+export function lex(text: string, language: Language): CToken[] {
+  const tokens: CToken[] = [];
   const n = text.length;
   let i = 0;
   let line = 1;
-  const push = (t, v, extra) => { tokens.push(extra ? { t, v, line, ...extra } : { t, v, line }); };
-  const count = (from, to) => { for (let k = from; k < to; k += 1) if (text.charCodeAt(k) === 10) line += 1; };
+  const push = (t: CTokenKind, v: string) => { tokens.push({ t, v, line }); };
+  const count = (from: number, to: number) => { for (let k = from; k < to; k += 1) if (text.charCodeAt(k) === 10) line += 1; };
   /* PHP outside its tags is page text. */
   const skipInline = () => {
     const open = text.indexOf('<?', i);
@@ -108,13 +238,13 @@ function lex(text, language) {
   if (language === 'php') skipInline();
   while (i < n) {
     if (tokens.length > MAX_TOKENS) break;
-    const c = text[i];
+    const c = text.charAt(i);
     if (c === '\n') { line += 1; i += 1; continue; }
     if (c === ' ' || c === '\t' || c === '\r' || c === '\f' || c === '\v') { i += 1; continue; }
-    if (language === 'php' && c === '?' && text[i + 1] === '>') { i += 2; push('punc', ';'); skipInline(); continue; }
-    if (c === '/' && text[i + 1] === '/') { while (i < n && text[i] !== '\n') i += 1; continue; }
-    if (c === '#' && language === 'php' && text[i + 1] !== '[') { while (i < n && text[i] !== '\n') i += 1; continue; }
-    if (c === '/' && text[i + 1] === '*') {
+    if (language === 'php' && c === '?' && text.charAt(i + 1) === '>') { i += 2; push('punc', ';'); skipInline(); continue; }
+    if (c === '/' && text.charAt(i + 1) === '/') { while (i < n && text.charAt(i) !== '\n') i += 1; continue; }
+    if (c === '#' && language === 'php' && text.charAt(i + 1) !== '[') { while (i < n && text.charAt(i) !== '\n') i += 1; continue; }
+    if (c === '/' && text.charAt(i + 1) === '*') {
       const end = text.indexOf('*/', i + 2);
       const stop = end === -1 ? n : end + 2;
       count(i, stop);
@@ -137,13 +267,13 @@ function lex(text, language) {
       const head = /^<<<\s*(['"]?)([A-Za-z_]\w*)\1\r?\n/.exec(text.slice(i, i + 80));
       if (head) {
         const body = i + head[0].length;
-        const close = new RegExp(`\\n[ \\t]*${head[2]}\\b`).exec(text.slice(body));
+        const close = new RegExp(`\\n[ \\t]*${head[2] ?? ''}\\b`).exec(text.slice(body));
         const end = close ? body + close.index : n;
         const value = text.slice(body, end);
         const startLine = line;
         const stop = close ? end + close[0].length : n;
         count(i, stop);
-        const interp = head[1] === "'" ? [] : [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1]}`);
+        const interp = head[1] === "'" ? [] : [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1] ?? ''}`);
         tokens.push({ t: 'str', v: value, line: startLine, interp });
         i = stop;
         continue;
@@ -154,22 +284,22 @@ function lex(text, language) {
       let k = i + 1;
       let value = '';
       const startLine = line;
-      while (k < n && text[k] !== quote) {
-        if (text[k] === '\\' && quote !== '`' && k + 1 < n) { value += text[k + 1]; if (text[k + 1] === '\n') line += 1; k += 2; continue; }
-        if (text[k] === '\n') line += 1;
-        value += text[k];
+      while (k < n && text.charAt(k) !== quote) {
+        if (text.charAt(k) === '\\' && quote !== '`' && k + 1 < n) { value += text.charAt(k + 1); if (text.charAt(k + 1) === '\n') line += 1; k += 2; continue; }
+        if (text.charAt(k) === '\n') line += 1;
+        value += text.charAt(k);
         k += 1;
       }
       i = k + 1;
-      const interp = language === 'php' && quote !== "'" ? [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1]}`) : null;
+      const interp = language === 'php' && quote !== "'" ? [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1] ?? ''}`) : null;
       if (language === 'php' && quote === '`') tokens.push({ t: 'shell', v: value, line: startLine, interp });
       else tokens.push(interp && interp.length ? { t: 'str', v: value, line: startLine, interp } : { t: 'str', v: value, line: startLine });
       continue;
     }
-    if (/[A-Za-z_$]/.test(c) || (c === '\\' && language === 'php' && /[A-Za-z_]/.test(text[i + 1] || ''))) {
+    if (/[A-Za-z_$]/.test(c) || (c === '\\' && language === 'php' && /[A-Za-z_]/.test(text.charAt(i + 1) || ''))) {
       let k = i + 1;
-      while (k < n && /[A-Za-z0-9_$\\]/.test(text[k])) {
-        if (text[k] === '\\' && language !== 'php') break;
+      while (k < n && /[A-Za-z0-9_$\\]/.test(text.charAt(k))) {
+        if (text.charAt(k) === '\\' && language !== 'php') break;
         k += 1;
       }
       let word = text.slice(i, k);
@@ -181,7 +311,7 @@ function lex(text, language) {
     }
     if (/[0-9]/.test(c)) {
       let k = i + 1;
-      while (k < n && /[0-9A-Za-z_.]/.test(text[k])) k += 1;
+      while (k < n && /[0-9A-Za-z_.]/.test(text.charAt(k))) k += 1;
       push('num', text.slice(i, k));
       i = k;
       continue;
@@ -196,8 +326,8 @@ function lex(text, language) {
 
 /* ---- Structure --------------------------------------------------------------------- */
 
-const isPunc = (token, value) => Boolean(token && token.t === 'punc' && token.v === value);
-const isWord = (token, value) => Boolean(token && token.t === 'id' && token.v === value);
+const isPunc = (token: CToken | null | undefined, value: string): boolean => Boolean(token && token.t === 'punc' && token.v === value);
+const isWord = (token: CToken | null | undefined, value: string): boolean => Boolean(token && token.t === 'id' && token.v === value);
 
 /*
  * Every bracket's partner, worked out once per file in one pass: a stack per
@@ -205,20 +335,23 @@ const isWord = (token, value) => Boolean(token && token.t === 'id' && token.v ==
  * counting depth does. Looking each close up by scanning forward instead
  * made a file of unclosed brackets cost the square of its length.
  */
-const PAIRS = Object.freeze({ '(': ')', '[': ']', '{': '}' });
-const partnerTables = new WeakMap();
-function partners(tokens) {
+/* Maps, so a bracket is looked up by its own text and never by a name inherited from Object.prototype. */
+const PAIRS: ReadonlyMap<string, string> = new Map([['(', ')'], ['[', ']'], ['{', '}']]);
+const partnerTables = new WeakMap<Tokens, Int32Array>();
+function partners(tokens: Tokens): Int32Array {
   let table = partnerTables.get(tokens);
   if (table) return table;
   table = new Int32Array(tokens.length).fill(-1);
-  const stacks = { '(': [], '[': [], '{': [] };
-  const opener = { ')': '(', ']': '[', '}': '{' };
+  const stacks = new Map<string, number[]>([['(', []], ['[', []], ['{', []]]);
+  const opener = new Map([[')', '('], [']', '['], ['}', '{']]);
   for (let k = 0; k < tokens.length; k += 1) {
-    const token = tokens[k];
+    const token = at(tokens, k);
     if (token.t !== 'punc') continue;
-    if (PAIRS[token.v]) stacks[token.v].push(k);
-    else if (opener[token.v]) {
-      const open = stacks[opener[token.v]].pop();
+    const opened = stacks.get(token.v);
+    if (opened) opened.push(k);
+    else {
+      const closes = opener.get(token.v);
+      const open = closes === undefined ? undefined : stacks.get(closes)?.pop();
       if (open !== undefined) { table[open] = k; table[k] = open; }
     }
   }
@@ -227,25 +360,26 @@ function partners(tokens) {
 }
 
 /* Matching close for the bracket at `index`, or -1. */
-function closing(tokens, index, end = tokens.length) {
-  if (!tokens[index] || !PAIRS[tokens[index].v]) return -1;
-  const close = partners(tokens)[index];
+function closing(tokens: Tokens, index: number, end = tokens.length): number {
+  const token = at(tokens, index);
+  if (!token || !PAIRS.has(token.v)) return -1;
+  const close = partners(tokens)[index] ?? -1;
   return close > index && close < end ? close : -1;
 }
 
 /* Arguments of the call whose '(' is at `open`: [start, end) ranges at the top level. */
-function argumentsOf(tokens, open) {
+function argumentsOf(tokens: Tokens, open: number): { args: Span[]; close: number } {
   const close = closing(tokens, open);
   if (close === -1) return { args: [], close: open };
-  const args = [];
+  const args: Span[] = [];
   const table = partners(tokens);
   let start = open + 1;
   /* A bracket inside is stepped over to its partner, so a call reads only its own top level: nested calls cost nothing twice. */
   for (let k = open + 1; k < close; k += 1) {
-    const token = tokens[k];
+    const token = at(tokens, k);
     if (token.t !== 'punc') continue;
-    if (PAIRS[token.v]) {
-      const partner = table[k];
+    if (PAIRS.has(token.v)) {
+      const partner = table[k] ?? -1;
       if (partner > k && partner < close) { k = partner; continue; }
       /* an unclosed bracket: the rest is one argument, as counting depth reads it */
       break;
@@ -261,11 +395,11 @@ function argumentsOf(tokens, open) {
  * `DB::select`, `Runtime.getRuntime().exec` (a call inside the chain is a
  * segment ending "()"), and whether `new` constructs it.
  */
-function calleeAt(tokens, open) {
-  const segments = [];
+function calleeAt(tokens: Tokens, open: number): Callee {
+  const segments: string[] = [];
   let k = open - 1;
   while (k >= 0) {
-    const token = tokens[k];
+    const token = at(tokens, k);
     if (token.t === 'id') {
       segments.unshift(token.v);
       const before = tokens[k - 1];
@@ -292,31 +426,31 @@ function calleeAt(tokens, open) {
     break;
   }
   const constructed = isWord(tokens[k], 'new');
-  return { segments, name: segments[segments.length - 1] || null, receiver: segments.length > 1 ? segments[segments.length - 2] : null, constructed, text: segments.join('.') };
+  return { segments, name: segments[segments.length - 1] || null, receiver: segments.length > 1 ? segments[segments.length - 2] ?? null : null, constructed, text: segments.join('.') };
 }
 
 /* ---- Functions ----------------------------------------------------------------------- */
 
-const JAVA_NOT_METHOD = new Set(['if', 'for', 'while', 'switch', 'catch', 'synchronized', 'return', 'new', 'else', 'try', 'do', 'throw', 'assert', 'super', 'this']);
+const JAVA_NOT_METHOD: ReadonlySet<string> = new Set(['if', 'for', 'while', 'switch', 'catch', 'synchronized', 'return', 'new', 'else', 'try', 'do', 'throw', 'assert', 'super', 'this']);
 
 /*
  * Every function, method and closure with its parameter range, its body
  * range and, for Java, the annotations and modifiers written before it.
  */
-function functionsOf(tokens, language) {
-  const found = [];
+export function functionsOf(tokens: Tokens, language: Language): FunctionInfo[] {
+  const found: FunctionInfo[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
+    const token = at(tokens, i);
     if (language === 'go' && isWord(token, 'func')) {
       let k = i + 1;
-      let receiver = null;
+      let receiver: Span | null = null;
       if (isPunc(tokens[k], '(')) {
         const close = closing(tokens, k);
         if (close === -1) continue;
         /* a method's receiver when a name and '(' follow; otherwise these are a literal's parameters */
-        if (tokens[close + 1] && tokens[close + 1].t === 'id' && isPunc(tokens[close + 2], '(')) { receiver = [k, close]; k = close + 1; }
+        if (tokens[close + 1] && at(tokens, close + 1).t === 'id' && isPunc(tokens[close + 2], '(')) { receiver = [k, close]; k = close + 1; }
       }
-      const name = tokens[k] && tokens[k].t === 'id' ? tokens[k].v : null;
+      const name = tokens[k] && at(tokens, k).t === 'id' ? at(tokens, k).v : null;
       if (name) k += 1;
       /* generic type parameters */
       if (isPunc(tokens[k], '[')) { const close = closing(tokens, k); if (close === -1) continue; k = close + 1; }
@@ -341,7 +475,7 @@ function functionsOf(tokens, language) {
     } else if (language === 'php' && (isWord(token, 'function') || isWord(token, 'fn'))) {
       let k = i + 1;
       if (isPunc(tokens[k], '&')) k += 1;
-      const name = tokens[k] && tokens[k].t === 'id' && !isPunc(tokens[k], '(') ? tokens[k].v : null;
+      const name = tokens[k] && at(tokens, k).t === 'id' && !isPunc(tokens[k], '(') ? at(tokens, k).v : null;
       if (name) k += 1;
       if (!isPunc(tokens[k], '(')) continue;
       const paramsClose = closing(tokens, k);
@@ -387,11 +521,11 @@ function functionsOf(tokens, language) {
 }
 
 /* The annotations, attributes and modifiers written before a declaration, as text, back to the last statement or brace. */
-function decorationsBefore(tokens, index) {
-  const parts = [];
+function decorationsBefore(tokens: Tokens, index: number): string[] {
+  const parts: string[] = [];
   let depth = 0;
   for (let k = index - 1; k >= 0 && index - k < 160; k -= 1) {
-    const token = tokens[k];
+    const token = at(tokens, k);
     if (isPunc(token, ')')) depth += 1;
     else if (isPunc(token, '(')) depth -= 1;
     else if (depth === 0 && (isPunc(token, ';') || isPunc(token, '{') || isPunc(token, '}'))) break;
@@ -402,13 +536,20 @@ function decorationsBefore(tokens, index) {
 }
 
 /* A parameter list as { name, type, annotations, index }. */
-function parametersOf(tokens, range, language) {
+interface Parameter {
+  name: string | null;
+  type: string;
+  text: string;
+  index: number;
+}
+
+function parametersOf(tokens: Tokens, range: Span, language: Language): Parameter[] {
   const [open] = range;
   const { args } = argumentsOf(tokens, open);
   return args.map(([start, end], index) => {
     const slice = tokens.slice(start, end);
     const words = slice.map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v));
-    let name = null;
+    let name: string | null = null;
     let type = '';
     if (language === 'go') {
       /* `w http.ResponseWriter`, `r *http.Request`, or a bare type in a shared list */
@@ -422,8 +563,8 @@ function parametersOf(tokens, range, language) {
     } else {
       /* Java: annotations, modifiers, a type, then the name last */
       const ids = slice.filter(t => t.t === 'id');
-      name = ids.length ? ids[ids.length - 1].v : null;
-      type = ids.length > 1 ? ids[ids.length - 2].v : '';
+      name = ids.length ? at(ids, ids.length - 1).v : null;
+      type = ids.length > 1 ? at(ids, ids.length - 2).v : '';
     }
     return { name, type, text: words.join(' '), index };
   });
@@ -448,7 +589,13 @@ const WHOLE_REQUEST = new Set(['all', 'validated', 'json', 'safe', 'collect', 'g
  * kind: the roles say which parameters are a request, a Gin, Echo or Fiber
  * context, or a Laravel or Symfony request.
  */
-function sourceAt(tokens, index, roles, language) {
+interface Source {
+  kind: string | null;
+  end: number;
+  whole?: boolean;
+}
+
+function sourceAt(tokens: Tokens, index: number, roles: Roles, language: Language): Source | null {
   const token = tokens[index];
   if (!token || token.t !== 'id') return null;
   const next = tokens[index + 1];
@@ -465,36 +612,43 @@ function sourceAt(tokens, index, roles, language) {
       if (field === 'Header' || field === 'Form' || field === 'PostForm' || field === 'MultipartForm') return { kind: field === 'Header' ? 'request header' : 'form field', end: index + 3 };
       if (field === 'Body') return { kind: 'request body', end: index + 3, whole: true };
     }
-    if (roles.gin.has(token.v) && accessor && GIN_CALLS[accessor.v]) return { kind: GIN_CALLS[accessor.v], end: index + 3 };
-    if (roles.echo.has(token.v) && accessor && ECHO_CALLS[accessor.v]) return { kind: ECHO_CALLS[accessor.v], end: index + 3 };
-    if (roles.fiber.has(token.v) && accessor && FIBER_CALLS[accessor.v]) return { kind: FIBER_CALLS[accessor.v], end: index + 3, whole: accessor.v === 'Body' };
+    const gin = accessor ? GIN_CALLS[accessor.v] : undefined;
+    if (roles.gin.has(token.v) && accessor && gin) return { kind: gin, end: index + 3 };
+    const echo = accessor ? ECHO_CALLS[accessor.v] : undefined;
+    if (roles.echo.has(token.v) && accessor && echo) return { kind: echo, end: index + 3 };
+    const fiber = accessor ? FIBER_CALLS[accessor.v] : undefined;
+    if (roles.fiber.has(token.v) && accessor && fiber) return { kind: fiber, end: index + 3, whole: accessor.v === 'Body' };
     /* mux.Vars(r)["id"], chi.URLParam(r, "id") */
     if ((token.v === 'mux' && accessor && accessor.v === 'Vars') || (token.v === 'chi' && accessor && (accessor.v === 'URLParam' || accessor.v === 'URLParamFromCtx'))) return { kind: 'route parameter', end: index + 3 };
     return null;
   }
   if (language === 'java') {
-    if (roles.request.has(token.v) && accessor && SERVLET_CALLS[accessor.v]) return { kind: SERVLET_CALLS[accessor.v], end: index + 3, whole: accessor.v === 'getParameterMap' || accessor.v === 'getInputStream' };
+    const servlet = accessor ? SERVLET_CALLS[accessor.v] : undefined;
+    if (roles.request.has(token.v) && accessor && servlet) return { kind: servlet, end: index + 3, whole: accessor.v === 'getParameterMap' || accessor.v === 'getInputStream' };
     return null;
   }
   /* PHP */
-  if (PHP_SUPERGLOBALS[token.v]) return { kind: PHP_SUPERGLOBALS[token.v], end: index + 1, whole: !isPunc(next, '[') };
+  const superglobal = PHP_SUPERGLOBALS[token.v];
+  if (superglobal) return { kind: superglobal, end: index + 1, whole: !isPunc(next, '[') };
   if (token.v === '$_SERVER' && isPunc(next, '[')) {
     const key = tokens[index + 2];
     if (key && key.t === 'str' && PHP_SERVER_KEYS.test(key.v)) return { kind: key.v.startsWith('HTTP_') ? 'request header' : 'request URL', end: index + 4 };
     return null;
   }
-  if (token.v === 'file_get_contents' && isPunc(next, '(') && tokens[index + 2] && tokens[index + 2].t === 'str' && tokens[index + 2].v === 'php://input') return { kind: 'request body', end: index + 4, whole: true };
-  if ((token.v === 'request' || token.v === 'Request' || token.v === 'Input') && isPunc(next, '(') && tokens[index + 2] && tokens[index + 2].t === 'str') return { kind: 'request parameter', end: index + 3 };
-  if ((token.v === 'Request' || token.v === 'Input') && isPunc(next, '::') && accessor && LARAVEL_CALLS[accessor.v]) return { kind: LARAVEL_CALLS[accessor.v], end: index + 3, whole: WHOLE_REQUEST.has(accessor.v) };
-  if (token.v === 'request' && isPunc(next, '(') && isPunc(tokens[index + 2], ')') && (isPunc(tokens[index + 3], '->')) && tokens[index + 4] && LARAVEL_CALLS[tokens[index + 4].v]) {
-    return { kind: LARAVEL_CALLS[tokens[index + 4].v], end: index + 5, whole: WHOLE_REQUEST.has(tokens[index + 4].v) };
+  if (token.v === 'file_get_contents' && isPunc(next, '(') && tokens[index + 2] && at(tokens, index + 2).t === 'str' && at(tokens, index + 2).v === 'php://input') return { kind: 'request body', end: index + 4, whole: true };
+  if ((token.v === 'request' || token.v === 'Request' || token.v === 'Input') && isPunc(next, '(') && tokens[index + 2] && at(tokens, index + 2).t === 'str') return { kind: 'request parameter', end: index + 3 };
+  const laravel = accessor ? LARAVEL_CALLS[accessor.v] : undefined;
+  if ((token.v === 'Request' || token.v === 'Input') && isPunc(next, '::') && accessor && laravel) return { kind: laravel, end: index + 3, whole: WHOLE_REQUEST.has(accessor.v) };
+  const helperCall = tokens[index + 4] ? LARAVEL_CALLS[at(tokens, index + 4).v] : undefined;
+  if (token.v === 'request' && isPunc(next, '(') && isPunc(tokens[index + 2], ')') && (isPunc(tokens[index + 3], '->')) && tokens[index + 4] && helperCall) {
+    return { kind: helperCall, end: index + 5, whole: WHOLE_REQUEST.has(at(tokens, index + 4).v) };
   }
   if (roles.request.has(token.v) && accessor) {
     /* Symfony: $request->query->get(), ->request->get(), ->headers->get(), ->cookies->get() */
     if (['query', 'request', 'headers', 'cookies', 'files', 'attributes'].includes(accessor.v) && isPunc(tokens[index + 3], '->')) {
       return { kind: accessor.v === 'headers' ? 'request header' : accessor.v === 'cookies' ? 'cookie' : accessor.v === 'files' ? 'uploaded file' : 'request parameter', end: index + 5 };
     }
-    if (LARAVEL_CALLS[accessor.v]) return { kind: LARAVEL_CALLS[accessor.v], end: index + 3, whole: WHOLE_REQUEST.has(accessor.v) };
+    if (laravel) return { kind: laravel, end: index + 3, whole: WHOLE_REQUEST.has(accessor.v) };
   }
   return null;
 }
@@ -502,17 +656,17 @@ function sourceAt(tokens, index, roles, language) {
 /* ---- Sanitisers and string shaping ------------------------------------------------ */
 
 /* Calls whose result no longer carries what the caller wrote in a dangerous form. */
-const SANITISERS = table({
+const SANITISERS: Readonly<Record<Language, RegExp>> = Object.freeze(Object.assign(Object.create(null), {
   go: /^(Atoi|ParseInt|ParseUint|ParseFloat|ParseBool|Itoa|FormatInt|Base|EscapeString|QueryEscape|PathEscape|HTMLEscapeString|JSEscapeString|Parse|ParseUUID|MustParse|len|cap|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float32|float64|bool|Contains|HasPrefix|HasSuffix|EqualFold|Compare|Index|Count|Match|MatchString|IsAbs|Hash|Sum256|Sum|Equal|ConstantTimeCompare|NewString|Sprint\w*Int)$/,
   java: /^(parseInt|parseLong|parseDouble|parseFloat|parseBoolean|valueOf|fromString|escapeHtml\w*|escapeXml\w*|escapeEcmaScript|escapeJava|htmlEscape\w*|encodeForHTML\w*|encodeForSQL|encodeForURL|encodeForOS|encode|getName|normalize|isValid\w*|matches|equals\w*|contains|startsWith|endsWith|length|size|isEmpty|hashCode|sanitize\w*|clean|toInt|toLong|UUID|compare\w*)$/,
   php: /^(intval|floatval|boolval|abs|round|ceil|floor|count|strlen|mb_strlen|is_numeric|is_int|ctype_digit|ctype_alnum|ctype_alpha|htmlspecialchars|htmlentities|strip_tags|e|esc_html|esc_attr|esc_url|esc_sql|sanitize_\w+|filter_var|filter_input|escapeshellarg|escapeshellcmd|basename|realpath|urlencode|rawurlencode|addslashes|mysqli_real_escape_string|real_escape_string|quote|pg_escape_string|pg_escape_literal|password_hash|hash|md5|sha1|crc32|in_array|array_key_exists|isset|empty|preg_match|str_contains|str_starts_with|uniqid|json_encode|number_format|date|strtotime|checkdate|max|min)$/
-});
+}));
 /* Calls that shape a string and keep carrying what went into them. */
-const SHAPERS = table({
+const SHAPERS: Readonly<Record<Language, RegExp>> = Object.freeze(Object.assign(Object.create(null), {
   go: /^(Sprintf|Sprint|Sprintln|Join|TrimSpace|Trim|TrimPrefix|TrimSuffix|TrimLeft|TrimRight|ToLower|ToUpper|Replace|ReplaceAll|Split|SplitN|Fields|Title|Repeat|QueryUnescape|PathUnescape|Unquote|DecodeString|string|Clean|Dir|Ext|Get|Values|Value|Query|ReadAll|NewReader|NewBufferString|Bytes|String|Errorf)$/,
   java: /^(format|formatted|concat|join|trim|strip|toLowerCase|toUpperCase|replace|replaceAll|replaceFirst|substring|split|valueOf|toString|decode|getBytes|append|get|getOrDefault|getValue|getFirst|orElse|orElseGet|stream|collect|of|asList|copyOf|resolve|getDecoder|getUrlDecoder|getMimeDecoder|ByteArrayInputStream|StringReader|InputStreamReader|BufferedReader|BufferedInputStream|InputSource|StreamSource|String|StringBuilder|StringBuffer)$/,
   php: /^(sprintf|vsprintf|implode|join|trim|ltrim|rtrim|strtolower|strtoupper|ucfirst|lcfirst|ucwords|str_replace|str_ireplace|preg_replace|substr|mb_substr|urldecode|rawurldecode|base64_decode|stripslashes|json_decode|explode|array_map|array_values|array_merge|str_pad|str_repeat|nl2br|wordwrap|strval|trans|__|dirname|pathinfo|parse_url|http_build_query|stripcslashes|html_entity_decode|htmlspecialchars_decode|str|Str)$/
-});
+}));
 
 /* ---- Sinks ---------------------------------------------------------------------------- */
 
@@ -522,8 +676,8 @@ const JAVA_SQL = /^(executeQuery|executeUpdate|executeLargeUpdate|addBatch|prepa
 const JAVA_SQL_GENERIC = /^(execute|query|queryForObject|queryForList|queryForMap|queryForRowSet|queryForStream|update|batchUpdate)$/;
 const PHP_SQL_FUNCTIONS = table({ mysqli_query: 1, mysqli_multi_query: 1, mysqli_real_query: 1, mysql_query: 0, pg_query: -1, pg_send_query: -1, sqlite_query: -1, mssql_query: 0, odbc_exec: 1, db2_exec: 1, oci_parse: 1 });
 const PHP_SQL_METHODS = /^(query|exec|prepare|multi_query|real_query|unbuffered_query|select|insert|update|delete|statement|unprepared|affectingStatement|whereRaw|orWhereRaw|selectRaw|orderByRaw|havingRaw|groupByRaw|raw|get_results|get_row|get_var|get_col|fromRaw|joinRaw|executeQuery|executeStatement|executeUpdate|fetchAllAssociative|fetchAssociative|fetchOne|fetchFirstColumn|fetchAllNumeric|fetchNumeric|fetchAllKeyValue|iterateAssociative|createQuery|createNativeQuery)$/;
-const PHP_COMMANDS = new Set(['exec', 'system', 'shell_exec', 'passthru', 'popen', 'proc_open', 'pcntl_exec', 'expect_popen']);
-const PHP_PATHS = new Set(['file_get_contents', 'fopen', 'readfile', 'file', 'unlink', 'file_put_contents', 'copy', 'rename', 'opendir', 'scandir', 'mkdir', 'rmdir', 'parse_ini_file', 'highlight_file', 'show_source', 'fpassthru', 'gzopen', 'simplexml_load_file', 'glob', 'is_file', 'touch', 'symlink', 'chmod']);
+const PHP_COMMANDS: ReadonlySet<string> = new Set(['exec', 'system', 'shell_exec', 'passthru', 'popen', 'proc_open', 'pcntl_exec', 'expect_popen']);
+const PHP_PATHS: ReadonlySet<string> = new Set(['file_get_contents', 'fopen', 'readfile', 'file', 'unlink', 'file_put_contents', 'copy', 'rename', 'opendir', 'scandir', 'mkdir', 'rmdir', 'parse_ini_file', 'highlight_file', 'show_source', 'fpassthru', 'gzopen', 'simplexml_load_file', 'glob', 'is_file', 'touch', 'symlink', 'chmod']);
 const SHELLS = /^(\/bin\/)?(sh|bash|zsh|cmd|cmd\.exe|powershell|pwsh)$/;
 /*
  * XML parsers that resolve external entities unless told not to. A file
@@ -536,10 +690,11 @@ const SHELLS = /^(\/bin\/)?(sh|bash|zsh|cmd|cmd\.exe|powershell|pwsh)$/;
  * is a literal or a bounded call, and the test is made once per file.
  */
 const JAVA_XML_HARDENED = /disallow-doctype-decl|FEATURE_SECURE_PROCESSING|external-general-entities|external-parameter-entities|load-external-dtd|setExpandEntityReferences\s*\(\s*false|SUPPORT_DTD|IS_SUPPORTING_EXTERNAL_ENTITIES|ACCESS_EXTERNAL_DTD|ACCESS_EXTERNAL_SCHEMA|ACCESS_EXTERNAL_STYLESHEET/;
-const hardenedFiles = new WeakMap();
-function xmlHardened(file) {
-  if (!hardenedFiles.has(file)) hardenedFiles.set(file, JAVA_XML_HARDENED.test(file.text));
-  return hardenedFiles.get(file);
+const hardenedFiles = new WeakMap<CFile, boolean>();
+function xmlHardened(file: CFile): boolean {
+  let hardened = hardenedFiles.get(file);
+  if (hardened === undefined) { hardened = JAVA_XML_HARDENED.test(file.text); hardenedFiles.set(file, hardened); }
+  return hardened;
 }
 const JAVA_XML_PARSE = table({
   parse: /^(builder|db|documentBuilder|docBuilder|dBuilder|domBuilder|parser|saxParser|xmlReader|reader|newDocumentBuilder\(\)|newSAXParser\(\))$/i,
@@ -555,8 +710,38 @@ const PHP_XML_ENTITIES = /LIBXML_(NOENT|DTDLOAD|DTDATTR)/;
 
 const CHECK_CALL = /^(Contains|HasPrefix|HasSuffix|IsAbs|MatchString|Match|Compare|EqualFold|contains|startsWith|endsWith|matches|equals|equalsIgnoreCase|isValid\w*|validate\w*|allow\w*|in_array|preg_match|str_starts_with|str_contains|str_ends_with|array_key_exists|ctype_\w+|is_numeric|filter_var|has|containsKey|isSafe\w*|safe\w*|check\w*|verify\w*)$/;
 
+interface Settled {
+  readonly path: string;
+  readonly name: string;
+  readonly from: number;
+  readonly to: number;
+}
+type Guards = Map<string, Guard>;
+type Nested = Map<number, FunctionInfo>;
+interface Assignment {
+  names: string[];
+  valueStart: number;
+  valueEnd: number;
+  append: boolean;
+}
+interface Check {
+  name: string;
+  negated: boolean;
+}
+
 class Walker {
-  constructor(file, language, tokens, program) {
+  readonly file: CFile;
+  readonly path: string;
+  readonly language: Language;
+  readonly tokens: Tokens;
+  readonly program: Program | null;
+  readonly flows: Flow[];
+  summary: Summary | null;
+  readonly validated: Map<string, [number, number][]>;
+  readonly settled: Settled[];
+  currentScope: Scope | undefined;
+
+  constructor(file: CFile, language: Language, tokens: Tokens, program: Program | null) {
     this.file = file;
     this.path = file.path;
     this.language = language;
@@ -567,14 +752,15 @@ class Walker {
     /* Names a condition has validated, each with the token ranges where that holds, and the same as lines. */
     this.validated = new Map();
     this.settled = [];
+    this.currentScope = undefined;
   }
 
   /* A name's value at token `at`: nothing where a condition has already proved it safe. */
-  read(scope, name, at) {
+  read(scope: Scope, name: string, index: number): Value | null | undefined {
     const value = scope.get(name);
     if (!value) return value;
     const ranges = this.validated.get(name);
-    return ranges && ranges.some(([from, to]) => at >= from && at <= to) ? null : value;
+    return ranges && ranges.some(([from, to]) => index >= from && index <= to) ? null : value;
   }
 
   /*
@@ -583,19 +769,21 @@ class Walker {
    * it guards; the negated check before an early exit makes it safe for the
    * rest of the function. Values built from it are settled with it.
    */
-  validate(conditionFrom, conditionTo, blockFrom, blockTo, scope, fnEnd) {
+  validate(conditionFrom: number, conditionTo: number, blockFrom: number, blockTo: number, scope: Scope, fnEnd: number): void {
     const { positive, negative } = this.conditionChecks(conditionFrom, conditionTo, scope);
-    const mark = (names, from, to) => {
+    const mark = (names: Set<string>, from: number, to: number) => {
       if (!names.size || to < from) return;
       const all = new Set(names);
       for (const [other, value] of scope) {
         if (!value || all.has(other) || !Array.isArray(value.via)) continue;
-        if ([...names].some(name => value.via.includes(name))) all.add(other);
+        const via = value.via;
+        if ([...names].some(name => via.includes(name))) all.add(other);
       }
-      const lineAt = index => (this.tokens[Math.min(index, this.tokens.length - 1)] || { line: 0 }).line;
+      const lineAt = (index: number) => (this.tokens[Math.min(index, this.tokens.length - 1)] || { line: 0 }).line;
       for (const name of all) {
-        if (!this.validated.has(name)) this.validated.set(name, []);
-        this.validated.get(name).push([from, to]);
+        let ranges = this.validated.get(name);
+        if (!ranges) { ranges = []; this.validated.set(name, ranges); }
+        ranges.push([from, to]);
         this.settled.push({ path: this.path, name, from: lineAt(from), to: lineAt(to) });
       }
     };
@@ -604,9 +792,9 @@ class Walker {
   }
 
   /* Whether a block leaves: a return, a throw, an exit, a die, an abort. */
-  exits(from, to) {
+  exits(from: number, to: number): boolean {
     for (let k = from; k <= to && k < this.tokens.length; k += 1) {
-      const token = this.tokens[k];
+      const token = at(this.tokens, k);
       if (token.t === 'id' && /^(return|throw|exit|die|abort|continue|break|panic|http\.Error)$/.test(token.v)) return true;
       if (token.t === 'id' && /^(abort|abort_if|abort_unless)$/.test(token.v)) return true;
     }
@@ -614,51 +802,51 @@ class Walker {
   }
 
   /* The names a condition validates when it holds (positive) and when it fails (negative). */
-  conditionChecks(from, to, scope) {
+  conditionChecks(from: number, to: number, scope: Scope): { positive: Set<string>; negative: Set<string> } {
     const tokens = this.tokens;
-    const positive = new Set();
-    const negative = new Set();
-    const split = (start, stop) => {
-      const parts = [];
-      const ops = new Set();
+    const positive = new Set<string>();
+    const negative = new Set<string>();
+    const split = (start: number, stop: number) => {
+      const parts: [number, number][] = [];
+      const ops = new Set<string>();
       let depth = 0;
-      let at = start;
+      let head = start;
       for (let k = start; k < stop; k += 1) {
-        const t = tokens[k];
+        const t = at(tokens, k);
         if (isPunc(t, '(') || isPunc(t, '[')) depth += 1;
         else if (isPunc(t, ')') || isPunc(t, ']')) depth -= 1;
         else if (depth === 0 && (isPunc(t, '&&') || isPunc(t, '||') || isWord(t, 'and') || isWord(t, 'or'))) {
-          parts.push([at, k]);
+          parts.push([head, k]);
           ops.add(t.v === 'and' ? '&&' : t.v === 'or' ? '||' : t.v);
-          at = k + 1;
+          head = k + 1;
         }
       }
-      parts.push([at, stop]);
+      parts.push([head, stop]);
       return { parts, ops };
     };
-    const strip = (start, stop) => {
+    const strip = (start: number, stop: number): [number, number] => {
       while (isPunc(tokens[start], '(') && closing(tokens, start) === stop - 1) { start += 1; stop -= 1; }
       return [start, stop];
     };
-    const tainted = (start, stop) => {
-      for (let k = start; k < stop; k += 1) if (tokens[k].t === 'id' && scope.get(tokens[k].v)) return tokens[k].v;
+    const tainted = (start: number, stop: number): string | null => {
+      for (let k = start; k < stop; k += 1) if (at(tokens, k).t === 'id' && scope.get(at(tokens, k).v)) return at(tokens, k).v;
       return null;
     };
     /* one test: { name, negated } or null */
-    const atom = (start, stop) => {
+    const atom = (start: number, stop: number): Check | null => {
       [start, stop] = strip(start, stop);
       let negated = false;
       while (isPunc(tokens[start], '!')) { negated = !negated; start += 1; [start, stop] = strip(start, stop); }
       /* equality with a literal: $x == 'a', 'a' === strtolower($x), x == "a", "a".equals(x) */
       let depth = 0;
       for (let k = start; k < stop; k += 1) {
-        const t = tokens[k];
+        const t = at(tokens, k);
         if (isPunc(t, '(') || isPunc(t, '[')) depth += 1;
         else if (isPunc(t, ')') || isPunc(t, ']')) depth -= 1;
         else if (depth === 0 && t.t === 'punc' && ['==', '===', '!=', '!=='].includes(t.v)) {
-          const left = [start, k];
-          const right = [k + 1, stop];
-          const literalSide = [left, right].find(([a, b]) => b - a === 1 && (tokens[a].t === 'str' || tokens[a].t === 'num'));
+          const left: Span = [start, k];
+          const right: Span = [k + 1, stop];
+          const literalSide = [left, right].find(([a, b]) => b - a === 1 && (at(tokens, a).t === 'str' || at(tokens, a).t === 'num'));
           if (!literalSide) return null;
           const other = literalSide === left ? right : left;
           const name = tainted(other[0], other[1]);
@@ -666,20 +854,22 @@ class Walker {
         }
       }
       /* "lit".equals(x) */
-      if (this.language === 'java' && tokens[start].t === 'str' && isPunc(tokens[start + 1], '.') && /^(equals|equalsIgnoreCase)$/.test(tokens[start + 2] && tokens[start + 2].v) && isPunc(tokens[start + 3], '(')) {
+      const third = tokens[start + 2];
+      if (this.language === 'java' && at(tokens, start).t === 'str' && isPunc(tokens[start + 1], '.') && /^(equals|equalsIgnoreCase)$/.test(String(third && third.v)) && isPunc(tokens[start + 3], '(')) {
         const name = tainted(start + 4, closing(tokens, start + 3));
         return name ? { name, negated } : null;
       }
       /* a validating call */
       for (let k = start; k < stop; k += 1) {
-        if (tokens[k].t !== 'id' || !isPunc(tokens[k + 1], '(')) continue;
+        if (at(tokens, k).t !== 'id' || !isPunc(tokens[k + 1], '(')) continue;
         const callee = calleeAt(tokens, k + 1);
         const name = (callee.name || '').replace(/\(\)$/, '');
         const close = closing(tokens, k + 1);
         if (close === -1) return null;
         const { args } = argumentsOf(tokens, k + 1);
         const argName = args.length ? args.map(([a, b]) => tainted(a, b)).find(Boolean) || null : null;
-        const receiver = callee.segments.length > 1 && scope.get(callee.segments[0]) ? callee.segments[0] : null;
+        const head = callee.segments[0];
+        const receiver = callee.segments.length > 1 && head !== undefined && scope.get(head) ? head : null;
         const validated = this.validatorOf(name, args, argName, receiver);
         return validated ? { name: validated, negated } : null;
       }
@@ -688,36 +878,39 @@ class Walker {
     const { parts, ops } = split(from, to);
     if (ops.size <= 1) {
       const or = ops.has('||');
-      const tests = parts.map(([a, b]) => {
+      const tests = parts.map(([a, b]): Check | null => {
         const [s1, s2] = strip(a, b);
         const inner = split(s1, s2);
         /* a bracketed disjunction of equalities with the same name: (x == 'a' || x == 'b') */
         if (inner.parts.length > 1 && inner.ops.size === 1 && inner.ops.has('||')) {
           const each = inner.parts.map(([c, d]) => atom(c, d));
-          if (each.every(test => test && !test.negated && test.name === each[0].name)) return { name: each[0].name, negated: false };
+          const first = each[0];
+          if (first && each.every(test => test && !test.negated && test.name === first.name)) return { name: first.name, negated: false };
           return null;
         }
         return atom(a, b);
       });
+      const first = tests[0];
       if (!or) {
         /* every conjunct holds inside the block; a single negated test fails into the exit */
         for (const test of tests) if (test && !test.negated) positive.add(test.name);
-        if (tests.length === 1 && tests[0] && tests[0].negated) negative.add(tests[0].name);
+        if (tests.length === 1 && first && first.negated) negative.add(first.name);
         /* x != 'a' && x != 'b' before an exit: past it, x is one of them */
-        if (tests.length > 1 && tests.every(test => test && test.negated && test.name === tests[0].name)) negative.add(tests[0].name);
+        if (first && tests.length > 1 && tests.every(test => test && test.negated && test.name === first.name)) negative.add(first.name);
       } else {
         /* x == 'a' || x == 'b': the one name, inside; !a(x) || !b(y): both, after the exit */
-        if (tests.every(test => test && !test.negated && test.name === tests[0].name)) positive.add(tests[0].name);
-        if (tests.every(test => test && test.negated)) for (const test of tests) negative.add(test.name);
+        if (first && tests.every(test => test && !test.negated && test.name === first.name)) positive.add(first.name);
+        if (tests.every(test => test && test.negated)) for (const test of tests) if (test) negative.add(test.name);
       }
     }
     return { positive, negative };
   }
 
   /* Which name a call validates, if it is a check that settles a value's shape. */
-  validatorOf(name, args, argName, receiver) {
+  validatorOf(name: string, args: readonly Span[], argName: string | null, receiver: string | null): string | null {
     const tokens = this.tokens;
-    const firstString = args[0] && args[0][1] - args[0][0] === 1 && tokens[args[0][0]].t === 'str' ? tokens[args[0][0]].v : null;
+    const firstArg = args[0];
+    const firstString = firstArg && firstArg[1] - firstArg[0] === 1 && at(tokens, firstArg[0]).t === 'str' ? at(tokens, firstArg[0]).v : null;
     if (this.language === 'php') {
       if (/^(is_numeric|is_int|is_integer|is_float|ctype_digit|ctype_alnum|ctype_alpha|ctype_xdigit|ctype_upper|ctype_lower|in_array|checkdate|isUuid|isUlid)$/.test(name)) return argName;
       if (name === 'array_key_exists' || name === 'isset') return null;
@@ -730,7 +923,7 @@ class Walker {
       if (name === 'matches' && receiver) return receiver;
       if ((name === 'equals' || name === 'equalsIgnoreCase') && (receiver || argName)) {
         const other = receiver ? args[0] : null;
-        if (receiver && other && other[1] - other[0] === 1 && tokens[other[0]].t === 'str') return receiver;
+        if (receiver && other && other[1] - other[0] === 1 && at(tokens, other[0]).t === 'str') return receiver;
         return null;
       }
       if (/^(contains|containsKey|isNumeric|isDigits|isAlphanumeric|isAlpha|isCreatable|isParsable)$/.test(name) && argName && !receiver) return argName;
@@ -738,22 +931,27 @@ class Walker {
       return null;
     }
     /* Go: slices.Contains(allowed, x), a map lookup's ok comes as an assignment and is not read here */
-    if (name === 'Contains' && args.length === 2 && argName && tokens[args[1][0]] && tokens[args[1][0]].v === argName && !scope_of_first(args, tokens)) return argName;
+    const second = args[1];
+    if (name === 'Contains' && args.length === 2 && argName && second && tokens[second[0]] && at(tokens, second[0]).v === argName && !scope_of_first(args, tokens)) return argName;
     return null;
   }
 
   /* Roles of a function's parameters, and the values they start with. */
-  enter(fn, scope, summaryMode) {
-    const roles = { request: new Set(), writer: new Set(), gin: new Set(), echo: new Set(), fiber: new Set(), response: new Set() };
+  enter(fn: FunctionInfo, scope: Scope, summaryMode: { index: number } | null): { roles: Roles; params: Parameter[] } {
+    const roles: Roles = { request: new Set(), writer: new Set(), gin: new Set(), echo: new Set(), fiber: new Set(), response: new Set() };
     const params = parametersOf(this.tokens, fn.params, this.language);
     /* Go lists `a, b string`: a bare name takes the next parameter's type. */
     if (this.language === 'go') {
-      for (let k = params.length - 2; k >= 0; k -= 1) if (!params[k].type && params[k + 1].type) params[k].type = params[k + 1].type;
+      for (let k = params.length - 2; k >= 0; k -= 1) {
+        const param = params[k];
+        const next = params[k + 1];
+        if (param && next && !param.type && next.type) param.type = next.type;
+      }
     }
     const decorations = fn.decorations.join(' ');
     params.forEach(param => {
       if (!param.name) return;
-      let value = null;
+      let value: Value | null = null;
       const type = param.type;
       if (this.language === 'go') {
         if (/\*?(http|fasthttp)\.Request\b|\*?http\.Request$/.test(type)) roles.request.add(param.name);
@@ -763,7 +961,8 @@ class Walker {
         else if (/\*?fiber\.Ctx/.test(type)) roles.fiber.add(param.name);
       } else if (this.language === 'java') {
         const annotation = /@\s*(\w+)/.exec(param.text);
-        if (annotation && SPRING_ANNOTATIONS[annotation[1]]) value = taint(SPRING_ANNOTATIONS[annotation[1]], this.path, fn.line, `a ${SPRING_ANNOTATIONS[annotation[1]]} enters here`);
+        const annotated = annotation ? SPRING_ANNOTATIONS[annotation[1] ?? ''] : undefined;
+        if (annotated) value = taint(annotated, this.path, fn.line, `a ${annotated} enters here`);
         if (/\b(HttpServletRequest|ServletRequest|WebRequest|ServerHttpRequest)\b/.test(param.text)) roles.request.add(param.name);
         if (/\b(HttpServletResponse|ServletResponse)\b/.test(param.text)) roles.response.add(param.name);
         if (value && annotation && annotation[1] === 'RequestBody') value.whole = true;
@@ -791,12 +990,12 @@ class Walker {
   }
 
   /* The value of tokens [from, to). */
-  evaluate(from, to, scope, roles) {
+  evaluate(from: number, to: number, scope: Scope, roles: Roles): Value | null {
     const tokens = this.tokens;
-    let value = null;
+    let value: Value | null = null;
     let literal = '';
     let built = false;
-    let leadLiteral = null;
+    let leadLiteral: string | null = null;
     let seenOperand = false;
     let comparison = false;
     for (let k = from; k < to; k += 1) {
@@ -815,7 +1014,7 @@ class Walker {
           for (const name of token.interp) {
             const inner = this.read(scope, name, k);
             if (inner) { value = merge(value, extend(inner, this.path, token.line, 'written into a string')); built = true; }
-            if (/^\$_(GET|POST|REQUEST|COOKIE)$/.test(name)) { value = merge(value, taint(PHP_SUPERGLOBALS[name], this.path, token.line)); built = true; }
+            if (/^\$_(GET|POST|REQUEST|COOKIE)$/.test(name)) { value = merge(value, taint(PHP_SUPERGLOBALS[name] ?? '', this.path, token.line)); built = true; }
           }
         }
         continue;
@@ -848,7 +1047,7 @@ class Walker {
         const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
         if (SANITISERS[this.language].test(name)) { k = close; seenOperand = true; continue; }
         const argsValue = this.evaluateArgs(callOpen, scope, roles);
-        const receiverValue = callee.segments.length > 1 ? this.read(scope, callee.segments[0], k) || null : null;
+        const receiverValue = callee.segments.length > 1 ? this.read(scope, callee.segments[0] ?? '', k) || null : null;
         if (SHAPERS[this.language].test(name)) {
           const carried = merge(argsValue.value, receiverValue ? extend(receiverValue, this.path, token.line, `passed through ${name}`) : null);
           if (carried) value = merge(value, { ...carried, built: carried.built || /^(Sprintf|format|formatted|sprintf|vsprintf|concat|Join|join|implode|append)$/.test(name) });
@@ -859,7 +1058,7 @@ class Walker {
           const helper = this.program ? this.program.helper(this.language, name, callee, this.path) : null;
           if (helper && helper.returns.size) {
             for (const index of helper.returns) {
-              const arg = argsValue.each[index];
+              const arg = argsValue.each[index] ?? null;
               if (arg) value = merge(value, extend(arg, this.path, token.line, `returned by ${name}`));
             }
           }
@@ -878,8 +1077,8 @@ class Walker {
       }
       seenOperand = true;
       /* skip a member chain on the same operand: user.Name, $row['x'] */
-      while (tokens[k + 1] && tokens[k + 1].t === 'punc' && (tokens[k + 1].v === '.' || tokens[k + 1].v === '->' || tokens[k + 1].v === '?->') && tokens[k + 2] && tokens[k + 2].t === 'id' && !isPunc(tokens[k + 3], '(')) {
-        if (this.language === 'php' && tokens[k + 1].v === '.') break;
+      while (tokens[k + 1] && at(tokens, k + 1).t === 'punc' && (at(tokens, k + 1).v === '.' || at(tokens, k + 1).v === '->' || at(tokens, k + 1).v === '?->') && tokens[k + 2] && at(tokens, k + 2).t === 'id' && !isPunc(tokens[k + 3], '(')) {
+        if (this.language === 'php' && at(tokens, k + 1).v === '.') break;
         k += 2;
       }
     }
@@ -888,61 +1087,61 @@ class Walker {
   }
 
   /* Each argument's value and the literal text among them. */
-  evaluateArgs(open, scope, roles) {
+  evaluateArgs(open: number, scope: Scope, roles: Roles): { value: Value | null; each: (Value | null)[]; literal: string; literalLead: string | null } {
     const { args } = argumentsOf(this.tokens, open);
     const each = args.map(([start, end]) => this.evaluate(start, end, scope, roles));
-    let value = null;
+    let value: Value | null = null;
     each.forEach(item => { value = merge(value, item); });
     let literal = '';
-    let literalLead = null;
+    let literalLead: string | null = null;
     args.forEach(([start, end], index) => {
-      for (let k = start; k < end; k += 1) if (this.tokens[k].t === 'str') { literal += this.tokens[k].v; if (index === 0 && literalLead === null && k === start) literalLead = this.tokens[k].v; }
+      for (let k = start; k < end; k += 1) if (at(this.tokens, k).t === 'str') { literal += at(this.tokens, k).v; if (index === 0 && literalLead === null && k === start) literalLead = at(this.tokens, k).v; }
     });
     return { value, each, literal, literalLead };
   }
 
   /* The '(' of a call whose callee starts at `k`, or -1. */
-  callOpenAfter(k, to) {
+  callOpenAfter(k: number, to: number): number {
     let m = k;
     while (m + 1 < to) {
-      const next = this.tokens[m + 1];
+      const next = at(this.tokens, m + 1);
       if (isPunc(next, '(')) return m + 1;
-      if (next.t === 'punc' && (next.v === '.' || next.v === '->' || next.v === '::' || next.v === '?->') && this.tokens[m + 2] && this.tokens[m + 2].t === 'id') { m += 2; continue; }
+      if (next.t === 'punc' && (next.v === '.' || next.v === '->' || next.v === '::' || next.v === '?->') && this.tokens[m + 2] && at(this.tokens, m + 2).t === 'id') { m += 2; continue; }
       return -1;
     }
     return -1;
   }
 
   /* Past a source's own call and any calls chained on it. */
-  skipCall(k, to) {
+  skipCall(k: number, to: number): number {
     let m = k;
     while (m < to) {
-      const token = this.tokens[m];
+      const token = at(this.tokens, m);
       if (isPunc(token, '(') || isPunc(token, '[')) { const close = closing(this.tokens, m); if (close === -1) return to; m = close + 1; continue; }
-      if (token && token.t === 'punc' && (token.v === '.' || token.v === '->' || token.v === '?->') && this.tokens[m + 1] && this.tokens[m + 1].t === 'id') { m += 2; continue; }
+      if (token && token.t === 'punc' && (token.v === '.' || token.v === '->' || token.v === '?->') && this.tokens[m + 1] && at(this.tokens, m + 1).t === 'id') { m += 2; continue; }
       break;
     }
     return m;
   }
 
-  operandEnd(k, to) {
+  operandEnd(k: number, to: number): number {
     let m = k;
-    if (this.tokens[m] && this.tokens[m].t === 'id') m += 1;
+    if (this.tokens[m] && at(this.tokens, m).t === 'id') m += 1;
     return this.skipCall(m, to);
   }
 
   /* End of the statement starting at `k`: the ';' or the line's end in Go. */
-  statementEnd(k, end) {
+  statementEnd(k: number, end: number): number {
     let depth = 0;
-    const line = this.tokens[k] ? this.tokens[k].line : 0;
+    const line = this.tokens[k] ? at(this.tokens, k).line : 0;
     for (let m = k; m < end; m += 1) {
-      const token = this.tokens[m];
+      const token = at(this.tokens, m);
       if (token.t === 'punc' && (token.v === '(' || token.v === '[' || token.v === '{')) depth += 1;
       else if (token.t === 'punc' && (token.v === ')' || token.v === ']' || token.v === '}')) { if (depth === 0) return m; depth -= 1; }
       else if (depth === 0 && isPunc(token, ';')) return m;
       else if (this.language === 'go' && depth === 0 && token.line !== line && m > k) {
         /* Go ends a statement at a line break unless the line ends mid-expression */
-        const previous = this.tokens[m - 1];
+        const previous = at(this.tokens, m - 1);
         if (!(previous.t === 'punc' && ['+', '-', '*', '/', ',', '(', '.', '&&', '||', '=', ':=', '{', '['].includes(previous.v))) return m;
       }
     }
@@ -950,7 +1149,7 @@ class Walker {
   }
 
   /* A function body: assignments, guards, sinks and the functions inside it. */
-  walk(fn, scope, roles, nested) {
+  walk(fn: FunctionInfo, scope: Scope, roles: Roles, nested: Nested): void {
     const [open, close] = fn.body;
     this.walkRange(fn.arrow ? open + 1 : open + 1, close, scope, roles, nested, new Map(), fn);
   }
@@ -961,20 +1160,20 @@ class Walker {
    * is followed after it. A function inside is walked on its own with the
    * scope it closes over; one marked skipOnly is stepped over.
    */
-  walkRange(from, to, scope, roles, nested, guards, fn) {
+  walkRange(from: number, to: number, scope: Scope, roles: Roles, nested: Nested, guards: Guards, fn: WalkFn): void {
     const tokens = this.tokens;
     const saved = this.currentScope;
     this.currentScope = scope;
     let k = from;
     try {
       while (k < to) {
-        const token = tokens[k];
+        const token = at(tokens, k);
         const inner = nested.get(k);
         if (inner) {
           if (!inner.skipOnly) {
             const childScope = new Map(scope);
             const { roles: childRoles } = this.enter(inner, childScope, null);
-            for (const key of Object.keys(roles)) for (const name of roles[key]) childRoles[key].add(name);
+            for (const key of ROLE_KEYS) for (const name of roles[key]) childRoles[key].add(name);
             this.walkRange(inner.body[0] + 1, inner.body[1], childScope, childRoles, nested, new Map(guards), inner);
             this.currentScope = scope;
           }
@@ -1028,30 +1227,30 @@ class Walker {
   }
 
   /* Functions written inside a statement -- a handler passed inline -- walked with the scope they close over. */
-  innerFunctions(from, to, scope, roles, nested, guards) {
+  innerFunctions(from: number, to: number, scope: Scope, roles: Roles, nested: Nested, guards: Guards): void {
     for (const [start, inner] of nested) {
       if (start <= from || start >= to || inner.skipOnly || inner.walked) continue;
       inner.walked = true;
       const childScope = new Map(scope);
       const { roles: childRoles } = this.enter(inner, childScope, null);
-      for (const key of Object.keys(roles)) for (const name of roles[key]) childRoles[key].add(name);
+      for (const key of ROLE_KEYS) for (const name of roles[key]) childRoles[key].add(name);
       this.walkRange(inner.body[0] + 1, inner.body[1], childScope, childRoles, nested, new Map(guards), inner);
       this.currentScope = scope;
     }
   }
 
-  assign(assigned, scope, roles, guards, fn) {
+  assign(assigned: Assignment, scope: Scope, roles: Roles, guards: Guards, fn: WalkFn): void {
     const { names, valueStart, valueEnd, append } = assigned;
     const tokens = this.tokens;
     const value = this.evaluate(valueStart, valueEnd, scope, roles);
     this.sinksIn(valueStart, valueEnd, scope, roles, guards, fn);
-    const line = tokens[valueStart] ? tokens[valueStart].line : tokens[valueEnd - 1] ? tokens[valueEnd - 1].line : 0;
+    const line = tokens[valueStart] ? at(tokens, valueStart).line : tokens[valueEnd - 1] ? at(tokens, valueEnd - 1).line : 0;
     for (const name of names) {
       if (name === '_') continue;
       /* a new value is not the one the condition checked */
       const ranges = this.validated.get(name);
       if (ranges && !append) for (const range of ranges) if (valueStart >= range[0] && valueStart <= range[1]) range[1] = valueStart - 1;
-      const previous = append ? this.read(scope, name, valueStart) : null;
+      const previous = append ? this.read(scope, name, valueStart) ?? null : null;
       /* `via`: the names a value was held in on its way here, so a check on one settles what was built from it */
       scope.set(name, merge(previous, value ? { ...extend(value, this.path, line, `assigned to ${name}`), via: [...(value.via || []), name].slice(-12) } : null));
     }
@@ -1063,9 +1262,9 @@ class Walker {
    * loop over a request value binds its variables, and the walk continues
    * at the block.
    */
-  header(k, to, scope, roles, guards, fn) {
+  header(k: number, to: number, scope: Scope, roles: Roles, guards: Guards, fn: WalkFn): number {
     const tokens = this.tokens;
-    const keyword = tokens[k].v;
+    const keyword = at(tokens, k).v;
     if (this.language !== 'go' && isPunc(tokens[k + 1], '(')) {
       const close = closing(tokens, k + 1);
       if (close === -1) return to;
@@ -1080,7 +1279,7 @@ class Walker {
       if (keyword === 'foreach' && asAt !== -1) {
         const split = k + 2 + asAt;
         const value = this.evaluate(k + 2, split, scope, roles);
-        for (let m = split + 1; m < close; m += 1) if (tokens[m].t === 'id' && tokens[m].v.startsWith('$')) scope.set(tokens[m].v, value ? extend(value, this.path, tokens[m].line, `each item as ${tokens[m].v}`) : null);
+        for (let m = split + 1; m < close; m += 1) if (at(tokens, m).t === 'id' && at(tokens, m).v.startsWith('$')) scope.set(at(tokens, m).v, value ? extend(value, this.path, at(tokens, m).line, `each item as ${at(tokens, m).v}`) : null);
       }
       const colonAt = keyword === 'for' ? tokens.slice(k + 2, close).findIndex(t => isPunc(t, ':')) : -1;
       if (colonAt > 0) {
@@ -1125,22 +1324,22 @@ class Walker {
   }
 
   /* `x := e`, `x = e`, `var x T = e`, `T x = e`, `$x = e`, `$x .= e`, `a, b := e`, `$x['k'] = e`. */
-  assignment(k, close) {
+  assignment(k: number, close: number): Assignment | null {
     const tokens = this.tokens;
     let m = k;
-    const names = [];
+    const names: string[] = [];
     if (isWord(tokens[m], 'var') || isWord(tokens[m], 'final') || isWord(tokens[m], 'const')) m += 1;
     const startName = m;
     while (m < close) {
-      const token = tokens[m];
+      const token = at(tokens, m);
       if (token.t === 'id') {
         names.push(token.v);
         m += 1;
         /* PHP $x['k'] or Go x[k] as the target */
         if (isPunc(tokens[m], '[')) { const c = closing(tokens, m); if (c === -1) return null; m = c + 1; }
         /* Java/Go declared type between name and '=' is skipped: `String q =` has the type first */
-        if (tokens[m] && tokens[m].t === 'id') { names.pop(); continue; }
-        if (tokens[m] && tokens[m].t === 'punc' && tokens[m].v === '<') {
+        if (tokens[m] && at(tokens, m).t === 'id') { names.pop(); continue; }
+        if (tokens[m] && at(tokens, m).t === 'punc' && at(tokens, m).v === '<') {
           /* a generic type: List<String> x = */
           let depth = 0;
           for (; m < close; m += 1) { if (isPunc(tokens[m], '<')) depth += 1; else if (isPunc(tokens[m], '>')) { depth -= 1; if (depth === 0) { m += 1; break; } } }
@@ -1163,7 +1362,7 @@ class Walker {
   }
 
   /* json.NewDecoder(r.Body).Decode(&x), c.ShouldBindJSON(&x), $x populated by a binder */
-  binders(from, to, scope, roles) {
+  binders(from: number, to: number, scope: Scope, roles: Roles): void {
     const tokens = this.tokens;
     for (let k = from; k < to; k += 1) {
       if (!isPunc(tokens[k], '(')) continue;
@@ -1171,56 +1370,56 @@ class Walker {
       const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
       if (!BINDERS.test(name)) continue;
       const { args } = argumentsOf(tokens, k);
-      let origin = null;
+      let origin: Value | null = null;
       if (name === 'Unmarshal' && args[0]) origin = this.evaluate(args[0][0], args[0][1], scope, roles);
       else if (name === 'Decode') {
         const chain = callee.segments.join('.');
         const decoder = /NewDecoder\(\)/.test(chain) ? this.decoderSource(k) : null;
         origin = decoder;
       } else {
-        const receiver = callee.segments[0];
-        if (roles.gin.has(receiver) || roles.echo.has(receiver) || roles.fiber.has(receiver)) origin = taint('request body', this.path, tokens[k].line, 'a request body enters here');
+        const receiver = callee.segments[0] ?? '';
+        if (roles.gin.has(receiver) || roles.echo.has(receiver) || roles.fiber.has(receiver)) origin = taint('request body', this.path, at(tokens, k).line, 'a request body enters here');
       }
       if (!origin) continue;
       for (const [start, end] of args) {
-        if (isPunc(tokens[start], '&') && tokens[start + 1] && tokens[start + 1].t === 'id' && end === start + 2) {
-          scope.set(tokens[start + 1].v, extend({ ...origin, whole: true }, this.path, tokens[k].line, `decoded into ${tokens[start + 1].v}`));
+        if (isPunc(tokens[start], '&') && tokens[start + 1] && at(tokens, start + 1).t === 'id' && end === start + 2) {
+          scope.set(at(tokens, start + 1).v, extend({ ...origin, whole: true }, this.path, at(tokens, k).line, `decoded into ${at(tokens, start + 1).v}`));
         }
       }
     }
   }
 
   /* The source a json.NewDecoder(...) reads. */
-  decoderSource(decodeOpen) {
+  decoderSource(decodeOpen: number): Value | null {
     const tokens = this.tokens;
     for (let k = decodeOpen - 1; k >= Math.max(0, decodeOpen - 30); k -= 1) {
       if (isWord(tokens[k], 'NewDecoder') && isPunc(tokens[k + 1], '(')) {
         const arg = tokens[k + 2];
         const field = tokens[k + 4];
-        if (arg && field && field.v === 'Body') return taint('request body', this.path, tokens[k].line, 'a request body enters here');
+        if (arg && field && field.v === 'Body') return taint('request body', this.path, at(tokens, k).line, 'a request body enters here');
       }
     }
     return null;
   }
 
-  noteGuards(start, stop, scope, guards) {
+  noteGuards(start: number, stop: number, scope: Scope, guards: Guards): void {
     const tokens = this.tokens;
     for (let k = start; k < stop; k += 1) {
-      const token = tokens[k];
+      const token = at(tokens, k);
       if (token.t !== 'id' || !isPunc(tokens[k + 1], '(')) continue;
       const callee = calleeAt(tokens, k + 1);
       const name = (callee.name || '').replace(/\(\)$/, '');
       if (!CHECK_CALL.test(name)) continue;
       const close = closing(tokens, k + 1);
-      const names = new Set();
-      for (let m = k + 2; m < close; m += 1) if (tokens[m].t === 'id' && scope.get(tokens[m].v)) names.add(tokens[m].v);
+      const names = new Set<string>();
+      for (let m = k + 2; m < close; m += 1) if (at(tokens, m).t === 'id' && scope.get(at(tokens, m).v)) names.add(at(tokens, m).v);
       for (const segment of callee.segments) if (scope.get(segment)) names.add(segment);
       for (const name2 of names) if (!guards.has(name2)) guards.set(name2, { path: this.path, line: token.line });
     }
   }
 
   /* A statement that is not an assignment: calls, echo, include, return. */
-  statement(from, to, scope, roles, guards, fn) {
+  statement(from: number, to: number, scope: Scope, roles: Roles, guards: Guards, fn: WalkFn): void {
     const tokens = this.tokens;
     const first = tokens[from];
     if (this.language === 'php' && first && first.t === 'id' && ['echo', 'print'].includes(first.v)) {
@@ -1233,10 +1432,10 @@ class Walker {
     }
     if (first && isWord(first, 'return')) {
       const value = this.evaluate(from + 1, to, scope, roles);
-      if (value && this.summary && Number.isInteger(value.param)) this.summary.returns.add(value.param);
+      if (value && this.summary && typeof value.param === 'number' && Number.isInteger(value.param)) this.summary.returns.add(value.param);
       /* Spring: return "redirect:" + x; a @ResponseBody string of HTML */
       if (value && this.language === 'java') {
-        const literal = tokens[from + 1] && tokens[from + 1].t === 'str' ? tokens[from + 1].v : '';
+        const literal = tokens[from + 1] && at(tokens, from + 1).t === 'str' ? at(tokens, from + 1).v : '';
         if (/^redirect:/.test(literal) && literal.length <= 'redirect:'.length) this.report('redirect', { ...value, lead: null }, first.line, guards, from + 1, to);
         else if (value.html && /\b(RestController|ResponseBody)\b/.test(`${fn.decorations.join(' ')} ${this.classDecorations(fn)}`)) this.report('html', value, first.line, guards, from + 1, to);
       }
@@ -1244,17 +1443,18 @@ class Walker {
     this.sinksIn(from, to, scope, roles, guards, fn);
   }
 
-  classDecorations(fn) {
+  classDecorations(fn: WalkFn): string {
     return this.program ? this.program.classAnnotations(this.path, fn.body[0]) : '';
   }
 
   /* Every call in [from, to) checked against the sinks. */
-  sinksIn(from, to, scope, roles, guards, fn) {
+  sinksIn(from: number, to: number, scope: Scope, roles: Roles, guards: Guards, fn: WalkFn): void {
     const tokens = this.tokens;
     for (let k = from; k < to; k += 1) {
-      if (tokens[k].t === 'shell' && tokens[k].interp && tokens[k].interp.some(name => scope.get(name))) {
+      const shell = at(tokens, k);
+      if (shell.t === 'shell' && shell.interp && shell.interp.some(name => scope.get(name))) {
         const value = this.evaluate(k, k + 1, scope, roles);
-        if (value) this.report('command', value, tokens[k].line, guards, k, k + 1);
+        if (value) this.report('command', value, at(tokens, k).line, guards, k, k + 1);
       }
       if (!isPunc(tokens[k], '(')) continue;
       const callee = calleeAt(tokens, k);
@@ -1270,26 +1470,27 @@ class Walker {
           if (!arg) continue;
           const value = this.evaluate(arg[0], arg[1], scope, roles);
           if (!value) continue;
-          const through = extend(value, this.path, tokens[k].line, `passed to ${helperName}`);
+          const through = extend(value, this.path, at(tokens, k).line, `passed to ${helperName}`);
           const flags = { built: Boolean(through.built || sink.flags.built), sql: Boolean(through.sql || sink.flags.sql), html: Boolean(through.html || sink.flags.html) };
           /* a sink that needs a built string: the caller's value must be one, or carry the need on */
           const unmet = sink.requires === 'built' && !(through.built || through.sql || through.whole);
           if (unmet && !(this.summary && through.kind === 'parameter')) continue;
           /* A helper of a helper: this function's parameter reaches the sink too, through the call. */
           if (this.summary && through.kind === 'parameter' && through.param !== undefined && through.param !== null) {
-            if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind: sink.kind, param: through.param, path: sink.path, line: sink.line, steps: [{ path: this.path, line: tokens[k].line, role: 'propagation', note: `passed to ${helperName}` }, ...sink.steps].slice(0, MAX_STEPS - 1), flags, requires: unmet ? 'built' : null });
+            const step: Step = { path: this.path, line: at(tokens, k).line, role: 'propagation', note: `passed to ${helperName}` };
+            if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind: sink.kind, param: through.param, path: sink.path, line: sink.line, steps: [step, ...sink.steps].slice(0, MAX_STEPS - 1), flags, requires: unmet ? 'built' : null });
             continue;
           }
-          this.pushFlow(sink.kind, { ...through, ...flags, steps: [...through.steps, ...sink.steps].slice(0, MAX_STEPS) }, sink.path, sink.line, guards.get(this.firstName(arg[0], arg[1], scope)) || null, helper.file === this.path ? 'function' : 'file');
+          this.pushFlow(sink.kind, { ...through, ...flags, steps: [...through.steps, ...sink.steps].slice(0, MAX_STEPS) }, sink.path, sink.line, guardOf(guards, this.firstName(arg[0], arg[1], scope)), helper.file === this.path ? 'function' : 'file');
         }
       }
       if (close > k) continue;
     }
   }
 
-  firstName(from, to, scope) {
+  firstName(from: number, to: number, scope: Scope): string | null {
     for (let k = from; k < to; k += 1) {
-      const token = this.tokens[k];
+      const token = at(this.tokens, k);
       if (token.t === 'id' && scope.get(token.v)) return token.v;
       /* "... $name ..." names its variable inside the string */
       if (token.interp) for (const name of token.interp) if (scope.get(name)) return name;
@@ -1297,18 +1498,20 @@ class Walker {
     return null;
   }
 
-  arg(args, index, scope, roles) {
+  arg(args: readonly Span[], index: number, scope: Scope, roles: Roles): Value | null {
     const range = args[index];
     return range ? this.evaluate(range[0], range[1], scope, roles) : null;
   }
 
   /* The sinks of each language. */
-  sinkCall(callee, args, open, scope, roles, guards, fn) {
-    const name = callee.name.replace(/\(\)$/, '');
+  sinkCall(callee: Callee, args: readonly Span[], open: number, scope: Scope, roles: Roles, guards: Guards, fn: WalkFn): void {
+    const name = (callee.name ?? '').replace(/\(\)$/, '');
     const receiver = callee.receiver ? callee.receiver.replace(/\(\)$/, '') : null;
-    const line = this.tokens[open].line;
+    /* Whether the receiver is one of a role's names; a call with no receiver is none. */
+    const has = (names: Set<string>): boolean => receiver !== null && names.has(receiver);
+    const line = at(this.tokens, open).line;
     const text = callee.segments.join('.');
-    const report = (kind, index, patch) => {
+    const report = (kind: SinkKind, index: number, patch?: Partial<Value>) => {
       const range = args[index];
       if (!range) return;
       const value = this.evaluate(range[0], range[1], scope, roles);
@@ -1334,15 +1537,15 @@ class Walker {
       }
       if ((receiver === 'os' && /^(Open|OpenFile|ReadFile|Create|WriteFile|Remove|RemoveAll|Mkdir|MkdirAll|ReadDir|Chmod|Rename)$/.test(name)) || (receiver === 'ioutil' && /^(ReadFile|WriteFile|ReadDir)$/.test(name))) { report('path', 0); return; }
       if (receiver === 'http' && name === 'ServeFile') { report('path', 2); return; }
-      if (roles.gin.has(receiver) && (name === 'File' || name === 'FileAttachment')) { report('path', 0); return; }
-      if (roles.echo.has(receiver) && (name === 'File' || name === 'Attachment')) { report('path', 0); return; }
-      if (roles.fiber.has(receiver) && (name === 'SendFile' || name === 'Download')) { report('path', 0); return; }
+      if (has(roles.gin) && (name === 'File' || name === 'FileAttachment')) { report('path', 0); return; }
+      if (has(roles.echo) && (name === 'File' || name === 'Attachment')) { report('path', 0); return; }
+      if (has(roles.fiber) && (name === 'SendFile' || name === 'Download')) { report('path', 0); return; }
       if (receiver === 'http' && /^(Get|Head|Post|PostForm)$/.test(name)) { report('ssrf', 0); return; }
       if (receiver === 'http' && name === 'NewRequest') { report('ssrf', 1); return; }
       if (receiver === 'http' && name === 'NewRequestWithContext') { report('ssrf', 2); return; }
       if (receiver === 'http' && name === 'Redirect') { report('redirect', 2); return; }
-      if ((roles.gin.has(receiver) || roles.echo.has(receiver)) && name === 'Redirect') { report('redirect', 1); return; }
-      if (roles.fiber.has(receiver) && name === 'Redirect') { report('redirect', 0); return; }
+      if ((has(roles.gin) || has(roles.echo)) && name === 'Redirect') { report('redirect', 1); return; }
+      if (has(roles.fiber) && name === 'Redirect') { report('redirect', 0); return; }
       if (receiver === 'template' && name === 'HTML') { report('html', 0, { html: true }); return; }
       if (name === 'Parse' && /template\.New\(\)/.test(text)) { report('template', 0); return; }
       if (receiver === 'fmt' && /^Fprint(f|ln)?$/.test(name) && args[0]) {
@@ -1350,17 +1553,20 @@ class Walker {
         if (writer && roles.writer.has(writer.v)) {
           const value = this.evaluateArgs(open, scope, roles);
           const tail = args.slice(1).map(([s, e]) => this.evaluate(s, e, scope, roles)).reduce(merge, null);
-          if (tail && (value.literal && HTML_TEXT.test(value.literal) || tail.html)) this.report('html', { ...tail, html: true }, line, guards, args[1][0], args[args.length - 1][1]);
+          const second = args[1];
+          const last = args[args.length - 1];
+          if (tail && second && last && (value.literal && HTML_TEXT.test(value.literal) || tail.html)) this.report('html', { ...tail, html: true }, line, guards, second[0], last[1]);
         }
         return;
       }
-      if ((name === 'Write' && receiver && roles.writer.has(receiver)) || (receiver === 'io' && name === 'WriteString' && args[0] && roles.writer.has(this.tokens[args[0][0]].v))) {
+      if ((name === 'Write' && receiver && has(roles.writer)) || (receiver === 'io' && name === 'WriteString' && args[0] && roles.writer.has(at(this.tokens, args[0][0]).v))) {
         const index = name === 'Write' ? 0 : 1;
         const value = this.arg(args, index, scope, roles);
-        if (value && value.html) this.report('html', value, line, guards, args[index][0], args[index][1]);
+        const range = args[index];
+        if (value && value.html && range) this.report('html', value, line, guards, range[0], range[1]);
         return;
       }
-      if (roles.gin.has(receiver) && name === 'Data' && args[1] && this.tokens[args[1][0]].t === 'str' && /html/i.test(this.tokens[args[1][0]].v)) { report('html', 2, { html: true }); return; }
+      if (has(roles.gin) && name === 'Data' && args[1] && at(this.tokens, args[1][0]).t === 'str' && /html/i.test(at(this.tokens, args[1][0]).v)) { report('html', 2, { html: true }); return; }
       return;
     }
     if (this.language === 'java') {
@@ -1387,7 +1593,8 @@ class Walker {
       if (name === 'sendRedirect') { report('redirect', 0); return; }
       if (/^(write|print|println|append|printf|format)$/.test(name) && /getWriter\(\)|getOutputStream\(\)/.test(text)) {
         const value = this.arg(args, 0, scope, roles);
-        if (value && value.html) this.report('html', value, line, guards, args[0][0], args[0][1]);
+        const first = args[0];
+        if (value && value.html && first) this.report('html', value, line, guards, first[0], first[1]);
         return;
       }
       if (name === 'eval' && receiver && /engine|scriptEngine|js|nashorn|interpreter/i.test(receiver)) { report('code', 0); return; }
@@ -1406,8 +1613,10 @@ class Walker {
       return;
     }
     /* PHP */
-    if (Object.prototype.hasOwnProperty.call(PHP_SQL_FUNCTIONS, name) && callee.segments.length === 1) {
-      const index = PHP_SQL_FUNCTIONS[name] === -1 ? (args.length > 1 ? 1 : 0) : PHP_SQL_FUNCTIONS[name];
+    /* A null-prototype table: a name is in it only when it is its own key. */
+    const sqlArgument = PHP_SQL_FUNCTIONS[name];
+    if (sqlArgument !== undefined && callee.segments.length === 1) {
+      const index = sqlArgument === -1 ? (args.length > 1 ? 1 : 0) : sqlArgument;
       report('sql', index);
       return;
     }
@@ -1416,7 +1625,8 @@ class Walker {
       (/^(executeQuery|executeStatement|executeUpdate|createQuery|createNativeQuery)$/.test(name) && /(conn|connection|db|em|manager|dbal)$/i.test(receiver || '')));
     if (sqlTarget) {
       const value = this.arg(args, 0, scope, roles);
-      if (value && /Raw$|^raw$|^statement$|^unprepared$/.test(name)) this.report('sql', value, line, guards, args[0][0], args[0][1]);
+      const first = args[0];
+      if (value && first && /Raw$|^raw$|^statement$|^unprepared$/.test(name)) this.report('sql', value, line, guards, first[0], first[1]);
       else this.builtSql(value, line, guards, args[0]);
       return;
     }
@@ -1435,7 +1645,7 @@ class Walker {
     if ((name === 'download' || name === 'file') && /response\(\)/.test(text)) { report('path', 0); return; }
     if (receiver === 'Storage' && /^(get|download|delete|put|path|readStream|exists|url|response)$/.test(name)) { report('path', 0); return; }
     if (name === 'curl_init' && callee.segments.length === 1) { report('ssrf', 0); return; }
-    if (name === 'curl_setopt' && args[1] && this.tokens[args[1][0]] && this.tokens[args[1][0]].v === 'CURLOPT_URL') { report('ssrf', 2); return; }
+    if (name === 'curl_setopt' && args[1] && this.tokens[args[1][0]] && at(this.tokens, args[1][0]).v === 'CURLOPT_URL') { report('ssrf', 2); return; }
     if (name === 'fsockopen') { report('ssrf', 0); return; }
     if (receiver === 'Http' && /^(get|post|put|patch|delete|head|send)$/.test(name)) { report('ssrf', name === 'send' ? 1 : 0); return; }
     if (receiver && /client|guzzle|http/i.test(receiver) && /^(get|post|put|patch|delete|head|request|requestAsync|getAsync)$/.test(name)) { report('ssrf', /^request/.test(name) ? 1 : 0); return; }
@@ -1453,7 +1663,8 @@ class Walker {
     /* Symfony: new Response('<h1>' . $name) */
     if (callee.constructed && name === 'Response') {
       const value = this.arg(args, 0, scope, roles);
-      if (value && value.html) this.report('html', value, line, guards, args[0][0], args[0][1]);
+      const first = args[0];
+      if (value && value.html && first) this.report('html', value, line, guards, first[0], first[1]);
       return;
     }
     if (receiver && /twig|env/i.test(receiver) && name === 'createTemplate') { report('template', 0); return; }
@@ -1468,7 +1679,9 @@ class Walker {
     /* Laravel mass assignment: Model::create($request->all()) */
     if (/^(create|update|fill|forceCreate|forceFill|insert|updateOrCreate|firstOrCreate)$/.test(name) && callee.segments.length > 1) {
       const value = this.arg(args, name === 'updateOrCreate' || name === 'firstOrCreate' ? 1 : 0, scope, roles);
-      if (value && value.whole) this.report('mass', value, line, guards, args[0][0], args[args.length - 1][1]);
+      const first = args[0];
+      const last = args[args.length - 1];
+      if (value && value.whole && first && last) this.report('mass', value, line, guards, first[0], last[1]);
     }
   }
 
@@ -1477,17 +1690,17 @@ class Walker {
    * built from a value, or carrying SQL words. A helper's bare parameter is
    * noted as needing that, and judged where the helper is called.
    */
-  builtSql(value, line, guards, range, builtOnly = false) {
+  builtSql(value: Value | null, line: number, guards: Guards, range: Span | undefined, builtOnly = false): void {
     if (!value || !range) return;
     if (value.built || (!builtOnly && (value.sql || value.whole))) this.report('sql', value, line, guards, range[0], range[1]);
     else if (this.summary && value.kind === 'parameter') this.report('sql', { ...value, requires: 'built' }, line, guards, range[0], range[1]);
   }
 
-  contextText(open) {
+  contextText(open: number): string {
     return this.tokens.slice(Math.max(0, open - 12), open).map(t => t.v).join('');
   }
 
-  report(kind, value, line, guards, from, to) {
+  report(kind: SinkKind, value: Value | null, line: number, guards: Guards, from: number, to: number): void {
     if (!value) return;
     if (this.summary && value.param !== undefined && value.param !== null && value.kind === 'parameter') {
       if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html }, requires: value.requires || null });
@@ -1497,11 +1710,11 @@ class Walker {
     /* A request value in the path after a fixed origin, or after a local path, is not a choice of where to go. */
     if ((kind === 'ssrf' || kind === 'redirect') && value.lead && (ABSOLUTE_PREFIX.test(value.lead) || (kind === 'redirect' && LOCAL_PATH_PREFIX.test(value.lead)))) return;
     if (kind === 'html' && this.language === 'php' && !value.html && value.whole) return;
-    const guard = guards.get(this.firstName(from, to, this.currentScope || new Map())) || null;
+    const guard = guardOf(guards, this.firstName(from, to, this.currentScope || new Map()));
     this.pushFlow(kind, value, this.path, line, guard, null);
   }
 
-  pushFlow(kind, value, path, line, guard, viaHelper) {
+  pushFlow(kind: SinkKind, value: Value, path: string, line: number, guard: Guard | null, viaHelper: Flow['viaHelper']): void {
     if (this.flows.length >= MAX_FLOWS_PER_FILE) return;
     const spec = SINKS[kind];
     const steps = value.steps.slice(0, MAX_STEPS);
@@ -1509,7 +1722,7 @@ class Walker {
     const judgement = JUDGEMENT_SINKS.has(kind);
     const weak = Boolean(value.weakRoute);
     const verdict = guard || judgement || weak ? 'needs-validation' : 'confirmed';
-    const blocker = guard ? { reason: 'guarded', path: guard.path, line: guard.line } : judgement ? { reason: kind } : weak ? { reason: 'weak-source' } : null;
+    const blocker: Blocker | null = guard ? { reason: 'guarded', path: guard.path, line: guard.line } : judgement ? { reason: kind } : weak ? { reason: 'weak-source' } : null;
     this.flows.push({ rule: spec.rule, kind, severity: spec.severity, path, line, source: value.kind, verdict, blocker, trace: steps, viaHelper });
   }
 }
@@ -1522,38 +1735,43 @@ const SPRING_MAPPING = table({ GetMapping: 'GET', PostMapping: 'POST', PutMappin
 const JAXRS_METHOD = /@(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/;
 const ROUTE_TEXT = /^[A-Za-z0-9/_:.\-*[\]{}()$+?@~]*$/;
 
-function safeRoute(value) {
+/* The guard noted for a name, if a name was found. */
+function guardOf(guards: Guards, name: string | null): Guard | null {
+  return name === null ? null : guards.get(name) || null;
+}
+
+function safeRoute(value: unknown): string | null {
   const text = String(value || '').trim();
   if (!text.startsWith('/') || text.length > 120 || !ROUTE_TEXT.test(text)) return null;
   return text;
 }
-function joinRoute(prefix, route) {
+function joinRoute(prefix: string, route: string): string {
   if (!prefix) return route;
   if (!route || route === '/') return prefix;
   return `${prefix.replace(/\/$/, '')}/${route.replace(/^\//, '')}`;
 }
 
 /* Whether the first of two arguments is the searched value rather than the list: strings.Contains(x, "..") is not an allow-list. */
-function scope_of_first(args, tokens) {
-  const [a, b] = args[0];
-  return b - a === 1 && tokens[a].t === 'str';
+function scope_of_first(args: readonly Span[], tokens: Tokens): boolean {
+  const [a, b] = args[0] ?? [0, 0];
+  return b - a === 1 && at(tokens, a).t === 'str';
 }
 
 /* The token index where a function's header begins, so a walk can step over it. */
-function headerStartOf(tokens, fn) {
+function headerStartOf(tokens: Tokens, fn: FunctionInfo): number {
   let k = fn.params[0] - 1;
   while (k > 0 && !isWord(tokens[k], 'func') && !isWord(tokens[k], 'function') && !isWord(tokens[k], 'fn')) {
-    if (tokens[k].line < fn.line) break;
+    if (at(tokens, k).line < fn.line) break;
     k -= 1;
   }
   return isWord(tokens[k], 'func') || isWord(tokens[k], 'function') || isWord(tokens[k], 'fn') ? k : fn.params[0] - 1;
 }
 
 /* The names in a token range, a dotted chain read as one: `requireAuth(handlers.Search)` is requireAuth, handlers.Search. */
-function chainNames(tokens, from, to) {
-  const names = [];
+function chainNames(tokens: Tokens, from: number, to: number): string[] {
+  const names: string[] = [];
   for (let k = from; k < to; k += 1) {
-    const token = tokens[k];
+    const token = at(tokens, k);
     if (token.t !== 'id') continue;
     if (isPunc(tokens[k - 1], '.') && k - 1 >= from && names.length) names[names.length - 1] += `.${token.v}`;
     else names.push(token.v);
@@ -1568,54 +1786,59 @@ const GO_PLAIN_WRAPPER = /^(http\.HandlerFunc|http\.Handler|http\.StripPrefix|ht
  * The endpoints a file declares, each with the handler's body range so its
  * guard and its writes can be read, and the middleware named beside it.
  */
-function routesOf(tokens, language, path, functions, text) {
-  const routes = [];
-  const bodyText = (from, to) => tokens.slice(from, to + 1).map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v)).join(' ');
-  const functionNamed = new Map(functions.filter(fn => fn.name).map(fn => [fn.name, fn]));
+export function routesOf(tokens: Tokens, language: Language, path: string, functions: readonly FunctionInfo[], text: string): CRoute[] {
+  const routes: CRoute[] = [];
+  const bodyText = (from: number, to: number) => tokens.slice(from, to + 1).map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v)).join(' ');
+  const functionNamed = new Map<string, FunctionInfo>();
+  for (const fn of functions) if (fn.name) functionNamed.set(fn.name, fn);
   if (language === 'go') {
-    const groups = new Map();
-    const uses = [];
+    const groups = new Map<string, { prefix: string; words: string[] }>();
+    const uses: (RouteUse & { receiver: string | null })[] = [];
     /* which router each name holds: r := gin.Default(), mux := http.NewServeMux(), func setup(e *echo.Echo) */
-    const kinds = new Map();
-    const MADE = [[/(\w+)\s*:?=\s*gin\.(?:Default|New)\(/g, 'gin'], [/(\w+)\s*:?=\s*echo\.New\(/g, 'echo'], [/(\w+)\s*:?=\s*fiber\.New\(/g, 'fiber'],
+    const kinds = new Map<string, string>();
+    const MADE: readonly (readonly [RegExp, string])[] = [[/(\w+)\s*:?=\s*gin\.(?:Default|New)\(/g, 'gin'], [/(\w+)\s*:?=\s*echo\.New\(/g, 'echo'], [/(\w+)\s*:?=\s*fiber\.New\(/g, 'fiber'],
       [/(\w+)\s*:?=\s*chi\.NewRouter\(/g, 'chi'], [/(\w+)\s*:?=\s*mux\.NewRouter\(/g, 'gorilla'], [/(\w+)\s*:?=\s*http\.NewServeMux\(/g, 'go-http'],
       [/(\w+)\s+\*?gin\.(?:Engine|RouterGroup|IRouter\w*)\b/g, 'gin'], [/(\w+)\s+\*?echo\.(?:Echo|Group)\b/g, 'echo'], [/(\w+)\s+\*?fiber\.(?:App|Router)\b/g, 'fiber'],
       [/(\w+)\s+chi\.Router\b/g, 'chi'], [/(\w+)\s+\*?mux\.Router\b/g, 'gorilla'], [/(\w+)\s+\*?http\.ServeMux\b/g, 'go-http']];
-    for (const [pattern, kind] of MADE) for (const match of text.matchAll(pattern)) if (!kinds.has(match[1])) kinds.set(match[1], kind);
+    for (const [pattern, kind] of MADE) for (const match of text.matchAll(pattern)) if (match[1] !== undefined && !kinds.has(match[1])) kinds.set(match[1], kind);
     for (let k = 0; k < tokens.length; k += 1) {
-      const token = tokens[k];
+      const token = at(tokens, k);
       if (!isPunc(tokens[k + 1], '(') || token.t !== 'id') continue;
       const callee = calleeAt(tokens, k + 1);
       const receiver = callee.receiver;
       const { args } = argumentsOf(tokens, k + 1);
       /* v1 := r.Group("/v1", auth) */
-      if ((token.v === 'Group' || token.v === 'Route') && args[0] && tokens[args[0][0]].t === 'str') {
-        const assigned = tokens[k - 3] && isPunc(tokens[k - 2], ':=') ? tokens[k - 3].v : tokens[k - 4] && isPunc(tokens[k - 3], ':=') ? tokens[k - 4].v : null;
+      const firstArg = args[0];
+      const receiverGroup = receiver === null ? undefined : groups.get(receiver);
+      if ((token.v === 'Group' || token.v === 'Route') && firstArg && at(tokens, firstArg[0]).t === 'str') {
+        const assigned = tokens[k - 3] && isPunc(tokens[k - 2], ':=') ? at(tokens, k - 3).v : tokens[k - 4] && isPunc(tokens[k - 3], ':=') ? at(tokens, k - 4).v : null;
         const words = args.slice(1).flatMap(([s, e]) => chainNames(tokens, s, e));
-        const parentPrefix = groups.has(receiver) ? groups.get(receiver).prefix : '';
+        const parentPrefix = receiverGroup ? receiverGroup.prefix : '';
         if (assigned) {
-          groups.set(assigned, { prefix: joinRoute(parentPrefix, tokens[args[0][0]].v), words: [...(groups.has(receiver) ? groups.get(receiver).words : []), ...words] });
-          if (kinds.has(receiver) && !kinds.has(assigned)) kinds.set(assigned, kinds.get(receiver));
+          groups.set(assigned, { prefix: joinRoute(parentPrefix, at(tokens, firstArg[0]).v), words: [...(receiverGroup ? receiverGroup.words : []), ...words] });
+          const receiverKind = receiver === null ? undefined : kinds.get(receiver);
+          if (receiverKind !== undefined && !kinds.has(assigned)) kinds.set(assigned, receiverKind);
         }
         continue;
       }
       if (token.v === 'Use' && receiver) {
         const words = args.flatMap(([s, e]) => chainNames(tokens, s, e));
-        if (groups.has(receiver)) groups.get(receiver).words.push(...words);
+        if (receiverGroup) receiverGroup.words.push(...words);
         else uses.push({ line: token.line, words, prefix: null, receiver });
         continue;
       }
-      if (!GO_ROUTE_METHOD.test(token.v) || !receiver || !args[0] || tokens[args[0][0]].t !== 'str') continue;
+      if (!GO_ROUTE_METHOD.test(token.v) || !receiver || !firstArg || at(tokens, firstArg[0]).t !== 'str') continue;
       if (!(GO_ROUTER.test(receiver) || groups.has(receiver)) || (receiver === 'http' && !/^Handle/.test(token.v))) continue;
-      let pattern = tokens[args[0][0]].v;
+      let pattern = at(tokens, firstArg[0]).v;
       let method = /^Handle|^Any$|^Match$/.test(token.v) ? 'ANY' : token.v.toUpperCase();
       /* Go 1.22: "POST /items/{id}" */
       const spaced = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\S+)$/.exec(pattern);
-      if (spaced) { method = spaced[1]; pattern = spaced[2]; }
+      if (spaced) { method = spaced[1] ?? method; pattern = spaced[2] ?? pattern; }
       /* gorilla: .Methods("POST") after the call */
       const after = tokens.slice(argumentsOf(tokens, k + 1).close + 1, argumentsOf(tokens, k + 1).close + 6);
       const methods = after.findIndex(t => t.v === 'Methods');
-      if (methods !== -1 && after[methods + 2] && after[methods + 2].t === 'str') method = after[methods + 2].v.toUpperCase();
+      const methodsArg = after[methods + 2];
+      if (methods !== -1 && methodsArg && methodsArg.t === 'str') method = methodsArg.v.toUpperCase();
       const group = groups.get(receiver);
       const route = safeRoute(joinRoute(group ? group.prefix : '', pattern)) || safeRoute(pattern);
       if (!route) continue;
@@ -1626,10 +1849,10 @@ function routesOf(tokens, language, path, functions, text) {
       const literal = functions.find(fn => handlerRange && fn.body[0] >= handlerRange[0] && fn.body[1] <= handlerRange[1]);
       const wrapped = handlerRange && !literal ? chainNames(tokens, handlerRange[0], handlerRange[1]) : [];
       /* the literal's own wrappers: requireAuth(func(w, r) { ... }) */
-      if (literal) middleware.push(...chainNames(tokens, handlerRange[0], headerStartOf(tokens, literal)));
+      if (literal && handlerRange) middleware.push(...chainNames(tokens, handlerRange[0], headerStartOf(tokens, literal)));
       if (wrapped.length > 1) middleware.push(...wrapped.slice(0, -1));
-      const handlerName = wrapped.length ? wrapped[wrapped.length - 1].replace(/^.*\./, '') : null;
-      let body = null;
+      const handlerName = wrapped.length ? String(wrapped[wrapped.length - 1]).replace(/^.*\./, '') : null;
+      let body: FunctionInfo | null = null;
       if (literal) body = literal;
       else if (handlerName) body = functionNamed.get(handlerName) || null;
       const framework = receiver === 'http' ? 'go-http' : kinds.get(receiver) ||
@@ -1639,8 +1862,8 @@ function routesOf(tokens, language, path, functions, text) {
         handlerName: body ? null : handlerName,
         uses: uses.filter(use => use.receiver === receiver || use.receiver === 'http').map(({ line, words, prefix }) => ({ line, words, prefix })),
         bodyText: body ? bodyText(body.body[0], body.body[1]) : '',
-        startLine: body ? tokens[body.body[0]].line : token.line,
-        endLine: body ? tokens[body.body[1]].line : token.line,
+        startLine: body ? at(tokens, body.body[0]).line : token.line,
+        endLine: body ? at(tokens, body.body[1]).line : token.line,
         handlerLine: body ? body.line : null
       });
     }
@@ -1650,7 +1873,7 @@ function routesOf(tokens, language, path, functions, text) {
     /* class-level @RequestMapping("/prefix") and @Path("/prefix") */
     const classPrefix = (() => {
       const match = /@(RequestMapping|Path)\s*\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"\n]{0,300})"[^)]{0,600}\)\s*(?:@\w+(?:\([^)]{0,600}\))?\s*){0,16}(?:(?:public|final|abstract)\s+){0,3}class\b/.exec(text);
-      return match ? match[2] : '';
+      return match ? match[2] ?? '' : '';
     })();
     const classAuth = /@(PreAuthorize|Secured|RolesAllowed)\b[^{]{0,2000}?\bclass\b/.test(text);
     for (const fn of functions) {
@@ -1658,18 +1881,19 @@ function routesOf(tokens, language, path, functions, text) {
       const mapping = /@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)\b(?:\s*\(([^)]*)\))?/.exec(decorations);
       const jaxrs = JAXRS_METHOD.exec(decorations);
       if (!mapping && !jaxrs) continue;
-      let method = mapping ? SPRING_MAPPING[mapping[1]] : jaxrs[1];
+      let method = mapping ? SPRING_MAPPING[mapping[1] ?? ''] : jaxrs ? jaxrs[1] : undefined;
       if (mapping && !method) {
         const verb = /RequestMethod \. (GET|POST|PUT|PATCH|DELETE)/.exec(mapping[2] || '');
         method = verb ? verb[1] : 'ANY';
       }
       const pathMatch = mapping ? /"([^"]*)"/.exec(mapping[2] || '') : /@Path\s*\(\s*"([^"]*)"/.exec(decorations);
-      const route = safeRoute(joinRoute(classPrefix, pathMatch ? pathMatch[1] : '')) || safeRoute(classPrefix) || null;
+      const route = safeRoute(joinRoute(classPrefix, pathMatch ? pathMatch[1] ?? '' : '')) || safeRoute(classPrefix) || null;
       const authDecorated = classAuth || /@(PreAuthorize|Secured|RolesAllowed|PostAuthorize)\b/.test(decorations);
       routes.push({
-        method, route, path, line: fn.line, framework: jaxrs && !mapping ? 'jaxrs' : 'spring', language, middleware: [], authDecorated,
+        /* A mapping without a verb took ANY above, and JAX-RS always names one: the method is always set. */
+        method: method ?? 'ANY', route, path, line: fn.line, framework: jaxrs && !mapping ? 'jaxrs' : 'spring', language, middleware: [], authDecorated,
         bodyText: `${fn.decorations.join(' ')} ${tokens.slice(fn.params[0], fn.body[1] + 1).map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v)).join(' ')}`,
-        startLine: fn.line, endLine: tokens[fn.body[1]].line, handlerLine: fn.line
+        startLine: fn.line, endLine: at(tokens, fn.body[1]).line, handlerLine: fn.line
       });
     }
     return routes;
@@ -1677,7 +1901,7 @@ function routesOf(tokens, language, path, functions, text) {
   /* Symfony: #[Route('/posts/{id}', methods: ['GET'])] on a method, under the class's own #[Route('/prefix')] */
   if (/#\s*\[\s*Route\s*\(/.test(text)) {
     const classMatch = /#\[\s*Route\s*\(\s*(?:path\s*:\s*)?['"]([^'"\n]{0,300})['"][^\]]{0,600}\]\s*(?:#\[[^\]]{0,600}\]\s*){0,16}(?:(?:final|abstract|readonly)\s+){0,3}class\b/.exec(text);
-    const classPrefix = classMatch ? classMatch[1] : '';
+    const classPrefix = classMatch ? classMatch[1] ?? '' : '';
     const classAuth = /#\[\s*(IsGranted|Security)\b[^\]]{0,600}\]\s*(?:#\[[^\]]{0,600}\]\s*){0,16}(?:(?:final|abstract|readonly)\s+){0,3}class\b/.test(text);
     for (const fn of functions) {
       if (!fn.name) continue;
@@ -1685,48 +1909,48 @@ function routesOf(tokens, language, path, functions, text) {
       const match = /#\s*\[\s*Route\s*\(\s*(?:path\s*:\s*)?"([^"]*)"/.exec(decorations);
       if (!match) continue;
       const listed = /methods\s*:\s*(\[[^\]]*\]|"[A-Za-z]+")/.exec(decorations);
-      const verbs = listed ? (listed[1].match(/"([A-Za-z]+)"/g) || []).map(word => word.replace(/"/g, '').toUpperCase()) : [];
-      const route = safeRoute(joinRoute(classPrefix, match[1]));
+      const verbs = listed ? ((listed[1] ?? '').match(/"([A-Za-z]+)"/g) || []).map(word => word.replace(/"/g, '').toUpperCase()) : [];
+      const route = safeRoute(joinRoute(classPrefix, match[1] ?? ''));
       if (!route) continue;
       routes.push({
         method: verbs.length ? verbs.join(',') : 'ANY', route, path, line: fn.line, framework: 'symfony', language, middleware: [],
         authDecorated: classAuth || /#\s*\[\s*(IsGranted|Security)\b/.test(decorations),
         bodyText: `${decorations} ${bodyText(fn.params[0], fn.body[1])}`,
-        startLine: fn.line, endLine: tokens[fn.body[1]].line, handlerLine: fn.line
+        startLine: fn.line, endLine: at(tokens, fn.body[1]).line, handlerLine: fn.line
       });
     }
   }
   /* Laravel routes: Route::get('/x', ...)->middleware('auth'); Route::middleware('auth')->group(function () { ... }) */
   if (!/(^|\/)routes\/[\w.-]+\.php$/.test(path)) return routes;
   /* `use App\Http\Controllers\Admin\PostController;` says which PostController a route means. */
-  const imported = new Map();
+  const imported = new Map<string, string>();
   for (const match of text.matchAll(/^\s*use\s+App\\Http\\Controllers\\([\w\\]+?)(?:\s+as\s+(\w+))?\s*;/gm)) {
-    const relative = match[1].replace(/\\/g, '/');
+    const relative = (match[1] ?? '').replace(/\\/g, '/');
     imported.set(match[2] || relative.replace(/^.*\//, ''), `app/Http/Controllers/${relative}.php`);
   }
-  const groupStack = [];
+  const groupStack: { end: number; prefix: string; middleware: string[]; controller: string | null }[] = [];
   for (let k = 0; k < tokens.length; k += 1) {
-    const token = tokens[k];
-    while (groupStack.length && k > groupStack[groupStack.length - 1].end) groupStack.pop();
+    const token = at(tokens, k);
+    while (groupStack.length && k > (groupStack[groupStack.length - 1]?.end ?? Infinity)) groupStack.pop();
     if (!isWord(token, 'Route') || !isPunc(tokens[k + 1], '::')) continue;
     const verb = tokens[k + 2];
     if (!verb) continue;
     /* the whole chained statement */
     const end = (() => { let depth = 0; for (let m = k; m < tokens.length; m += 1) { const t = tokens[m]; if (isPunc(t, '(') || isPunc(t, '[') || isPunc(t, '{')) depth += 1; else if (isPunc(t, ')') || isPunc(t, ']') || isPunc(t, '}')) depth -= 1; else if (depth === 0 && isPunc(t, ';')) return m; } return tokens.length - 1; })();
     const statement = tokens.slice(k, end);
-    const middleware = [];
+    const middleware: string[] = [];
     statement.forEach((t, index) => {
       if (isWord(t, 'middleware') && isPunc(statement[index + 1], '(')) {
         const close = closing(statement, index + 1);
-        for (let m = index + 2; m < close; m += 1) if (statement[m].t === 'str') middleware.push(statement[m].v);
+        for (let m = index + 2; m < close; m += 1) if (at(statement, m).t === 'str') middleware.push(at(statement, m).v);
       }
     });
     const groupAt = statement.findIndex(t => isWord(t, 'group'));
     if (groupAt !== -1) {
-      const prefix = (() => { const at = statement.findIndex(t => isWord(t, 'prefix')); return at !== -1 && statement[at + 2] && statement[at + 2].t === 'str' ? statement[at + 2].v : ''; })();
+      const prefix = (() => { const found = statement.findIndex(t => isWord(t, 'prefix')); return found !== -1 && statement[found + 2] && at(statement, found + 2).t === 'str' ? at(statement, found + 2).v : ''; })();
       /* Route::controller(PostController::class)->group(...): the group's routes name only the method */
       const controllerAt = statement.findIndex((t, index) => isWord(t, 'controller') && isPunc(statement[index + 1], '('));
-      const groupController = controllerAt !== -1 && statement[controllerAt + 2] && statement[controllerAt + 2].t === 'id' ? statement[controllerAt + 2].v : null;
+      const groupController = controllerAt !== -1 && statement[controllerAt + 2] && at(statement, controllerAt + 2).t === 'id' ? at(statement, controllerAt + 2).v : null;
       const parent = groupStack[groupStack.length - 1];
       groupStack.push({
         end, prefix: joinRoute(parent ? parent.prefix : '', prefix ? `/${prefix.replace(/^\//, '')}` : ''),
@@ -1747,24 +1971,25 @@ function routesOf(tokens, language, path, functions, text) {
     const handlerRange = args[pathIndex + 1];
     const handler = handlerRange ? tokens.slice(handlerRange[0], handlerRange[1]) : [];
     let method = verb.v === 'resource' || verb.v === 'apiResource' ? 'POST,PUT,DELETE' : verb.v === 'any' ? 'ANY' : verb.v.toUpperCase();
+    const verbsArg = args[0];
     if (verb.v === 'match') {
-      const verbs = args[0] ? tokens.slice(args[0][0], args[0][1]).filter(t => t.t === 'str').map(t => t.v.toUpperCase()) : [];
+      const verbs = verbsArg ? tokens.slice(verbsArg[0], verbsArg[1]).filter(t => t.t === 'str').map(t => t.v.toUpperCase()) : [];
       method = verbs.length ? verbs.join(',') : 'ANY';
     }
     const closure = functions.find(fn => handlerRange && fn.body[0] >= handlerRange[0] && fn.body[1] <= handlerRange[1]);
     /* [PostController::class, 'store'], 'PostController@store', an invokable PostController::class, or 'store' in a controller group */
     let controller = handler.filter(t => t.t === 'id' && /Controller$/.test(t.v)).map(t => t.v)[0] || null;
     const named = handler.find(t => t.t === 'str');
-    let controllerAction = null;
+    let controllerAction: string | null = null;
     if (!closure) {
       if (controller) controllerAction = named ? named.v : verb.v === 'resource' || verb.v === 'apiResource' ? null : '__invoke';
-      else if (named && /^[\w\\]+@\w+$/.test(named.v)) { const [owner, name] = named.v.split('@'); controller = owner.replace(/^.*\\/, ''); controllerAction = name; }
+      else if (named && /^[\w\\]+@\w+$/.test(named.v)) { const [owner = '', name = null] = named.v.split('@'); controller = owner.replace(/^.*\\/, ''); controllerAction = name; }
       else if (named && parent && parent.controller && /^\w+$/.test(named.v)) { controller = parent.controller; controllerAction = named.v; }
     }
     routes.push({
       method, route, path, line: token.line, framework: 'laravel', language, middleware: [...(parent ? parent.middleware : []), ...middleware],
       bodyText: closure ? bodyText(closure.body[0], closure.body[1]) : handler.map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v)).join(' '),
-      startLine: closure ? tokens[closure.body[0]].line : token.line, endLine: closure ? tokens[closure.body[1]].line : token.line,
+      startLine: closure ? at(tokens, closure.body[0]).line : token.line, endLine: closure ? at(tokens, closure.body[1]).line : token.line,
       controller, controllerAction, controllerPath: controller ? imported.get(controller) || null : null
     });
   }
@@ -1773,16 +1998,30 @@ function routesOf(tokens, language, path, functions, text) {
 
 /* ---- The program: files, helper summaries, class annotations -------------------------- */
 
-const LANGUAGE_OF = table({ go: 'go', java: 'java', php: 'php' });
+const LANGUAGE_OF: Readonly<Record<string, Language>> = table<Language>({ go: 'go', java: 'java', php: 'php' });
+
+interface ProgramFile {
+  readonly file: CFile;
+  readonly language: Language;
+  readonly tokens: CToken[];
+  readonly functions: FunctionInfo[];
+}
 
 class Program {
-  constructor(files) {
+  readonly files: Map<string, ProgramFile>;
+  readonly summaries: Map<string, Summary>;
+  readonly parents: Map<string, string | null>;
+  readonly imports: Map<string, Set<string>>;
+  readonly implementors: Map<string, Set<string>>;
+  readonly byName: Map<string, { path: string; fn: FunctionInfo }[]>;
+
+  constructor(files: Iterable<CFile>) {
     this.files = new Map();
     for (const file of files) {
       const ext = (/\.([a-z]+)$/.exec(file.path) || [])[1];
-      const language = LANGUAGE_OF[ext];
+      const language = ext === undefined ? undefined : LANGUAGE_OF[ext];
       if (!language) continue;
-      let tokens;
+      let tokens: CToken[];
       try { tokens = lex(file.text, language); } catch { continue; }
       const functions = functionsOf(tokens, language);
       this.files.set(file.path, { file, language, tokens, functions });
@@ -1796,25 +2035,27 @@ class Program {
       for (const fn of entry.functions) {
         if (!fn.name) continue;
         const key = `${entry.language}:${fn.name}`;
-        if (!this.byName.has(key)) this.byName.set(key, []);
-        this.byName.get(key).push({ path, fn });
+        let named = this.byName.get(key);
+        if (!named) { named = []; this.byName.set(key, named); }
+        named.push({ path, fn });
       }
     }
   }
 
   /* What a named function does with each parameter: which reach its return value, which reach a sink. */
-  helper(language, name, callee, fromPath) {
+  helper(language: Language, name: string, callee: Callee | null, fromPath: string): Summary | null {
     if (!name || !callee) return null;
     /* a function of this codebase: called by name, or on this object */
     /* Go: store.FindByEmail(x) names a function of an imported package */
-    const imported = language === 'go' && callee.segments.length === 2 && this.goImports(fromPath).has(callee.segments[0]) ? callee.segments[0] : null;
+    const head = callee.segments[0] ?? '';
+    const imported = language === 'go' && callee.segments.length === 2 && this.goImports(fromPath).has(head) ? head : null;
     /* Java and PHP: userService.find(x), this.userService.find(x), $this->reports->forRegion($x) -- a field of a type declared here */
     const owner = callee.segments.filter(segment => !/^(this|\$this)$/.test(segment));
-    const typed = (language === 'java' || language === 'php') && owner.length === 2 ? this.implementations(this.fieldType(fromPath, owner[0].replace(/^\$/, ''), language), language) : null;
+    const typed = (language === 'java' || language === 'php') && owner.length === 2 ? this.implementations(this.fieldType(fromPath, String(owner[0]).replace(/^\$/, ''), language), language) : null;
     /* Go: h.products.SearchByName(x) through an interface -- the one method of that name the codebase defines */
     const goMethods = language === 'go' && callee.segments.length >= 2 && !imported
       ? (this.byName.get(`go:${name}`) || []).filter(entry => entry.fn.receiver) : [];
-    const own = callee.segments.length === 1 || imported || (typed && typed.size) || goMethods.length === 1 || (callee.segments.length === 2 && /^(this|\$this|self|static|parent|super|s|h)$/.test(callee.segments[0]));
+    const own = callee.segments.length === 1 || imported || (typed && typed.size) || goMethods.length === 1 || (callee.segments.length === 2 && /^(this|\$this|self|static|parent|super|s|h)$/.test(head));
     if (!own) return null;
     let candidates = this.byName.get(`${language}:${name}`);
     if (goMethods.length === 1 && callee.segments.length >= 2 && !imported) candidates = goMethods;
@@ -1822,51 +2063,55 @@ class Program {
     if (typed && typed.size && candidates) candidates = candidates.filter(entry => typed.has(entry.path));
     if (!candidates || !candidates.length) return null;
     /* the same file first, then the class it extends; another file only when the name is unambiguous */
-    const inherited = /^(super|parent)$/.test(callee.segments[0]);
+    const inherited = /^(super|parent)$/.test(String(callee.segments[0]));
     const local = inherited ? [] : candidates.filter(entry => entry.path === fromPath);
     const parentFile = this.parentFile(fromPath);
     const fromParent = parentFile ? candidates.filter(entry => entry.path === parentFile) : [];
     const pick = local.length === 1 ? local[0] : fromParent.length === 1 ? fromParent[0] : candidates.length === 1 ? candidates[0] : null;
     if (!pick) return null;
     const key = `${pick.path}:${pick.fn.line}:${name}`;
-    if (this.summaries.has(key)) return this.summaries.get(key);
-    const summary = { returns: new Set(), sinks: [], file: pick.path };
+    const known = this.summaries.get(key);
+    if (known) return known;
+    const summary: Summary = { returns: new Set(), sinks: [], file: pick.path };
     this.summaries.set(key, summary);
     const entry = this.files.get(pick.path);
+    if (!entry) return summary;
     const params = parametersOf(entry.tokens, pick.fn.params, entry.language);
     for (const param of params.slice(0, 6)) {
       if (!param.name) continue;
       const walker = new Walker(entry.file, entry.language, entry.tokens, this);
-      walker.summary = { returns: new Set(), sinks: [] };
-      const scope = new Map();
+      const own: Summary = { returns: new Set(), sinks: [] };
+      walker.summary = own;
+      const scope: Scope = new Map();
       const { roles } = walker.enter(pick.fn, scope, { index: param.index });
-      const nested = new Map(entry.functions.filter(fn => fn !== pick.fn && fn.body[0] > pick.fn.body[0] && fn.body[1] < pick.fn.body[1]).map(fn => [this.headerStart(entry.tokens, fn), fn]));
+      const nested: Nested = new Map(entry.functions.filter(fn => fn !== pick.fn && fn.body[0] > pick.fn.body[0] && fn.body[1] < pick.fn.body[1]).map(fn => [this.headerStart(entry.tokens, fn), fn]));
       try { walker.walk(pick.fn, scope, roles, nested); } catch { continue; }
-      for (const returned of walker.summary.returns) if (returned === param.index) summary.returns.add(param.index);
-      for (const sink of walker.summary.sinks) if (sink.param === param.index) summary.sinks.push(sink);
+      for (const returned of own.returns) if (returned === param.index) summary.returns.add(param.index);
+      for (const sink of own.sinks) if (sink.param === param.index) summary.sinks.push(sink);
     }
     return summary;
   }
 
-  headerStart(tokens, fn) {
+  headerStart(tokens: Tokens, fn: FunctionInfo): number {
     return headerStartOf(tokens, fn);
   }
 
   /* The names a Go file imports packages under: the last element of each path, or its alias. */
-  goImports(path) {
-    if (this.imports.has(path)) return this.imports.get(path);
+  goImports(path: string): Set<string> {
+    const known = this.imports.get(path);
+    if (known) return known;
     const entry = this.files.get(path);
-    const names = new Set();
+    const names = new Set<string>();
     if (entry) {
       /* The first import block, found by position rather than by a pattern that rescans from every "import (". */
       const text = entry.file.text;
       const open = /\bimport\s*\(/.exec(text);
       const close = open ? text.indexOf(')', open.index + open[0].length) : -1;
       const lines = open && close > 0 ? text.slice(open.index + open[0].length, close).split('\n') : [];
-      for (const match of entry.file.text.matchAll(/^\s*import\s+(\w+\s+)?"([^"]+)"/gm)) lines.push(`${match[1] || ''}"${match[2]}"`);
+      for (const match of entry.file.text.matchAll(/^\s*import\s+(\w+\s+)?"([^"]+)"/gm)) lines.push(`${match[1] || ''}"${match[2] ?? ''}"`);
       for (const line of lines) {
         const match = /^\s*(\w+\s+)?"([^"]+)"/.exec(line);
-        if (match) names.add(match[1] ? match[1].trim() : match[2].split('/').pop());
+        if (match) names.add(match[1] ? match[1].trim() : String((match[2] ?? '').split('/').pop()));
       }
     }
     this.imports.set(path, names);
@@ -1874,32 +2119,33 @@ class Program {
   }
 
   /* The type a field or constructor parameter of this file is declared with: `private final UserService userService;`, `private ReportService $reports`. */
-  fieldType(path, field, language) {
+  fieldType(path: string, field: string, language: Language): string | null {
     const entry = this.files.get(path);
     if (!entry || !/^\w+$/.test(field)) return null;
     const pattern = language === 'php'
       ? new RegExp(`(?:private|protected|public|readonly|var)\\s+(?:readonly\\s+)?\\??\\\\?(?:[\\w\\\\]+\\\\)?([A-Z]\\w*)\\s+\\$${field}\\b`)
       : new RegExp(`\\b([A-Z]\\w*)(?:<[^;=(){}]{0,200}>)?\\s+${field}\\s*[;=,)]`);
     const match = pattern.exec(entry.file.text);
-    return match ? match[1] : null;
+    return match ? match[1] ?? null : null;
   }
 
   /* The files that implement a type: its own class, or the one class that implements the interface. */
-  implementations(type, language) {
+  implementations(type: string | null, language: Language): Set<string> | null {
     if (!type) return null;
     const key = `${language}:${type}`;
-    if (this.implementors.has(key)) return this.implementors.get(key);
+    const known = this.implementors.get(key);
+    if (known) return known;
     const declares = new RegExp(`\\b(class|interface|enum|record)\\s+${type}\\b`);
     const named = new RegExp(`\\b${type}\\b`);
     /* A class header up to its brace, at most a few hundred characters, then the words in it: never one pattern nesting two open scans. */
-    const implementsIt = text => {
+    const implementsIt = (text: string) => {
       for (const header of text.matchAll(/\bclass\s+\w+([^{]{0,600})\{/g)) {
-        const clause = /\b(?:implements|extends)\b([^{]*)$/.exec(header[1]);
-        if (clause && named.test(clause[1])) return true;
+        const clause = /\b(?:implements|extends)\b([^{]*)$/.exec(header[1] ?? '');
+        if (clause && named.test(clause[1] ?? '')) return true;
       }
       return false;
     };
-    const found = new Set();
+    const found = new Set<string>();
     for (const [path, entry] of this.files) {
       if (entry.language !== language) continue;
       const declared = declares.exec(entry.file.text);
@@ -1911,33 +2157,35 @@ class Program {
   }
 
   /* The package a Go file declares. */
-  goPackage(path) {
+  goPackage(path: string): string | null {
     const entry = this.files.get(path);
     const match = entry ? /^\s*package\s+(\w+)/m.exec(entry.file.text) : null;
-    return match ? match[1] : null;
+    return match ? match[1] ?? null : null;
   }
 
   /* The file of the class this file's class extends, when exactly one file is named for it. */
-  parentFile(path) {
-    if (this.parents.has(path)) return this.parents.get(path);
+  parentFile(path: string): string | null {
+    const known = this.parents.get(path);
+    if (known !== undefined) return known;
     const entry = this.files.get(path);
     const match = entry ? /\bclass\s+\w+(?:\s*<[^>{]*>)?\s+extends\s+\\?(?:[\w\\]+\\)?([A-Z]\w*)/.exec(entry.file.text) : null;
-    let found = null;
+    let found: string | null = null;
     if (match) {
+      const parent = match[1] ?? '';
       const ext = path.slice(path.lastIndexOf('.'));
-      const named = [...this.files.keys()].filter(other => other !== path && (other === `${match[1]}${ext}` || other.endsWith(`/${match[1]}${ext}`)));
-      if (named.length === 1) found = named[0];
+      const named = [...this.files.keys()].filter(other => other !== path && (other === `${parent}${ext}` || other.endsWith(`/${parent}${ext}`)));
+      if (named.length === 1) found = named[0] ?? null;
     }
     this.parents.set(path, found);
     return found;
   }
 
-  classAnnotations(path, at) {
+  classAnnotations(path: string, position: number): string {
     const entry = this.files.get(path);
     if (!entry) return '';
     const text = entry.file.text;
     /* the annotations before the nearest enclosing class declaration */
-    const before = entry.tokens.slice(0, at);
+    const before = entry.tokens.slice(0, position);
     for (let k = before.length - 1; k >= 0; k -= 1) {
       if (isWord(before[k], 'class')) return decorationsBefore(entry.tokens, k).join(' ') + (/@RestController/.test(text) ? ' RestController' : '');
     }
@@ -1949,13 +2197,28 @@ class Program {
  * Trace every Go, Java and PHP file: routes first, then each function in
  * order, the functions inside it walked with the scope they close over.
  */
-function analyseCFamily(files, options = {}) {
+/* A file as the audit holds it; only one with its text is read. */
+interface AuditFile {
+  readonly path: string;
+  readonly text?: unknown;
+}
+
+export interface CFamilyReading {
+  readonly flows: Flow[];
+  readonly routes: CRoute[];
+  readonly settled: Settled[];
+  readonly stats: { go: number; java: number; php: number; functions: number; routes: number; flows: number; helpers: number; cut: number; failed: number };
+}
+
+export function analyseCFamily(files: readonly AuditFile[], options: { late?: (() => boolean) | null; maxBytes?: number } = {}): CFamilyReading {
   const late = typeof options.late === 'function' ? options.late : () => false;
   const stats = { go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0, failed: 0 };
-  const program = new Program(files.filter(file => typeof file.text === 'string' && file.text.length <= (options.maxBytes || 512 * 1024)));
-  const flows = [];
-  const routes = [];
-  const settled = [];
+  const readable: CFile[] = [];
+  for (const file of files) if (typeof file.text === 'string' && file.text.length <= (options.maxBytes || 512 * 1024)) readable.push({ path: file.path, text: file.text });
+  const program = new Program(readable);
+  const flows: Flow[] = [];
+  const routes: CRoute[] = [];
+  const settled: Settled[] = [];
   for (const [path, entry] of program.files) {
     if (late()) { stats.cut += 1; continue; }
     try {
@@ -1966,17 +2229,17 @@ function analyseCFamily(files, options = {}) {
       const outer = entry.functions.filter(fn => !entry.functions.some(other => other !== fn && other.body[0] < fn.body[0] && other.body[1] > fn.body[1]));
       const nested = new Map(entry.functions.filter(fn => !outer.includes(fn)).map(fn => [program.headerStart(entry.tokens, fn), fn]));
       for (const fn of outer) {
-        const scope = new Map();
+        const scope: Scope = new Map();
         const { roles } = walker.enter(fn, scope, null);
         walker.walk(fn, scope, roles, nested);
       }
       /* PHP runs top to bottom outside functions too: a plain script reads $_GET at the top level. */
       if (entry.language === 'php') {
-        const covered = entry.functions.map(fn => [program.headerStart(entry.tokens, fn), fn.body[1]]);
-        const top = { name: null, line: 1, params: null, body: [-1, entry.tokens.length], decorations: [] };
-        const scope = new Map();
-        const roles = { request: new Set(['$request']), writer: new Set(), gin: new Set(), echo: new Set(), fiber: new Set(), response: new Set() };
-        const skipping = new Map(covered.map(([start, end]) => [start, { body: [start, end], params: [start, start], decorations: [], line: entry.tokens[start] ? entry.tokens[start].line : 1, skipOnly: true }]));
+        const covered = entry.functions.map((fn): Span => [program.headerStart(entry.tokens, fn), fn.body[1]]);
+        const top: WalkFn = { params: null, body: [-1, entry.tokens.length], decorations: [] };
+        const scope: Scope = new Map();
+        const roles: Roles = { request: new Set(['$request']), writer: new Set(), gin: new Set(), echo: new Set(), fiber: new Set(), response: new Set() };
+        const skipping: Nested = new Map(covered.map(([start, end]): [number, FunctionInfo] => [start, { body: [start, end], params: [start, start], decorations: [], line: at(entry.tokens, start).line || 1, skipOnly: true }]));
         walker.walkRange(0, entry.tokens.length, scope, roles, skipping, new Map(), top);
       }
       stats[entry.language] += 1;
@@ -1996,17 +2259,17 @@ function analyseCFamily(files, options = {}) {
 }
 
 /* The middleware a Laravel controller applies to one of its actions, from its constructor or its static middleware(). */
-function controllerMiddleware(text, action) {
-  const found = [];
-  const listOf = raw => (String(raw || '').match(/['"]([^'"]+)['"]/g) || []).map(item => item.slice(1, -1));
-  const applies = (kind, scope) => !scope || (kind === 'only' ? scope.includes(action) : !scope.includes(action));
+function controllerMiddleware(text: string, action: string): string[] {
+  const found: string[] = [];
+  const listOf = (raw: unknown) => (String(raw || '').match(/['"]([^'"]+)['"]/g) || []).map(item => item.slice(1, -1));
+  const applies = (kind: string | undefined, scope: string[] | null) => !scope || (kind === 'only' ? scope.includes(action) : !scope.includes(action));
   for (const match of text.matchAll(/\$this\s*->\s*middleware\s*\(\s*(\[[^\]]{0,600}\]|'[^'\n]{0,200}'|"[^"\n]{0,200}")\s*\)(?:\s*->\s*(only|except)\s*\(\s*(\[[^\]]{0,600}\]|'[^'\n]{0,200}'|"[^"\n]{0,200}")\s*\))?/g)) {
     if (applies(match[2], match[3] ? listOf(match[3]) : null)) found.push(...listOf(match[1]));
   }
   /* Laravel 11: public static function middleware(): array { return ['auth', new Middleware('auth', except: ['index'])]; } */
   /* The method's body runs to the first line that closes it, found in one pass and read no further than a few thousand characters. */
   const header = /static\s+function\s+middleware\s*\(\s*\)\s*(?::\s*array\s*)?\{/.exec(text);
-  let declared = null;
+  let declared: [null, string] | null = null;
   if (header) {
     const start = header.index + header[0].length;
     const closing = /\n[ \t]*\}/g;
@@ -2029,33 +2292,37 @@ function controllerMiddleware(text, action) {
  * method, a Go handler in another file -- takes that handler's range and
  * text, so its guard and its writes are read where they are written.
  */
-function resolveHandlers(routes, program) {
+function resolveHandlers(routes: readonly CRoute[], program: Program): void {
   for (const route of routes) {
-    let target = null;
+    let target: { path: string; entry: ProgramFile; fn: FunctionInfo } | null = null;
     if (route.framework === 'laravel' && route.controller) {
       const candidates = route.controllerPath && program.files.has(route.controllerPath) ? [route.controllerPath]
         : [...program.files.keys()].filter(path => path === `${route.controller}.php` || path.endsWith(`/${route.controller}.php`));
-      if (candidates.length !== 1) continue;
-      const entry = program.files.get(candidates[0]);
-      if (route.controllerAction) route.middleware = [...route.middleware, ...controllerMiddleware(entry.file.text, route.controllerAction)];
-      const fn = route.controllerAction ? entry.functions.find(item => item.name === route.controllerAction) : null;
-      if (fn) target = { path: candidates[0], entry, fn };
+      const only = candidates[0];
+      const entry = only === undefined ? undefined : program.files.get(only);
+      if (candidates.length !== 1 || only === undefined || !entry) continue;
+      const action = route.controllerAction;
+      if (action) route.middleware = [...route.middleware, ...controllerMiddleware(entry.file.text, action)];
+      const fn = action ? entry.functions.find(item => item.name === action) : null;
+      if (fn) target = { path: only, entry, fn };
     } else if (route.language === 'go' && route.handlerName) {
       const candidates = program.byName.get(`go:${route.handlerName}`) || [];
-      if (candidates.length === 1) target = { path: candidates[0].path, entry: program.files.get(candidates[0].path), fn: candidates[0].fn };
+      const only = candidates[0];
+      const entry = only ? program.files.get(only.path) : undefined;
+      if (candidates.length === 1 && only && entry) target = { path: only.path, entry, fn: only.fn };
     }
     if (!target) continue;
     const { tokens } = target.entry;
     route.handlerPath = target.path;
     route.startLine = target.fn.line;
-    route.endLine = tokens[target.fn.body[1]].line;
+    route.endLine = at(tokens, target.fn.body[1]).line;
     route.handlerLine = target.fn.line;
     route.bodyText = `${target.fn.decorations.join(' ')} ${tokens.slice(target.fn.params[0], target.fn.body[1] + 1).map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v)).join(' ')}`;
   }
 }
 
-function dedupe(flows) {
-  const seen = new Map();
+function dedupe(flows: readonly Flow[]): Flow[] {
+  const seen = new Map<string, Flow>();
   for (const flow of flows) {
     const key = `${flow.rule}\0${flow.path}\0${flow.line}`;
     const existing = seen.get(key);
@@ -2064,6 +2331,4 @@ function dedupe(flows) {
   return [...seen.values()];
 }
 
-const CFAMILY_FILE = /\.(go|java|php)$/;
-
-module.exports = Object.freeze({ analyseCFamily, lex, functionsOf, routesOf, CFAMILY_FILE, SINKS });
+export const CFAMILY_FILE = /\.(go|java|php)$/;

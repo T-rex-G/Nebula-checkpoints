@@ -12,10 +12,9 @@
  */
 
 const assert = require('assert');
-const { analyseCFamily, lex, functionsOf } = require('../src/uranus-cfamily');
-const { analyseFlows } = require('../src/uranus-flow');
-const { analyseSurface, reachOf } = require('../src/uranus-surface');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { analyseCFamily, lex, functionsOf } = audit.cfamily;
+const { analyseFlows, analyseSurface, reachOf } = audit;
 
 /* The line a fragment of a fixture is on, so expectations read as code, not numbers. */
 function at(text, fragment, nth = 1) {

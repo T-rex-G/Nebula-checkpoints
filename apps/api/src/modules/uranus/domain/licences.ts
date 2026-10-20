@@ -1,4 +1,4 @@
-'use strict';
+import { fieldsOf, read } from '../../../platform/values/fields.ts';
 
 /*
  * Licences: what each dependency may be used under, and whether that sits
@@ -16,20 +16,10 @@
  * Licences are compliance, not security. Their findings are a family of
  * their own, reported and exported with the rest, but they carry no weight
  * in the grade and never enter what to fix first.
+ *
+ * This file reads and judges; the question to deps.dev is asked in
+ * client/licence-lookup.ts.
  */
-
-/* Run an operation over values, at most `limit` at a time. */
-async function boundedMapLimit(values, limit, operation) {
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
-    while (next < values.length) {
-      const index = next;
-      next += 1;
-      await operation(values[index], index);
-    }
-  });
-  await Promise.all(workers);
-}
 
 /* ---- Families ------------------------------------------------------------------ */
 
@@ -41,7 +31,7 @@ async function boundedMapLimit(values, limit, operation) {
  * service). "None" is a package that grants no licence at all; "unknown" is
  * one whose licence could not be read.
  */
-const FAMILIES = Object.freeze([
+export const FAMILIES = Object.freeze([
   Object.freeze({ id: 'public-domain', label: 'Public domain', rank: 0 }),
   Object.freeze({ id: 'permissive', label: 'Permissive', rank: 1 }),
   Object.freeze({ id: 'weak-copyleft', label: 'Weak copyleft', rank: 2 }),
@@ -51,11 +41,22 @@ const FAMILIES = Object.freeze([
   Object.freeze({ id: 'none', label: 'No licence granted', rank: 6 }),
   Object.freeze({ id: 'unknown', label: 'Unknown', rank: 7 })
 ]);
-const RANK = Object.freeze(Object.fromEntries(FAMILIES.map(family => [family.id, family.rank])));
-const FAMILY_IDS = new Set(FAMILIES.map(family => family.id));
+export type Family = (typeof FAMILIES)[number]['id'];
+/* A Map, so a family is ranked by its own name and never by one inherited from Object.prototype. */
+const RANKS: ReadonlyMap<string, number> = new Map(FAMILIES.map(family => [family.id, family.rank]));
+const rank = (family: string): number => RANKS.get(family) ?? NaN;
+const FAMILY_IDS: ReadonlySet<string> = new Set(FAMILIES.map(family => family.id));
+function isFamily(value: string): value is Family {
+  return FAMILY_IDS.has(value);
+}
 
-const KNOWN = new Map();
-function known(family, ids) {
+/* One SPDX identifier, as the tables know it, and what it asks. */
+export interface LicenceLeaf {
+  readonly id: string;
+  readonly family: Family;
+}
+const KNOWN = new Map<string, LicenceLeaf>();
+function known(family: Family, ids: readonly string[]) {
   for (const id of ids) KNOWN.set(id.toLowerCase(), Object.freeze({ id, family }));
 }
 known('public-domain', ['CC0-1.0', 'Unlicense', '0BSD', 'WTFPL', 'MIT-0', 'PDDL-1.0', 'CC-PDDC']);
@@ -92,7 +93,7 @@ known('restricted', [
 ]);
 
 /* The GNU identifiers SPDX retired, and what each meant. */
-const DEPRECATED = new Map(Object.entries({
+const DEPRECATED: ReadonlyMap<string, string> = new Map(Object.entries({
   'gpl-1.0': 'GPL-1.0-only', 'gpl-1.0+': 'GPL-1.0-or-later', 'gpl-2.0': 'GPL-2.0-only', 'gpl-2.0+': 'GPL-2.0-or-later',
   'gpl-3.0': 'GPL-3.0-only', 'gpl-3.0+': 'GPL-3.0-or-later', 'lgpl-2.0': 'LGPL-2.0-only', 'lgpl-2.0+': 'LGPL-2.0-or-later',
   'lgpl-2.1': 'LGPL-2.1-only', 'lgpl-2.1+': 'LGPL-2.1-or-later', 'lgpl-3.0': 'LGPL-3.0-only', 'lgpl-3.0+': 'LGPL-3.0-or-later',
@@ -104,7 +105,7 @@ const DEPRECATED = new Map(Object.entries({
  * one reading are here: a bare "GPL" is strong copyleft whatever its version,
  * so it resolves to the family without pretending to know which.
  */
-const ALIASES = new Map(Object.entries({
+const ALIASES: ReadonlyMap<string, string> = new Map(Object.entries({
   'mit license': 'MIT', 'the mit license': 'MIT', 'mit/x11': 'MIT', expat: 'MIT', 'mit licence': 'MIT',
   'apache 2': 'Apache-2.0', 'apache 2.0': 'Apache-2.0', 'apache-2': 'Apache-2.0', apache2: 'Apache-2.0', 'apache license 2.0': 'Apache-2.0',
   'apache license, version 2.0': 'Apache-2.0', 'apache license version 2.0': 'Apache-2.0', 'apache software license': 'Apache-2.0',
@@ -129,7 +130,7 @@ const ALIASES = new Map(Object.entries({
 }));
 
 /* Families by the words a licence name uses, for names no table knows. Checked in order: AGPL contains GPL. */
-const FAMILY_WORDS = Object.freeze([
+const FAMILY_WORDS: readonly (readonly [RegExp, Family])[] = Object.freeze([
   [/\bagpl|affero/i, 'network-copyleft'],
   [/non[- ]?commercial|\bcc-by-nc\b|business source|source[- ]available|commons clause/i, 'restricted'],
   [/\blgpl|lesser general public/i, 'weak-copyleft'],
@@ -140,7 +141,7 @@ const FAMILY_WORDS = Object.freeze([
 ]);
 
 /* Exceptions that let a copyleft library be linked into other work on that work's own terms. */
-const LINKING_EXCEPTIONS = new Set([
+const LINKING_EXCEPTIONS: ReadonlySet<string> = new Set([
   'classpath-exception-2.0', 'gcc-exception-2.0', 'gcc-exception-3.1', 'llvm-exception', 'autoconf-exception-2.0',
   'autoconf-exception-3.0', 'bison-exception-2.2', 'font-exception-2.0', 'libtool-exception', 'fltk-exception',
   'wxwindows-exception-3.1', 'u-boot-exception-2.0', 'linux-syscall-note', 'openvpn-openssl-exception', 'lzma-exception',
@@ -148,19 +149,25 @@ const LINKING_EXCEPTIONS = new Set([
 ]);
 
 /* Text that crosses into a report is plain, bounded and never a control character. */
-function plain(value, limit = 120) {
+function plain(value: unknown, limit = 120): string {
   const text = String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
   return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
 }
 
 /* One identifier: the canonical one where SPDX knows it, with its family. */
-function leaf(token) {
+/* An identifier SPDX retired, read as the one that replaced it. */
+function deprecated(lower: string): LicenceLeaf | null | undefined {
+  const replacement = DEPRECATED.get(lower);
+  return replacement === undefined ? null : KNOWN.get(replacement.toLowerCase());
+}
+
+function leaf(token: unknown): LicenceLeaf | null {
   const raw = String(token);
   const lower = raw.toLowerCase();
-  const found = KNOWN.get(lower) || (DEPRECATED.has(lower) ? KNOWN.get(DEPRECATED.get(lower).toLowerCase()) : null);
+  const found = KNOWN.get(lower) || deprecated(lower);
   if (found) return { id: found.id, family: found.family };
   if (lower.endsWith('+')) {
-    const base = KNOWN.get(lower.slice(0, -1)) || (DEPRECATED.has(lower) ? KNOWN.get(DEPRECATED.get(lower).toLowerCase()) : null);
+    const base = KNOWN.get(lower.slice(0, -1)) || deprecated(lower);
     if (base) {
       const later = base.id.replace(/-only$/, '-or-later');
       return { id: KNOWN.has(later.toLowerCase()) ? later : `${base.id}+`, family: base.family };
@@ -175,13 +182,27 @@ function leaf(token) {
  * brackets, an identifier optionally WITH an exception. Bounded, and a
  * throw for anything that is not one -- the caller then reads it as a name.
  */
-function parseExpression(text) {
+/*
+ * A licence as a tree: an identifier, perhaps WITH an exception, or two
+ * trees joined by AND or OR.
+ */
+export type LicenceTree =
+  | { readonly leaf: LicenceLeaf; readonly exception?: string }
+  | { readonly and: readonly [LicenceTree, LicenceTree] }
+  | { readonly or: readonly [LicenceTree, LicenceTree] };
+
+/* The two sides of a combination or a choice. */
+function sides(node: Exclude<LicenceTree, { readonly leaf: LicenceLeaf }>): readonly [LicenceTree, LicenceTree] {
+  return 'and' in node ? node.and : node.or;
+}
+
+export function parseExpression(text: unknown): LicenceTree {
   const tokens = String(text).replace(/[()]/g, bracket => ` ${bracket} `).trim().split(/\s+/).filter(Boolean);
   if (!tokens.length || tokens.length > 40) throw new Error('not an expression');
   let position = 0;
   const peek = () => tokens[position];
-  const operator = (token, word) => typeof token === 'string' && token.toLowerCase() === word;
-  function primary() {
+  const operator = (token: string | undefined, word: string) => typeof token === 'string' && token.toLowerCase() === word;
+  function primary(): LicenceTree {
     const token = tokens[position];
     if (token === '(') {
       position += 1;
@@ -203,12 +224,12 @@ function parseExpression(text) {
     }
     return { leaf: resolved };
   }
-  function both() {
+  function both(): LicenceTree {
     let node = primary();
     while (operator(peek(), 'and')) { position += 1; node = { and: [node, primary()] }; }
     return node;
   }
-  function either() {
+  function either(): LicenceTree {
     let node = both();
     while (operator(peek(), 'or')) { position += 1; node = { or: [node, both()] }; }
     return node;
@@ -218,11 +239,11 @@ function parseExpression(text) {
   return tree;
 }
 
-function display(node) {
-  if (node.leaf) return node.exception ? `${node.leaf.id} WITH ${node.exception}` : node.leaf.id;
-  const [left, right] = node.and || node.or;
-  const word = node.and ? 'AND' : 'OR';
-  const side = child => (child.leaf ? display(child) : `(${display(child)})`);
+function display(node: LicenceTree): string {
+  if ('leaf' in node) return node.exception ? `${node.leaf.id} WITH ${node.exception}` : node.leaf.id;
+  const [left, right] = sides(node);
+  const word = 'and' in node ? 'AND' : 'OR';
+  const side = (child: LicenceTree) => ('leaf' in child ? display(child) : `(${display(child)})`);
   return `${side(left)} ${word} ${side(right)}`;
 }
 
@@ -232,29 +253,33 @@ function display(node) {
  * most of its parts, and a part that cannot be read leaves the whole unknown
  * unless something already known asks more.
  */
-function familyOf(node) {
-  if (node.leaf) {
+export function familyOf(node: LicenceTree): Family {
+  if ('leaf' in node) {
     const family = node.leaf.family;
     if (node.exception && LINKING_EXCEPTIONS.has(node.exception.toLowerCase()) && (family === 'strong-copyleft' || family === 'weak-copyleft')) return 'weak-copyleft';
     return family;
   }
-  const [a, b] = (node.and || node.or).map(familyOf);
-  if (node.or) {
+  const [left, right] = sides(node);
+  const a = familyOf(left);
+  const b = familyOf(right);
+  if ('or' in node) {
     if (a === 'unknown') return b;
     if (b === 'unknown') return a;
-    return RANK[a] <= RANK[b] ? a : b;
+    return rank(a) <= rank(b) ? a : b;
   }
   if (a === 'unknown' || b === 'unknown') {
     const other = a === 'unknown' ? b : a;
-    return RANK[other] >= RANK['strong-copyleft'] && other !== 'unknown' ? other : 'unknown';
+    return rank(other) >= rank('strong-copyleft') && other !== 'unknown' ? other : 'unknown';
   }
-  return RANK[a] >= RANK[b] ? a : b;
+  return rank(a) >= rank(b) ? a : b;
 }
 
 /* The identifiers an expression names, for policy lists and compatibility. */
-function leaves(node, out = []) {
-  if (node.leaf) out.push(node);
-  else (node.and || node.or).forEach(child => leaves(child, out));
+type LeafNode = Extract<LicenceTree, { readonly leaf: LicenceLeaf }>;
+
+function leaves(node: LicenceTree, out: LeafNode[] = []): LeafNode[] {
+  if ('leaf' in node) out.push(node);
+  else sides(node).forEach(child => leaves(child, out));
   return out;
 }
 
@@ -263,13 +288,20 @@ function leaves(node, out = []) {
  * { expression, family, tree }. Composer lists a package's licences as a
  * choice, so an array is read as OR; npm's old object form carries a type.
  */
-function readLicence(value) {
+/* A licence as read: the expression to show, its family, and its tree when it parsed. */
+export interface LicenceReading {
+  readonly expression: string | null;
+  readonly family: Family;
+  readonly tree: LicenceTree | null;
+}
+
+export function readLicence(value: unknown): LicenceReading {
   if (Array.isArray(value)) {
-    const parts = value.filter(item => typeof item === 'string' && item.trim()).slice(0, 6);
+    const parts = value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6);
     if (!parts.length) return { expression: null, family: 'unknown', tree: null };
     return readLicence(parts.length === 1 ? parts[0] : parts.map(part => `(${part})`).join(' OR '));
   }
-  if (value && typeof value === 'object') return readLicence(value.type || value.name || null);
+  if (value && typeof value === 'object') return readLicence(read(value, 'type') || read(value, 'name') || null);
   const text = plain(value, 300);
   if (!text) return { expression: null, family: 'unknown', tree: null };
   if (/^unlicen[cs]ed$/i.test(text) || /^proprietary$/i.test(text) || /^all rights reserved$/i.test(text)) return { expression: 'UNLICENSED', family: 'none', tree: null };
@@ -292,12 +324,12 @@ function readLicence(value) {
 
 /* LICENSE, LICENCE.md, LICENSE-MIT, COPYING, UNLICENSE -- never a source file such as license.js or license_check.py. */
 const LICENCE_FILE = /^(?:un)?licen[cs]e(?:[-_][a-z0-9-]+)?(?:\.(?:md|txt|rst|markdown))?$|^copying(?:\.(?:md|txt|lesser))?$/i;
-function isLicenceFile(filePath) {
+export function isLicenceFile(filePath: unknown): boolean {
   return !String(filePath).includes('/') && LICENCE_FILE.test(String(filePath));
 }
 
 /* A licence file recognised by the words only that licence's text uses. */
-const LICENCE_TEXTS = Object.freeze([
+const LICENCE_TEXTS = Object.freeze<readonly (readonly [RegExp, (text: string) => string])[]>([
   [/GNU AFFERO GENERAL PUBLIC LICENSE/, () => 'AGPL-3.0-only'],
   [/GNU LESSER GENERAL PUBLIC LICENSE/, text => (/Version 3/.test(text) ? 'LGPL-3.0-only' : 'LGPL-2.1-only')],
   [/GNU (?:LIBRARY )?GENERAL PUBLIC LICENSE/, text => (/Version 3/.test(text) ? 'GPL-3.0-only' : 'GPL-2.0-only')],
@@ -319,13 +351,14 @@ const LICENCE_TEXTS = Object.freeze([
   [/Redistribution and use in source and binary forms/i, text => (/All advertising materials/i.test(text) ? 'BSD-4-Clause' : /Neither the name/i.test(text) ? 'BSD-3-Clause' : 'BSD-2-Clause')]
 ]);
 
-function tomlString(text, table, key) {
+function tomlString(text: string, table: string, key: string): string | null {
   const section = new RegExp(`^\\[${table.replace(/\./g, '\\.')}\\]\\s*$([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, 'm').exec(text);
   if (!section) return null;
-  const inline = new RegExp(`^\\s*${key}\\s*=\\s*"([^"\\n]{1,300})"`, 'm').exec(section[1]);
-  if (inline) return inline[1];
-  const tableForm = new RegExp(`^\\s*${key}\\s*=\\s*\\{[^}\\n]*\\btext\\s*=\\s*"([^"\\n]{1,300})"`, 'm').exec(section[1]);
-  return tableForm ? tableForm[1] : null;
+  const body = section[1] ?? '';
+  const inline = new RegExp(`^\\s*${key}\\s*=\\s*"([^"\\n]{1,300})"`, 'm').exec(body);
+  if (inline) return inline[1] ?? null;
+  const tableForm = new RegExp(`^\\s*${key}\\s*=\\s*\\{[^}\\n]*\\btext\\s*=\\s*"([^"\\n]{1,300})"`, 'm').exec(body);
+  return tableForm ? tableForm[1] ?? null : null;
 }
 
 /*
@@ -335,22 +368,42 @@ function tomlString(text, table, key) {
  * anywhere is treated as proprietary too -- no licence is "all rights
  * reserved" -- and the summary says the licence was not found.
  */
-function projectLicence(files) {
-  const byPath = new Map(files.filter(file => typeof file.text === 'string').map(file => [file.path, file.text]));
-  const candidates = [];
+/* A file as the licence readers hold it: its path, and its text when it was read. */
+export interface LicenceFile {
+  readonly path: string;
+  readonly text?: unknown;
+}
+
+/* What the project says it is released under, and where it says so. */
+export interface ProjectLicence {
+  readonly expression: string | null;
+  readonly family: Family | 'proprietary';
+  readonly source: string | null;
+  readonly tree: LicenceTree | null;
+  readonly unread?: boolean;
+  readonly missing?: boolean;
+}
+
+export function projectLicence(files: readonly LicenceFile[]): ProjectLicence {
+  const byPath = new Map<string, string>();
+  for (const file of files) if (typeof file.text === 'string') byPath.set(file.path, file.text);
+  const candidates: { value: unknown; source: string }[] = [];
   const pkg = byPath.get('package.json');
   if (pkg) {
     try {
-      const json = JSON.parse(pkg);
-      if (json && (json.license || json.licenses)) candidates.push({ value: json.license || json.licenses, source: 'package.json' });
-      else if (json && json.private === true) candidates.push({ value: 'UNLICENSED', source: 'package.json' });
+      const json: unknown = JSON.parse(pkg);
+      const license = read(json, 'license');
+      const licenses = read(json, 'licenses');
+      if (json && (license || licenses)) candidates.push({ value: license || licenses, source: 'package.json' });
+      else if (json && read(json, 'private') === true) candidates.push({ value: 'UNLICENSED', source: 'package.json' });
     } catch { /* A manifest that does not parse says nothing. */ }
   }
   const composer = byPath.get('composer.json');
   if (composer) {
     try {
-      const json = JSON.parse(composer);
-      if (json && json.license) candidates.push({ value: json.license, source: 'composer.json' });
+      const json: unknown = JSON.parse(composer);
+      const license = read(json, 'license');
+      if (json && license) candidates.push({ value: license, source: 'composer.json' });
     } catch { /* Nothing. */ }
   }
   const cargo = byPath.get('Cargo.toml');
@@ -366,16 +419,16 @@ function projectLicence(files) {
     if (!value && classifier) candidates.push({ value: classifier[1], source: 'pyproject.toml' });
   }
   for (const candidate of candidates) {
-    const read = readLicence(candidate.value);
-    if (read.family !== 'unknown') return Object.freeze({ expression: read.expression, family: read.family === 'none' ? 'proprietary' : read.family, source: candidate.source, tree: read.tree });
+    const reading = readLicence(candidate.value);
+    if (reading.family !== 'unknown') return Object.freeze({ expression: reading.expression, family: reading.family === 'none' ? 'proprietary' : reading.family, source: candidate.source, tree: reading.tree });
   }
   const licenceFile = [...byPath.keys()].filter(isLicenceFile).sort()[0];
   if (licenceFile) {
-    const text = byPath.get(licenceFile).slice(0, 64 * 1024);
+    const text = (byPath.get(licenceFile) ?? '').slice(0, 64 * 1024);
     const match = LICENCE_TEXTS.find(([pattern]) => pattern.test(text));
     if (match) {
-      const read = readLicence(match[1](text));
-      return Object.freeze({ expression: read.expression, family: read.family, source: licenceFile, tree: read.tree });
+      const reading = readLicence(match[1](text));
+      return Object.freeze({ expression: reading.expression, family: reading.family, source: licenceFile, tree: reading.tree });
     }
     return Object.freeze({ expression: null, family: 'proprietary', source: licenceFile, tree: null, unread: true });
   }
@@ -384,7 +437,7 @@ function projectLicence(files) {
 
 /* ---- The repository's own policy ------------------------------------------------ */
 
-const POLICY_PATHS = Object.freeze(['.nebulaverse/licences.json', '.nebulaverse/licenses.json']);
+export const POLICY_PATHS: readonly string[] = Object.freeze(['.nebulaverse/licences.json', '.nebulaverse/licenses.json']);
 const POLICY_KEY = /^(?:npm|pypi|go|maven|packagist|rubygems|cargo|nuget):[^\s]{1,214}$/;
 
 /*
@@ -399,34 +452,52 @@ const POLICY_KEY = /^(?:npm|pypi|go|maven|packagist|rubygems|cargo|nuget):[^\s]{
  * A file that does not parse is reported as such rather than ignored in
  * silence, and a policy is bounded like everything else the audit reads.
  */
-function readPolicy(files) {
+/* One term of a policy: a licence family, or an identifier. */
+export type PolicyTerm = { readonly family: Family } | { readonly id: string };
+
+/* A repository's licence policy: what it allows, what it refuses, and the packages it has cleared, each with its reason. */
+export interface LicencePolicy {
+  readonly path: string;
+  readonly invalid: boolean;
+  readonly allow: readonly PolicyTerm[] | null;
+  readonly deny: readonly PolicyTerm[];
+  readonly packages: ReadonlyMap<string, string | null>;
+}
+
+export function readPolicy(files: readonly LicenceFile[]): LicencePolicy | null {
   const file = files.find(candidate => POLICY_PATHS.includes(candidate.path) && typeof candidate.text === 'string');
-  if (!file) return null;
-  let json;
-  try { json = JSON.parse(file.text); } catch { return Object.freeze({ path: file.path, invalid: true, allow: null, deny: [], packages: new Map() }); }
+  const text = file ? file.text : undefined;
+  if (!file || typeof text !== 'string') return null;
+  let json: unknown;
+  try { json = JSON.parse(text); } catch { return Object.freeze({ path: file.path, invalid: true, allow: null, deny: [], packages: new Map() }); }
   if (!json || typeof json !== 'object' || Array.isArray(json)) return Object.freeze({ path: file.path, invalid: true, allow: null, deny: [], packages: new Map() });
-  const terms = list => (Array.isArray(list) ? list : []).filter(item => typeof item === 'string' && item.trim()).slice(0, 200)
-    .map(item => (FAMILY_IDS.has(item.trim()) ? { family: item.trim() } : { id: (leaf(item.trim()) || { id: item.trim() }).id }));
-  const packages = new Map();
-  if (json.packages && typeof json.packages === 'object' && !Array.isArray(json.packages)) {
-    for (const [key, reason] of Object.entries(json.packages).slice(0, 500)) {
+  const terms = (list: unknown): PolicyTerm[] => (Array.isArray(list) ? list : []).filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 200)
+    .map((item): PolicyTerm => {
+      const term = item.trim();
+      return isFamily(term) ? { family: term } : { id: (leaf(term) || { id: term }).id };
+    });
+  const packages = new Map<string, string | null>();
+  const cleared = read(json, 'packages');
+  if (cleared && typeof cleared === 'object' && !Array.isArray(cleared)) {
+    for (const [key, reason] of Object.entries(fieldsOf(cleared)).slice(0, 500)) {
       if (!POLICY_KEY.test(key)) continue;
       const [ecosystem, ...rest] = key.split(':');
-      packages.set(`${ecosystem}:${rest.join(':').toLowerCase()}`, plain(typeof reason === 'string' ? reason : '', 200) || null);
+      packages.set(`${String(ecosystem)}:${rest.join(':').toLowerCase()}`, plain(typeof reason === 'string' ? reason : '', 200) || null);
     }
   }
+  const allow = read(json, 'allow');
   return Object.freeze({
     path: file.path,
     invalid: false,
-    allow: Array.isArray(json.allow) ? terms(json.allow) : null,
-    deny: terms(json.deny),
+    allow: Array.isArray(allow) ? terms(allow) : null,
+    deny: terms(read(json, 'deny')),
     packages
   });
 }
 
-function termMatches(term, node, family) {
-  if (term.family) return term.family === family;
-  return node.leaf && node.leaf.id.toLowerCase() === term.id.toLowerCase();
+function termMatches(term: PolicyTerm, node: LicenceTree, family: Family): boolean {
+  if ('family' in term) return term.family === family;
+  return 'leaf' in node && node.leaf.id.toLowerCase() === term.id.toLowerCase();
 }
 
 /*
@@ -435,19 +506,22 @@ function termMatches(term, node, family) {
  * term names it or its family, and, where the policy lists what it allows,
  * when no allow term does.
  */
-function policyVerdict(tree, policy) {
+type Refusal = 'denied' | 'not-allowed' | false;
+
+export function policyVerdict(tree: LicenceTree, policy: LicencePolicy | null | undefined): { denied: boolean; notAllowed: boolean } {
   if (!policy || policy.invalid) return { denied: false, notAllowed: false };
-  const refused = node => {
-    if (node.or) return refused(node.or[0]) && refused(node.or[1]);
-    if (node.and) return refused(node.and[0]) || refused(node.and[1]);
+  const { allow, deny } = policy;
+  const refused = (node: LicenceTree): Refusal => {
+    if ('or' in node) return refused(node.or[0]) && refused(node.or[1]);
+    if ('and' in node) return refused(node.and[0]) || refused(node.and[1]);
     const family = familyOf(node);
-    if (policy.deny.some(term => termMatches(term, node, family))) return 'denied';
-    if (policy.allow && !policy.allow.some(term => termMatches(term, node, family))) return 'not-allowed';
+    if (deny.some(term => termMatches(term, node, family))) return 'denied';
+    if (allow && !allow.some(term => termMatches(term, node, family))) return 'not-allowed';
     return false;
   };
-  const why = node => {
-    if (node.or) { const a = why(node.or[0]); const b = why(node.or[1]); return a && b ? (a === 'denied' || b === 'denied' ? 'denied' : 'not-allowed') : false; }
-    if (node.and) { const a = why(node.and[0]); const b = why(node.and[1]); return a === 'denied' || b === 'denied' ? 'denied' : a || b; }
+  const why = (node: LicenceTree): Refusal => {
+    if ('or' in node) { const a = why(node.or[0]); const b = why(node.or[1]); return a && b ? (a === 'denied' || b === 'denied' ? 'denied' : 'not-allowed') : false; }
+    if ('and' in node) { const a = why(node.and[0]); const b = why(node.and[1]); return a === 'denied' || b === 'denied' ? 'denied' : a || b; }
     return refused(node);
   };
   const verdict = why(tree);
@@ -455,19 +529,20 @@ function policyVerdict(tree, policy) {
 }
 
 /* Whether a policy speaks for a licence at all: an allow term that names it settles the default rules too. */
-function policyAllows(tree, family, policy) {
-  if (!policy || policy.invalid || !policy.allow) return false;
-  return leaves(tree).every(node => policy.allow.some(term => termMatches(term, node, familyOf(node)))) ||
-    policy.allow.some(term => term.family === family);
+function policyAllows(tree: LicenceTree, family: Family, policy: LicencePolicy | null | undefined): boolean {
+  const allow = policy && !policy.invalid ? policy.allow : null;
+  if (!allow) return false;
+  return leaves(tree).every(node => allow.some(term => termMatches(term, node, familyOf(node)))) ||
+    allow.some(term => 'family' in term && term.family === family);
 }
 
 /* ---- Compatibility with the project's licence --------------------------------- */
 
 /* Licences whose terms the GPL does not allow to be added to a GPL work. */
-const GPL_INCOMPATIBLE = new Set(['BSD-4-Clause', 'OpenSSL', 'EPL-1.0', 'CDDL-1.0', 'CDDL-1.1', 'MPL-1.1', 'Apache-1.1', 'Apache-1.0', 'JSON', 'SSPL-1.0']);
+const GPL_INCOMPATIBLE: ReadonlySet<string> = new Set(['BSD-4-Clause', 'OpenSSL', 'EPL-1.0', 'CDDL-1.0', 'CDDL-1.1', 'MPL-1.1', 'Apache-1.1', 'Apache-1.0', 'JSON', 'SSPL-1.0']);
 /* And those only version 3 of it accepts: a GPL-2.0-only work cannot take them. */
-const GPL2_ONLY_INCOMPATIBLE = new Set(['Apache-2.0', 'GPL-3.0-only', 'GPL-3.0-or-later', 'LGPL-3.0-only', 'LGPL-3.0-or-later', 'AGPL-3.0-only', 'AGPL-3.0-or-later', 'EPL-2.0']);
-const GPL3_INCOMPATIBLE = new Set(['GPL-2.0-only', 'GPL-1.0-only']);
+const GPL2_ONLY_INCOMPATIBLE: ReadonlySet<string> = new Set(['Apache-2.0', 'GPL-3.0-only', 'GPL-3.0-or-later', 'LGPL-3.0-only', 'LGPL-3.0-or-later', 'AGPL-3.0-only', 'AGPL-3.0-or-later', 'EPL-2.0']);
+const GPL3_INCOMPATIBLE: ReadonlySet<string> = new Set(['GPL-2.0-only', 'GPL-1.0-only']);
 
 /*
  * Whether a dependency's licence can be combined into a work released under
@@ -475,16 +550,16 @@ const GPL3_INCOMPATIBLE = new Set(['GPL-2.0-only', 'GPL-1.0-only']);
  * else is left to the family rules, which say what a licence asks rather
  * than claim a conflict the law has not settled.
  */
-function compatibility(project, tree) {
+export function compatibility(project: Pick<ProjectLicence, 'tree' | 'expression'> | null | undefined, tree: LicenceTree | null | undefined): { compatible: boolean; project?: string | null } {
   if (!project || !project.tree || !tree) return { compatible: true };
   const projectIds = leaves(project.tree).map(node => node.leaf.id);
   const gpl2Only = projectIds.every(id => /^(?:L?GPL-2\.0-only|GPL-1\.0-only)$/.test(id)) && projectIds.some(id => /^GPL-2\.0-only$/.test(id));
   const gpl3 = projectIds.every(id => /^(?:A|L)?GPL-3\.0-(?:only|or-later)$/.test(id));
   const anyGpl = projectIds.every(id => /^(?:A|L)?GPL-/.test(id)) && !projectIds.every(id => /^LGPL-/.test(id));
   if (!gpl2Only && !gpl3 && !anyGpl) return { compatible: true };
-  const clash = node => {
-    if (node.or) return clash(node.or[0]) && clash(node.or[1]);
-    if (node.and) return clash(node.and[0]) || clash(node.and[1]);
+  const clash = (node: LicenceTree): boolean => {
+    if ('or' in node) return clash(node.or[0]) && clash(node.or[1]);
+    if ('and' in node) return clash(node.and[0]) || clash(node.and[1]);
     /* A linking exception is exactly what lets a GPL work use the library. */
     if (node.exception && LINKING_EXCEPTIONS.has(node.exception.toLowerCase())) return false;
     const id = node.leaf.id;
@@ -493,74 +568,17 @@ function compatibility(project, tree) {
   return { compatible: !clash(tree), project: project.expression };
 }
 
-/* ---- Asking deps.dev ------------------------------------------------------------ */
-
-const DEPS_DEV = 'https://api.deps.dev/v3/systems';
-const DEPS_DEV_SYSTEM = Object.freeze({ npm: 'npm', pypi: 'pypi', go: 'go', maven: 'maven', cargo: 'cargo', nuget: 'nuget', rubygems: 'rubygems' });
-const LIMITS = Object.freeze({ maxLookups: 600, concurrency: 8, maxResponseBytes: 128 * 1024 });
-
-function nameKey(ecosystem, name) {
-  if (ecosystem === 'pypi') return String(name).toLowerCase().replace(/[-_.]+/g, '-');
-  return ['npm', 'go', 'maven', 'cargo'].includes(ecosystem) ? String(name) : String(name).toLowerCase();
-}
-function versionKey(entry) {
-  return `${entry.ecosystem}:${nameKey(entry.ecosystem, entry.name)}@${entry.version}`;
-}
-
-function depsDevUrl(entry) {
-  const system = DEPS_DEV_SYSTEM[entry.ecosystem];
-  if (!system) return null;
-  const name = entry.ecosystem === 'pypi' ? nameKey('pypi', entry.name) : entry.name;
-  const version = entry.ecosystem === 'go' && !/^v/.test(entry.version) ? `v${entry.version}` : entry.version;
-  return `${DEPS_DEV}/${system}/packages/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}`;
-}
-
-/*
- * The licence of each version that its lockfile did not state, asked of
- * deps.dev one version at a time, the project's own dependencies first,
- * within a bound. An answer lists the licences a version was released
- * under; more than one all apply. A question that is not answered leaves
- * that version unknown, never permissive.
- */
-async function lookupLicences(inventory, transport, limits = LIMITS) {
-  const answers = new Map();
-  const wanted = [];
-  const seen = new Set();
-  let fromLock = 0;
-  for (const entry of inventory) {
-    const key = versionKey(entry);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (entry.license) { answers.set(key, { value: entry.license, source: 'lock' }); fromLock += 1; continue; }
-    if (DEPS_DEV_SYSTEM[entry.ecosystem]) wanted.push(entry);
-  }
-  const asked = wanted.slice(0, limits.maxLookups);
-  let answered = 0;
-  if (transport) {
-    await boundedMapLimit(asked, limits.concurrency, async entry => {
-      const key = versionKey(entry);
-      try {
-        const response = await transport({ url: depsDevUrl(entry), profile: 'licence-query', method: 'GET', headers: { accept: 'application/json', 'user-agent': 'Nebulaverse-X-Audit/1.0' }, maxResponseBytes: limits.maxResponseBytes });
-        const status = Number(response && response.statusCode);
-        if (status === 404) { answers.set(key, { value: null, source: 'deps.dev', missing: true }); answered += 1; return; }
-        if (status !== 200) throw new Error('unanswered');
-        const body = JSON.parse(String(response.body || ''));
-        const licences = Array.isArray(body && body.licenses) ? body.licenses.filter(item => typeof item === 'string' && item.trim()).slice(0, 6) : [];
-        answers.set(key, { value: licences.length > 1 ? licences.map(item => `(${item})`).join(' AND ') : licences[0] || null, source: 'deps.dev' });
-        answered += 1;
-      } catch {
-        answers.set(key, 'unknown');
-      }
-    });
-  }
-  for (const entry of wanted.slice(limits.maxLookups)) answers.set(versionKey(entry), 'not-asked');
-  if (!transport) for (const entry of asked) answers.set(versionKey(entry), 'not-asked');
-  return { answers, asked: transport ? asked.length : 0, answered, fromLock, total: seen.size };
-}
-
 /* ---- Findings ------------------------------------------------------------------ */
 
-const RULES = Object.freeze({
+/* A licence rule, as the audit's catalogue lists every rule: always in the licences category. */
+export interface LicenceRule {
+  readonly category: 'licences';
+  readonly severity: 'serious' | 'warning';
+  readonly title: string;
+  readonly why: string;
+  readonly fix: string;
+}
+export const RULES = Object.freeze<Record<string, LicenceRule>>({
   'LIC-001': { category: 'licences', severity: 'serious', title: 'A dependency must be shared with anyone who uses your service',
     why: 'Network copyleft (AGPL, SSPL, OSL) reaches past distribution: offering software that includes it over a network obliges you to publish the source of the whole combined work -- for SSPL, of everything used to run the service -- under the same licence.',
     fix: 'Replace the package with one under a permissive licence, buy a commercial licence from its authors where they offer one, or keep it in a separate program that talks to yours only over a network boundary its licence allows. Record a decision in .nebulaverse/licences.json if your lawyers have cleared it.' },
@@ -591,11 +609,68 @@ const RULES = Object.freeze({
  * only a developer installs never ships, so copyleft in it is not reported;
  * a restriction on use still is, one step softer.
  */
-function licenceFindings(inventory, answers, { project, policy }) {
-  const out = [];
-  const families = Object.fromEntries(FAMILIES.map(family => [family.id, 0]));
-  const packages = [];
-  const counted = new Set();
+/* What a lookup knows of one version's licence: the value it read and where from, 'unknown' when asked without an answer, 'not-asked' beyond the bound. */
+export type LicenceAnswer = { readonly value: unknown; readonly source: 'lock' | 'deps.dev'; readonly missing?: boolean } | 'unknown' | 'not-asked';
+
+/* A dependency as the licence rules read it. */
+export interface LicenceEntry {
+  readonly ecosystem: string;
+  readonly name: string;
+  readonly version: string;
+  readonly path?: string;
+  readonly line?: number | null;
+  readonly direct?: unknown;
+  readonly dev?: unknown;
+  readonly license?: unknown;
+}
+
+/* What a licence finding says about the package: its licence and family, and what the policy or the project said of it. */
+export interface LicenceDetail {
+  readonly package: string;
+  readonly version: string;
+  readonly ecosystem: string;
+  readonly direct: boolean;
+  readonly dev: boolean;
+  readonly licence: string | null;
+  readonly family: Family;
+  readonly source: 'lockfile' | 'deps.dev';
+  readonly policy?: string;
+  readonly reason?: 'denied' | 'not-allowed';
+  readonly project?: string | null;
+  readonly none?: boolean;
+}
+type LicenceFacts = Pick<LicenceDetail, 'policy' | 'reason' | 'project' | 'none'> & { readonly softer?: boolean };
+export interface LicenceFinding {
+  readonly rule: string;
+  readonly path: string | undefined;
+  readonly line: number | null;
+  readonly severity?: 'warning';
+  readonly detail?: LicenceDetail;
+  readonly suppression?: { readonly reason: string; readonly line: null; readonly policy: string };
+}
+
+/* Every family at zero, in the order FAMILIES lists them. */
+function familyCounts(): Record<Family, number> {
+  return { 'public-domain': 0, permissive: 0, 'weak-copyleft': 0, 'strong-copyleft': 0, 'network-copyleft': 0, restricted: 0, none: 0, unknown: 0 };
+}
+
+export function versionKey(entry: { readonly ecosystem: string; readonly name: unknown; readonly version: unknown }): string {
+  return `${entry.ecosystem}:${nameKey(entry.ecosystem, entry.name)}@${String(entry.version)}`;
+}
+function nameKey(ecosystem: string, name: unknown): string {
+  if (ecosystem === 'pypi') return String(name).toLowerCase().replace(/[-_.]+/g, '-');
+  return ['npm', 'go', 'maven', 'cargo'].includes(ecosystem) ? String(name) : String(name).toLowerCase();
+}
+
+export function licenceFindings(
+  inventory: readonly LicenceEntry[],
+  answers: ReadonlyMap<string, LicenceAnswer>,
+  { project, policy }: { project: ProjectLicence | null | undefined; policy: LicencePolicy | null | undefined }
+) {
+  const out: LicenceFinding[] = [];
+  const families = familyCounts();
+  const packages: Readonly<Record<string, unknown> & { family: Family; dev: boolean; direct: boolean; package: string }>[] = [];
+  const counted = new Set<string>();
   const status = { versions: 0, known: 0, unknown: 0, notAsked: 0, fromLock: 0, fromRegistry: 0 };
   if (policy && policy.invalid) out.push({ rule: 'LIC-007', path: policy.path, line: null });
   const projectFamily = project ? project.family : 'proprietary';
@@ -610,42 +685,42 @@ function licenceFindings(inventory, answers, { project, policy }) {
       if (first) { families.unknown += 1; if (answer === 'not-asked') status.notAsked += 1; else status.unknown += 1; }
       continue;
     }
-    const read = readLicence(answer.value);
+    const reading = readLicence(answer.value);
     if (first) {
-      families[read.family] += 1;
-      if (read.family === 'unknown') status.unknown += 1; else status.known += 1;
+      families[reading.family] += 1;
+      if (reading.family === 'unknown') status.unknown += 1; else status.known += 1;
       if (answer.source === 'lock') status.fromLock += 1; else status.fromRegistry += 1;
     }
-    const detail = {
+    const detail: LicenceDetail = {
       package: entry.name, version: entry.version, ecosystem: entry.ecosystem, direct: Boolean(entry.direct), dev: Boolean(entry.dev),
-      licence: read.expression, family: read.family, source: answer.source === 'lock' ? 'lockfile' : 'deps.dev'
+      licence: reading.expression, family: reading.family, source: answer.source === 'lock' ? 'lockfile' : 'deps.dev'
     };
-    if (first && read.family !== 'permissive' && read.family !== 'public-domain' && packages.length < 200) {
+    if (first && reading.family !== 'permissive' && reading.family !== 'public-domain' && packages.length < 200) {
       packages.push(Object.freeze({ ...detail }));
     }
     if (!first) continue;
     const exempt = policy && !policy.invalid ? policy.packages.get(`${entry.ecosystem}:${String(entry.name).toLowerCase()}`) : undefined;
-    const waiver = exempt !== undefined ? Object.freeze({ reason: exempt || 'Cleared in the repository’s licence policy', line: null, policy: policy.path }) : undefined;
+    const waiver = policy && exempt !== undefined ? Object.freeze({ reason: exempt || 'Cleared in the repository’s licence policy', line: null, policy: policy.path }) : undefined;
     const place = { path: entry.path, line: entry.line || null };
     /* A softer finding -- a restriction on a tool only developers install, AGPL in a GPL project -- is a warning. */
-    const push = (rule, { softer, ...extra } = {}) => out.push({
+    const push = (rule: string, { softer, ...extra }: LicenceFacts = {}): number => out.push({
       rule, ...place, ...(softer ? { severity: 'warning' } : {}), detail: { ...detail, ...extra }, ...(waiver !== undefined ? { suppression: waiver } : {})
     });
 
-    if (read.tree) {
-      const verdict = policyVerdict(read.tree, policy);
-      if (verdict.denied || verdict.notAllowed) { push('LIC-005', { policy: policy.path, reason: verdict.denied ? 'denied' : 'not-allowed' }); continue; }
-      if (policyAllows(read.tree, read.family, policy)) continue;
-      const fit = compatibility(project, read.tree);
+    if (reading.tree) {
+      const verdict = policyVerdict(reading.tree, policy);
+      if (policy && (verdict.denied || verdict.notAllowed)) { push('LIC-005', { policy: policy.path, reason: verdict.denied ? 'denied' : 'not-allowed' }); continue; }
+      if (policyAllows(reading.tree, reading.family, policy)) continue;
+      const fit = compatibility(project, reading.tree);
       if (!fit.compatible && !entry.dev) { push('LIC-006', { project: fit.project }); continue; }
     }
-    if (read.family === 'restricted') { push('LIC-003', entry.dev ? { softer: true } : {}); continue; }
+    if (reading.family === 'restricted') { push('LIC-003', entry.dev ? { softer: true } : {}); continue; }
     if (entry.dev) continue;
-    if (read.family === 'network-copyleft' && projectFamily !== 'network-copyleft') { push('LIC-001', copyleftProject ? { softer: true } : {}); continue; }
-    if (read.family === 'strong-copyleft' && !copyleftProject) { push('LIC-002'); continue; }
-    if ((read.family === 'unknown' || read.family === 'none') && entry.direct) push('LIC-004', { none: read.family === 'none' });
+    if (reading.family === 'network-copyleft' && projectFamily !== 'network-copyleft') { push('LIC-001', copyleftProject ? { softer: true } : {}); continue; }
+    if (reading.family === 'strong-copyleft' && !copyleftProject) { push('LIC-002'); continue; }
+    if ((reading.family === 'unknown' || reading.family === 'none') && entry.direct) push('LIC-004', { none: reading.family === 'none' });
   }
-  packages.sort((a, b) => RANK[b.family] - RANK[a.family] || Number(a.dev) - Number(b.dev) || Number(b.direct) - Number(a.direct) || a.package.localeCompare(b.package));
+  packages.sort((a, b) => rank(b.family) - rank(a.family) || Number(a.dev) - Number(b.dev) || Number(b.direct) - Number(a.direct) || a.package.localeCompare(b.package));
   return {
     out,
     summary: {
@@ -657,9 +732,3 @@ function licenceFindings(inventory, answers, { project, policy }) {
     }
   };
 }
-
-module.exports = Object.freeze({
-  FAMILIES, RULES, LIMITS, POLICY_PATHS,
-  readLicence, parseExpression, familyOf, projectLicence, isLicenceFile, readPolicy, policyVerdict, compatibility,
-  lookupLicences, licenceFindings, depsDevUrl, versionKey
-});

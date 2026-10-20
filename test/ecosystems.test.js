@@ -8,9 +8,9 @@
  */
 
 const assert = require('assert');
-const eco = require('../src/ecosystems');
-const audit = require('../src/code-audit');
-const { usageIndex } = require('../src/uranus-reach');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const eco = audit.ecosystems;
+const { usageIndex } = audit;
 
 const isTest = filePath => /(^|\/)(tests?|spec)\/|_test\.go$|Test\.java$/.test(filePath);
 const summary = list => list.map(item => `${item.name}@${item.version || item.spec}${item.dev ? ':dev' : ''}${item.top ? ':top' : ''}`);

@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * The package names a typosquat imitates. A name one keystroke away from one
  * of these, or the same name with its separators moved, is how malicious
@@ -13,7 +11,7 @@
  * are recognised as themselves rather than flagged.
  */
 
-const NPM = Object.freeze([
+export const NPM: readonly string[] = Object.freeze([
   'react', 'react-dom', 'preact', 'next', 'vue', 'nuxt', 'svelte', 'angular', 'solid-js', 'astro', 'remix',
   'express', 'koa', 'fastify', 'hapi', 'nestjs', 'hono', 'restify', 'connect', 'body-parser', 'cookie-parser',
   'cors', 'helmet', 'morgan', 'compression', 'multer', 'busboy', 'formidable', 'express-session', 'passport',
@@ -55,7 +53,7 @@ const NPM = Object.freeze([
   'dotenv-expand', 'cross-env-shell'
 ]);
 
-const PYPI = Object.freeze([
+export const PYPI: readonly string[] = Object.freeze([
   'requests', 'urllib3', 'httpx', 'aiohttp', 'httplib2', 'certifi', 'charset-normalizer', 'idna', 'chardet',
   'numpy', 'pandas', 'scipy', 'matplotlib', 'seaborn', 'plotly', 'scikit-learn', 'sklearn', 'tensorflow',
   'torch', 'torchvision', 'keras', 'jax', 'transformers', 'datasets', 'tokenizers', 'sentencepiece',
@@ -79,5 +77,3 @@ const PYPI = Object.freeze([
   'requests-oauthlib', 'requests-toolbelt', 'httpcore', 'flask-limiter', 'tomlkit', 'pyaml', 'jwt', 'jose',
   'pytest-mock', 'numba', 'pandas-stubs'
 ]);
-
-module.exports = Object.freeze({ NPM, PYPI });

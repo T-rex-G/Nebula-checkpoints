@@ -24,8 +24,8 @@
  * new", which is a claim that needs an answer behind it.
  */
 
-const audit = require('./code-audit');
-const { lookupExploitIntel } = require('./exploit-intel');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { lookupExploitIntel } = audit;
 
 const LIMITS = Object.freeze({
   ...audit.LIMITS,

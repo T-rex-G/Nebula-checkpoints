@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { assertAuditActive } = require('../src/code-audit');
+const { assertAuditActive } = require('../apps/api/src/modules/uranus/index.ts');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const start = source.indexOf("app.get('/api/repo/:owner/:repo/code-audit',");

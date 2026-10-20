@@ -28,6 +28,14 @@ export function listOf(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+/*
+ * A frozen lookup table with no prototype, for names read from data: a key
+ * such as `constructor` or `__proto__` finds only what the table itself holds.
+ */
+export function lookupTable<T extends object>(entries: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), entries));
+}
+
 /* A table's own entry for a key: a name inherited from Object.prototype is not an entry. */
 export function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
   return Object.hasOwn(table, key) ? table[key] : undefined;

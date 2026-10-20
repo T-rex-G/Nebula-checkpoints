@@ -33,7 +33,7 @@ const crypto = require('crypto');
 const { privatePathSegment } = require('./site-url-privacy');
 const { parse: parseDomain } = require('tldts');
 const { parse: parseHtml } = require('parse5');
-const { gradeOf, lookupAdvisories, advisoryKey, compareVersions } = require('./code-audit');
+const { gradeOf, lookupAdvisories, advisoryKey, compareVersions } = require('../apps/api/src/modules/uranus/index.ts');
 const { standardsFor } = require('../apps/api/src/modules/posture/index.ts');
 const { detectInText, RULE_NARRATION } = require('../apps/api/src/modules/quasar/index.ts');
 

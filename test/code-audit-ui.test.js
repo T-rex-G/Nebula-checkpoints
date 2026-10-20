@@ -7,7 +7,7 @@
  */
 
 const assert = require('assert');
-const { analyse } = require('../src/code-audit');
+const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
 const { checkSite } = require('../src/site-check');
 const ui = require('../apps/web/src/features/uranus/code-audit-ui');
 

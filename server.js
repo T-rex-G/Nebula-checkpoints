@@ -169,7 +169,7 @@ const {
   feed: buildActivityFeed
 } = require('./src/activity-feed');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
-const { auditRepository, assertAuditActive } = require('./src/code-audit');
+const { auditRepository, assertAuditActive, exploitedInProduction } = require('./apps/api/src/modules/uranus/index.ts');
 const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
 const { createAuditJobs } = require('./src/code-audit-jobs');
 const { CodeAuditHistory, createAuditWatch, describeKeptAudit } = require('./src/code-audit-history');
@@ -178,7 +178,6 @@ const {
   CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
   previewMergePolicies, summarizeDecisions, VOCABULARY: TRIAGE_VOCABULARY
 } = require('./src/code-audit-triage');
-const { exploitedInProduction } = require('./src/uranus-reach');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { securityContact } = require('./src/public-assets');
@@ -7828,7 +7827,7 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
 
 /*
  * The repository audit. Every rule and every decision about what to read is in
- * src/code-audit.js; this reads through the same guarded reader Exposure uses,
+ * the Uranus module; this reads through the same guarded reader Exposure uses,
  * one connection pool per audit, asks the package registries through the
  * guarded transport with HEAD, and asks OSV -- anonymously, through the
  * advisory profile bound to that one host -- which of the installed versions

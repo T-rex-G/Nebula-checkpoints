@@ -8,7 +8,7 @@
 
 const assert = require('assert');
 const { readAuditPolicy, clockOf, daysFor, slaOf, DEFAULT_SLA, POLICY_PATH } = require('../apps/api/src/modules/kepler/index.ts');
-const { analyse, selectFiles } = require('../src/code-audit');
+const { analyse, selectFiles } = require('../apps/api/src/modules/uranus/index.ts');
 
 const file = text => [{ path: POLICY_PATH, text }];
 const DAY = 24 * 60 * 60 * 1000;

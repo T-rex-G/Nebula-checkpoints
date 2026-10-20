@@ -381,3 +381,41 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
   - One difference is in input no store produces. A row that is not an object is skipped where the original threw on reading its fields, and a series that is not an array reads as empty. The exposure summary already skipped such rows.
 - **Checks:** typecheck, lint, the posture programs, the PostgreSQL posture test, the route surface, module boundaries, contracts, the package contract and the full unit gate.
 - **Next:** D7 (Uranus).
+
+### D7b — Uranus, the audit engine and its tracers
+
+- **One module, behind its index.** `modules/uranus` takes the ten engine files from `src/`:
+  - `domain/`: the lexers, the JavaScript and Python tracer (`uranus-flow`), the Go, Java and PHP tracer (`uranus-cfamily`), the endpoint map, reach and risk, the ecosystems, the licences and the popular names. The audit itself is split at its own section seams:
+    - which files are read (`audit-files`) and the rule catalogue (`audit-catalog`);
+    - the line and workflow rules (`line-rules`), the database rules, committed secrets and infrastructure;
+    - dependencies and versions, advisories and their risk;
+    - how a finding reads and how sure it is (`audit-findings`), the coverage ledger and the controls (`audit-ledger`);
+    - the analysis that puts them together (`code-audit`).
+  - `client/`: OSV and the registries (`advisory-lookup`), exploit intelligence, and the deps.dev licence lookup, each through its own profile of the guarded transport.
+  - `application/`: the audit of a repository through the guarded reader, cancellable at every step (`audit-repository`), and the wiring that hands the analysis what it needs from other modules (`audit-engine`).
+  - The index exports the engine's names as before. Sub-engines whose names would clash are namespaces: `cfamily`, `surface`, `ecosystems`, `exploitIntel` and `licences`. `licences` holds the licence rules and the deps.dev lookup together, as the old file did.
+- **Ports, not reaches.** The analysis called Exposure's detectors and Kepler's audit policy directly, and their indexes load delivery and transport code that the domain rule forbids.
+  - The domain now takes them as `AuditPorts`: `detectSecrets`, `narrationOf` and `readAuditPolicy`. The policy path is a parameter of the file selection.
+  - `application/audit-engine.ts` passes the real ones. The index exports the wired `analyse`, `scanRules` and `selectFiles`, with their old signatures.
+- **Shared helpers.**
+  - `platform/concurrency/bounded-map.ts` replaces two copies of the same function, the audit's and the licence lookup's.
+  - `platform/values/fields.ts` gains `lookupTable`, a null-prototype table typed by its entries.
+- **Size.**
+  - The JavaScript and Python tracer (2910 lines with its types) and the C-family tracer (2334) stay whole. They are recorded as engines for the size ratchet.
+  - The 3474-line audit is now twelve domain files, none over 720 lines, plus a client and an application file.
+  - No type assertion was added. The count stays at 319.
+- **Defects the port found, each with a test that failed first against the original:**
+  - **Development requirements.** The inventory read a requirements file named for development (`requirements-dev.txt`) without its name, so it treated those packages as ones the application installs and did not soften their advisories. The inventory and the registry pass now pass the name.
+  - **CVSS vectors.** A vector whose metric value was the name of an `Object.prototype` member (`AV:constructor`) was weighed with a built-in and scored `NaN`. The weights are Maps, and such a vector has no score.
+  - **Advisory ids.** In an OSV answer, a vulnerability with no id, a bare string, or an id that is a list became an advisory named `"undefined"` or a second copy of one, and the answer still counted as complete. An id must now be a string in advisory-id form, and anything else leaves the answer partial.
+- **Behaviour otherwise unchanged.**
+  - The tracer was compared with its original after its types were stripped. Then both were run over the repository, the benchmark corpus and every file on its own: 852 runs, identical output.
+  - The audit was run against its original over the benchmark corpus (`analyse` and `scanRules`, 276 runs) and over the repository's own manifests and lockfile, with made-up advisories, exploit intelligence, registry and licence answers (12 runs over 296 package versions). The output was identical.
+  - The risk weighing now keeps the inventory entry and the advisories beside each finding, where they used to be fields deleted from it afterwards. The findings come out the same.
+  - Behaviour differs only where the original threw:
+    - a token read past the end of its list now matches nothing, so the walk of that file goes on instead of failing it;
+    - an advisory record whose range events are not objects reads as having none;
+    - an unknown rule id now fails with an error that names it;
+    - a negative score has no grade.
+- **Checks:** typecheck, lint, module boundaries, the Uranus, audit, licence, ecosystem, exploit-intelligence, site-check and route-surface programs, the benchmark, and the full unit gate.
+- **Next:** D7c, the audit's worker, jobs, watch, triage and history.

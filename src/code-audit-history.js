@@ -22,9 +22,8 @@
  */
 
 const crypto = require('crypto');
-const { RULES, ENGINE, assertAuditActive } = require('./code-audit');
+const { RULES, ENGINE, assertAuditActive, TIERS } = require('../apps/api/src/modules/uranus/index.ts');
 const { clockOf, slaOf, DEFAULT_SLA, SLA_DAYS } = require('../apps/api/src/modules/kepler/index.ts');
-const { TIERS } = require('./uranus-reach');
 const { standardsFor } = require('../apps/api/src/modules/posture/index.ts');
 const { AUDIT_WATCH_STATES: WATCH_STATES } = require('../packages/contracts/src/evidence.ts');
 

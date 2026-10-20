@@ -156,7 +156,7 @@ async function withClient(connectionString, run) {
       assert.strictEqual(refreshed.audit.watch.state, 'ok', 'the later dependency lookup succeeds');
       assert.strictEqual(refreshed.audit.analysisComplete, false, 'watch refresh cannot repair incomplete source evidence');
       const { evaluateMergeGate } = require('../src/code-audit-triage');
-      assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed }).state, 'unavailable');
+      assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed, now: T0 + 2 * HOUR }).state, 'unavailable');
     }
     {
       /* A row that can never be stored (here a severity the store does not keep) does not make the analysis incomplete. */
@@ -301,7 +301,7 @@ async function withClient(connectionString, run) {
       const legacy = await history.latest({ scope: cancelledScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(legacy.audit.analysisComplete, null, 'pre-migration evidence is explicitly unknown');
       const { evaluateMergeGate } = require('../src/code-audit-triage');
-      assert.strictEqual(evaluateMergeGate({ headSha: before.commitSha, head: legacy }).state, 'unavailable', 'legacy unknown evidence requires a new audit');
+      assert.strictEqual(evaluateMergeGate({ headSha: before.commitSha, head: legacy, now: T0 + HOUR }).state, 'unavailable', 'legacy unknown evidence requires a new audit');
     }
     {
       const upgradeScope = { ...scope, repo: 'EngineUpgrade' };

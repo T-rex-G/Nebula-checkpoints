@@ -49,8 +49,19 @@ async function pressOn(page, control) {
     await settle(page, control, inflight);
     await control.hover();
     await settle(page, control, inflight);
+    /* A card that moved may have carried the control out of view; bring it back, and let that settle too. */
+    await control.scrollIntoViewIfNeeded();
+    await settle(page, control, inflight);
+    /*
+     * The hover left the pointer where the control was when it scrolled into
+     * view. A reading the scroll started can move the card after that, so the
+     * pointer goes to where the control is now, and that point is what is
+     * checked and pressed. (CI's mobile slice pressed a severity bar beside a
+     * repository's name this way.)
+     */
     const box = await control.boundingBox();
     const point = [box.x + box.width / 2, box.y + box.height / 2];
+    await page.mouse.move(point[0], point[1]);
     const under = await control.evaluate((element, [x, y]) => element.contains(document.elementFromPoint(x, y)), point);
     const covering = under ? '' : await page.evaluate(`(${describe.toString()})(document.elementFromPoint(${point[0]}, ${point[1]}))`);
     expect(under, `the control is under the pointer${covering ? `, not ${covering}` : ''}`).toBe(true);

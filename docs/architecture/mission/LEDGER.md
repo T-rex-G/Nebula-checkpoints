@@ -753,3 +753,9 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - `hardening-contract` holds the server to creating the hub with both caps, and reads the stored-events paging from Pulsar's file; `corona-recovery` cuts its routes up to Pulsar's registration.
 - **Ratchet:** the routes `server.js` registers itself fall from 181 to 174.
 - **Checks:** typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the four new files); the architecture oracles, route surface, provider route inventory, module boundaries and configuration registry; the live-stream, Pulsar reliability, provider-stream, alpha boundary and contract tests; the full unit gate and every verify-job gate on Node 22.23.4; the compiled-server tests.
+
+### Qualifier — the press is made where the control is, not where it was
+
+- **What CI found.** With the settling helper (`26b21ea`), CI's mobile slice named where a missed press landed: a severity bar beside the repository's name, in the security posture card.
+- **Why.** `hover()` leaves the pointer where the control was when it scrolled into view, and a reading that the scroll starts can move the card after that. The helper waited for the page to hold still and checked the control's new centre, but pressed wherever the pointer had been left. A probe that moves the card after the hover reproduced the miss on desktop and mobile. It also showed that the move can carry the control out of view.
+- **Fix.** After settling, `test/e2e/press.js` scrolls the control back into view if it left, settles again, moves the pointer to the control's centre as it is now, and checks and presses that point. The probe presses the control with the fix. The six press tests pass three times in a row on desktop and mobile. The earlier qualifier entries on these tests stand: the redraw race was real, and this was a second cause behind it.

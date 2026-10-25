@@ -231,7 +231,7 @@ assert(serialized.includes(CONTENT_HASH), 'the offer must carry the content hash
 /* The branch it offers must be one this server would actually accept. Offering
  * a name the branch-create route rejects would turn a helpful route into a
  * second failure. */
-const { normalizeBranchName } = require('../src/intelligence');
+const { normalizeBranchName } = require('../apps/api/src/modules/corona/index.ts');
 assert.strictEqual(normalizeBranchName(approval.offer.branch, 'branch'), approval.offer.branch);
 for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)]) {
   const branch = safePassage.branchFor(awkward.replace(/^feature\/\.hidden$/, 'main'), PROTECTED_FILE, CONTENT_HASH);

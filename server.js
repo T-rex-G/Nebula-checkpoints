@@ -79,8 +79,9 @@ const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
 const {
   evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
   riskForAccessSurface, compareSnapshots, protectedPatternsForRepository,
-  normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern
-} = require('./src/intelligence');
+  normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern,
+  createSnapshotSignatures, loadSnapshotSigningConfig
+} = require('./apps/api/src/modules/corona/index.ts');
 const { stableJson, hashJson } = require('./apps/api/src/platform/values/stable-hash.ts');
 const { cleanText } = require('./apps/api/src/platform/values/text.ts');
 const { pathMatches } = require('./apps/api/src/platform/values/path-patterns.ts');
@@ -202,10 +203,6 @@ const {
   createPostureReader, exposureSummary, summarizePosture, pullListItem, buildInbox, readBranchProtection
 } = require('./apps/api/src/modules/posture/index.ts');
 const codeowners = require('./packages/contracts/src/codeowners.ts');
-const {
-  createSnapshotSignatures,
-  loadSnapshotSigningConfig
-} = require('./src/snapshot-signatures');
 
 const app = express();
 app.set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES));
@@ -273,14 +270,14 @@ const EXPOSURE_VERIFICATION_SUBJECT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSUR
 const EXPOSURE_READABILITY_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);
 /*
  * Evidence verification holds two keyrings, assembled together in
- * src/intelligence.js so their retired lists cannot drift apart.
+ * Corona's evidence ledger so their retired lists cannot drift apart.
  *
  * Rows written before key separation were hashed with the raw session secret,
  * and rows written before a SESSION_SECRET rotation with a key derived from the
  * previous secret. Accepting the raw secret unconditionally would undo half the
  * point of separating the keys -- a leaked SESSION_SECRET could forge records
  * that verify, permanently -- so production accepts it only on an explicit
- * opt-in, the rule src/snapshot-signatures.js already applies to legacy
+ * opt-in, the rule Corona's snapshot signatures already apply to legacy
  * snapshot keys. Development keeps the compatibility path.
  *
  * A deployment that declines the opt-in is not left guessing: the probe reports

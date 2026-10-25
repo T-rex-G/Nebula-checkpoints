@@ -7,7 +7,7 @@ const {
   evidenceKeyrings, protectedPatternsForRepository,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
   compareSnapshots, riskForAccessSurface
-} = require('../src/intelligence');
+} = require('../apps/api/src/modules/corona/index.ts');
 const { stableJson, hashJson, hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const { pathMatches } = require('../apps/api/src/platform/values/path-patterns.ts');
 const { referenceSha, normalizeProviderBranches } = require('../apps/api/src/modules/github-provider/index.ts');

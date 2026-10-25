@@ -5,7 +5,7 @@ const { hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig
-} = require('../src/snapshot-signatures');
+} = require('../apps/api/src/modules/corona/index.ts');
 
 const activeSecretA = ['snapshot-active-a', '0123456789abcdef', '0123456789abcdef'].join('-');
 const activeSecretB = ['snapshot-active-b', '0123456789abcdef', '0123456789abcdef'].join('-');

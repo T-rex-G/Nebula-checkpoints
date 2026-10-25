@@ -606,3 +606,37 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
 - **Next:** D10 (Corona).
+
+
+### D10 — Corona, the safeguards and recovery module
+
+- **One module, behind its index.** `modules/corona/domain` holds what was left of `src/intelligence.js` after D9, and the snapshot signatures:
+  - `evidence-ledger.ts`: a record's hash, and the two keyrings. One decides what verifies; the other only explains a failure as an unmigrated chain rather than tampering.
+  - `safeguards.ts`: the paths a person has protected in a repository.
+  - `recovery-names.ts`: the repository path, branch and commit a restore may act on, and a path as a Git LFS attribute pattern.
+  - `snapshots.ts`: what a restore would do, from two snapshots.
+  - `snapshot-signatures.ts`: signing under the active key, verifying under the retired and legacy keyrings.
+  - `access-surface.ts`: the deploy-key, webhook and collaborator risk, and the access graph's shortest path.
+- **Where the baseline put them.** The baseline inventory's file rule grouped `src/intelligence.js` and `src/snapshot-signatures.js` with Pulsar. The inventory's route rule gives every evidence, snapshot, restore, safety and access-surface route to Corona. The code follows its routes: Pulsar has the webhooks, the live stream and the feed (D9), and Corona has the rest.
+- **The backup format is platform.** `src/backup-format.js` became `platform/persistence/backup-format.ts`, as the dependency map placed it. Its only callers are the operator's database tool (`scripts/alpha-db.js`) and its tests.
+- **Shared helpers:**
+  - `platform/crypto/hmac.ts` keys an HMAC-SHA256 with whatever the caller holds, and lets `crypto` refuse a bad key with its own error. The webhook signature, the evidence hash, the snapshot signatures and `hmacJson` all use it, so each fails on such a key exactly as it did calling `crypto` directly.
+  - `platform/values/fields.ts` gains `iterable`, which throws the engine's own "is not iterable" TypeError, naming the expression as the engine does.
+- **Two variables the configuration registry never knew.** The registry's test finds what the code reads by scanning for `env.NAME` and `process.env.NAME`. The evidence ledger read its two variables as `source.NAME`, so `NV_EVIDENCE_LEGACY_SESSION_KEY` and `NV_EVIDENCE_RETIRED_SESSION_SECRETS_JSON` were documented in `.env.example` and the deployment guide but missing from the registry and from the doctor. Both modules now take a typed environment and read each variable by its literal name. The two variables are registered beside `SESSION_SECRET`, whose history they hold.
+- **Contracts.** The SHA-256 and commit-id checks use the ids contract. The adoption record loses five copies: one in `src/intelligence.js`, three in `src/snapshot-signatures.js` and one in `src/backup-format.js`.
+- **Behaviour unchanged**, by an oracle that ran the three original files beside the port. It made 137,788 comparisons, all identical, and every refusal kept its error class, message, code, status and own-property order:
+  - 3,000 evidence key histories: environments, retired-secret lists, opt-ins and keyrings, against genuine, upper-cased and malformed record hashes;
+  - 6,000 protected-path maps, branch names, repository paths and LFS patterns;
+  - a commit id ending in every code point of the Basic Multilingual Plane, so the contract's lower-case check matches the old case-insensitive one everywhere;
+  - 6,000 snapshot comparisons, access surfaces and shortest paths. A forward edge on a path is still the graph's own object;
+  - 3,000 snapshot signing configurations, signatures and verifications, retired, legacy and forged among them;
+  - the backup format: each implementation's backup opened by the other, the same manifest shape, the same refusals of bad manifests, keys and outputs, and a tampered ciphertext refused with no output left behind.
+- **Removed:** `src/intelligence.js`, `src/snapshot-signatures.js` and `src/backup-format.js`. The server, `scripts/alpha-db.js`, the tests, `verify.js` (which now parses every Parallax, Pulsar and Corona file), the syntax manifest, `jsconfig.json` and the package contract reach the new homes.
+- **Checks:**
+  - typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify;
+  - the intelligence, recovery, safe-passage, repository-boundary, backup-format, alpha-db, snapshot-signature, live-stream and exposure-review programs;
+  - the contracts, codes, module boundaries, package contract, route surface and continuity generation;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests;
+  - the D9 oracle again, over the shared HMAC helper: 121,533 comparisons identical.
+- **Next:** D11 (the HTTP pipeline).

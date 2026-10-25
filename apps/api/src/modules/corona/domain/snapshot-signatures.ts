@@ -1,9 +1,16 @@
-'use strict';
+/*
+ * Signed snapshots: a snapshot's HMAC under the active key, named by its key
+ * id so a rotation leaves earlier signatures verifiable under the retired
+ * keyring; and the pre-keyring form, a bare digest, verified only under the
+ * legacy keys an operator supplies (or, in local development, the session
+ * secret).
+ */
+import crypto from 'node:crypto';
+import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { iterable, read } from '../../../platform/values/fields.ts';
+import { hmacJson } from '../../../platform/values/stable-hash.ts';
 
-const crypto = require('crypto');
-const { hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
-
-const SIGNATURE_PREFIX = 'nvx-snapshot-hmac-v1';
+export const SIGNATURE_PREFIX = 'nvx-snapshot-hmac-v1';
 const KEY_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$/;
 const SIGNATURE_PATTERN = new RegExp(
   `^${SIGNATURE_PREFIX}:(${KEY_ID_PATTERN.source.slice(1, -1)}):([0-9a-f]{64})$`
@@ -11,13 +18,13 @@ const SIGNATURE_PATTERN = new RegExp(
 const MAX_KEYRING_BYTES = 64 * 1024;
 const MAX_RETIRED_KEYS = 16;
 
-function isPlainObject(value) {
+function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
+  const prototype: unknown = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
-function assertKeyId(value, label) {
+function assertKeyId(value: unknown, label: string): string {
   const keyId = String(value || '').trim();
   if (!KEY_ID_PATTERN.test(keyId) || keyId.includes(':')) {
     throw new TypeError(`${label} is invalid`);
@@ -25,7 +32,7 @@ function assertKeyId(value, label) {
   return keyId;
 }
 
-function assertSecret(value, label, minimumBytes = 32) {
+function assertSecret(value: unknown, label: string, minimumBytes = 32): string {
   const secret = String(value || '');
   const size = Buffer.byteLength(secret, 'utf8');
   if (size < minimumBytes || size > 4096) {
@@ -34,7 +41,7 @@ function assertSecret(value, label, minimumBytes = 32) {
   return secret;
 }
 
-function parseJson(raw, label) {
+function parseJson(raw: unknown, label: string): unknown {
   const source = String(raw || '').trim();
   if (!source) return null;
   if (Buffer.byteLength(source, 'utf8') > MAX_KEYRING_BYTES) {
@@ -47,13 +54,13 @@ function parseJson(raw, label) {
   }
 }
 
-function parseRetiredKeys(raw) {
+function parseRetiredKeys(raw: unknown): Record<string, string> {
   const parsed = parseJson(raw, 'Retired snapshot keyring');
   if (parsed === null) return {};
   if (!isPlainObject(parsed) || Object.keys(parsed).length > MAX_RETIRED_KEYS) {
     throw new TypeError('Retired snapshot keyring must be an object with at most 16 keys');
   }
-  const keys = {};
+  const keys: Record<string, string> = {};
   for (const [rawKeyId, rawSecret] of Object.entries(parsed)) {
     const keyId = assertKeyId(rawKeyId, 'Retired snapshot key ID');
     keys[keyId] = assertSecret(rawSecret, `Retired snapshot key ${keyId}`);
@@ -61,7 +68,7 @@ function parseRetiredKeys(raw) {
   return keys;
 }
 
-function parseLegacyKeys(raw) {
+function parseLegacyKeys(raw: unknown): string[] {
   const parsed = parseJson(raw, 'Legacy snapshot keyring');
   if (parsed === null) return [];
   if (!Array.isArray(parsed) || parsed.length > MAX_RETIRED_KEYS) {
@@ -70,7 +77,17 @@ function parseLegacyKeys(raw) {
   return parsed.map((secret, index) => assertSecret(secret, `Legacy snapshot key ${index + 1}`));
 }
 
-function loadSnapshotSigningConfig(env = process.env, options = {}) {
+export interface SnapshotSigningConfig {
+  readonly activeKeyId: string;
+  readonly activeSecret: string;
+  readonly retiredKeys: Readonly<Record<string, string>>;
+  readonly legacyKeys: readonly string[];
+}
+
+/* The process environment, or a fixture of it. Each variable is read by its literal name, so the configuration registry sees every one. */
+type Environment = Readonly<Record<string, string | undefined>>;
+
+export function loadSnapshotSigningConfig(env: Environment = process.env, options: { readonly production?: unknown; readonly sessionSecret?: unknown } = {}): SnapshotSigningConfig {
   const production = options.production === true;
   const sessionSecret = String(options.sessionSecret || '');
   let activeKeyId = String(env.NV_SNAPSHOT_SIGNING_KEY_ID || '').trim();
@@ -108,38 +125,53 @@ function loadSnapshotSigningConfig(env = process.env, options = {}) {
   });
 }
 
-function sameHex(left, right) {
-  if (!/^[0-9a-f]{64}$/.test(String(left || '')) || !/^[0-9a-f]{64}$/.test(String(right || ''))) {
+function sameHex(left: unknown, right: unknown): boolean {
+  if (!isSha256Hex(String(left || '')) || !isSha256Hex(String(right || ''))) {
     return false;
   }
-  return crypto.timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'));
+  return crypto.timingSafeEqual(Buffer.from(String(left), 'hex'), Buffer.from(String(right), 'hex'));
 }
 
-function createSnapshotSignatures(config) {
-  if (!config || !config.activeKeyId || !config.activeSecret) {
+export interface SnapshotVerification {
+  readonly valid: boolean;
+  readonly keyId: string | null;
+  readonly legacy: boolean;
+}
+export interface SnapshotSignatures {
+  readonly activeKeyId: unknown;
+  sign(snapshotId: unknown, snapshot: unknown): string;
+  verify(signature: unknown, snapshotId: unknown, snapshot: unknown): SnapshotVerification;
+}
+
+export function createSnapshotSignatures(config: unknown): SnapshotSignatures {
+  const activeKeyId = read(config, 'activeKeyId');
+  const activeSecret = read(config, 'activeSecret');
+  if (!config || !activeKeyId || !activeSecret) {
     throw new TypeError('Snapshot signing configuration is invalid');
   }
-  const keys = new Map([
-    [config.activeKeyId, config.activeSecret],
-    ...Object.entries(config.retiredKeys || {})
+  const retired: unknown = read(config, 'retiredKeys');
+  const keys = new Map<unknown, unknown>([
+    [activeKeyId, activeSecret],
+    ...Object.entries(Object(retired || {}))
   ]);
-  const legacyKeys = [...(config.legacyKeys || [])];
+  const legacy = read(config, 'legacyKeys');
+  const legacyKeys: unknown[] = [...iterable(legacy || [], '(config.legacyKeys || [])')];
 
-  function sign(snapshotId, snapshot) {
-    const digest = hmacJson(config.activeSecret, { snapshotId, snapshot });
-    return `${SIGNATURE_PREFIX}:${config.activeKeyId}:${digest}`;
+  function sign(snapshotId: unknown, snapshot: unknown): string {
+    const digest = hmacJson(activeSecret, { snapshotId, snapshot });
+    return `${SIGNATURE_PREFIX}:${String(activeKeyId)}:${digest}`;
   }
 
-  function verify(signature, snapshotId, snapshot) {
+  function verify(signature: unknown, snapshotId: unknown, snapshot: unknown): SnapshotVerification {
     const supplied = String(signature || '');
     const match = SIGNATURE_PATTERN.exec(supplied);
     if (match) {
-      const [, keyId, digest] = match;
+      const [, keyId = '', digest] = match;
       const secret = keys.get(keyId);
       const valid = !!secret && sameHex(digest, hmacJson(secret, { snapshotId, snapshot }));
       return Object.freeze({ valid, keyId, legacy: false });
     }
-    if (/^[0-9a-f]{64}$/.test(supplied)) {
+    if (isSha256Hex(supplied)) {
       const valid = legacyKeys.some(secret => sameHex(
         supplied,
         hmacJson(secret, { snapshotId, snapshot })
@@ -149,11 +181,5 @@ function createSnapshotSignatures(config) {
     return Object.freeze({ valid: false, keyId: null, legacy: false });
   }
 
-  return Object.freeze({ activeKeyId: config.activeKeyId, sign, verify });
+  return Object.freeze({ activeKeyId, sign, verify });
 }
-
-module.exports = Object.freeze({
-  SIGNATURE_PREFIX,
-  loadSnapshotSigningConfig,
-  createSnapshotSignatures
-});

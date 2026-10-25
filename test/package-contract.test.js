@@ -609,7 +609,7 @@ for (const allowed of [
 
 const hostedOperationsSources = [
   'apps/api/src/platform/persistence/hosted-readiness.ts',
-  'src/backup-format.js',
+  'apps/api/src/platform/persistence/backup-format.ts',
   'scripts/alpha-db.js',
   'scripts/alpha-smoke.js',
   'scripts/alpha-load.js'

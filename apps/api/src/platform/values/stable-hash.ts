@@ -9,6 +9,7 @@
  * account merge were all taken over these bytes, so they must never change.
  */
 import crypto from 'node:crypto';
+import { sha256Hmac } from '../crypto/hmac.ts';
 import { isFields } from './fields.ts';
 
 export function stableJson(value: unknown): string {
@@ -22,6 +23,6 @@ export function hashJson(value: unknown): string {
   return crypto.createHash('sha256').update(stableJson(value)).digest('hex');
 }
 
-export function hmacJson(secret: crypto.BinaryLike | crypto.KeyObject, value: unknown): string {
-  return crypto.createHmac('sha256', secret).update(stableJson(value)).digest('hex');
+export function hmacJson(secret: unknown, value: unknown): string {
+  return sha256Hmac(secret).update(stableJson(value)).digest('hex');
 }

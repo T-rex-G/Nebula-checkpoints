@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { compareSnapshots, normalizeBranchName, normalizeCommitSha } = require('../src/intelligence');
+const { compareSnapshots, normalizeBranchName, normalizeCommitSha } = require('../apps/api/src/modules/corona/index.ts');
 const { referenceSha } = require('../apps/api/src/modules/github-provider/index.ts');
 const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 

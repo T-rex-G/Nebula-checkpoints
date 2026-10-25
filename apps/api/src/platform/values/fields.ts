@@ -29,6 +29,15 @@ export function member(value: unknown, key: string): unknown {
   return Reflect.get(Object(value), key);
 }
 
+/*
+ * What `for...of` and a spread walk: anything iterable, and for anything else
+ * the TypeError they throw, naming the expression as the engine names it.
+ */
+export function iterable(value: unknown, expression: string): Iterable<unknown> {
+  if (value !== null && value !== undefined && typeof Reflect.get(Object(value), Symbol.iterator) === 'function') return Object(value);
+  throw new TypeError(`${expression} is not iterable`);
+}
+
 /* The value as an object to read fields from; an empty one when it is not an object. */
 export function fieldsOf(value: unknown): Fields {
   return isFields(value) ? value : {};

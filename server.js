@@ -203,7 +203,7 @@ const {
   discoverProject, probeAnonymousReadability, signReadabilityAuthorization
 } = readabilityProbe;
 const {
-  createPostureReader, exposureSummary, summarizePosture, pullListItem, buildInbox, readBranchProtection
+  pullListItem, registerWorkspacePostureRoutes, registerBranchProtectionRoutes
 } = require('./apps/api/src/modules/posture/index.ts');
 const codeowners = require('./packages/contracts/src/codeowners.ts');
 
@@ -4387,96 +4387,13 @@ app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
-/*
- * What the overview scores, read rather than assumed. Every decision lives in
- * the posture module's reader; this passes it the transports and stores it
- * reads.
- */
-let _postureReader = null;
-function postureReader() {
-  if (!_postureReader) {
-    _postureReader = createPostureReader({
-      gh, dbReady, pool, identityKey, normalizePolicyScope,
-      exposureStore: () => exposureService(),
-      severityOf: exposureSeverityOf,
-      databaseConfigured: Boolean(DB_URL),
-      maintenance: MAINTENANCE_MODE,
-      hostedAlpha: HOSTING_PROFILE === 'hosted-alpha'
-    });
-  }
-  return _postureReader;
-}
-
-app.get('/api/workspace/posture', providerSessionAccess, auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try { res.json(await postureReader().read(req.gh)); } catch (e) { fail(res, e); }
-});
-
-/*
- * The security posture on the Overview: what the audit history, the exposure
- * scans and the governance decisions already hold for this identity, read
- * together (the posture module's summary). Nothing is fetched from the provider.
- * Without a database there is nothing to read, and the page is told so
- * rather than shown a clean workspace; a store that fails leaves its own part
- * unmeasured and the rest standing.
- */
-const POSTURE_WEEKS = 12;
-app.get('/api/workspace/security-posture', providerSessionAccess, capabilityAccess('workspace.posture'), auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const account = req.gh;
-    if (!account || (account.provider || 'github') !== 'github') {
-      throw Object.assign(new Error('Workspace posture requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
-    }
-    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
-    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
-    const provider = 'github';
-    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
-    const key = identityKey(account);
-    const now = Date.now();
-    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
-    const [audit, exposureRows, exposureTrend, merges] = await Promise.all([
-      settle(() => auditHistory().workspace({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
-      settle(() => exposureService().workspaceSummary({ provider, authority, identityKey: key })),
-      settle(() => exposureService().workspaceTrend({ provider, authority, identityKey: key, now, weeks: POSTURE_WEEKS })),
-      settle(() => ensureGovernanceStore().countMergeOutcomes({ actorIdentityKey: key, since: now - 7 * 24 * 60 * 60 * 1000 }))
-    ]);
-    const exposure = exposureRows ? { available: true, repositories: exposureSummary(exposureRows, exposureSeverityOf) } : null;
-    res.json({ available: true, ...summarizePosture({ audit, exposure, exposureTrend, merges, now, weeks: POSTURE_WEEKS }) });
-  } catch (e) { fail(res, e); }
-});
-
-/*
- * The findings inbox (the posture module's inbox): every open finding across the
- * workspace, from the audit history and the exposure scans this identity
- * holds, with its state and a team's decision where one applies. Nothing is
- * fetched from the provider; a path from an exposure scan is masked as the
- * findings screen masks it. A store that fails leaves its part unmeasured.
- */
-app.get('/api/workspace/findings', providerSessionAccess, capabilityAccess('findings.inbox'), auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const account = req.gh;
-    if (!account || (account.provider || 'github') !== 'github') {
-      throw Object.assign(new Error('The findings inbox requires GitHub'), { code: 'PROVIDER_ACCOUNT_INVALID', status: 401 });
-    }
-    if (!DB_URL) return res.json({ available: false, reason: 'not-configured' });
-    if (!(await dbReady().catch(() => false))) return res.json({ available: false, reason: 'database-unavailable' });
-    const provider = 'github';
-    const authority = normalizePolicyScope({ provider, baseUrl: account.baseUrl || '', owner: 'scope', repo: 'scope' }).authority;
-    const key = identityKey(account);
-    const now = Date.now();
-    const settle = run => Promise.resolve().then(run).then(value => value, () => null);
-    const [audit, exposure] = await Promise.all([
-      settle(() => auditHistory().workspaceFindings({ provider, authority, identityKey: key, now })),
-      settle(() => exposureService().workspaceFindings({ provider, authority, identityKey: key }))
-    ]);
-    res.json({
-      available: true,
-      vocabulary: TRIAGE_VOCABULARY,
-      ...buildInbox({ audit, exposure, now, severityOf: exposureSeverityOf, displayPath: safeDisplayPath })
-    });
-  } catch (e) { fail(res, e); }
+/* Posture: the workspace posture, the security posture and the findings inbox (apps/api/src/modules/posture/http/posture-routes.ts). */
+registerWorkspacePostureRoutes(app, {
+  providerSessionAccess, capabilityAccess, auth, account: req => req.gh, fail,
+  gh, dbReady, pool, identityKey, normalizePolicyScope,
+  databaseConfigured: Boolean(DB_URL), maintenance: MAINTENANCE_MODE, hostedAlpha: HOSTING_PROFILE === 'hosted-alpha',
+  auditHistory, exposureService, governanceStore: ensureGovernanceStore,
+  severityOf: exposureSeverityOf, displayPath: safeDisplayPath, triageVocabulary: TRIAGE_VOCABULARY
 });
 
 /*
@@ -8009,22 +7926,8 @@ const { site: siteJobs, rendered: renderedJobs } = registerParallaxRoutes(app, {
   providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, viewer: req => identityKey(req.gh), fail
 });
 
-/*
- * What the provider enforces on a branch, beside Nebulaverse-X's own
- * safeguards. Read-only: every path and every judgement is in the posture
- * module's branch protection reading; this binds its reader to the open
- * repository.
- */
-app.get('/api/repo/:owner/:repo/branch-protection', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const provider = req.gh.provider || 'github';
-    const branch = req.query.branch ? requireBranchName(String(req.query.branch)) : '';
-    const read = apiPath => gh(req.gh, `${R(req)}${apiPath}`);
-    const webBase = 'https://github.com';
-    res.json(await readBranchProtection({ provider, owner: req.params.owner, repo: req.params.repo, branch, read, webBase }));
-  } catch (e) { fail(res, e); }
-});
+/* Posture: a branch's provider rules beside the server's own safeguards. */
+registerBranchProtectionRoutes(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
 
 app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit'), auth, async (req, res) => {
   try {

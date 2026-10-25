@@ -131,7 +131,7 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
   assert.strictEqual(Object.getPrototypeOf(inherited.counts.byKind), Object.prototype, 'a count never replaces the prototype');
 }
 
-/* The routes: gated, uncached, credential-free, provider-free where they should be. */
+/* The inbox's route -- gated, uncached, credential-free, provider-free, paths masked -- is held in test/posture-routes.test.js. */
 {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const slice = name => {
@@ -139,12 +139,6 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
     assert(start > 0, `${name} must exist`);
     return server.slice(start, server.indexOf('\n});', start));
   };
-  const inbox = slice("app.get('/api/workspace/findings'");
-  assert.match(inbox, /providerSessionAccess, capabilityAccess\('findings\.inbox'\), auth,/);
-  assert.match(inbox, /Cache-Control', 'no-store'/);
-  assert.doesNotMatch(inbox, /\.token\b/);
-  assert.doesNotMatch(inbox, /\bgh\(/, 'the inbox fetches nothing from the provider');
-  assert.match(inbox, /displayPath: safeDisplayPath/, 'exposure paths are masked on the server');
   const owners = slice("app.get('/api/repo/:owner/:repo/codeowners'");
   assert.match(owners, /providerSessionAccess, alphaRepositoryAccess, capabilityAccess\('file\.read'\), auth,/);
   assert.match(owners, /codeowners\.serialize\(codeowners\.parse\(text\)\)/, 'patterns and owners only leave the server');

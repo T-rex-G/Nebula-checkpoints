@@ -701,3 +701,30 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
 - **Next:** the other modules' routes, smallest first, each receiving the guards it uses as Parallax does. Identity-access goes last: it owns those guards, the sessions and the alpha access boundary.
+
+### D12b — Posture's routes
+
+- **Two registration functions, because the routes sit in two places.** The workspace posture, the security posture and the findings inbox are registered together where they were; branch protection is registered later, among the repository routes. `modules/posture/http/posture-routes.ts` therefore exports `registerWorkspacePostureRoutes` and `registerBranchProtectionRoutes`, and the server calls each at its route's place. The route policy is unchanged.
+- **What the routes are handed.** Each route receives its guards, the session's provider account through `account(req)`, and the server's error answer. The workspace routes also receive the database's state and the stores as the server builds them: Uranus's audit history, Quasar's exposure scans and Kepler's governance store. They also receive Quasar's rule severity and path masking, and Kepler's triage vocabulary. The posture reader is built inside the module from the same ports, so the server no longer holds it. Branch protection reads the provider through the server's transport, and checks a branch name with Corona's `normalizeBranchName`, as it always did.
+- **One order kept on purpose.** The security posture and the inbox refuse a non-GitHub account first, then answer "not configured" or "database unavailable", and only then work out the workspace scope. The first port computed the scope before the database checks. An account whose scope cannot be normalised would then have been refused where it had always been told there was no database. The oracle below found it, and a mutant that restores that order fails it.
+- **Behaviour unchanged**, by an oracle that ran the four handlers cut from the previous `server.js` beside the module. Each handler got its own world from the same seed, and the oracle compared every answer (status, `Cache-Control`, body) and every call made to the database, the stores and the provider. Across 6,000 scenarios it varied:
+  - ten account shapes, among them none, other providers, an Enterprise base URL, an unparseable one, no login, and a number;
+  - a database that is absent, ready, down or throwing;
+  - each of six store readings answering, rejecting or throwing;
+  - provider answers that succeed, deny or fail;
+  - nine branch names.
+
+  All 12,000 comparisons were identical, and every outcome was reached: available, not configured, database unavailable, refused, scope invalid, identity invalid, branch rules unsupported, not found, provider failed and internal.
+- **Source-reading checks became one behavioural test.** `posture-summary`, `findings-inbox` and `workspace-posture` each read their route out of `server.js`. They now test their domain only. `test/posture-routes.test.js` holds all four routes over HTTP, with the stores handed in:
+  - their guard chains, from the route policy;
+  - no-store on every answer;
+  - the two workspace readings never reading the credential (a getter on the account reports it) and never asking the provider;
+  - every store asked for this identity only;
+  - paths masked on the server;
+  - a failing store leaving only its own part unmeasured;
+  - the database's absence said, with nothing asked;
+  - branch protection reading only the open repository and refusing a bad branch name.
+
+  The posture route's body is still checked by its text for the token, since the reader it calls reads the token by design.
+- **Ratchet:** the routes `server.js` registers itself fall from 185 to 181.
+- **Checks:** typecheck, lint, syntax, secrets, docs, inventory and verify; the architecture oracles, route surface, provider route inventory and module boundaries; the posture tests; the full unit gate and every verify-job gate on Node 22.23.4; the compiled-server tests.

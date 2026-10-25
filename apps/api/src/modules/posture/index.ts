@@ -32,3 +32,5 @@ export { readBranchProtection } from './application/branch-protection.ts';
 export type { BranchProtectionInput, RepositoryRead } from './application/branch-protection.ts';
 export { createPostureReader } from './application/posture-reader.ts';
 export type { PostureDependencies, WorkspacePosture } from './application/posture-reader.ts';
+export { registerBranchProtectionRoutes, registerWorkspacePostureRoutes } from './http/posture-routes.ts';
+export type { BranchProtectionDeps, PostureGuards, WorkspacePostureDeps } from './http/posture-routes.ts';

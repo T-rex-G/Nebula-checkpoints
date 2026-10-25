@@ -7,8 +7,6 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const posture = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-09-26T12:00:00.000Z');
@@ -131,16 +129,7 @@ for (const provider of ['gitlab', 'gitea']) {
   assert(Object.isFrozen(summary) && Object.isFrozen(summary[0]) && Object.isFrozen(summary[0].open));
 }
 
-/* The route exists, is authenticated, is not cached, and is one call. */
-{
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const start = server.indexOf("app.get('/api/workspace/posture'");
-  assert(start > 0, 'the posture route must exist');
-  const route = server.slice(start, server.indexOf('\n});', start));
-  assert.match(route, /providerSessionAccess, auth,/);
-  assert.match(route, /Cache-Control', 'no-store'/);
-  assert.doesNotMatch(route, /req\.gh\.token/, 'the route body never touches the token itself');
-}
+/* The route itself -- authenticated, uncached, one call to the reader -- is held in test/posture-routes.test.js. */
 
 /* The reader, against fake transports: each reading fails on its own. */
 (async () => {

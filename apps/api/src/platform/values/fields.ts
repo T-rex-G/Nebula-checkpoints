@@ -18,6 +18,17 @@ export function read(value: unknown, key: string): unknown {
   return isFields(value) ? value[key] : undefined;
 }
 
+/*
+ * A member, read as JavaScript reads `value.key`: reading one off null or
+ * undefined is a TypeError, and anything else is boxed and read, inherited
+ * members included. For code whose failures on such a value are part of what
+ * it does; `read` is the forgiving form.
+ */
+export function member(value: unknown, key: string): unknown {
+  if (value === null || value === undefined) throw new TypeError(`Cannot read properties of ${value} (reading '${key}')`);
+  return Reflect.get(Object(value), key);
+}
+
 /* The value as an object to read fields from; an empty one when it is not an object. */
 export function fieldsOf(value: unknown): Fields {
   return isFields(value) ? value : {};

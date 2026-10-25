@@ -571,3 +571,37 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the compiled-server tests;
   - the rendered-audit browser test on real Chromium.
 - **Next:** D9 (Pulsar).
+
+### D9 — Pulsar, the live-activity module, and `src/intelligence.js` divided
+
+- **`src/intelligence.js` was four things in one file.** It held webhook intake, the platform's stable hashing and text cleaning, GitHub reference reading, and Corona's evidence, safeguards and snapshots. Each part has gone where it belongs, except Corona's, which goes in D10:
+  - `platform/values/stable-hash.ts`: the server's stable JSON, `hashJson` and `hmacJson`. It is not the contracts' canonical JSON. That form differs on `undefined` and `toJSON`, while stored event ids, evidence payload hashes and the session account merge were taken over these bytes, so they are kept byte for byte.
+  - `platform/values/text.ts`: `cleanText` and `cleanPath`.
+  - `platform/values/path-patterns.ts`: `globToRegExp` and `pathMatches`, which Pulsar's event risk and Corona's safeguards both use.
+  - `platform/values/fields.ts` gains `member`. It reads a field as JavaScript reads `value.key`, so code that has always failed on a null value keeps failing the same way, where `read` would forgive it.
+  - `modules/github-provider/domain/provider-references.ts`: `referenceSha` and `normalizeProviderBranches`, which read GitHub's answers.
+- **`modules/pulsar`, behind its index:**
+  - `domain/webhook-events.ts`: a delivery normalised into one event, and its risk.
+  - `domain/webhook-signature.ts`: the `X-Hub-Signature-256` check.
+  - `domain/activity-feed.ts`: the feed merged from per-repository answers.
+  - `application/live-stream.ts`: the bounded writer that drops a reader too far behind, and the live-client admission.
+  - The index exports the webhook, signature and stream names flat, and the feed as the `activityFeed` namespace: its `KINDS` and `instant` mean other things elsewhere.
+- **What stays in `src/intelligence.js`** is Corona's, unchanged, for D10: the evidence keyrings and record hashes, the protected-path patterns, the repository path, branch and commit validators, the snapshot comparison, the access-surface risk and the access graph's shortest path. An oracle compared each function's source with the original, and all are byte for byte the same.
+- **Behaviour unchanged**, by an oracle that ran the original three files beside their new homes. It made 121,548 comparisons, all identical:
+  - stable JSON, both hashes and both text cleaners over 4,000 generated values of every shape;
+  - 6,000 glob matches;
+  - 3,000 reference and branch readings, and live-client admissions;
+  - 2,000 signature checks, with any secret `crypto` refuses still refused by a throw;
+  - 20,000 webhook deliveries across every event kind. Payloads, commits and repositories were null, primitive or partial. A delivery that failed before still fails, and the same way: a null payload, or a null commit, is a TypeError as it always was.
+  - the risk of every normalised and hand-made event;
+  - 6,000 repository selections, feeds and timestamps;
+  - 4,000 live-stream writes against clients that are healthy, ended, destroyed, full, without `destroy` or `end`, or that throw.
+- **Removed:** `src/activity-feed.js` and `src/live-stream.js`. The server, `src/snapshot-signatures.js`, the hosted-drill script and every test reach the new homes. `jsconfig.json` no longer lists the two files.
+- **One closure that needed a file.** The continuity-generation test copies the smallest set of files the generator needs into a scratch archive. Since GitHub's reference readers now use the platform's field helpers, that set includes `platform/values/fields.ts`.
+- **Checks:**
+  - typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify;
+  - the intelligence, feed, live-stream, exposure-review, snapshot-signature, recovery, safe-passage and repository-boundary programs;
+  - the contracts, codes, module boundaries and the route surface;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+- **Next:** D10 (Corona).

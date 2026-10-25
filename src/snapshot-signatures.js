@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { hmacJson } = require('./intelligence');
+const { hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 
 const SIGNATURE_PREFIX = 'nvx-snapshot-hmac-v1';
 const KEY_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$/;

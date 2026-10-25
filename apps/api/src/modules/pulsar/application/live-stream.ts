@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * Every live-event write went out as `try { client.write(...) } catch {}`.
  *
@@ -24,6 +22,7 @@
  * on an open socket believing it was current, which is the one outcome worth
  * avoiding.
  */
+import { read } from '../../../platform/values/fields.ts';
 
 /*
  * Roughly a few hundred small events, or one pathological one. Small enough
@@ -31,24 +30,37 @@
  * that an ordinary slow connection catching its breath is not disconnected for
  * it.
  */
-const MAX_LIVE_CLIENT_BUFFER_BYTES = 256 * 1024;
+export const MAX_LIVE_CLIENT_BUFFER_BYTES = 256 * 1024;
 
-const WRITTEN = 'written';
-const DROPPED = 'dropped';
-const ENDED = 'ended';
+export const WRITTEN = 'written';
+export const DROPPED = 'dropped';
+export const ENDED = 'ended';
+export type LiveWrite = typeof WRITTEN | typeof DROPPED | typeof ENDED;
 
-function bufferedBytes(client) {
-  const length = Number(client && client.writableLength);
+function bufferedBytes(client: unknown): number {
+  const length = Number(client && read(client, 'writableLength'));
   return Number.isFinite(length) && length > 0 ? length : 0;
+}
+
+/* A stream method, called on its stream; a member that is not a function is called anyway, and fails as it always did. */
+function call(client: unknown, name: string, ...args: unknown[]): unknown {
+  const method = read(client, name);
+  if (typeof method !== 'function') throw new TypeError(`client.${name} is not a function`);
+  return Reflect.apply(method, client, args);
+}
+
+export interface LiveWriteOptions {
+  readonly maxBufferedBytes?: unknown;
+  readonly onDrop?: unknown;
 }
 
 /*
  * Returns what happened rather than a boolean, so a caller can count drops
  * without inferring them from a false that also means "buffered, will flush".
  */
-function writeLiveClient(client, payload, options = {}) {
-  if (!client || typeof client.write !== 'function') return ENDED;
-  if (client.writableEnded || client.destroyed) return ENDED;
+export function writeLiveClient(client: unknown, payload: unknown, options: LiveWriteOptions = {}): LiveWrite {
+  if (!client || typeof read(client, 'write') !== 'function') return ENDED;
+  if (read(client, 'writableEnded') || read(client, 'destroyed')) return ENDED;
 
   const limit = Number(options.maxBufferedBytes) > 0
     ? Number(options.maxBufferedBytes)
@@ -61,16 +73,17 @@ function writeLiveClient(client, payload, options = {}) {
    */
   const payloadBytes = Buffer.isBuffer(payload) ? payload.length : Buffer.byteLength(String(payload), 'utf8');
   if (bufferedBytes(client) + payloadBytes > limit) {
-    if (typeof options.onDrop === 'function') options.onDrop(client);
+    const onDrop = options.onDrop;
+    if (typeof onDrop === 'function') Reflect.apply(onDrop, options, [client]);
     try {
-      if (typeof client.destroy === 'function') client.destroy();
-      else client.end();
+      if (typeof read(client, 'destroy') === 'function') call(client, 'destroy');
+      else call(client, 'end');
     } catch { /* the socket is already gone */ }
     return DROPPED;
   }
 
   try {
-    client.write(payload);
+    call(client, 'write', payload);
   } catch {
     /* A stream that really has gone away throws on write; it is finished. */
     return ENDED;
@@ -78,10 +91,10 @@ function writeLiveClient(client, payload, options = {}) {
   return WRITTEN;
 }
 
-module.exports = Object.freeze({
-  MAX_LIVE_CLIENT_BUFFER_BYTES,
-  WRITTEN,
-  DROPPED,
-  ENDED,
-  writeLiveClient
-});
+/* Whether one more live stream may open: under the total, and under the limit for its repository and identity. */
+export function canAcceptLiveClient(totalClients: unknown, keyClients: unknown, maxTotal = 100, maxPerKey = 5): boolean {
+  const total = Number(totalClients);
+  const scoped = Number(keyClients);
+  return Number.isFinite(total) && Number.isFinite(scoped) && total >= 0 && scoped >= 0 &&
+    total < maxTotal && scoped < maxPerKey;
+}

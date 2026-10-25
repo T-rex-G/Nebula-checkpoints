@@ -270,6 +270,8 @@ try {
     'apps/api/src/modules/github-provider',
     'apps/api/src/modules/identity-access',
     'apps/api/src/platform/persistence/queryable.ts',
+    /* GitHub's answers about references are read with the platform's field helpers. */
+    'apps/api/src/platform/values/fields.ts',
     /* The capability document's guard is a shared contract, in its own module scope. */
     'packages/package.json',
     'packages/contracts/src/capability.ts',

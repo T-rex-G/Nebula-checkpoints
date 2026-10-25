@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
-const { writeLiveClient, DROPPED } = require('../src/live-stream');
+const { writeLiveClient, DROPPED } = require('../apps/api/src/modules/pulsar/index.ts');
 const { guardedFetch, PROFILES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const { createExposureRunner } = require('../apps/api/src/modules/quasar/index.ts');
 const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require('../apps/api/src/modules/quasar/index.ts');

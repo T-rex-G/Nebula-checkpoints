@@ -20,7 +20,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson } = require('../src/intelligence');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 

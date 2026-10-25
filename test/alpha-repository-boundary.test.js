@@ -7,7 +7,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson, evidenceRecordHash } = require('../src/intelligence');
+const { evidenceRecordHash } = require('../src/intelligence');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const {
   createCsrfToken,
@@ -146,7 +147,8 @@ const fixtureSource = String.raw`
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
-const { hashJson, evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
+const { evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
+const { hashJson } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'platform', 'values', 'stable-hash.ts'));
 const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'platform', 'crypto', 'key-derivation.ts'));
 const sessionSecret = process.env.SESSION_SECRET;
 const originalLoad = Module._load;

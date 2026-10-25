@@ -2,13 +2,16 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const {
-  stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  evidenceRecordHash,
   EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets,
-  evidenceKeyrings,
-  riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
+  evidenceKeyrings, protectedPatternsForRepository,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
-  compareSnapshots, riskForAccessSurface, normalizeProviderBranches
+  compareSnapshots, riskForAccessSurface
 } = require('../src/intelligence');
+const { stableJson, hashJson, hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { pathMatches } = require('../apps/api/src/platform/values/path-patterns.ts');
+const { referenceSha, normalizeProviderBranches } = require('../apps/api/src/modules/github-provider/index.ts');
+const { verifyGithubSignature, normalizeGithubWebhook, riskForEvent, canAcceptLiveClient } = require('../apps/api/src/modules/pulsar/index.ts');
 const { normalizeDatabaseUrl } = require('../apps/api/src/platform/config/config.ts');
 const { KEY_PURPOSES, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 

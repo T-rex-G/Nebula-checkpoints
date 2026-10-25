@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * The activity feed — what happened, across the repositories a session holds.
  *
@@ -32,8 +30,10 @@
  * it came from and the kind of thing it was, so a reader can go and check. No
  * entry is summarised into a sentence whose source cannot be recovered.
  */
+import { listOf, member, read } from '../../../platform/values/fields.ts';
 
-const KINDS = Object.freeze(['commit', 'pull', 'issue', 'release']);
+export const KINDS = Object.freeze(['commit', 'pull', 'issue', 'release'] as const);
+export type EventKind = (typeof KINDS)[number];
 
 /*
  * The per-repository cost of a feed is what limits how wide it can be. Each
@@ -42,10 +42,10 @@ const KINDS = Object.freeze(['commit', 'pull', 'issue', 'release']);
  * hundred repositories must not become two hundred requests because someone
  * opened the overview.
  */
-const MAX_REPOSITORIES = 6;
-const MAX_EVENTS = 24;
+export const MAX_REPOSITORIES = 6;
+export const MAX_EVENTS = 24;
 
-function text(value, limit = 200) {
+function text(value: unknown, limit = 200): string {
   const out = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return out.length > limit ? `${out.slice(0, limit - 1)}…` : out;
 }
@@ -58,70 +58,85 @@ function text(value, limit = 200) {
  * just quietly lands somewhere in the order. So the parse is checked here and
  * the caller is handed either a finite number or null, never NaN.
  */
-function instant(value) {
+export function instant(value: unknown): number | null {
   if (value == null || value === '') return null;
-  const parsed = Date.parse(value);
+  const parsed = Date.parse(String(value));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function repositoryName(entry) {
-  return text((entry && (entry.repo || entry.full_name || entry.fullName)) || '', 140);
+function repositoryName(entry: unknown): string {
+  return text((entry && (read(entry, 'repo') || read(entry, 'full_name') || read(entry, 'fullName'))) || '', 140);
 }
 
 /* ------------------------------------------------------------- the events */
 
-function commitEvents(repo, list) {
-  return (Array.isArray(list) ? list : []).map(item => {
-    const sha = text(item && item.sha, 40);
+export interface FeedEvent {
+  readonly kind: EventKind;
+  readonly repo: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly actor: string;
+  readonly at: number | null;
+  readonly ref: string;
+}
+
+/* A pull request's or an issue's number, as the feed shows it; a null entry fails the read, as it always has. */
+function numbered(item: unknown): string {
+  return Number.isFinite(Number(item && read(item, 'number'))) ? `#${Number(member(item, 'number'))}` : '';
+}
+
+function commitEvents(repo: string, list: unknown): FeedEvent[] {
+  return listOf(list).map(item => {
+    const sha = text(item && read(item, 'sha'), 40);
     return {
       kind: 'commit',
       repo,
       /* The subject line only. A commit body belongs to the commit, not to a
          feed entry, and pasting one in makes every row a different height. */
-      title: text(String((item && item.message) || '').split(/\r?\n/, 1)[0], 120),
+      title: text(String((item && read(item, 'message')) || '').split(/\r?\n/, 1)[0], 120),
       detail: sha ? sha.slice(0, 7) : '',
-      actor: text(item && item.author, 80),
-      at: instant(item && item.date),
+      actor: text(item && read(item, 'author'), 80),
+      at: instant(item && read(item, 'date')),
       ref: sha
     };
   });
 }
 
-function pullEvents(repo, list) {
-  return (Array.isArray(list) ? list : []).map(item => ({
+function pullEvents(repo: string, list: unknown): FeedEvent[] {
+  return listOf(list).map(item => ({
     kind: 'pull',
     repo,
-    title: text(item && item.title, 120),
+    title: text(item && read(item, 'title'), 120),
     /* merged / open / closed, as the route already resolved it -- this does
        not re-derive state from a merged_at field it was never given. */
-    detail: text(item && item.state, 20),
+    detail: text(item && read(item, 'state'), 20),
     actor: '',
-    at: instant(item && item.updated),
-    ref: Number.isFinite(Number(item && item.number)) ? `#${Number(item.number)}` : ''
+    at: instant(item && read(item, 'updated')),
+    ref: numbered(item)
   }));
 }
 
-function issueEvents(repo, list) {
-  return (Array.isArray(list) ? list : []).map(item => ({
+function issueEvents(repo: string, list: unknown): FeedEvent[] {
+  return listOf(list).map(item => ({
     kind: 'issue',
     repo,
-    title: text(item && item.title, 120),
-    detail: text(item && item.state, 20),
+    title: text(item && read(item, 'title'), 120),
+    detail: text(item && read(item, 'state'), 20),
     actor: '',
-    at: instant(item && item.updated),
-    ref: Number.isFinite(Number(item && item.number)) ? `#${Number(item.number)}` : ''
+    at: instant(item && read(item, 'updated')),
+    ref: numbered(item)
   }));
 }
 
-function releaseEvents(repo, list) {
-  return (Array.isArray(list) ? list : []).map(item => ({
+function releaseEvents(repo: string, list: unknown): FeedEvent[] {
+  return listOf(list).map(item => ({
     kind: 'release',
     repo,
-    title: text((item && (item.name || item.tag)) || '', 120),
-    detail: text(item && item.tag, 60),
+    title: text((item && (read(item, 'name') || read(item, 'tag'))) || '', 120),
+    detail: text(item && read(item, 'tag'), 60),
     actor: '',
-    at: instant(item && item.published),
-    ref: text(item && item.tag, 60)
+    at: instant(item && read(item, 'published')),
+    ref: text(item && read(item, 'tag'), 60)
   }));
 }
 
@@ -134,9 +149,16 @@ function releaseEvents(repo, list) {
  * nothing quietly buys six provider round trips. A finite number is clamped;
  * only a genuinely absent one falls back.
  */
-function bound(value, max) {
+function bound(value: unknown, max: number): number {
   const asked = Number(value);
   return Number.isFinite(asked) ? Math.max(1, Math.min(max, asked)) : max;
+}
+
+export interface SelectedRepository {
+  readonly full_name: string;
+  readonly owner: string;
+  readonly name: string;
+  readonly pushedAt: number | null;
 }
 
 /*
@@ -147,15 +169,18 @@ function bound(value, max) {
  * treated as brand new -- it sorts last, where an unknown belongs, rather than
  * displacing a repository that demonstrably moved this morning.
  */
-function selectRepositories(repos, limit = MAX_REPOSITORIES) {
+export function selectRepositories(repos: unknown, limit: unknown = MAX_REPOSITORIES): SelectedRepository[] {
   const count = bound(limit, MAX_REPOSITORIES);
-  return (Array.isArray(repos) ? repos : [])
-    .map(repo => ({
-      full_name: repositoryName(repo),
-      owner: text((repo && (repo.owner && repo.owner.login ? repo.owner.login : repo.owner)) || '', 80),
-      name: text(repo && repo.name, 80),
-      pushedAt: instant(repo && (repo.pushed_at || repo.pushedAt))
-    }))
+  return listOf(repos)
+    .map(repo => {
+      const owner = repo && read(repo, 'owner');
+      return {
+        full_name: repositoryName(repo),
+        owner: text((repo && (owner && read(owner, 'login') ? read(owner, 'login') : owner)) || '', 80),
+        name: text(repo && read(repo, 'name'), 80),
+        pushedAt: instant(repo && (read(repo, 'pushed_at') || read(repo, 'pushedAt')))
+      };
+    })
     .filter(repo => repo.full_name && repo.owner && repo.name)
     .sort((a, b) => {
       if (a.pushedAt === b.pushedAt) return a.full_name.localeCompare(b.full_name);
@@ -167,6 +192,16 @@ function selectRepositories(repos, limit = MAX_REPOSITORIES) {
     .map(repo => Object.freeze(repo));
 }
 
+export interface Feed {
+  readonly measured: boolean;
+  readonly events: readonly FeedEvent[];
+  readonly truncated: boolean;
+  readonly totalEvents: number;
+  readonly undated: number;
+  readonly repositories: readonly string[];
+  readonly failed: readonly { readonly repo: string; readonly reason: string }[];
+}
+
 /*
  * One ordered feed out of many per-repository answers.
  *
@@ -174,37 +209,38 @@ function selectRepositories(repos, limit = MAX_REPOSITORIES) {
  * activity payload or an error. Both are kept: the payloads become events and
  * the errors become named repositories the reader is told about.
  */
-function feed(results, options = {}) {
-  const limit = bound(options && options.limit, MAX_EVENTS);
-  const answered = [];
-  const failed = [];
+export function feed(results: unknown, options: unknown = {}): Feed {
+  const limit = bound(options && read(options, 'limit'), MAX_EVENTS);
+  const answered: string[] = [];
+  const failed: { readonly repo: string; readonly reason: string }[] = [];
   let undated = 0;
-  const events = [];
+  const events: (FeedEvent & { readonly at: number })[] = [];
 
-  for (const result of Array.isArray(results) ? results : []) {
+  for (const result of listOf(results)) {
     const repo = repositoryName(result);
     if (!repo) continue;
-    if (!result || result.error) {
+    if (!result || read(result, 'error')) {
       failed.push(Object.freeze({
         repo,
         /* The reason, as given. Not "something went wrong": a reader who can
            see "rate limit exceeded" knows to wait, and one who sees "not
            found" knows the repository moved. */
-        reason: text((result && result.error) || 'unavailable', 160)
+        reason: text((result && read(result, 'error')) || 'unavailable', 160)
       }));
       continue;
     }
     answered.push(repo);
     const batch = [
-      ...commitEvents(repo, result.commits),
-      ...pullEvents(repo, result.pulls),
-      ...issueEvents(repo, result.issues),
-      ...releaseEvents(repo, result.releases)
+      ...commitEvents(repo, read(result, 'commits')),
+      ...pullEvents(repo, read(result, 'pulls')),
+      ...issueEvents(repo, read(result, 'issues')),
+      ...releaseEvents(repo, read(result, 'releases'))
     ];
     for (const event of batch) {
       if (!event.title && !event.ref) continue;
-      if (event.at === null) { undated += 1; continue; }
-      events.push(event);
+      const at = event.at;
+      if (at === null) { undated += 1; continue; }
+      events.push({ ...event, at });
     }
   }
 
@@ -227,12 +263,3 @@ function feed(results, options = {}) {
     failed: Object.freeze(failed)
   });
 }
-
-module.exports = {
-  KINDS,
-  MAX_REPOSITORIES,
-  MAX_EVENTS,
-  instant,
-  selectRepositories,
-  feed
-};

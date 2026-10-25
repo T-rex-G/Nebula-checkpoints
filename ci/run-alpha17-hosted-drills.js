@@ -25,7 +25,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const { AlphaAccessStore } = require('../apps/api/src/modules/identity-access/index.ts');
 const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
-const { hashJson } = require('../src/intelligence');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 
 const SCHEMA_VERSION = '1.0.0';
 const RENDER_API = 'https://api.render.com/v1';

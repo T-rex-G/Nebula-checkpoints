@@ -22,7 +22,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { hashJson } = require('../src/intelligence');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 

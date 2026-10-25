@@ -120,7 +120,8 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  *   A new route's *logic* belongs in a module under src/ behind a narrow
  *   contract, with server.js holding only the registration. That is the
  *   pattern that has actually worked here -- apps/api/src/platform/rate-limit/single-use-store.ts,
- *   src/live-stream.js and apps/api/src/platform/rate-limit/rate-limit-identity.ts each took real logic
+ *   Pulsar's live stream (apps/api/src/modules/pulsar/application/live-stream.ts) and
+ *   apps/api/src/platform/rate-limit/rate-limit-identity.ts each took real logic
  *   out and each made what remained smaller and testable on its own.
  *
  * What was measured and deliberately not done: lifting a whole URL prefix

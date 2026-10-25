@@ -53,11 +53,9 @@
     "strict": false
   },
   "files": [
-    "src/activity-feed.js",
     "src/backup-format.js",
     "src/capability-registry.js",
     "src/config-registry.js",
-    "src/live-stream.js",
     "src/staging-validation.js",
     "src/work-continuity.js"
   ],

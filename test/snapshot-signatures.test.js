@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { hmacJson } = require('../src/intelligence');
+const { hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const {
   createSnapshotSignatures,
   loadSnapshotSigningConfig

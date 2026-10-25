@@ -67,7 +67,7 @@ const {
   createVerifiedRepository, searchAccessibleCode, listAccessibleNotifications,
   verifyRepositoryDeletion,
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
-  resolveProviderAccount
+  resolveProviderAccount, referenceSha, normalizeProviderBranches
 } = require('./apps/api/src/modules/github-provider/index.ts');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
@@ -77,11 +77,17 @@ const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
   .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
-  stableJson, hashJson, evidenceRecordHash,
-  verifyEvidenceRecord, evidenceKeyrings, verifyGithubSignature, normalizeGithubWebhook,
-  riskForEvent, riskForAccessSurface, compareSnapshots, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
-  cleanText, normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, normalizeProviderBranches
+  evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
+  riskForAccessSurface, compareSnapshots, protectedPatternsForRepository,
+  normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern
 } = require('./src/intelligence');
+const { stableJson, hashJson } = require('./apps/api/src/platform/values/stable-hash.ts');
+const { cleanText } = require('./apps/api/src/platform/values/text.ts');
+const { pathMatches } = require('./apps/api/src/platform/values/path-patterns.ts');
+const {
+  verifyGithubSignature, normalizeGithubWebhook, riskForEvent, canAcceptLiveClient, writeLiveClient,
+  activityFeed: { selectRepositories: selectActivityRepositories, feed: buildActivityFeed }
+} = require('./apps/api/src/modules/pulsar/index.ts');
 const {
   normalizeDatabaseUrl,
   loadTrustedProxies,
@@ -146,7 +152,6 @@ const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorizat
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
-const { writeLiveClient } = require('./src/live-stream');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const {
@@ -164,10 +169,6 @@ const { createMutationGateway, normalizeMutationDescriptor } = require('./apps/a
 const { normalizeFileBatch, summarizeBatchItems } = require('./apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 const { pathFactsForAction } = require('./apps/api/src/platform/mutation-gateway/protected-paths.ts');
 const { offerSafePassage } = require('./apps/api/src/platform/mutation-gateway/safe-passage.ts');
-const {
-  selectRepositories: selectActivityRepositories,
-  feed: buildActivityFeed
-} = require('./src/activity-feed');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const {
   auditRepository, assertAuditActive, exploitedInProduction,
@@ -7626,8 +7627,8 @@ app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositor
  *
  * Bounded is the operative word. Every repository here is a separate round trip
  * against someone's rate limit, and an inventory of two hundred repositories
- * must not turn opening the overview into two hundred requests. src/activity-feed.js
- * caps the fan-out; this asks only for commits, because commits are the signal
+ * must not turn opening the overview into two hundred requests. Pulsar's activity
+ * feed caps the fan-out; this asks only for commits, because commits are the signal
  * a feed is mostly made of and pulls, issues and releases would triple the cost
  * of a screen the reader has not asked to drill into. The response says which
  * kinds it carries so the card can describe itself truthfully rather than imply

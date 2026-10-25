@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { compareSnapshots, normalizeBranchName, normalizeCommitSha, referenceSha } = require('../src/intelligence');
+const { compareSnapshots, normalizeBranchName, normalizeCommitSha } = require('../src/intelligence');
+const { referenceSha } = require('../apps/api/src/modules/github-provider/index.ts');
 const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');

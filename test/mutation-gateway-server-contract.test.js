@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { locations } = require('./oracles/route-policy');
 
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
@@ -42,12 +43,14 @@ const routes = new Map([
   ["app.post('/api/repo/:owner/:repo/live-events/connect'", 'webhook.connect'],
   ["app.delete('/api/repo/:owner/:repo/live-events'", 'webhook.disconnect']
 ]);
+/* Each route's guard chain, as the route policy reads it from wherever the route is registered. */
+const guardChains = new Map(locations(root).filter(entry => entry.kind === 'route')
+  .map(entry => [`app.${entry.method.toLowerCase()}('${entry.path}'`, entry.guards]));
 for (const [route, action] of routes) {
-  const index = server.indexOf(route);
-  assert(index >= 0, `missing route ${route}`);
-  const declaration = server.slice(index, server.indexOf('\n', index));
+  const guards = guardChains.get(route);
+  assert(guards, `missing route ${route}`);
   assert(
-    declaration.includes(`mutationContext('${action}')`),
+    guards.includes(`mutationContext('${action}')`),
     `${route} must use mutationContext('${action}')`
   );
 }

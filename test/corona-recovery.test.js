@@ -81,7 +81,7 @@ function fixture(options = {}) {
   vm.runInContext(section('function defaultSafety(', 'async function loadPersistentSafety('), sandbox);
   vm.runInContext(section('const RESTORE_AUTH_TTL_MS', 'async function captureRefsSnapshot('), sandbox);
   vm.runInContext(routeSource('restore-preview', 'signed-snapshot'), sandbox);
-  vm.runInContext(routeSource('restore-refs', 'activity', 'get'), sandbox);
+  vm.runInContext(section(`app.post('${routePrefix}/restore-refs'`, '/* Pulsar: one repository'), sandbox);
   vm.runInContext(routeSource('emergency-manifest', 'signed-snapshots', 'get'), sandbox);
   async function call(suffix, body) {
     const response = { statusCode: 200, status(value) { this.statusCode = value; return this; }, json(value) { this.body = value; return this; } };

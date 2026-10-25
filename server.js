@@ -86,8 +86,8 @@ const { stableJson, hashJson } = require('./apps/api/src/platform/values/stable-
 const { cleanText } = require('./apps/api/src/platform/values/text.ts');
 const { pathMatches } = require('./apps/api/src/platform/values/path-patterns.ts');
 const {
-  verifyGithubSignature, normalizeGithubWebhook, riskForEvent, canAcceptLiveClient, writeLiveClient,
-  activityFeed: { selectRepositories: selectActivityRepositories, feed: buildActivityFeed }
+  verifyGithubSignature, normalizeGithubWebhook, riskForEvent,
+  createLiveHub, registerActivityRoutes, registerLiveEventRoutes
 } = require('./apps/api/src/modules/pulsar/index.ts');
 const {
   normalizeDatabaseUrl,
@@ -1632,44 +1632,12 @@ async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
   return null;
 }
 
-const LIVE_CLIENTS = new Map();
 const MAX_LIVE_CLIENTS_PER_KEY = HOSTED_LIMITS?.liveClientsPerRepo ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_PER_REPO || '5', 10) || 5, 1), 20);
 const MAX_LIVE_CLIENTS_TOTAL = HOSTED_LIMITS?.liveClientsTotal ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_TOTAL || '100', 10) || 100, 10), 500);
-function liveClientCount() {
-  let total = 0;
-  for (const clients of LIVE_CLIENTS.values()) total += clients.size;
-  return total;
-}
+/* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
+const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
 function closeLiveSessions(sessionIds, reason = 'session-revoked') {
-  const ids = new Set((sessionIds || []).filter(Boolean));
-  if (!ids.size) return 0;
-  let closed = 0;
-  for (const [key, clients] of LIVE_CLIENTS) {
-    for (const client of [...clients]) {
-      if (!ids.has(client.nvSessionSid)) continue;
-      try { client.write(`event: session-revoked\ndata: ${JSON.stringify({ reason, at: new Date().toISOString() })}\n\n`); } catch {}
-      try { client.end(); } catch {}
-      clients.delete(client);
-      closed += 1;
-    }
-    if (!clients.size) LIVE_CLIENTS.delete(key);
-  }
-  return closed;
-}
-function closeAlphaLiveSession(key, client) {
-  const clients = LIVE_CLIENTS.get(key);
-  if (clients) {
-    clients.delete(client);
-    if (!clients.size) LIVE_CLIENTS.delete(key);
-  }
-  if (client.writableEnded) return;
-  try {
-    client.write(`event: alpha-access-ended\ndata: ${JSON.stringify({
-      reason: 'access-invalid',
-      at: new Date().toISOString()
-    })}\n\n`);
-  } catch {}
-  try { client.end(); } catch {}
+  return liveHub.closeSessions(sessionIds, reason);
 }
 const WEBHOOK_BUCKETS = new Map();
 const WEBHOOK_RATE_WINDOW_MS = 60000;
@@ -1725,23 +1693,6 @@ async function allowWebhookRequest(req, hookId) {
   return verdict.allowed;
 }
 function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
-function encodeEventCursor(createdAt, eventId) {
-  const timestamp = new Date(createdAt || 0);
-  if (!Number.isFinite(timestamp.getTime()) || !eventId) return '';
-  return Buffer.from(JSON.stringify({ t: timestamp.toISOString(), id: String(eventId) }), 'utf8').toString('base64url');
-}
-function decodeEventCursor(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-    const timestamp = new Date(parsed && parsed.t);
-    const eventId = String(parsed && parsed.id || '');
-    if (Number.isFinite(timestamp.getTime()) && eventId) return { createdAt: timestamp.toISOString(), eventId };
-  } catch {}
-  const legacy = new Date(raw);
-  return Number.isFinite(legacy.getTime()) ? { createdAt: legacy.toISOString(), eventId: '' } : null;
-}
 function scopedEvidenceKey(provider, owner, repo, identity) { return `${repoKey(provider, owner, repo)}:${String(identity || 'anonymous').slice(0, 80)}`; }
 function identityKey(acct) {
   if (acct && /^[0-9a-f]{64}$/.test(String(acct.identityKey || ''))) {
@@ -2043,22 +1994,8 @@ function liveStreamKey(provider, owner, repo, identity) {
   return scopedEvidenceKey(provider, owner, repo, identity);
 }
 function broadcastLive(provider, owner, repo, identity, event) {
-  const key = liveStreamKey(provider, owner, repo, identity);
-  const clients = LIVE_CLIENTS.get(key);
-  if (!clients) return;
   const payload = `id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`;
-  /*
-   * A copy, because a reader that has fallen behind is disconnected during
-   * this loop and its own close handler removes it from the set being walked.
-   */
-  for (const client of [...clients]) {
-    writeLiveClient(client, payload, {
-      onDrop(dropped) {
-        clients.delete(dropped);
-        if (!clients.size) LIVE_CLIENTS.delete(key);
-      }
-    });
-  }
+  liveHub.broadcast(liveStreamKey(provider, owner, repo, identity), payload);
 }
 function publicBase(req) {
   const configured = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
@@ -7269,122 +7206,11 @@ app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepo
   } catch (e) { fail(res, e); }
 });
 
-app.get('/api/repo/:owner/:repo/activity', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    const days = Math.min(Math.max(parseInt(req.query.days || '14', 10) || 14, 1), 90);
-    const since = new Date(Date.now() - days * 86400000).toISOString();
-    const base = {
-      kind: 'nebulaverse-activity', version: 1, generatedAt: new Date().toISOString(),
-      owner: req.params.owner, repo: req.params.repo, days, since
-    };
-    const includePulls = requestSupportsCapability(req, 'pulls.read');
-    const includeIssues = requestSupportsCapability(req, 'issues.read');
-    const includeReleases = requestSupportsCapability(req, 'releases.read');
-    /* An empty ref is the default branch: a repository with no branch selected yet asks this way. */
-    const ref = req.query.ref == null || req.query.ref === '' ? '' : requireBranchName(req.query.ref);
-    base.ref = ref || null;
-    const sourceRequests = [
-      { name: 'commits', limit: 100, requested: true, path: `${R(req)}/commits?since=${encodeURIComponent(since)}&per_page=100${ref ? `&sha=${encodeURIComponent(ref)}` : ''}` },
-      { name: 'pulls', limit: 30, requested: includePulls, path: `${R(req)}/pulls?state=all&sort=updated&direction=desc&per_page=30` },
-      { name: 'issues', limit: 30, requested: includeIssues, path: `${R(req)}/issues?state=all&sort=updated&direction=desc&per_page=30` },
-      { name: 'releases', limit: 20, requested: includeReleases, path: `${R(req)}/releases?per_page=20` }
-    ];
-    const settled = await Promise.allSettled(sourceRequests.map(source => source.requested ? gh(req.gh, source.path) : Promise.resolve([])));
-    const sources = {};
-    const rows = {};
-    sourceRequests.forEach((source, index) => {
-      const outcome = settled[index];
-      const available = source.requested && outcome.status === 'fulfilled' && Array.isArray(outcome.value);
-      rows[source.name] = available ? outcome.value : [];
-      sources[source.name] = { requested: source.requested, available, truncated: available && outcome.value.length >= source.limit };
-    });
-    const { commits, pulls, issues, releases } = rows;
-    const fresh = d => d && new Date(d) >= new Date(since);
-    res.json({
-      ...base,
-      sources,
-      partial: Object.values(sources).some(source => source.requested && (!source.available || source.truncated)),
-      commits: (commits || []).map(c => ({
-        sha: c.sha, parentShas: (Array.isArray(c.parents) ? c.parents : []).map(parent => parent.sha).filter(sha => /^[0-9a-f]{40}$/i.test(sha)), message: ((c.commit && c.commit.message) || '').split('\n')[0],
-        author: (c.commit && c.commit.author && c.commit.author.name) || '',
-        date: c.commit && c.commit.author && c.commit.author.date
-      })),
-      pulls: (pulls || []).filter(p => fresh(p.updated_at)).map(p => ({ number: p.number, title: p.title, state: p.merged_at ? 'merged' : p.state, updated: p.updated_at })),
-      issues: (issues || []).filter(i => !i.pull_request && fresh(i.updated_at)).map(i => ({ number: i.number, title: i.title, state: i.state, updated: i.updated_at })),
-      releases: (releases || []).filter(r => fresh(r.published_at || r.created_at)).map(r => ({ tag: r.tag_name, name: r.name, published: r.published_at || r.created_at }))
-    });
-  } catch (e) { fail(res, e); }
-});
-
-/*
- * The overview's activity feed.
- *
- * The overview has no repository in hand -- that is the whole difficulty. The
- * cheap cross-repository source, GitHub's per-user event stream, is one request
- * for everything, and it is not usable here: it does not exist for a GitHub App
- * installation, which has no user to attribute events to, and it would be a new
- * provider read that this project does not let itself claim as verified until a
- * live run has earned it. So the feed is assembled from reads already earned,
- * over a bounded set of repositories.
- *
- * Bounded is the operative word. Every repository here is a separate round trip
- * against someone's rate limit, and an inventory of two hundred repositories
- * must not turn opening the overview into two hundred requests. Pulsar's activity
- * feed caps the fan-out; this asks only for commits, because commits are the signal
- * a feed is mostly made of and pulls, issues and releases would triple the cost
- * of a screen the reader has not asked to drill into. The response says which
- * kinds it carries so the card can describe itself truthfully rather than imply
- * it is showing everything that happened.
- *
- * One repository failing is not the feed failing. Each read is settled
- * independently and a repository that refused is named in the payload, because
- * a card that quietly shows the other five is telling the reader the sixth was
- * quiet when it was in fact unreadable.
- */
-app.get('/api/activity/recent', providerSessionAccess, alphaRepositoryListAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    const days = Math.min(Math.max(parseInt(req.query.days || '14', 10) || 14, 1), 90);
-    const since = new Date(Date.now() - days * 86400000).toISOString();
-    const inventory = await listRepositoriesFor(req);
-    /* How many repositories to fan out over, not which ones -- the module
-       caps it either way. Named so nobody reads it as a list of names. */
-    const selected = selectActivityRepositories(inventory, req.query.repositoryLimit);
-
-    const results = await Promise.all(selected.map(async entry => {
-      try {
-        const commits = (await gh(req.gh, `/repos/${entry.owner}/${entry.name}/commits?since=${encodeURIComponent(since)}&per_page=20`))
-          .map(c => ({
-            sha: c.sha,
-            message: ((c.commit && c.commit.message) || '').split('\n')[0],
-            author: (c.commit && c.commit.author && c.commit.author.name) || '',
-            date: (c.commit && c.commit.committer && c.commit.committer.date)
-              || (c.commit && c.commit.author && c.commit.author.date)
-          }));
-        return { repo: entry.full_name, commits };
-      } catch (error) {
-        /*
-         * The reason, not a stack. publicErrorBody is what every other route
-         * uses to decide what a caller may be told, so the feed does not invent
-         * its own disclosure rule for the same provider errors.
-         */
-        const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
-        return { repo: entry.full_name, error: (body && body.error) || 'unavailable' };
-      }
-    }));
-
-    res.json({
-      kind: 'nebulaverse-activity-feed',
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      days,
-      since,
-      kinds: ['commit'],
-      perRepositoryLimit: 20,
-      inventoryScope: 'first-page',
-      inventoryCount: inventory.length,
-      ...buildActivityFeed(results, { limit: req.query.limit })
-    });
-  } catch (e) { fail(res, e); }
+/* Pulsar: one repository's recent activity, and the overview's feed (apps/api/src/modules/pulsar/http/activity-routes.ts). */
+registerActivityRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, alphaRepositoryListAccess, capabilityAccess, auth, account: req => req.gh, fail,
+  gh: (acct, apiPath) => gh(acct, apiPath), supportsCapability: requestSupportsCapability,
+  listRepositories: req => listRepositoriesFor(req), publicErrorBody
 });
 
 const MANIFESTS = ['package-lock.json', 'package.json', 'requirements.txt', 'go.mod', 'Cargo.lock', 'Gemfile.lock'];
@@ -8022,337 +7848,14 @@ function guessMime(p) {
 }
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
-app.get('/api/repo/:owner/:repo/live-events/status', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
-  try {
-    if ((req.gh.provider || 'github') !== 'github') return res.json({ available: false, connected: false, reason: 'GitHub-only in v5.2' });
-    if (!(await dbReady())) return res.json({ available: false, connected: false, reason: 'Connect the existing Neon DATABASE_URL to persist verified events' });
-    const r = await pool().query(
-      `SELECT hook_id,provider_hook_id,active,created_at,updated_at FROM nv_webhooks
-       WHERE provider='github' AND lower(owner)=lower($1) AND lower(repo)=lower($2) AND identity_key=$3 LIMIT 1`,
-      [req.params.owner, req.params.repo, identityKey(req.gh)]
-    );
-    const row = r.rows[0];
-    res.json({ available: true, connected: !!(row && row.active), createdAt: row && row.created_at });
-  } catch (e) { fail(res, e); }
-});
-
-async function removeOrphanedProviderHook(acct, req, providerHookId) {
-  if (!providerHookId) return;
-  try {
-    await gh(acct, `${R(req)}/hooks/${providerHookId}`, { method: 'DELETE' });
-  } catch (cleanupError) {
-    if (cleanupError.status !== 404) console.error(JSON.stringify({
-      t: new Date().toISOString(), warn: 'orphaned GitHub webhook cleanup failed', providerHookId, error: cleanupError.message
-    }));
-  }
-}
-
-app.post('/api/repo/:owner/:repo/live-events/connect', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.connect'), async (req, res) => {
-  try {
-    if ((req.gh.provider || 'github') !== 'github') return res.status(501).json({ error: 'Verified live events are GitHub-only in v5.2' });
-    if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
-    const key = identityKey(req.gh);
-    const existing = await pool().query(
-      `SELECT hook_id,provider_hook_id,active,alpha_resource_key_hash FROM nv_webhooks
-       WHERE provider='github' AND lower(owner)=lower($1) AND lower(repo)=lower($2) AND identity_key=$3 LIMIT 1`,
-      [req.params.owner, req.params.repo, key]
-    );
-    if (existing.rows[0] && existing.rows[0].active) {
-      if (ALPHA_CONFIG.enabled && existing.rows[0].provider_hook_id) {
-        const resourceKeyHash = providerResourceKeyHash({
-          provider: 'github',
-          authority: providerAuthority(req.gh),
-          resourceType: 'provider-webhook',
-          resourceReference: existing.rows[0].provider_hook_id
-        });
-        if (!existing.rows[0].alpha_resource_key_hash) {
-          await pool().query(
-            'UPDATE nv_webhooks SET alpha_resource_key_hash=$1,updated_at=now() WHERE hook_id=$2',
-            [resourceKeyHash, existing.rows[0].hook_id]
-          );
-        }
-        await alphaPrivacyStore.claimProviderWebhookOwnership({
-          testerId: req.alpha.testerId,
-          identityKey: key,
-          provider: 'github',
-          resourceKeyHash
-        });
-      }
-      return res.status(409).json({ error: 'Verified live events are already connected for this repository' });
-    }
-    if (existing.rows[0] && !existing.rows[0].active) await pool().query('DELETE FROM nv_webhooks WHERE hook_id=$1', [existing.rows[0].hook_id]);
-    const hookId = crypto.randomBytes(24).toString('hex');
-    const secret = crypto.randomBytes(32).toString('base64url');
-    const callback = `${publicBase(req)}/hooks/github/${hookId}`;
-    await pool().query(
-      `INSERT INTO nv_webhooks(hook_id,provider,owner,repo,identity_key,secret_enc,active)
-       VALUES($1,'github',$2,$3,$4,$5,true)
-       ON CONFLICT(provider,owner,repo,identity_key) DO UPDATE SET hook_id=EXCLUDED.hook_id,secret_enc=EXCLUDED.secret_enc,active=true,provider_hook_id=NULL,updated_at=now()`,
-      [hookId, String(req.params.owner).toLowerCase(), String(req.params.repo).toLowerCase(), key, seal({ secret })]
-    );
-    let providerHookId = null;
-    try {
-      const hook = await gh(req.gh, `${R(req)}/hooks`, {
-        method: 'POST',
-        body: {
-          name: 'web', active: true,
-          events: ['push', 'pull_request', 'workflow_run', 'issues', 'release', 'create', 'delete', 'deployment', 'deployment_status', 'repository_vulnerability_alert'],
-          config: { url: callback, content_type: 'json', insecure_ssl: '0', secret }
-        }
-      });
-      providerHookId = hook.id;
-      const alphaResourceKeyHash = ALPHA_CONFIG.enabled
-        ? providerResourceKeyHash({
-            provider: 'github',
-            authority: providerAuthority(req.gh),
-            resourceType: 'provider-webhook',
-            resourceReference: providerHookId
-          })
-        : null;
-      await pool().query(
-        `UPDATE nv_webhooks
-            SET provider_hook_id=$1,alpha_resource_key_hash=$2,updated_at=now()
-          WHERE hook_id=$3`,
-        [providerHookId, alphaResourceKeyHash, hookId]
-      );
-      if (ALPHA_CONFIG.enabled) {
-        await alphaPrivacyStore.claimProviderWebhookOwnership({
-          testerId: req.alpha.testerId,
-          identityKey: key,
-          provider: 'github',
-          resourceKeyHash: alphaResourceKeyHash
-        });
-      }
-      await appendEvidence(scopedEvidenceKey('github', req.params.owner, req.params.repo, key), 'live-events-connected', hookId, {
-        repository: `${req.params.owner}/${req.params.repo}`, actor: retainedActor(req), connectedAt: new Date().toISOString()
-      }).catch(error => console.error('Evidence append failed after webhook connection:', error.message));
-      res.status(201).json({ available: true, connected: true });
-    } catch (error) {
-      await removeOrphanedProviderHook(req.gh, req, providerHookId);
-      await pool().query('DELETE FROM nv_webhooks WHERE hook_id=$1', [hookId]).catch(() => {});
-      if (error.status === 403 || error.status === 404) {
-        error.message = 'GitHub refused webhook creation. The token needs repository Webhooks: write permission and repository administration access.';
-      }
-      throw error;
-    }
-  } catch (e) { fail(res, e); }
-});
-
-app.delete('/api/repo/:owner/:repo/live-events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, mutationContext('webhook.disconnect'), async (req, res) => {
-  try {
-    if (!(await dbReady())) return res.status(503).json({ error: 'Live event storage is unavailable' });
-    const key = identityKey(req.gh);
-    const r = await pool().query(
-      `SELECT hook_id,provider_hook_id,alpha_resource_key_hash FROM nv_webhooks
-       WHERE provider='github' AND lower(owner)=lower($1) AND lower(repo)=lower($2) AND identity_key=$3 LIMIT 1`,
-      [req.params.owner, req.params.repo, key]
-    );
-    const row = r.rows[0];
-    if (!row) return res.json({ ok: true, disconnected: false });
-    let evidenceSubject = row.hook_id;
-    if (ALPHA_CONFIG.enabled) {
-      const pending = cleanupId => res.status(202).json({
-        ok: false,
-        status: 'pending',
-        ...(cleanupId ? { cleanupId } : {})
-      });
-      const resourceKeyHash = providerResourceKeyHash({
-        provider: 'github',
-        authority: providerAuthority(req.gh),
-        resourceType: 'provider-webhook',
-        resourceReference: row.provider_hook_id ?? row.hook_id
-      });
-      const storedResourceKeyHash = String(row.alpha_resource_key_hash || '');
-      if (storedResourceKeyHash && storedResourceKeyHash !== resourceKeyHash) {
-        return pending('');
-      }
-      if (!storedResourceKeyHash) {
-        try {
-          const backfill = await pool().query(
-            `UPDATE nv_webhooks
-                SET alpha_resource_key_hash=$1,updated_at=now()
-              WHERE hook_id=$2 AND alpha_resource_key_hash IS NULL
-              RETURNING alpha_resource_key_hash`,
-            [resourceKeyHash, row.hook_id]
-          );
-          if (backfill.rows.length !== 1
-              || backfill.rows[0].alpha_resource_key_hash !== resourceKeyHash) {
-            return pending('');
-          }
-        } catch {
-          return pending('');
-        }
-      }
-      let cleanupTask;
-      try {
-        cleanupTask = await alphaPrivacyStore.createCleanupTask({
-          testerId: req.alpha.testerId,
-          identityKey: key,
-          provider: 'github',
-          resourceType: 'provider-webhook',
-          resourceKeyHash,
-          reasonCode: ''
-        });
-      } catch {
-        return pending('');
-      }
-      let inspection;
-      try {
-        inspection = await alphaPrivacyStore.inspectProviderWebhookCleanup({
-          testerId: req.alpha.testerId,
-          identityKey: key,
-          provider: 'github',
-          cleanupId: cleanupTask.cleanupId,
-          resourceKeyHash
-        });
-      } catch {
-        return pending(cleanupTask.cleanupId);
-      }
-      let verifiedAbsent = false;
-      if (!inspection.verified && !inspection.shared && row.provider_hook_id) {
-        try {
-          await gh(req.gh, `${R(req)}/hooks/${row.provider_hook_id}`, { method: 'DELETE' });
-        } catch (error) {
-          if (error.status === 404) verifiedAbsent = true;
-          else return pending(cleanupTask.cleanupId);
-        }
-        if (!verifiedAbsent) {
-          try {
-            await gh(req.gh, `${R(req)}/hooks/${row.provider_hook_id}`);
-          } catch (error) {
-            if (error.status === 404) verifiedAbsent = true;
-            else return pending(cleanupTask.cleanupId);
-          }
-        }
-        if (!verifiedAbsent) {
-          return pending(cleanupTask.cleanupId);
-        }
-      }
-      let completion;
-      try {
-        completion = await alphaPrivacyStore.completeProviderWebhookCleanup({
-          testerId: req.alpha.testerId,
-          identityKey: key,
-          provider: 'github',
-          cleanupId: cleanupTask.cleanupId,
-          resourceKeyHash,
-          providerVerifiedAbsent: verifiedAbsent
-        });
-      } catch {
-        return pending(cleanupTask.cleanupId);
-      }
-      if (!completion.verified) {
-        return pending(cleanupTask.cleanupId);
-      }
-      evidenceSubject = resourceKeyHash;
-    } else {
-      if (row.provider_hook_id) {
-        try { await gh(req.gh, `${R(req)}/hooks/${row.provider_hook_id}`, { method: 'DELETE' }); }
-        catch (error) { if (error.status !== 404) throw error; }
-      }
-      await pool().query('DELETE FROM nv_webhooks WHERE hook_id=$1', [row.hook_id]);
-    }
-    await appendEvidence(scopedEvidenceKey('github', req.params.owner, req.params.repo, key), 'live-events-disconnected', evidenceSubject, {
-      actor: retainedActor(req), disconnectedAt: new Date().toISOString()
-    }).catch(() => {});
-    res.json({ ok: true, disconnected: true });
-  } catch (e) { fail(res, e); }
-});
-
-app.get('/api/repo/:owner/:repo/intelligence/events', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
-  try {
-    if (!(await dbReady())) return res.json({ available: false, events: [], hasMore: false, truncatedBefore: false, cursor: '' });
-    const limit = Math.min(Math.max(parseInt(req.query.limit || '200', 10) || 200, 1), 500);
-    const after = decodeEventCursor(req.query.after);
-    const values = [req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh), limit + 1];
-    let where = 'provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4';
-    if (after) {
-      values.push(after.createdAt, after.eventId);
-      where += ` AND (created_at > $${values.length - 1} OR (created_at = $${values.length - 1} AND event_id > $${values.length}))`;
-    }
-    const order = after ? 'ASC' : 'DESC';
-    const r = await pool().query(
-      `SELECT event_id,event_type,action,actor,target_type,target_id,ref,before_sha,after_sha,severity,risk_score,reasons,summary,paths,metadata,delivery_id,created_at
-       FROM nv_intelligence_events WHERE ${where} ORDER BY created_at ${order}, event_id ${order} LIMIT $5`, values
-    );
-    const hasMore = !!after && r.rows.length > limit;
-    const truncatedBefore = !after && r.rows.length > limit;
-    let rows = r.rows.slice(0, limit);
-    if (!after) rows = rows.reverse();
-    const events = rows.map(row => ({
-      id: row.event_id, eventType: row.event_type, action: row.action, actor: row.actor,
-      targetType: row.target_type, targetId: row.target_id, ref: row.ref, beforeSha: row.before_sha,
-      afterSha: row.after_sha, severity: row.severity, score: row.risk_score, reasons: row.reasons || [],
-      summary: row.summary, paths: row.paths || [], metadata: row.metadata || {}, deliveryId: row.delivery_id, createdAt: row.created_at
-    }));
-    const lastRow = rows[rows.length - 1];
-    res.json({ available: true, events, hasMore, truncatedBefore, cursor: lastRow ? encodeEventCursor(lastRow.created_at, lastRow.event_id) : String(req.query.after || '') });
-  } catch (e) { fail(res, e); }
-});
-
-app.get('/api/repo/:owner/:repo/live-events/stream', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('live-events'), auth, async (req, res) => {
-  const key = liveStreamKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh));
-  const scopedClients = LIVE_CLIENTS.get(key);
-  if (!canAcceptLiveClient(liveClientCount(), scopedClients ? scopedClients.size : 0, MAX_LIVE_CLIENTS_TOTAL, MAX_LIVE_CLIENTS_PER_KEY)) {
-    return res.status(429).json({ error: 'Too many live event streams are open. Close another Neural tab and retry.' });
-  }
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
-  res.nvSessionSid = sessionSidFromRequest(req);
-  res[ALPHA_SESSION_ID] = req[ALPHA_SESSION_ID];
-  res.write(`event: ready
-data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, at: new Date().toISOString() })}
-
-`);
-  if (!LIVE_CLIENTS.has(key)) LIVE_CLIENTS.set(key, new Set());
-  LIVE_CLIENTS.get(key).add(res);
-  let keepAliveTicks = 0;
-  let sessionCheckBusy = false;
-  const keepAlive = setInterval(() => {
-    /*
-     * The keepalive is the canary. A reader that has stopped reading takes no
-     * events -- it may be subscribed to a quiet repository -- but it still
-     * takes one of these every fifteen seconds, so this is what notices a
-     * stalled socket on a stream that is otherwise idle.
-     */
-    writeLiveClient(res, `: keepalive ${Date.now()}
-
-`);
-    keepAliveTicks += 1;
-    /* revocation check runs every 20th tick (~5 min), not every minute: a 60s poll would
-       keep a free-tier Neon compute instance from ever auto-suspending. */
-    if (keepAliveTicks % 20 !== 0 || sessionCheckBusy) return;
-    const checks = [];
-    if (res.nvSessionSid && DB_URL) {
-      checks.push(
-        pool().query('SELECT 1 FROM nv_sessions WHERE sid=$1', [res.nvSessionSid])
-          .then(result => {
-            if (!result.rowCount) {
-              closeLiveSessions([res.nvSessionSid], 'session-revoked');
-            }
-          })
-          .catch(() => {})
-      );
-    }
-    if (ALPHA_CONFIG.enabled) {
-      checks.push(
-        alphaStore.readSession(res[ALPHA_SESSION_ID], { touch: false })
-          .catch(() => closeAlphaLiveSession(key, res))
-      );
-    }
-    if (!checks.length) return;
-    sessionCheckBusy = true;
-    Promise.all(checks)
-      .finally(() => { sessionCheckBusy = false; });
-  }, 15000);
-  req.on('close', () => {
-    clearInterval(keepAlive);
-    const set = LIVE_CLIENTS.get(key);
-    if (set) { set.delete(res); if (!set.size) LIVE_CLIENTS.delete(key); }
-  });
+/* Pulsar: verified live events -- connection, stored events and the stream (apps/api/src/modules/pulsar/http/live-event-routes.ts). */
+registerLiveEventRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail,
+  gh, dbReady, pool, identityKey, databaseConfigured: Boolean(DB_URL), publicBase, seal,
+  scopedEvidenceKey, appendEvidence, retainedActor, providerResourceKeyHash, providerAuthority,
+  alphaEnabled: ALPHA_CONFIG.enabled, alphaTesterId: req => req.alpha.testerId, alphaSessionId: req => req[ALPHA_SESSION_ID],
+  readAlphaSession: (sessionId, options) => alphaStore.readSession(sessionId, options), alphaWebhooks: alphaPrivacyStore,
+  sessionSid: sessionSidFromRequest, hub: liveHub
 });
 
 app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
@@ -8518,13 +8021,7 @@ async function shutdown(signal) {
   siteJobs.close();
   auditJobs.close();
   console.log(JSON.stringify({ t: new Date().toISOString(), event: 'shutdown', signal }));
-  for (const clients of LIVE_CLIENTS.values()) {
-    for (const client of clients) {
-      try { client.write(`event: shutdown\ndata: ${JSON.stringify({ signal, at: new Date().toISOString() })}\n\n`); } catch {}
-      try { client.end(); } catch {}
-    }
-  }
-  LIVE_CLIENTS.clear();
+  liveHub.shutdown(signal);
   if (governanceWebhookBootstrapTimer) clearTimeout(governanceWebhookBootstrapTimer);
   /*
    * Drained before the pool closes. A delivery in flight has already sent its

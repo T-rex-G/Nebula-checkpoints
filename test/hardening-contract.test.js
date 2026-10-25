@@ -15,10 +15,10 @@ assert(server.includes('protectedPatternsForRepository'), 'Webhook risk must use
 assert(server.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
 assert(server.includes('MAX_LIVE_CLIENTS_PER_KEY'), 'SSE per-repository connection cap is missing');
 assert(server.includes('MAX_LIVE_CLIENTS_TOTAL'), 'SSE global connection cap is missing');
-assert(server.includes('canAcceptLiveClient'), 'SSE admission helper is not wired');
+assert(server.includes('createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY })'), 'SSE admission is not held to both caps');
 assert(server.includes('SNAPSHOT_RETENTION_COUNT'), 'Snapshot retention cap is missing');
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(server), 'Old snapshot pruning query is missing');
-assert(server.includes('providerHookId') && server.includes('removeOrphanedProviderHook'), 'Webhook creation must clean up orphaned provider hooks after partial failure');
+/* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
 
 assert(/async function setSession\(req, res, data\b[\s\S]+if \(DB_URL\)[\s\S]+Session database is temporarily unavailable/.test(server), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
 assert(server.includes('if (DB_URL && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
@@ -71,7 +71,11 @@ const exportSafety = fs.readFileSync(require('path').join(__dirname, '..', 'apps
 
 assert(neural.includes('catchUpIntelligence'), 'Neural SSE reconnect must catch up missed persisted events');
 assert(neural.includes('after=${encodeURIComponent(after)}') && neural.includes('hasMore'), 'Neural catch-up must page from a persisted event cursor');
-assert(server.includes('encodeEventCursor') && server.includes('decodeEventCursor') && server.includes('created_at =') && server.includes('event_id >'), 'Event pagination must use a stable timestamp and event-id cursor');
+{
+  /* The stored-events route is Pulsar's since D12 (its paging is exercised by test/pulsar-live-event-routes.test.js). */
+  const liveEvents = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'http', 'live-event-routes.ts'), 'utf8');
+  assert(liveEvents.includes('encodeEventCursor') && liveEvents.includes('decodeEventCursor') && liveEvents.includes('created_at =') && liveEvents.includes('event_id >'), 'Event pagination must use a stable timestamp and event-id cursor');
+}
 assert(neural.includes('/emergency-manifest'), 'Emergency Shield must use the signed server-side containment transaction');
 assert(neural.includes('/access-surface'), 'Neural Shadow Access Radar data source is missing');
 assert(neural.includes('/api/security/scanner-status') && neural.includes('Upload malware gate'), 'Neural dependency/security view must expose upload scanner posture');

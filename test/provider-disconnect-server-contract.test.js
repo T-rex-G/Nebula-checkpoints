@@ -77,23 +77,11 @@ assert(helper.includes('providerHookId: row.provider_hook_id'),
 assert(helper.includes('return { verifiedAbsent: false };'),
   'a successful provider DELETE must still require the supported readback proof');
 
-const liveConnectBlock = server.slice(
-  server.indexOf("app.post('/api/repo/:owner/:repo/live-events/connect'"),
-  server.indexOf("app.delete('/api/repo/:owner/:repo/live-events'", server.indexOf("app.post('/api/repo/:owner/:repo/live-events/connect'"))
-);
-assert(liveConnectBlock.includes('alpha_resource_key_hash'));
-assert(liveConnectBlock.includes('alphaPrivacyStore.claimProviderWebhookOwnership'));
-const liveDeleteStart = server.indexOf("app.delete('/api/repo/:owner/:repo/live-events'");
-const liveDeleteEnd = server.indexOf('\napp.', liveDeleteStart + 10);
-const liveDeleteBlock = server.slice(liveDeleteStart, liveDeleteEnd);
-assert(liveDeleteBlock.includes('alphaPrivacyStore.createCleanupTask'));
-assert(liveDeleteBlock.includes('alphaPrivacyStore.inspectProviderWebhookCleanup'));
-assert(liveDeleteBlock.includes('alphaPrivacyStore.completeProviderWebhookCleanup'));
-assert(liveDeleteBlock.indexOf('inspectProviderWebhookCleanup')
-  < liveDeleteBlock.indexOf("method: 'DELETE'"),
-  'shared ownership must be decided under the lifecycle lock before provider deletion');
-assert(liveDeleteBlock.includes('verifiedAbsent'),
-  'exclusive direct removal must prove provider absence before atomic local completion');
+/*
+ * The live-event webhook's alpha lifecycle -- claimed on connect, and on
+ * disconnect ownership decided before any provider deletion, with a read-back
+ * proving it gone -- is held by test/pulsar-live-event-routes.test.js.
+ */
 
 const sessionOfStart = server.indexOf('async function sessionOf(req,');
 const sessionOfEnd = server.indexOf('\n}', sessionOfStart) + 2;

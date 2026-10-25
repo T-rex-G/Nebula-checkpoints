@@ -149,6 +149,8 @@ for (const file of [
   'apps/api/src/modules/pulsar/index.ts', 'apps/api/src/modules/pulsar/domain/webhook-events.ts',
   'apps/api/src/modules/pulsar/domain/webhook-signature.ts', 'apps/api/src/modules/pulsar/domain/activity-feed.ts',
   'apps/api/src/modules/pulsar/application/live-stream.ts',
+  'apps/api/src/modules/pulsar/application/live-hub.ts', 'apps/api/src/modules/pulsar/domain/event-cursor.ts',
+  'apps/api/src/modules/pulsar/http/activity-routes.ts', 'apps/api/src/modules/pulsar/http/live-event-routes.ts',
   'apps/api/src/modules/corona/index.ts', 'apps/api/src/modules/corona/domain/evidence-ledger.ts',
   'apps/api/src/modules/corona/domain/safeguards.ts', 'apps/api/src/modules/corona/domain/recovery-names.ts',
   'apps/api/src/modules/corona/domain/snapshots.ts', 'apps/api/src/modules/corona/domain/snapshot-signatures.ts',
@@ -328,7 +330,12 @@ must(server.includes('normalizeDatabaseUrl') && server.includes('createDatabaseP
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
 must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');
 must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP extraction must enforce the actual extracted-size ceiling');
-must(server.includes('/live-events/connect') && server.includes('/live-events/stream'), 'Live event registration or SSE streaming is missing');
+{
+  /* Pulsar registers the live-event routes since D12; the server must still call it. */
+  const liveEventRoutes = read('apps/api/src/modules/pulsar/http/live-event-routes.ts');
+  must(server.includes('registerLiveEventRoutes(app,') && liveEventRoutes.includes("'/api/repo/:owner/:repo/live-events/connect'")
+    && liveEventRoutes.includes("'/api/repo/:owner/:repo/live-events/stream'"), 'Live event registration or SSE streaming is missing');
+}
 const migrationSql = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => read('db/migrations/' + name)).join('\n');
 must(migrationSql.includes('nv_evidence_chain') && server.includes('/evidence'), 'Tamper-evident export is missing');
 

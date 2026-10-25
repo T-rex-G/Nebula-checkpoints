@@ -117,6 +117,26 @@ test('a repository named on the card opens its audit', async ({ page }) => {
   await expect(page).toHaveURL(/#\/sandbox\/demo@main\/audit$/);
 });
 
+/* A press on a repository's name is delivered even when the card is redrawn under it. */
+test('a reading that lands during the press on a repository does not swallow it', async ({ page }) => {
+  const card = await overview(page);
+  const top = card.locator('.pp-repos .pp-repo-name').first();
+  await expect(top).toHaveText('sandbox/demo');
+  await top.scrollIntoViewIfNeeded();
+  const box = await top.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.evaluate(async () => {
+    const payload = await (await fetch('/api/workspace/security-posture')).json();
+    const host = document.querySelector('#wpPosture .wp-body');
+    const Posture = window.NebulaSecurityPosture;
+    Posture.render(host, Posture.model(payload, []), {});
+  });
+  await page.mouse.up();
+  await expect(page.locator('#tab-audit')).toBeVisible();
+  await expect(page).toHaveURL(/#\/sandbox\/demo@main\/audit$/);
+});
+
 test('repositories nothing has read are named, and lead to their audit', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', securityPosture: 'empty' });
   await page.route('**/api/repos?*', route => route.fulfill({

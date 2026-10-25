@@ -511,3 +511,20 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **What was wrong.** Three D7c error classes (`CodeAuditHistoryError`, `CodeAuditTriageError`, `AuditLimitError`) set `this.name` in their constructors, after their declared fields. A field declaration is defined as soon as `super()` returns, so the name came after the code and status (or the limit). The JavaScript they replaced had the name first. `ContractError` in the shared contracts had the same order.
 - **The fix.** Each declares `override readonly name` as its first field, as the other modules' errors already did. The own-property order of each D7c error now matches the original JavaScript's, checked side by side. The guards contract is version 2, and its shape is re-recorded.
 - **Now a test.** The module boundary test refuses an error class that declares fields and assigns `this.name` in its constructor, or declares `name` after another field. It failed on `CodeAuditTriageError` and `ContractError` before the fix.
+
+### Qualifier — a press is not lost to a card's repaint
+
+- **What failed.** The candidate qualification's mobile slice on 98ffe34 failed one test. "Show the numbers" on the trust card was pressed, and its table never opened.
+  - The trace showed the press delivered with nothing intercepting it, and the disclosure still closed afterwards, with no request in between.
+  - The Overview cards are rebuilt whenever a reading they show arrives, up to five times after sign-in. The browser delivers a click only where a press began and ended on one element. A rebuild between the press and the release replaced the summary under the pointer, so no click was fired at all.
+  - A bare page reproduced it on desktop and mobile Chromium: a rebuild on `mousedown` gave no click and a closed disclosure; keeping the element gave one click and an open disclosure.
+  - The same holds for every control on a rebuilt card: a repository's name on the security posture card, and a pull request or "Read again" on the pull board.
+- **The fix.** `apps/web/src/components/held-repaint.ts` holds a card's repaint while a pointer, Space or Enter is down inside it.
+  - The held repaint runs, with the latest reading, once the press has been delivered: after its click, or 400 ms after a release that brings none, as a touch can. No press holds a card longer than five seconds.
+  - A repaint asked for by the click itself is drawn at once and supersedes the held one, so an older reading is never drawn over a newer one.
+  - The workspace pulse's three cards and its activity feed, the security posture card and the pull board all repaint through it.
+- **Tests that failed first.** One for each card presses, has a reading land, and releases: the numbers open, the repository's audit opens, the pull request opens. All six runs (three cards, desktop and mobile) failed against the unfixed cards and pass now.
+- **Checks:**
+  - lint, typecheck and the inventory;
+  - the pulse, posture, pull-board and module-boundary programs;
+  - every browser spec that draws the Overview, on desktop and mobile Chromium.

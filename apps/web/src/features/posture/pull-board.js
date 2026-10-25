@@ -1,4 +1,5 @@
 import RepoInventory from '../repositories/repo-inventory.js';
+import { repaintCard } from '../../components/held-repaint.ts';
 /*
  * Open pull requests across the workspace, on the Overview.
  *
@@ -330,8 +331,13 @@ import RepoInventory from '../repositories/repo-inventory.js';
     unreadable: 'The pull requests could not be read just now.'
   });
 
+  /* Redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
   function render(host, view, actions) {
     if (!host || typeof document === 'undefined') return;
+    repaintCard(host, () => draw(host, view, actions));
+  }
+
+  function draw(host, view, actions) {
     const repaint = () => render(host, view, actions);
     host.textContent = '';
     host.dataset.state = view.state;

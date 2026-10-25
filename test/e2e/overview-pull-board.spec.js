@@ -93,6 +93,24 @@ test('a card opens its pull request in its own repository', async ({ page }) => 
   await expect(page.locator('#prDetail')).toContainText('Pin the release workflow\'s actions to commits');
 });
 
+/* A press on a pull request is delivered even when the board is redrawn under it. */
+test('a redraw that lands during the press on a pull request does not swallow it', async ({ page }) => {
+  const card = await board(page);
+  const pull = card.getByRole('button', { name: /Open pull request #42 in sandbox\/demo/ });
+  await expect(pull).toBeVisible();
+  await pull.scrollIntoViewIfNeeded();
+  const box = await pull.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.evaluate(() => {
+    const Board = window.NebulaPullBoard;
+    Board.render(document.querySelector('#wpPulls .wp-body') || document.querySelector('#wpPulls'), Board.model({ results: [], repos: [] }), {});
+  });
+  await page.mouse.up();
+  await expect(page.locator('#tab-pulls')).toBeVisible();
+  await expect(page).toHaveURL(/#\/sandbox\/demo@main\/pulls$/);
+});
+
 test('repositories it could not read are named, and it says how many it read, a few at a time', async ({ page }) => {
   const names = Array.from({ length: 14 }, (_, i) => `repo-${i}`);
   await page.setViewportSize({ width: page.viewportSize().width, height: 700 });

@@ -1,4 +1,5 @@
 import RepoInventory from '../repositories/repo-inventory.js';
+import { repaintCard } from '../../components/held-repaint.ts';
 import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../../../packages/contracts/src/evidence.ts';
 /*
  * The security posture on the Overview.
@@ -375,8 +376,13 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
     if (row) host.appendChild(row);
   }
 
+  /* Redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
   function render(host, view, actions) {
     if (!host || typeof document === 'undefined') return;
+    repaintCard(host, () => draw(host, view, actions));
+  }
+
+  function draw(host, view, actions) {
     host.textContent = '';
     host.dataset.state = view.state;
     const head = element('div', 'wp-head pp-head');

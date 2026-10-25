@@ -15,6 +15,8 @@
  *   - The score is never shown alone. Every component that produced it is on
  *     screen with its own reading, so the number can be argued with.
  */
+import { repaintCard } from '../../components/held-repaint.ts';
+
 'use strict';
 
 (function workspacePulseModule(global) {
@@ -1670,11 +1672,16 @@
     return host.querySelector('.wp-body') || host;
   }
 
+  /* Each card is redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
+  function paint(host, draw) {
+    if (host) repaintCard(host, () => draw(host));
+  }
+
   function render(roots, current) {
     if (!roots || typeof document === 'undefined') return current;
-    if (roots.trust) renderTrust(body(roots.trust), current.trust);
-    if (roots.signals) renderSignals(body(roots.signals), current.signals);
-    if (roots.activity) renderActivity(body(roots.activity), current.activity);
+    if (roots.trust) paint(body(roots.trust), host => renderTrust(host, current.trust));
+    if (roots.signals) paint(body(roots.signals), host => renderSignals(host, current.signals));
+    if (roots.activity) paint(body(roots.activity), host => renderActivity(host, current.activity));
     return current;
   }
 
@@ -1686,7 +1693,7 @@
    */
   function renderActivityFeed(root, current) {
     if (!root || typeof document === 'undefined') return current;
-    renderFeed(body(root), current);
+    paint(body(root), host => renderFeed(host, current));
     return current;
   }
 

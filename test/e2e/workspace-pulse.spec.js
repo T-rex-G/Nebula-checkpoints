@@ -120,6 +120,33 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 });
 
+/*
+ * A reading can land while the reader is pressing "Show the numbers". The
+ * card used to be rebuilt under the press: the pointer went down on the old
+ * summary and came up on its replacement, so the browser delivered no click
+ * and the numbers stayed shut. The repaint now waits for the press.
+ */
+test('a reading that lands during the press on the numbers does not swallow it', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  const summary = trust.locator('.wp-numbers summary').first();
+  await expect(summary).toBeVisible();
+  await summary.scrollIntoViewIfNeeded();
+  const box = await summary.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.evaluate(() => {
+    const Pulse = window.NebulaWorkspacePulse;
+    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
+  });
+  await page.mouse.up();
+  await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+  /* The reading that waited is drawn once the press is over, and the numbers stay open in it. */
+  await expect(trust).toContainText('Private repositories');
+  await expect(trust.locator('.wp-numbers').first()).toHaveJSProperty('open', true);
+});
+
 test('an open critical leak caps the score and says why', async ({ page }) => {
   await mockPublicAlphaApi(page, {
     access: 'required', ready: 'ready', provider: 'github', repositoryState: 'current', postureState: 'critical-leak'

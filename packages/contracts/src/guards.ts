@@ -9,17 +9,18 @@
  * Platform-free: the server, the page and the service worker all load this.
  */
 
-export const GUARDS_CONTRACT_VERSION = 1;
+/* 2: `ContractError` declares its name as its first field, so the name comes before the code and the status, as an error's properties are ordered everywhere else. */
+export const GUARDS_CONTRACT_VERSION = 2;
 
 export type Refuse = (message: string, code: string, status?: number) => never;
 
 export class ContractError extends Error {
+  override readonly name = 'ContractError';
   readonly code: string;
   readonly status: number | undefined;
 
   constructor(message: string, code: string, status?: number) {
     super(message);
-    this.name = 'ContractError';
     this.code = code;
     this.status = status;
   }

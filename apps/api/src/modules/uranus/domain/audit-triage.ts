@@ -61,11 +61,11 @@ export const SHAPE = Object.freeze({
 });
 
 export class CodeAuditTriageError extends Error {
+  override readonly name = 'CodeAuditTriageError';
   readonly code: string;
   readonly status: number;
   constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'CodeAuditTriageError';
     this.code = code;
     this.status = status;
   }

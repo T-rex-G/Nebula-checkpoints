@@ -505,3 +505,9 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4, the PostgreSQL suites among them;
   - all 28 server tests on the compiled runtime;
   - 56 browser tests on Chromium: audit triage and history, the audit run, risk, licences, polyglot and fold views, the findings inbox and the DOM contract.
+
+### D7c follow-up — An error names itself first
+
+- **What was wrong.** Three D7c error classes (`CodeAuditHistoryError`, `CodeAuditTriageError`, `AuditLimitError`) set `this.name` in their constructors, after their declared fields. A field declaration is defined as soon as `super()` returns, so the name came after the code and status (or the limit). The JavaScript they replaced had the name first. `ContractError` in the shared contracts had the same order.
+- **The fix.** Each declares `override readonly name` as its first field, as the other modules' errors already did. The own-property order of each D7c error now matches the original JavaScript's, checked side by side. The guards contract is version 2, and its shape is re-recorded.
+- **Now a test.** The module boundary test refuses an error class that declares fields and assigns `this.name` in its constructor, or declares `name` after another field. It failed on `CodeAuditTriageError` and `ContractError` before the fix.

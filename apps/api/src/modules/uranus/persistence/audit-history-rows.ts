@@ -77,11 +77,11 @@ export const SHAPE = Object.freeze({
 });
 
 export class CodeAuditHistoryError extends Error {
+  override readonly name = 'CodeAuditHistoryError';
   readonly code: string;
   readonly status: number;
   constructor(message: string, code: string, status = 400) {
     super(message);
-    this.name = 'CodeAuditHistoryError';
     this.code = code;
     this.status = status;
   }

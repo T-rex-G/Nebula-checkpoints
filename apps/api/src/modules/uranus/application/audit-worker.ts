@@ -84,12 +84,12 @@ const HEAP_FLOOR_MB = 64;
 type Limit = 'memory' | 'time';
 
 export class AuditLimitError extends Error {
+  override readonly name = 'AuditLimitError';
   readonly limit: Limit;
   constructor(limit: Limit) {
     super(limit === 'memory'
       ? 'The repository needed more memory than this server gives one audit.'
       : 'The analysis ran past the time this server gives one audit.');
-    this.name = 'AuditLimitError';
     this.limit = limit;
   }
 }

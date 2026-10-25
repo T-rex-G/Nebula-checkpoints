@@ -165,6 +165,39 @@ function entryPathLiterals(source) {
   return hits;
 }
 
+/*
+ * An error class that declares fields names itself first. The JavaScript it
+ * replaced assigned `this.name` before its other properties, and a field
+ * declaration is defined as soon as `super()` returns, so a `this.name`
+ * assigned in the constructor -- or a `name` field after another -- would
+ * move the name behind them, in the order the error's properties serialize.
+ */
+function errorsNamedLate(source) {
+  const out = [];
+  const visit = node => {
+    const extendsError = ts.isClassLike(node) && (node.heritageClauses || [])
+      .some(clause => clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.some(type => /Error$/.test(type.expression.getText(source))));
+    if (extendsError) {
+      const fields = node.members.filter(member => ts.isPropertyDeclaration(member)
+        && !(ts.getModifiers(member) || []).some(modifier => [ts.SyntaxKind.StaticKeyword, ts.SyntaxKind.DeclareKeyword].includes(modifier.kind)));
+      const label = node.name ? node.name.text : 'an anonymous error class';
+      const named = fields.findIndex(field => field.name.getText(source) === 'name');
+      if (named > 0) out.push(`${label} declares its name after another field`);
+      let assigned = false;
+      const assigns = inner => {
+        if (ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(inner.left)
+          && inner.left.expression.kind === ts.SyntaxKind.ThisKeyword && inner.left.name.text === 'name') assigned = true;
+        if (!ts.isClassLike(inner)) ts.forEachChild(inner, assigns);
+      };
+      for (const member of node.members) if (ts.isConstructorDeclaration(member) && member.body) assigns(member.body);
+      if (assigned && fields.length) out.push(`${label} assigns this.name after its fields are defined`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return out;
+}
+
 function stronglyConnected(edges) {
   let index = 0;
   const stack = [];
@@ -216,6 +249,7 @@ for (const file of scoped) {
   if (name !== 'apps/api/src/entrypoint.ts') {
     for (const literal of entryPathLiterals(source)) violations.push(`${name}: names the entry file ${literal}; only apps/api/src/entrypoint.ts may`);
   }
+  for (const late of errorsNamedLate(source)) violations.push(`${name}: ${late}`);
   const { statics, dynamics, requires } = importsOf(source);
   if (requires.length) violations.push(`${name}: require() in an ES module (${requires.join(', ')})`);
   const targets = [];
@@ -266,7 +300,7 @@ for (const name of edges.keys()) {
 }
 assert.deepStrictEqual(violations, [], `module rules broken:\n- ${violations.join('\n- ')}`);
 assert.deepStrictEqual(stronglyConnected(edges), [], 'a dependency cycle in apps/ or packages/');
-console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray entry paths, boundaries held, no cycle`);
+console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray entry paths, errors named first, boundaries held, no cycle`);
 
 /* --- the CommonJS server that remains ------------------------------------- */
 

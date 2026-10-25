@@ -967,7 +967,7 @@ They are enforced through ESLint, an import-graph test built on the TypeScript c
 
 ## ADR-095 — Node 22 stays the qualified runtime; Node 24 LTS is the next production target
 
-**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Node 22.23.1 remains the qualified baseline of this mission.
+**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Amended 25 October 2026: the mission's runtime moves to Node 22.23.4, the October security release on the same line (see *Amendment* below). Node 24 remains the next production target, as recommended.
 
 **Question:** Is Node 24 LTS a better long-term production target than Node 22?
 
@@ -1018,6 +1018,42 @@ They are enforced through ESLint, an import-graph test built on the TypeScript c
 
 - *Node 24 inside this mission:* it would change the qualified runtime mid-mission and mix two causes in one qualification.
 - *Node 26 now:* it is not LTS until 28 October, and a new LTS line takes the most fixes in its first months.
+
+**Amendment, 25 October 2026 — Node 22.23.4.** On 25 October the owner asked that newly disclosed runtime vulnerabilities be weighed across the migrated architecture. Node 22.23.4 (21 October) is a security release, and it moves the question past the choice between 22.23.1 and 22.23.3 recommended above:
+
+- **What 22.23.1 is missing.** It lacks the ten July fixes listed above, and also those of 22.23.4:
+  - CVE-2026-105481, the HTTP agent's data guard;
+  - CVE-2026-105482, null bytes in DNS resolve inputs;
+  - CVE-2026-106069, TLS accepting non-canonical IP addresses;
+  - CVE-2026-106073, `realpathSync` and the permission model;
+  - CVE-2026-106074, random caches across snapshots;
+  - CVE-2026-111497, the brotli decoder.
+
+  22.23.4 also brings OpenSSL 3.5.9, c-ares 1.34.9, undici 6.29.1 and the NSS 3.131.1 root certificates.
+- **Where they meet this service:**
+  - *The guarded outbound transport.* Its keep-alive HTTPS agent pools pin each name to a validated address, look names up through `dns.promises.lookup`, ask `resolveTxt` for a site's mail policy, and verify certificates on reused sessions. This is CVE-2026-105481, CVE-2026-105482, CVE-2026-106069, and the July session-reuse fix (CVE-2026-58040).
+  - *Decompression of content an attacker writes.* Exposure inflates archives found in a repository; the rendered audit decodes gzip, deflate and brotli responses. This is CVE-2026-58045 and CVE-2026-111497.
+  - *Inbound requests.* CVE-2026-58044, the request header count.
+  - Not used: http2, the permission model, snapshots.
+- **Measured on 22.23.4** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - lint and the type checks;
+  - the production audit;
+  - all 28 server tests on the compiled runtime.
+
+  The only changes are the pins.
+- **What moved, in one commit:**
+  - `.nvmrc` and `engines.node`;
+  - the eleven workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.1 and 22.23.3 by name.
+
+  No committed evidence is re-validated against the new pin. The final qualification produces new evidence on 22.23.4.
+- **What it does not change:**
+  - The production service runs the merged `3bf017a` on Node 22.23.1 until a deploy the owner approves.
+  - Recommendation 3 stands: Node 24 LTS after this mission, before the end of the first quarter of 2027.
 
 ## ADR-096 — Express 4 stays the HTTP foundation of this mission; Express 5 follows it
 

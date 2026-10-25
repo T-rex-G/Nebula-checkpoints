@@ -72,7 +72,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
           cache: npm
       - name: Bind Playwright cache for extracted-candidate qualification
         shell: bash
@@ -220,7 +220,7 @@ jobs:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
           cache: npm
       - run: npm ci
       - run: bash ci/install-browser.sh
@@ -258,7 +258,7 @@ jobs:
           fetch-depth: 2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
       # The run mints its own activation envelope, so nothing sensitive travels
       # as a dispatch input. The ledger is kept because an operator holding a
       # key can return to the signed flow by minting the envelope themselves;
@@ -388,7 +388,7 @@ jobs:
           path: ${{ runner.temp }}/candidate
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
       - name: Verify candidate before extraction
         shell: bash
         env:
@@ -448,7 +448,7 @@ jobs:
           path: ${{ runner.temp }}/candidate
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -610,7 +610,7 @@ jobs:
           path: ${{ runner.temp }}/candidate
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.4'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false

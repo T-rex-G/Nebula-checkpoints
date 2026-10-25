@@ -523,7 +523,7 @@ assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trig
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
 assert(!/^\s{2}push:/m.test(workflow), 'qualification must not run on push');
 assert(/^permissions:\n  contents: read$/m.test(workflow), 'default permissions must be contents: read');
-assert(/node-version:\s*['"]?22\.23\.1['"]?/m.test(workflow), 'exact Node 22.23.1 setup is required');
+assert(/node-version:\s*['"]?22\.23\.4['"]?/m.test(workflow), 'exact Node 22.23.4 setup is required');
 assert(!/group:[^\n]*github\.run_id/.test(workflow), 'live runs must not use a run-unique concurrency group');
 assert(workflow.includes('live-shared-targets'), 'all live dispatches must share one concurrency group');
 assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive qualification must not be cancelled');
@@ -880,7 +880,7 @@ for (const name of ['github-live', 'hosted-live', 'hosted-drills']) {
   assert(!block.includes('${{ inputs.subject_sha256 }}'), `${name} must not interpolate an untrusted subject input`);
   assert(!block.includes('${{ inputs.source_commit }}'), `${name} must not interpolate an untrusted source input`);
   assert(block.includes(`actions/setup-node@${actionPins['actions/setup-node']}`), `${name} must pin Node before candidate execution`);
-  assert(/node-version:\s*['"]?22\.23\.1['"]?/.test(block), `${name} must execute with Node 22.23.1`);
+  assert(/node-version:\s*['"]?22\.23\.4['"]?/.test(block), `${name} must execute with Node 22.23.4`);
   const preflightIndex = block.indexOf('Verify signed live target');
   const firstSecretIndex = block.indexOf('${{ secrets.');
   assert(preflightIndex >= 0, `${name} must run a signed-target preflight`);

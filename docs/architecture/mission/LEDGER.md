@@ -440,3 +440,20 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - `pg` 8.22.0;
   - Playwright's bundled Chromium. It reaches only CI: the rendered audit is off in production and needs a browser the Render build does not install.
 - **Checks:** the full unit gate, every verify-job gate including the PostgreSQL suites, the production audit, the release test, and all 28 server tests on the compiled runtime.
+
+### S2 — Node 22.23.4
+
+- **Why now.** 22.23.4 (21 October) is the second security release on the Node 22 line since the 22.23.1 pin. The first was 22.23.2 in July.
+  - Its fixes sit on paths this service uses: the guarded transport's agent pools, DNS lookups and TLS on pinned addresses; the decompression of content an attacker writes; and, from July, inbound header limits and HTTPS identity on reused sessions.
+  - ADR-095 is amended with each CVE and where it meets the code.
+- **What moved, in one commit** (the lockfile's root `engines` with them):
+  - `.nvmrc` and `engines.node`;
+  - the eleven workflow steps;
+  - the candidate qualifier and the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.1 and 22.23.3 by name.
+- **Measured on 22.23.4** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - the production audit;
+  - all 28 server tests on the compiled runtime.
+- **Production** is unchanged until a deploy the owner approves: Node 22.23.1 on `3bf017a`.

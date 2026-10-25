@@ -419,3 +419,24 @@ The findings and recommendations are ADR-095 (runtime) and ADR-096 (HTTP framewo
     - a negative score has no grade.
 - **Checks:** typecheck, lint, module boundaries, the Uranus, audit, licence, ecosystem, exploit-intelligence, site-check and route-surface programs, the benchmark, and the full unit gate.
 - **Next:** D7c, the audit's worker, jobs, watch, triage and history.
+
+### S1 — The October 2026 dependency advisories
+
+Three advisories published from 21 to 23 October hit pinned dependencies. npm's audit and an OSV query over all 296 locked package versions agree on exactly these three.
+
+- **body-parser 1.20.8 → 1.20.9** (GHSA-27r3-jxmh-p828, CVE-2026-111181, high). Express 4.22.3 takes it through its own `~1.20.5` range, so only the lockfile moves.
+  - A compressed request body (`Content-Encoding: gzip`) followed by trailing bytes crashed the process. Upstream's shape is one gzip frame, a zero byte, then 100 KB that arrive after the decoder has finished. The decoder stayed piped with no error listener, and its error ended the server. Parsing runs before routing and before any session check.
+  - On this server it reached every body parser: the JSON parser mounted for the whole app, which an API path reaches once the `x-nv` header is sent, and the GitHub webhook's raw parser.
+  - Reproduced on 1.20.8 under Node 22.23.1 and 22.23.4. `test/request-body-decompression-server.test.js` sends that body to all three entry points and requires the same process to answer afterwards. It failed against 1.20.8 and passes on 1.20.9, natively and compiled.
+  - The production service runs the merged `3bf017a`, which carries 1.20.8.
+- **DOMPurify 3.4.16 → 3.4.17** (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f; npm rates it critical).
+  - None reaches this page's configuration: string output, the HTML profile, no hooks, no `IN_PLACE`, no DOM return mode, no XHTML parser. It moves anyway, as a patch release.
+  - The vendored copy moves to `public/vendor/dompurify/3.4.17/`. The package contract now also refuses a 3.4.16 asset left behind.
+  - The baseline inventories keep 3.4.16: they describe the baseline commit.
+- **Vite 8.3.2 → 8.3.5** (six advisories, dev server only).
+  - Two concern the dev server's own middleware and file serving, which this repository uses only to build. The build is unchanged in kind and still deterministic (`build:web:check`).
+- **Not affected:**
+  - the pinned GitHub Actions: download-artifact v4.3.0 is past the fix for its one advisory, and the rest have none;
+  - `pg` 8.22.0;
+  - Playwright's bundled Chromium. It reaches only CI: the rendered audit is off in production and needs a browser the Render build does not install.
+- **Checks:** the full unit gate, every verify-job gate including the PostgreSQL suites, the production audit, the release test, and all 28 server tests on the compiled runtime.

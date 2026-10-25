@@ -17,6 +17,7 @@
 const { serverEntry } = require('./helpers/server-entry');
 
 const assert = require('assert');
+const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const zlib = require('zlib');
@@ -30,7 +31,7 @@ const child = spawn(process.execPath, [serverEntry()], {
     ...process.env,
     PORT: String(port),
     NODE_ENV: 'test',
-    SESSION_SECRET: 'request-body-decompression-test-0123456789abcdef-0123456789abcdef',
+    SESSION_SECRET: crypto.randomBytes(40).toString('hex'),
     DATABASE_URL: '',
     NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn'
   },

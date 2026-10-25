@@ -16,6 +16,7 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn } = require('./press');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -122,10 +123,7 @@ test('a reading that lands during the press on a repository does not swallow it'
   const card = await overview(page);
   const top = card.locator('.pp-repos .pp-repo-name').first();
   await expect(top).toHaveText('sandbox/demo');
-  await top.scrollIntoViewIfNeeded();
-  const box = await top.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await pressOn(page, top);
   await page.evaluate(async () => {
     const payload = await (await fetch('/api/workspace/security-posture')).json();
     const host = document.querySelector('#wpPosture .wp-body');

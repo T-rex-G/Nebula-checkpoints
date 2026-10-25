@@ -17,6 +17,7 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn } = require('./press');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -98,10 +99,7 @@ test('a redraw that lands during the press on a pull request does not swallow it
   const card = await board(page);
   const pull = card.getByRole('button', { name: /Open pull request #42 in sandbox\/demo/ });
   await expect(pull).toBeVisible();
-  await pull.scrollIntoViewIfNeeded();
-  const box = await pull.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await pressOn(page, pull);
   await page.evaluate(() => {
     const Board = window.NebulaPullBoard;
     Board.render(document.querySelector('#wpPulls .wp-body') || document.querySelector('#wpPulls'), Board.model({ results: [], repos: [] }), {});

@@ -10,6 +10,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn } = require('./press');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
@@ -132,10 +133,7 @@ test('a reading that lands during the press on the numbers does not swallow it',
   const trust = page.getByRole('article', { name: 'Trust score' });
   const summary = trust.locator('.wp-numbers summary').first();
   await expect(summary).toBeVisible();
-  await summary.scrollIntoViewIfNeeded();
-  const box = await summary.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await pressOn(page, summary);
   await page.evaluate(() => {
     const Pulse = window.NebulaWorkspacePulse;
     Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));

@@ -524,6 +524,7 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - A repaint asked for by the click itself is drawn at once and supersedes the held one, so an older reading is never drawn over a newer one.
   - The workspace pulse's three cards and its activity feed, the security posture card and the pull board all repaint through it.
 - **Tests that failed first.** One for each card presses, has a reading land, and releases: the numbers open, the repository's audit opens, the pull request opens. All six runs (three cards, desktop and mobile) failed against the unfixed cards and pass now.
+- **Pressing on a settled page.** On CI's first run of these tests (8e45b99), the page had scrolled back to the top once its route finished loading, so the press landed on the page heading, not the card. The CI screen capture showed it. `test/e2e/press.js` now presses only after the network is idle and nothing is moving, with the control confirmed under the pointer and pressed. Each test then fails only on its own claim: all six still fail against the unfixed cards, and pass four times in a row against the fix.
 - **Checks:**
   - lint, typecheck and the inventory;
   - the pulse, posture, pull-board and module-boundary programs;

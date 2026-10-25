@@ -40,7 +40,7 @@ const VENDOR_WARM = [
   '/vendor/codemirror/5.65.16/mode/meta.min.js',
   '/vendor/codemirror/5.65.16/addon/search/searchcursor.min.js',
   '/vendor/marked/15.0.12/marked.min.js',
-  '/vendor/dompurify/3.4.16/purify.min.js'
+  '/vendor/dompurify/3.4.17/purify.min.js'
 ];
 
 self.addEventListener('install', event => {

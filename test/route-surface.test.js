@@ -242,7 +242,14 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * which parses and matches it the way GitHub documents. Both are tested on
  * their own, the store queries against a real database.
  */
-const SERVER_ROUTE_CEILING = 187;
+/*
+ * From D12 the routes leave server.js for registration functions in the
+ * modules (`apps/api/src/modules/<module>/http`), so the number server.js
+ * registers itself only falls, and each move lowers this ceiling to match.
+ * 187 to 185: Parallax's two site-check routes (its four rendered-audit
+ * routes were already registered from their own file).
+ */
+const SERVER_ROUTE_CEILING = 185;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')
@@ -264,15 +271,20 @@ assert(
 );
 
 /* A route module that nothing mounts is worse than no route module: it reads
-   as covered and serves nothing. */
-const routesDir = path.join(root, 'src', 'routes');
-if (fs.existsSync(routesDir)) {
-  for (const file of fs.readdirSync(routesDir).filter(name => name.endsWith('.js'))) {
-    const moduleName = file.replace(/\.js$/, '');
-    assert(
-      serverSource.includes(`routes/${moduleName}`),
-      `src/routes/${file} is never mounted from server.js`
-    );
+   as covered and serves nothing. Every registration function a module's http
+   folder exports is called by the server. */
+const modulesRoot = path.join(root, 'apps', 'api', 'src', 'modules');
+for (const moduleName of fs.readdirSync(modulesRoot)) {
+  const httpDir = path.join(modulesRoot, moduleName, 'http');
+  if (!fs.existsSync(httpDir)) continue;
+  for (const file of fs.readdirSync(httpDir).filter(name => name.endsWith('.ts'))) {
+    const source = fs.readFileSync(path.join(httpDir, file), 'utf8');
+    for (const [, name] of source.matchAll(/^export function (register[A-Z]\w*)\(/gm)) {
+      assert(
+        new RegExp(`\\b${name}\\(app\\b`).test(serverSource),
+        `${moduleName}/http/${file}: ${name} is never called by server.js`
+      );
+    }
   }
 }
 

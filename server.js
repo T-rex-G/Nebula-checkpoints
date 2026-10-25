@@ -174,7 +174,7 @@ const { createMutationGateway, normalizeMutationDescriptor } = require('./apps/a
 const { normalizeFileBatch, summarizeBatchItems } = require('./apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 const { pathFactsForAction } = require('./apps/api/src/platform/mutation-gateway/protected-paths.ts');
 const { offerSafePassage } = require('./apps/api/src/platform/mutation-gateway/safe-passage.ts');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
+const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const {
   auditRepository, assertAuditActive, exploitedInProduction,
   auditWorker: { analyseOffThread, scanOffThread },
@@ -186,8 +186,7 @@ const {
   }
 } = require('./apps/api/src/modules/uranus/index.ts');
 const { createAuditJobs } = require('./apps/api/src/platform/jobs/audit-jobs.ts');
-const { siteCheck: { checkSite, declaredSite, siteOrigin } } = require('./apps/api/src/modules/parallax/index.ts');
-const { registerRenderedAudit } = require('./src/routes/rendered-audit');
+const { siteCheck: { declaredSite }, registerParallaxRoutes } = require('./apps/api/src/modules/parallax/index.ts');
 const { securityContact } = require('./src/public-assets');
 const {
   DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker, resolveExposureSession: resolveStoredExposureSession,
@@ -8005,63 +8004,10 @@ app.get('/api/repo/:owner/:repo/code-audit/gate', providerSessionAccess, alphaRe
   } catch (error) { fail(res, error); }
 });
 
-/*
- * The deployed site, anonymously: a few dozen bounded requests through the
- * guarded transport's anonymous site profile, the libraries it finds asked
- * of OSV through the advisory profile, and the domain's email policy looked
- * up in public DNS. Every rule is in Parallax (apps/api/src/modules/parallax). It is a job like the
- * audit (apps/api/src/platform/jobs/audit-jobs.ts): the first request starts it and answers
- * 202 with a run id, and the page asks again with `run` and hears the stage.
- *
- * One check per identity at a time and a new one at most every fifteen
- * seconds; and any one site is checked at most once every thirty seconds,
- * whoever asks, so the control cannot be leaned on to hammer somebody's
- * site. It runs from a repository's Audit tab or on its own, for any address
- * -- it reads only what every visitor can.
- */
-const siteJobs = createAuditJobs({ kind: 'site' });
-const renderedJobs = registerRenderedAudit(app, { providerSessionAccess, capabilityAccess, auth, identityKey, fail });
-const siteCheckLast = new Map();
-const siteOriginLast = new Map();
-function siteCheckRequest(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
-  const who = identityKey(req.gh);
-  const run = String(req.query.run || '').trim();
-  let origin;
-  try { origin = siteOrigin(req.query.url); } catch (error) { return fail(res, error); }
-  if (!run) {
-    const now = Date.now();
-    const mine = siteCheckLast.get(who) || 0;
-    const theirs = siteOriginLast.get(origin) || 0;
-    if (now - mine < 15000 || now - theirs < 30000) {
-      res.setHeader('Retry-After', String(Math.ceil(Math.max(15000 - (now - mine), 30000 - (now - theirs), 1000) / 1000)));
-      return res.status(429).json({ error: now - theirs < 30000 && now - mine >= 15000
-        ? 'This site was checked moments ago. Wait a few seconds and try again.'
-        : 'A site check ran moments ago. Wait a few seconds and try again.', code: 'SITE_CHECK_THROTTLED' });
-    }
-  }
-  const answer = siteJobs.request({
-    identity: who, owner: 'site', repo: origin, ref: '', run,
-    launch: ({ onProgress, signal }) => {
-      siteCheckLast.set(who, Date.now());
-      siteOriginLast.set(origin, Date.now());
-      for (const map of [siteCheckLast, siteOriginLast]) if (map.size > 5000) map.delete(map.keys().next().value);
-      return checkSite({
-        url: origin,
-        signal,
-        transport: input => guardedFetch(input),
-        advisoryTransport: input => guardedFetch(input),
-        txt: (name, budget) => guardedTxt(name, budget),
-        onProgress
-      }).then(result => ({ ...result, checkedAt: new Date().toISOString() }));
-    }
-  });
-  if (answer.error) return fail(res, answer.error);
-  if (answer.status === 202) res.setHeader('Retry-After', '1');
-  return res.status(answer.status).json(answer.body);
-}
-app.get('/api/site-check', providerSessionAccess, capabilityAccess('site-check'), auth, siteCheckRequest);
-app.get('/api/repo/:owner/:repo/site-check', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('site-check'), auth, siteCheckRequest);
+/* Parallax: the rendered audit and the anonymous site check (apps/api/src/modules/parallax/http/parallax-routes.ts). */
+const { site: siteJobs, rendered: renderedJobs } = registerParallaxRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, viewer: req => identityKey(req.gh), fail
+});
 
 /*
  * What the provider enforces on a branch, beside Nebulaverse-X's own

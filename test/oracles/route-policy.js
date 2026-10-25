@@ -90,11 +90,12 @@ function handlerName(node, source) {
 }
 
 function parse(file) {
-  return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const kind = file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+  return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind);
 }
 
 /* `const access = [a, b(c), d]` inside the registering function, for `...access`. */
-function spreadBindings(source) {
+function spreadBindings(scope, source) {
   const bindings = new Map();
   const visit = node => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
@@ -103,8 +104,68 @@ function spreadBindings(source) {
     }
     ts.forEachChild(node, visit);
   };
-  visit(source);
+  visit(scope);
   return bindings;
+}
+
+/*
+ * Since D12 the routes leave server.js for registration functions in the
+ * modules: `register...(app, deps)` in an `http` folder under apps/api/src
+ * (and, until it moved, src/routes). A call to one is read in place -- the
+ * routes its body registers, in that order, and the registration functions
+ * it calls in turn -- so a route keeps its place in the policy wherever its
+ * code lives. A name defined twice is resolved within the calling file, and
+ * refused when the server calls it, rather than guessed at.
+ */
+function registrationFiles(root) {
+  const files = [];
+  const visit = directory => {
+    if (!fs.existsSync(directory)) return;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (/\.(?:js|ts)$/.test(entry.name) && (path.basename(directory) === 'http' || path.basename(directory) === 'routes')) files.push(full);
+    }
+  };
+  visit(path.join(root, 'apps', 'api', 'src'));
+  visit(path.join(root, 'src', 'routes'));
+  return files.sort();
+}
+
+function registrationFunctions(root) {
+  const byName = new Map();
+  for (const file of registrationFiles(root)) {
+    const source = parse(file);
+    for (const statement of source.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name && statement.body && /^register[A-Z]/.test(statement.name.text)) {
+        const name = statement.name.text;
+        if (!byName.has(name)) byName.set(name, []);
+        byName.get(name).push({ file, source, node: statement });
+      }
+    }
+  }
+  return byName;
+}
+
+function expander(root) {
+  const functions = registrationFunctions(root);
+  const expanding = new Set();
+  const expand = (name, callerFile) => {
+    const candidates = functions.get(name) || [];
+    const own = candidates.filter(candidate => candidate.file === callerFile);
+    const chosen = own.length === 1 ? own[0] : candidates.length === 1 ? candidates[0] : null;
+    if (!chosen) throw new Error(`${path.relative(root, callerFile)}: ${name} names ${candidates.length} registration functions`);
+    const key = `${chosen.file}#${name}`;
+    if (expanding.has(key)) throw new Error(`${name} registers itself`);
+    expanding.add(key);
+    try {
+      return registrationsIn(chosen.node.body, chosen.source, spreadBindings(chosen.node.body, chosen.source), chosen.file, root, expand);
+    } finally {
+      expanding.delete(key);
+    }
+  };
+  expand.knows = (name, callerFile) => (functions.get(name) || []).length > 0 && callerFile !== undefined;
+  return expand;
 }
 
 function argumentsAsGuards(args, source, spreads) {
@@ -119,7 +180,7 @@ function argumentsAsGuards(args, source, spreads) {
   return guards;
 }
 
-function registrationsIn(source, spreads, file, root, expand) {
+function registrationsIn(scope, source, spreads, file, root, expand) {
   const entries = [];
   const visitCall = node => {
     const callee = node.expression;
@@ -154,8 +215,8 @@ function registrationsIn(source, spreads, file, root, expand) {
         return true;
       }
     }
-    if (ts.isIdentifier(callee) && expand.has(callee.text)) {
-      entries.push(...expand.get(callee.text)());
+    if (ts.isIdentifier(callee) && /^register[A-Z]/.test(callee.text) && expand.knows(callee.text, file)) {
+      entries.push(...expand(callee.text, file));
       return true;
     }
     return false;
@@ -164,25 +225,19 @@ function registrationsIn(source, spreads, file, root, expand) {
     if (ts.isCallExpression(node) && visitCall(node)) return;
     ts.forEachChild(node, visit);
   };
-  visit(source);
+  visit(scope);
   return entries;
 }
 
-/*
- * The baseline form: server.js, with registerRenderedAudit(app, ...) expanded
- * in place from src/routes/rendered-audit.js.
- */
-function extractMonolithPolicy(root) {
+/* server.js, with every registration function it calls read in place. */
+function serverRegistrations(root) {
   const serverFile = path.join(root, 'server.js');
-  const renderedFile = path.join(root, 'src', 'routes', 'rendered-audit.js');
-  const rendered = parse(renderedFile);
-  const expand = new Map([[
-    'registerRenderedAudit',
-    () => registrationsIn(rendered, spreadBindings(rendered), renderedFile, root, new Map())
-  ]]);
   const server = parse(serverFile);
-  const entries = registrationsIn(server, new Map(), serverFile, root, expand);
-  return canonicalPolicy(entries);
+  return registrationsIn(server, server, new Map(), serverFile, root, expander(root));
+}
+
+function extractMonolithPolicy(root) {
+  return canonicalPolicy(serverRegistrations(root));
 }
 
 function canonicalPolicy(entries) {
@@ -209,14 +264,7 @@ function canonicalPolicy(entries) {
 }
 
 function locations(root) {
-  const serverFile = path.join(root, 'server.js');
-  const renderedFile = path.join(root, 'src', 'routes', 'rendered-audit.js');
-  const rendered = parse(renderedFile);
-  const expand = new Map([[
-    'registerRenderedAudit',
-    () => registrationsIn(rendered, spreadBindings(rendered), renderedFile, root, new Map())
-  ]]);
-  return registrationsIn(parse(serverFile), new Map(), serverFile, root, expand);
+  return serverRegistrations(root);
 }
 
 module.exports = { MIDDLEWARE_LABELS, extractMonolithPolicy, canonicalPolicy, locations };

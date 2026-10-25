@@ -17,6 +17,7 @@ import * as markup from './domain/site-markup.ts';
 import * as renderedAddress from './domain/rendered-address.ts';
 import { PROBES, RULES } from './domain/site-rules.ts';
 export { privatePathSegment } from './domain/url-privacy.ts';
+export { registerParallaxRoutes, type ParallaxJobs, type ParallaxRouteDeps } from './http/parallax-routes.ts';
 
 /* The deployed-site check. */
 export const siteCheck = Object.freeze({

@@ -3,12 +3,19 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { locations } = require('./oracles/route-policy');
 
 const root = path.resolve(__dirname, '..');
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const routeModuleSources = fs.readdirSync(path.join(root, 'src', 'routes'))
-  .filter(name => name.endsWith('.js'))
-  .map(name => fs.readFileSync(path.join(root, 'src', 'routes', name), 'utf8'));
+/*
+ * The routes as the route policy reads them: server.js, and every module
+ * registration function it calls, in place (test/oracles/route-policy.js).
+ * Each carries its guard chain as written, so the inventory follows a route
+ * into whichever module now registers it.
+ */
+const registered = locations(root).filter(entry => entry.kind === 'route');
+/* The source the routes are written in, for what is named inside a handler rather than in its guard chain. */
+const routeSources = [...new Set([path.join(root, 'server.js'), ...registered.map(entry => path.join(root, entry.at.replace(/:\d+$/, '')))])]
+  .map(file => [path.relative(root, file), fs.readFileSync(file, 'utf8')]);
 const capabilityDocument = JSON.parse(
   fs.readFileSync(path.join(root, 'config', 'public-alpha-capabilities.json'), 'utf8')
 );
@@ -35,137 +42,25 @@ const reviewedExemptions = Object.freeze({
   'POST /api/security/revoke-others': 'Local authenticated session revocation.'
 });
 
-function skipQuoted(source, index, quote) {
-  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
-    if (source[cursor] === '\\') {
-      cursor += 1;
-      continue;
-    }
-    if (source[cursor] === quote) return cursor;
-  }
-  throw new Error(`Unterminated ${quote} string at offset ${index} while reading server routes`);
-}
-
-function skipComment(source, index) {
-  if (source[index + 1] === '/') {
-    const end = source.indexOf('\n', index + 2);
-    return end === -1 ? source.length - 1 : end;
-  }
-  if (source[index + 1] === '*') {
-    const end = source.indexOf('*/', index + 2);
-    if (end === -1) throw new Error('Unterminated block comment while reading server routes');
-    return end + 1;
-  }
-  return index;
-}
-
-function startsRegex(source, index) {
-  let cursor = index - 1;
-  while (cursor >= 0 && /\s/.test(source[cursor])) cursor -= 1;
-  if (cursor < 0 || /[([{,:;=!?&|+\-*%^~<>]/.test(source[cursor])) return true;
-  const before = source.slice(Math.max(0, cursor - 12), cursor + 1);
-  return /\b(?:return|case|throw|typeof|instanceof|yield|await)$/.test(before);
-}
-
-function skipRegex(source, index) {
-  let inClass = false;
-  for (let cursor = index + 1; cursor < source.length; cursor += 1) {
-    if (source[cursor] === '\\') {
-      cursor += 1;
-      continue;
-    }
-    if (source[cursor] === '[') inClass = true;
-    else if (source[cursor] === ']') inClass = false;
-    else if (source[cursor] === '/' && !inClass) {
-      while (/[a-z]/i.test(source[cursor + 1] || '')) cursor += 1;
-      return cursor;
-    }
-  }
-  throw new Error(`Unterminated regular expression at offset ${index} while reading server routes`);
-}
-
-function routeCallEnd(source, openIndex) {
-  let depth = 0;
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "'" || char === '"' || char === '`') {
-      index = skipQuoted(source, index, char);
-      continue;
-    }
-    if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
-      index = skipComment(source, index);
-      continue;
-    }
-    if (char === '/' && startsRegex(source, index)) {
-      index = skipRegex(source, index);
-      continue;
-    }
-    if (char === '(') depth += 1;
-    if (char === ')' && --depth === 0) return index;
-  }
-  throw new Error('Unterminated Express route registration');
-}
-
-function splitTopLevelArguments(source) {
-  const args = [];
-  let start = 0;
-  let parens = 0;
-  let brackets = 0;
-  let braces = 0;
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "'" || char === '"' || char === '`') {
-      index = skipQuoted(source, index, char);
-      continue;
-    }
-    if (char === '/' && (source[index + 1] === '/' || source[index + 1] === '*')) {
-      index = skipComment(source, index);
-      continue;
-    }
-    if (char === '/' && startsRegex(source, index)) {
-      index = skipRegex(source, index);
-      continue;
-    }
-    if (char === '(') parens += 1;
-    else if (char === ')') parens -= 1;
-    else if (char === '[') brackets += 1;
-    else if (char === ']') brackets -= 1;
-    else if (char === '{') braces += 1;
-    else if (char === '}') braces -= 1;
-    else if (char === ',' && parens === 0 && brackets === 0 && braces === 0) {
-      args.push(source.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  args.push(source.slice(start).trim());
-  return args;
-}
-
-function authenticatedRoutes(source) {
+/* The authenticated API routes, each with the capabilities its guard chain names. */
+function authenticatedRoutes(entries) {
   const routes = [];
-  const routeStart = /\bapp\.(get|post|put|patch|delete)\s*\(/g;
-  let match;
-  while ((match = routeStart.exec(source))) {
-    const open = source.indexOf('(', match.index);
-    const end = routeCallEnd(source, open);
-    const args = splitTopLevelArguments(source.slice(open + 1, end));
-    routeStart.lastIndex = end + 1;
-    const pathMatch = args[0] && args[0].match(/^(['"])([^'"]+)\1$/);
-    if (!pathMatch || !pathMatch[2].startsWith('/api/')) continue;
-    const authType = args.find(arg => (
-      arg === 'auth'
-      || arg === 'accountAuth'
-      || arg === 'alphaDeletionAuthentication'
+  for (const entry of entries) {
+    if (!entry.path.startsWith('/api/')) continue;
+    const authType = entry.guards.find(guard => (
+      guard === 'auth'
+      || guard === 'accountAuth'
+      || guard === 'alphaDeletionAuthentication'
     ));
     if (!authType) continue;
     /* Every capability a route names, including one it checks only when a request asks for it. */
-    const features = args
-      .map(arg => arg.match(/^capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/))
+    const features = entry.guards
+      .map(guard => guard.match(/^capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/))
       .filter(Boolean)
       .map(found => found[2]);
     routes.push({
-      method: match[1].toUpperCase(),
-      path: pathMatch[2],
+      method: entry.method,
+      path: entry.path,
       authType,
       feature: features[0] || null,
       features
@@ -174,8 +69,8 @@ function authenticatedRoutes(source) {
   return routes;
 }
 
-function validateInventory(source) {
-  const routes = authenticatedRoutes(source);
+function validateInventory(entries) {
+  const routes = authenticatedRoutes(entries);
   const routeKeys = new Set(routes.map(route => `${route.method} ${route.path}`));
   assert.strictEqual(routeKeys.size, routes.length, 'authenticated route inventory contains duplicate method/path entries');
 
@@ -206,7 +101,7 @@ function validateInventory(source) {
   return routes;
 }
 
-const routes = validateInventory(serverSource);
+const routes = validateInventory(registered);
 for (const [key, feature] of Object.entries({
   'GET /api/rate': 'rate.read',
   'GET /api/repo/:owner/:repo/commits': 'repository.read',
@@ -236,23 +131,19 @@ for (const [key, feature] of Object.entries({
 
 /* Every capability the registry offers is named by at least one route, so none is offered without a gate. */
 const allNamed = new Set(routes.flatMap(route => route.features));
-for (const moduleSource of routeModuleSources) {
-  for (const found of moduleSource.matchAll(/capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/g)) allNamed.add(found[2]);
+for (const [, source] of routeSources) {
+  for (const found of source.matchAll(/capabilityAccess(?:When)?\s*\(\s*(['"])([a-z][a-z0-9.-]+)\1/g)) allNamed.add(found[2]);
 }
 const unnamed = Object.keys(capabilityDocument.providers.github['hosted-alpha']).filter(feature => !allNamed.has(feature)).sort();
 assert.deepStrictEqual(unnamed, [], `registry capabilities no route names: ${unnamed.join(', ')}`);
 
 /* No route can accept what is not Supported: the experimental opt-in does not exist. */
-for (const [name, source] of [['server.js', serverSource], ...routeModuleSources.map((source, index) => [`src/routes #${index}`, source])]) {
+for (const [name, source] of routeSources) {
   assert(!/allowExperimental/.test(source), `${name} must not carry an experimental opt-in`);
 }
 
 assert.throws(
-  () => validateInventory(`${serverSource}
-app.get('/api/repo/:owner/:repo/new-provider-read', auth, async (req, res) => {
-  res.json(await gh(req.gh, R(req)));
-});
-`),
+  () => validateInventory([...registered, { kind: 'route', method: 'GET', path: '/api/repo/:owner/:repo/new-provider-read', guards: ['auth'] }]),
   /new-provider-read/,
   'a newly added authenticated provider route must fail until it is classified'
 );

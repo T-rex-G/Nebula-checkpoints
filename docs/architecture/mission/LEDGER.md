@@ -680,3 +680,24 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
 - **Next:** D12 (routes).
+
+### D12a — Routes leave the server: Parallax first, and the route policy follows them
+
+- **How a route leaves `server.js`.** A module's routes move to a registration function in its `http` folder, `register...Routes(app, deps)`, behind the module's index. The guards are handed in and destructured under the names the route policy records, so each guard chain reads as it always has. The server calls the function where the routes were, so their place among the other routes and middleware is unchanged.
+- **The route policy reads registration functions in place.** `test/oracles/route-policy.js` reads a call to any `register...` function defined in an `http` folder under `apps/api/src`: the routes its body registers, in that order, and the registration functions it calls in turn. A name defined in two files is resolved within the calling file, and refused from the server rather than guessed at. `src/routes/rendered-audit.js` was the one route file before this, read by a rule that named it; that rule is gone with the file. The record is unchanged: 195 routes, 13 steps, the same 1,011 negative-matrix answers.
+- **Parallax.** `modules/parallax/http/parallax-routes.ts` registers the rendered audit's four routes and the site check's two, in the recorded order, and returns both job queues for the server's account cleanup and shutdown. The job belongs to `viewer(req)`, which the server supplies from the provider session, so the module reads no request property the server sets. `src/routes/rendered-audit.js` is removed.
+  - The rendered audit's environment switch and browser path are read by name in the module, so the configuration registry still sees both.
+  - A progress value from the browser worker that is not an object is passed to the jobs as `null`. The jobs ignored it either way, and a structured clone never carries a function.
+  - The site check is handed in like the rendered audit's runner, `checkSite` unless a test supplies one.
+- **Tests that read where routes were now read the route policy:**
+  - `provider-route-inventory` takes each authenticated route's capabilities from its guard chain as the policy reads it, wherever the route is registered, and scans every file that registers a route for capability names and the experimental opt-in.
+  - `route-surface` requires every registration function a module's `http` folder exports to be called by the server. Its ratchet on routes registered in `server.js` itself falls from 187 to 185, and falls again with each move.
+- **Behaviour unchanged**, by an oracle that ran the previous `src/routes/rendered-audit.js` and the site-check handler cut from the previous `server.js` beside the new module. It ran 90 rounds of 250 scripted requests on a held clock, with every route, viewer and address, launches that report, fail, throw or hang, cancellations, and the browser enabled, disabled or missing. 45,000 answers were identical in status, headers and body, and every kind of answer was reached: both throttle messages, in progress, busy, cancelled, failed and complete reports. Mutants that move either throttle window by a second, or trim the rendered audit's recent launches, fail the oracle.
+- **New:** `test/parallax-site-check-routes.test.js` holds the site check's routes over HTTP, with the check handed in and the clock held. It covers who may ask, the addresses refused before anything runs, the job and its poll, both throttles and their `Retry-After`, one check per viewer, and the repository route. Until now no test reached these routes.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new file);
+  - the architecture oracles, route surface, provider route inventory, module boundaries and configuration registry;
+  - the rendered audit and site-check route tests;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+- **Next:** the other modules' routes, smallest first, each receiving the guards it uses as Parallax does. Identity-access goes last: it owns those guards, the sessions and the alpha access boundary.

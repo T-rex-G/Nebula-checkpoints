@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const express = require('express');
 const { renderedUrl, displayUrl, auditRenderedSite, runRenderedSite, killProcessTree } = require('../apps/api/src/modules/parallax/index.ts').renderedAudit;
-const { registerRenderedAudit } = require('../src/routes/rendered-audit');
+const { registerParallaxRoutes } = require('../apps/api/src/modules/parallax/index.ts');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 
@@ -95,11 +95,11 @@ const fs = require('node:fs');
     if (!req.headers['x-test-identity']) return res.status(401).json({ code: 'AUTH_REQUIRED' });
     req.gh = req.headers['x-test-identity']; next();
   };
-  const jobs = registerRenderedAudit(app, { enabled: true, executablePath: process.execPath,
-    providerSessionAccess: access, capabilityAccess: name => {
+  const { rendered: jobs, site: siteJobs } = registerParallaxRoutes(app, { renderedEnabled: true, executablePath: process.execPath,
+    providerSessionAccess: access, alphaRepositoryAccess: (_req, _res, next) => next(), capabilityAccess: name => {
       assert.equal(name, 'site-check');
       return (req, res, next) => req.headers['x-test-deny'] ? res.status(403).end() : next();
-    }, auth: (_req, _res, next) => next(), identityKey: who => who,
+    }, auth: (_req, _res, next) => next(), viewer: req => req.gh,
     fail: (res, error) => res.status(error.status || 500).json({ code: error.code, error: error.message }),
     runner: ({ signal, url, onProgress }) => {
       launches++; onProgress({ stage: 'mobile' });
@@ -146,5 +146,5 @@ const fs = require('node:fs');
     assert.equal(done.status, 200); assert.deepEqual(await done.json(), report);
     jobs.close(); assert.equal(jobs.size(), 0);
     console.log('Rendered audit route, identity, cancellation and isolation tests passed');
-  } finally { jobs.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { jobs.close(); siteJobs.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

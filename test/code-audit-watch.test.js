@@ -7,9 +7,9 @@
  */
 
 const assert = require('assert');
-const { watchComponents } = require('../src/code-audit-watch');
+const { watchComponents } = require('../apps/api/src/modules/uranus/index.ts').auditWatch;
 const { KEV_URL, EPSS_URL, createIntelCache } = require('../apps/api/src/modules/uranus/index.ts');
-const { compactAudit, compactAlert } = require('../src/code-audit-history');
+const { compactAudit, compactAlert } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
 
 const kevEntry = (cveID, dateAdded, dueDate, ransomware = 'Unknown') => ({ cveID, dateAdded, dueDate, knownRansomwareCampaignUse: ransomware, vendorProject: 'x', product: 'y' });
 const record = (id, aliases, { name = 'jquery', ecosystem = 'npm', fixed = '3.5.0', rated = 'HIGH' } = {}) => ({
@@ -109,7 +109,7 @@ const stored = [
   }
   {
     const { transport } = services({ failNames: ['Django'], kevDown: true });
-    const outcome = await watchComponents({ components: stored, advisoryTransport: transport, intelTransport: transport, intelCache: createIntelCache(), limits: { ...require('../src/code-audit-watch').LIMITS, advisoryBatch: 2 } });
+    const outcome = await watchComponents({ components: stored, advisoryTransport: transport, intelTransport: transport, intelCache: createIntelCache(), limits: { ...require('../apps/api/src/modules/uranus/index.ts').auditWatch.LIMITS, advisoryBatch: 2 } });
     assert.strictEqual(outcome.state, 'partial', 'one failed batch of two');
     assert.deepStrictEqual([outcome.checked, outcome.total], [2, 3]);
     assert.strictEqual(outcome.kev, 'unavailable');

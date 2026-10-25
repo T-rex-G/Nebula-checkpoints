@@ -20,7 +20,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const audit = require('../apps/api/src/modules/uranus/index.ts');
-const { scanOffThread } = require('../src/code-audit-worker');
+const { scanOffThread } = require('../apps/api/src/modules/uranus/index.ts').auditWorker;
 
 /* A token-shaped fixture, built in pieces so no scanner mistakes it for a leak. */
 const TOKEN = `gh${'p'}_${'A'.repeat(36)}`;
@@ -201,7 +201,7 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
     const limited = await audit.auditRepository({ reader: synthetic, scope: {}, ref: 'main', queryTransport: async () => ({}) });
     assert.strictEqual(limited.coverage.complete, true, 'file-read completeness remains distinct');
     assert.strictEqual(limited.coverage.advisories.inventoryComplete, false, 'missing dependency semantics are explicitly incomplete');
-    const { compactAudit } = require('../src/code-audit-history');
+    const { compactAudit } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
     assert.strictEqual(compactAudit(limited).audit.watch_state, 'unavailable', 'no retained versions is not proof of no vulnerable dependencies');
   }
 

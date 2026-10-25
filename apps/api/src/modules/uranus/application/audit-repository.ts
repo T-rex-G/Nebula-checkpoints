@@ -8,6 +8,7 @@ import { analyse, scanRules, selectFiles } from './audit-engine.ts';
 import { lookupAdvisories, lookupPackages, type AdvisoryLookup, type AuditTransport } from '../client/advisory-lookup.ts';
 import { lookupLicences } from '../client/licence-lookup.ts';
 import { lookupExploitIntel, type IntelAnswer, type IntelCache } from '../client/exploit-intel.ts';
+import { assertAuditActive } from '../domain/audit-cancellation.ts';
 
 /*
  * Uranus against a provider: the repository read through the guarded reader
@@ -62,17 +63,6 @@ export interface AuditRepositoryInput {
   readonly signal?: AbortSignal | null;
 }
 
-/* Cancellation reasons can contain private context; only this fixed error leaves the audit. */
-export function assertAuditActive(signal: AbortSignal | null | undefined): void {
-  if (!signal || !signal.aborted) return;
-  throw Object.assign(new Error('The audit was cancelled.'), {
-    code: 'AUDIT_CANCELLED',
-    status: 499,
-    providerChanged: false,
-    safeState: 'Nothing was changed. The audit only reads.'
-  });
-}
-
 /*
  * The whole audit against a provider: resolve the ref once, list the tree at
  * that commit, read what fits the budget, ask the registries, analyse.
@@ -86,7 +76,7 @@ export function assertAuditActive(signal: AbortSignal | null | undefined): void 
  * What each component's advisories were at this audit: every id OSV answered
  * before aliases were folded together, the CVEs those advisories carry, and
  * which of them CISA listed as exploited. It is the baseline the watch
- * compares a later answer with (code-audit-watch.ts), so an advisory this
+ * compares a later answer with (audit-watch.ts), so an advisory this
  * audit already reported is never announced again as new, and a CVE that was
  * already in the catalog is never announced as newly exploited.
  */

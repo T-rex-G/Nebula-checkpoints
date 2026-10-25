@@ -202,16 +202,16 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  *
  * 172 to 176 adds the kept audits: a branch's history, one past audit's
  * findings, the watch over its components, and the clear. Each handler is one
- * call to `src/code-audit-history.js` -- what is stored, how it is reduced so
+ * call to Uranus's audit history (`apps/api/src/modules/uranus/persistence/`) -- what is stored, how it is reduced so
  * that no part of the repository is, what is kept and for how long, and when
  * the watch asks again are all there and tested against a real database; what
- * the watch asks, and what counts as new, is in `src/code-audit-watch.js`.
+ * the watch asks, and what counts as new, is in `apps/api/src/modules/uranus/application/audit-watch.ts`.
  */
 /*
  * 176 to 177 adds the site check on its own, for an address rather than a
  * repository's homepage. It is the same handler as the repository route --
  * one function that validates the address, throttles, and hands the check to
- * the job runner (src/code-audit-jobs.js) -- registered twice; every rule is
+ * the job runner (apps/api/src/platform/jobs/audit-jobs.ts) -- registered twice; every rule is
  * in `src/site-check.js`.
  */
 /*
@@ -220,8 +220,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * taking one back and one finding's record of them; where a branch stands
  * against its clocks; the gate on a pull request; and the grade worked out
  * again after a decision. Each handler is a call into a module --
- * `src/code-audit-triage.js` (the decisions, how they lie over an audit, the
- * gate and its policy preview), `src/code-audit-history.js` (first-seen dates,
+ * Uranus's triage (`domain/audit-triage.ts`: the decisions and how they lie over
+ * an audit; `application/merge-gate.ts`: the gate and its policy preview), its
+ * audit history (first-seen dates,
  * resolutions and the metrics) and `apps/api/src/modules/kepler/domain/code-audit-policy.ts` (the clock) --
  * each tested on its own, against a real database where it keeps rows.
  */

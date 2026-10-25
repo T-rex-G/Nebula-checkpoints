@@ -10,7 +10,7 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
-const { analyseOffThread, scanOffThread, BUDGET } = require('../src/code-audit-worker');
+const { analyseOffThread, scanOffThread, BUDGET } = require('../apps/api/src/modules/uranus/index.ts').auditWorker;
 
 const I = '$';
 const files = [

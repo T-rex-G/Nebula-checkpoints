@@ -251,7 +251,7 @@ const ui = require('../apps/web/src/features/uranus/code-audit-ui');
    * is late when it is.
    */
   {
-    const { applyTriage } = require('../src/code-audit-triage');
+    const { applyTriage } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
     const [sql, ...others] = result.findings;
     assert(others.length, 'the fixture has findings left open beside the decided one');
     const clocked = {
@@ -297,7 +297,7 @@ const ui = require('../apps/web/src/features/uranus/code-audit-ui');
 
   /* A kept audit exports from what it kept, says so, and says when fewer findings were kept than found. */
   {
-    const { describeKept } = require('../src/code-audit-history');
+    const { describeKept } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
     const audit = { id: '00000000-0000-4000-8000-000000000001', ref: 'main', commitSha: 'a'.repeat(40), engine: '2.3.0', auditedAt: '2026-10-01T10:00:00.000Z',
       score: 41, grade: 'F', capReason: 'critical', counts: { critical: 1, serious: 1, warning: 4 }, toConfirm: 1, exploited: 1,
       files: { read: 40, eligible: 40, complete: true }, findings: { total: 6, stored: 3 } };

@@ -280,7 +280,7 @@ function securityPostureFixture(kind) {
 function findingsInboxFixture(kind, decided) {
   const now = Date.now();
   const at = days => new Date(now - days * 86400000).toISOString();
-  const vocabulary = require('../../src/code-audit-triage').VOCABULARY;
+  const vocabulary = require('../../apps/api/src/modules/uranus/index.ts').auditTriage.VOCABULARY;
   if (kind === 'empty') {
     return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: 0, counts: {}, findings: [] };
   }
@@ -378,10 +378,10 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
   };
   /*
    * The audits the server keeps, newest first, reduced by the same function
-   * the server uses (src/code-audit-history.js) and answered in the same
+   * the server uses (Uranus's audit history) and answered in the same
    * shapes, so the page is tested against what a database would give it.
    */
-  const { compactAudit, serialize, describeKept } = require('../../src/code-audit-history');
+  const { compactAudit, serialize, describeKept } = require('../../apps/api/src/modules/uranus/index.ts').auditHistory;
   state.auditHistory = [];
   const recordAudit = result => {
     const compact = compactAudit(result);
@@ -407,7 +407,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     return { saved: true, auditId: row.audit_id, previousAt: previous ? previous.row.audited_at : null, newIds: diff ? diff.newIds : null, resolved: diff ? diff.resolved : null, firstSeen };
   };
   /* The team's decisions about the repository's findings, and every step of them, as the triage store keeps them. */
-  const triageModule = require('../../src/code-audit-triage');
+  const triageModule = require('../../apps/api/src/modules/uranus/index.ts').auditTriage;
   const { clockOf } = require('../../apps/api/src/modules/kepler/index.ts');
   const { exploitedInProduction } = require('../../apps/api/src/modules/uranus/index.ts');
   state.triage = new Map();

@@ -204,6 +204,8 @@ const spoken = new Set([...system.produced.keys()].filter(code => !platform.has(
 
 if (process.env.NV_CODES_WRITE === '1') {
   const list = [...spoken].sort();
+  /* The version is the catalogue's own: a new code changes its shape, and test/contracts.test.js asks for the bump, which a rewrite keeps. */
+  const version = (/export const CODES_CONTRACT_VERSION = (\d+);/.exec(fs.readFileSync(CATALOGUE, 'utf8')) || [null, '1'])[1];
   fs.writeFileSync(CATALOGUE, `/*
  * Every machine-readable code the system speaks: the code of a refusal, of a
  * reason behind a score or a decision, and of a warning, each once.
@@ -214,7 +216,7 @@ if (process.env.NV_CODES_WRITE === '1') {
  * reader sees; a client branches on the code alone.
  */
 
-export const CODES_CONTRACT_VERSION = 1;
+export const CODES_CONTRACT_VERSION = ${version};
 
 export const CODES = Object.freeze([
 ${list.map(code => `  '${code}'`).join(',\n')}

@@ -51,7 +51,8 @@ assert.deepEqual(unresolved, [], 'a compiled module names a file the compiled tr
 
 /* Entries resolve to the emitted files, and a worker thread runs from them. */
 const { entryFile } = require(path.join(compiled, 'apps', 'api', 'src', 'entrypoint.js'));
-assert.equal(entryFile('code-audit-worker'), path.join(compiled, 'src', 'code-audit-worker.js'));
+assert.equal(entryFile('code-audit-worker'), path.join(compiled, 'apps', 'api', 'src', 'modules', 'uranus', 'application', 'audit-worker.js'));
+assert(fs.existsSync(entryFile('code-audit-worker')));
 assert.equal(entryFile('rendered-site-worker'), path.join(compiled, 'src', 'rendered-site-worker.js'));
 assert(fs.existsSync(entryFile('rendered-site-worker')));
 
@@ -61,8 +62,8 @@ assert.equal(runtime.sourceRoot, root);
 
 (async () => {
   const input = { mode: 'rules', files: [{ path: 'server.js', text: "const { exec } = require('child_process');\nexec(req.query.cmd);\n" }] };
-  const native = await require('../../src/code-audit-worker').scanOffThread(input);
-  const fromTree = await require(path.join(compiled, 'src', 'code-audit-worker.js')).scanOffThread(input);
+  const native = await require('../../apps/api/src/modules/uranus/index.ts').auditWorker.scanOffThread(input);
+  const fromTree = await require(path.join(compiled, 'apps', 'api', 'src', 'modules', 'uranus', 'index.js')).auditWorker.scanOffThread(input);
   assert(native.raw.some(finding => finding.rule === 'SEC-010'), 'the analysis found the command injection it was given');
   assert.deepEqual(fromTree, native, 'the compiled worker returns what the source worker returns');
   console.log(`compiled server tests passed (${code.length} modules, ${files.length} files, serverBuildSha256 ${runtime.buildSha256})`);

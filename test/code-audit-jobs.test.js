@@ -8,7 +8,7 @@
  */
 
 const assert = require('assert');
-const { createAuditJobs, JOBS } = require('../src/code-audit-jobs');
+const { createAuditJobs, JOBS } = require('../apps/api/src/platform/jobs/audit-jobs.ts');
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -204,7 +204,7 @@ function deferred() {
 
   /* ---- A site check is the same kind of job, in its own words and stages ----------------------- */
   {
-    const { SITE_JOBS, SITE_STAGES } = require('../src/code-audit-jobs');
+    const { SITE_JOBS, SITE_STAGES } = require('../apps/api/src/platform/jobs/audit-jobs.ts');
     const { STAGES } = require('../src/site-check');
     assert.deepStrictEqual([...SITE_STAGES], [...STAGES], 'the job knows every stage the check reports');
     assert(SITE_JOBS.maxRunMs >= 60 * 1000 && SITE_JOBS.maxRunMs <= 2 * 60 * 1000, 'a site check has a minute and a half');

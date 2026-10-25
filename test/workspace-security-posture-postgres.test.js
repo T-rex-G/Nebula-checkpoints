@@ -17,7 +17,7 @@ const path = require('path');
 const { Client, Pool } = require('pg');
 
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { CodeAuditHistory } = require('../src/code-audit-history');
+const { CodeAuditHistory } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
 const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 

@@ -23,7 +23,7 @@ interface Entry {
 
 const ENTRIES: Readonly<Record<EntryName, Entry>> = Object.freeze({
   /* Uranus's analysis in a worker thread with its own heap cap: the module starts itself. */
-  'code-audit-worker': Object.freeze({ file: '../../../src/code-audit-worker', language: 'js' }),
+  'code-audit-worker': Object.freeze({ file: './modules/uranus/application/audit-worker', language: 'ts' }),
   /* Parallax's rendered check in a disposable child process. */
   'rendered-site-worker': Object.freeze({ file: '../../../src/rendered-site-worker', language: 'js' })
 });

@@ -18,7 +18,7 @@ const path = require('path');
 const { Client, Pool } = require('pg');
 
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { CodeAuditHistory, createAuditWatch, compactAudit, LIMITS } = require('../src/code-audit-history');
+const { CodeAuditHistory, createAuditWatch, compactAudit, LIMITS } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -155,7 +155,7 @@ async function withClient(connectionString, run) {
       const refreshed = await history.latest({ scope: incompleteScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(refreshed.audit.watch.state, 'ok', 'the later dependency lookup succeeds');
       assert.strictEqual(refreshed.audit.analysisComplete, false, 'watch refresh cannot repair incomplete source evidence');
-      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      const { evaluateMergeGate } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
       assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed, now: T0 + 2 * HOUR }).state, 'unavailable');
     }
     {
@@ -300,7 +300,7 @@ async function withClient(connectionString, run) {
       await pool.query('UPDATE nv_code_audits SET analysis_complete=NULL WHERE repo_name=$1', [cancelledScope.repo]);
       const legacy = await history.latest({ scope: cancelledScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(legacy.audit.analysisComplete, null, 'pre-migration evidence is explicitly unknown');
-      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      const { evaluateMergeGate } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
       assert.strictEqual(evaluateMergeGate({ headSha: before.commitSha, head: legacy, now: T0 + HOUR }).state, 'unavailable', 'legacy unknown evidence requires a new audit');
     }
     {

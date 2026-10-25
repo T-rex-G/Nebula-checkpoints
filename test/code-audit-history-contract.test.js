@@ -21,11 +21,14 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '029_code_audit_history.sql'), 'utf8');
-const storeSource = fs.readFileSync(path.join(root, 'src', 'code-audit-history.js'), 'utf8');
+/* The store and everything it is built from: the rows in, the records out, the SQL fragments and the workspace reads. */
+const persistence = path.join(root, 'apps', 'api', 'src', 'modules', 'uranus', 'persistence');
+const storeSource = ['audit-history-rows.ts', 'audit-history-records.ts', 'audit-history-sql.ts', 'audit-history-store.ts', 'audit-workspace-reads.ts']
+  .map(file => fs.readFileSync(path.join(persistence, file), 'utf8')).join('\n');
 const coverageMigration = fs.readFileSync(path.join(root, 'db', 'migrations', '032_code_audit_analysis_coverage.sql'), 'utf8').replace(/--.*$/gm, '').trim();
 assert.strictEqual(coverageMigration, 'ALTER TABLE nv_code_audits ADD COLUMN analysis_complete boolean NULL;',
   'analysis proof is additive, nullable for existing rows, and never backfilled as complete');
-const { SHAPE } = require('../src/code-audit-history');
+const { SHAPE } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
 
 const TABLES = ['nv_code_audits', 'nv_code_audit_findings', 'nv_code_audit_components', 'nv_code_audit_alerts'];
 for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `missing ${table}`);
@@ -69,7 +72,7 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   }
   /* A vocabulary the store takes from a shared contract is read from the contract itself. */
   const vocabulary = (constant, column, shared = null) => {
-    const listed = shared ? null : [...storeSource.matchAll(new RegExp(`const ${constant} = Object\\.freeze\\(\\[([^\\]]+)\\]\\)`, 'g'))][0];
+    const listed = shared ? null : [...storeSource.matchAll(new RegExp(`const ${constant} = Object\\.freeze\\(\\[([^\\]]+)\\](?: as const)?\\)`, 'g'))][0];
     assert(shared || listed, `missing ${constant}`);
     const values = shared ? [...shared].sort() : listed[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort();
     const checked = new RegExp(`${column} IN \\(([^)]+)\\)`).exec(sql);
@@ -84,7 +87,8 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   vocabulary('GRADES', 'grade');
   vocabulary('CAP_REASONS', 'cap_reason');
   vocabulary('WATCH_STATES', 'watch_state', require('../packages/contracts/src/evidence.ts').AUDIT_WATCH_STATES);
-  assert(storeSource.includes("const { AUDIT_WATCH_STATES: WATCH_STATES } = require('../packages/contracts/src/evidence.ts');"), 'the store reads its watch states from the evidence contract');
+  assert(/import \{ AUDIT_WATCH_STATES, type AuditWatchState \} from '(?:\.\.\/)+packages\/contracts\/src\/evidence\.ts';/.test(storeSource) && storeSource.includes('export const WATCH_STATES = AUDIT_WATCH_STATES;'),
+    'the store reads its watch states from the evidence contract');
   vocabulary('WATCH_KEV', 'watch_kev');
   vocabulary('ALERT_KINDS', 'kind');
 }

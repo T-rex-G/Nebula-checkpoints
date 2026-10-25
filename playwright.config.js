@@ -24,6 +24,14 @@ function shardFrom(value) {
 
 module.exports = defineConfig({
   testDir: './test/e2e',
+  /*
+   * The server's TypeScript (apps/, packages/) is ECMAScript modules that Node
+   * runs by stripping types, as the server does, and the browser fixtures load
+   * it that way too. Playwright's own compiler would turn it into CommonJS,
+   * where `import.meta` -- which apps/api/src/entrypoint.ts needs to find the
+   * worker files beside it -- cannot be written.
+   */
+  build: { external: ['**/apps/**', '**/packages/**'] },
   fullyParallel: false,
   workers: 1,
   shard: shardFrom(process.env.NV_E2E_SHARD),

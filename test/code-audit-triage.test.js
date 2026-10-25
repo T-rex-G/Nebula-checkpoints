@@ -18,7 +18,7 @@ const { analyse, score, priorities } = require('../apps/api/src/modules/uranus/i
 const {
   VOCABULARY, REASONS, DISPOSITIONS, GATE_REASONS, GATE_STATES, normalizeDecision, inForce, applyTriage, rescore,
   openRows, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes, previewMergePolicies, summarizeDecisions
-} = require('../src/code-audit-triage');
+} = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
 const { getPolicyTemplate } = require('../apps/api/src/modules/kepler/index.ts');
 
 const DAY = 24 * 60 * 60 * 1000;

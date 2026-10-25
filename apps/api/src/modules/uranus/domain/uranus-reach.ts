@@ -391,6 +391,11 @@ function tierEntry(tier: unknown): { readonly factor: number; readonly productio
   return typeof tier === 'string' ? ownEntry(TIERS, tier) : undefined;
 }
 
+/* Whether a reach tier is code that ships, by the engine's own tiers: a kept finding's reach, read back. */
+export function productionTier(tier: unknown): boolean {
+  return Boolean(tierEntry(tier)?.production);
+}
+
 /*
  * How one vulnerable package is reached. `entry` is its inventory entry,
  * `usage` the index above, `through` what introducedThrough found (null when

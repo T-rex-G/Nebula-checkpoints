@@ -19,9 +19,9 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '030_code_audit_triage.sql'), 'utf8');
 const code = sql.replace(/--.*$/gm, '');
-const storeSource = fs.readFileSync(path.join(root, 'src', 'code-audit-triage.js'), 'utf8');
+const storeSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'uranus', 'persistence', 'audit-triage-store.ts'), 'utf8');
 const privacySource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8');
-const { SHAPE } = require('../src/code-audit-triage');
+const { SHAPE } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
 
 const TABLES = ['nv_code_audit_triage', 'nv_code_audit_triage_events', 'nv_code_audit_resolutions'];
 for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `missing ${table}`);

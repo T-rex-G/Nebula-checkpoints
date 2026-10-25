@@ -457,3 +457,51 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the production audit;
   - all 28 server tests on the compiled runtime.
 - **Production** is unchanged until a deploy the owner approves: Node 22.23.1 on `3bf017a`.
+
+### D7c — Uranus after the analysis: the worker, the watch, the history and triage
+
+- **Where each file went.** The last five audit files leave `src/`:
+  - `application/audit-worker.ts`: the analysis on a worker thread, bounded by heap and clock. It is the `code-audit-worker` entry, now a TypeScript entry in `entrypoint.ts`. The compiled tree starts `apps/api/src/modules/uranus/application/audit-worker.js`, and the compiled-tree test runs a rules-only scan through it.
+  - `application/audit-watch.ts`: the watch over stored dependencies, with the service that refreshes a branch's latest audit (`createAuditWatch`), which used to live in the history file.
+  - The history, split at its seams:
+    - `persistence/audit-history-rows.ts`: the reduction into rows, the privacy boundary;
+    - `persistence/audit-history-records.ts`: the serializers back out;
+    - `persistence/audit-history-sql.ts`: the shared SQL fragments;
+    - `persistence/audit-history-store.ts`: the store;
+    - `persistence/audit-workspace-reads.ts`: the two workspace-wide reads.
+  - Triage, split by what it stands on:
+    - `domain/audit-triage.ts`: decisions, `applyTriage`, `rescore`, `openRows`;
+    - `application/merge-gate.ts`: the gate and the policy preview, which need Kepler's clocks and policy evaluation;
+    - `persistence/audit-triage-store.ts`: the decisions and their events.
+  - `domain/audit-cancellation.ts`: `assertAuditActive`, which the worker and the store share. The store no longer reaches into an application file for it.
+  - The job runner is `platform/jobs/audit-jobs.ts`, not Uranus. The deployed-site check and the rendered audit are jobs of the same kind, and the jobs contract names all three.
+- **The index.** Each old file's surface is one namespace with its original names: `auditWorker`, `auditWatch`, `auditHistory`, `auditTriage`. They are not spread flat because several share `LIMITS` or `SHAPE`. The server, the routes, the tests and the browser fixtures reach them there.
+- **Types at the boundaries.**
+  - What the database returns is read column by column. NOT NULL text is read as text. An enumerated column must hold one of its values, or the read is refused with `CODE_AUDIT_ROW_INVALID`. The migration's CHECK constraints already refuse anything else, so the refusal cannot fire on stored rows.
+  - What a worker thread posts is `unknown`. It crosses by structured clone, and this side does not claim to know its type.
+  - The engine's `score` and `priorities` take a `ScoredFinding`: the fields they read. So `rescore` hands them the page's findings without a cast.
+  - `queryAdvisoryIds` is generic: the entries it hands back keep their own type.
+  - No type assertion was added.
+- **Contracts.**
+  - The jobs contract's `RunningJob.limit` was declared a number, but the runner has always sent `'memory'` or `'time'`. It is now that union. The contract is version 2, and its shape is re-recorded.
+  - The history and triage shapes take the commit, identity-key and UUID patterns from the ids contract, not copies. The adoption record loses four copies, and `COMMIT_SHA` gains its first consumer.
+- **Two harness fixes the move needed:**
+  - *The browser suites load server TypeScript natively.* Playwright compiles the `.ts` files a test loads into CommonJS, where `import.meta` cannot be written. Since the Uranus index loads the worker, which loads `entrypoint.ts`, every browser fixture that reads Uranus failed to load. Both Playwright configs now leave `apps/` and `packages/` to Node's own type stripping (`build.external`), the way the server loads them: 988 tests list again, and the integration suite's two as well.
+  - *The code catalogue keeps its version on rewrite.* The history's row refusal is a new code, `CODE_AUDIT_ROW_INVALID`. A new code changes the catalogue's shape, so its contract is version 2. The writer in `test/codes.test.js` used to write version 1 back over any bump. It now keeps the catalogue's own version.
+- **Behaviour unchanged**, by an oracle that ran the original JavaScript beside the port. It used 139 analyses (the benchmark corpus and the repository's own manifests), each in eight variants, and compared:
+  - the reduction into rows and its detector evidence (1,112 results);
+  - alert reduction;
+  - the serializers and `describeKept`;
+  - `applyTriage`, `summarizeDecisions`, `rescore` and `normalizeDecision`;
+  - 13,344 merge-gate readings across three clocks;
+  - the policy preview over the six policy templates.
+
+  All 39,733 comparisons were identical.
+- **Size.** The 1,305-line history is now five files, the largest 594 lines. The 616-line triage file is three.
+- **Checks:**
+  - typecheck and lint;
+  - the audit programs: jobs, worker, watch, triage, the triage and history contracts, UI, coverage and accuracy;
+  - the contracts, module boundaries and the route surface;
+  - the full unit gate and every verify-job gate on Node 22.23.4, the PostgreSQL suites among them;
+  - all 28 server tests on the compiled runtime;
+  - 56 browser tests on Chromium: audit triage and history, the audit run, risk, licences, polyglot and fold views, the findings inbox and the DOM contract.

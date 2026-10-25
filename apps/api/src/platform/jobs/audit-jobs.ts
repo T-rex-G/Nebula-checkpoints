@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * Repository audits as short-lived jobs, so no request waits on one.
  *
@@ -21,12 +19,25 @@
  * What a running job reports is a stage name and counts. The result, when
  * there is one, is exactly what the audit returned, and it is handed only to
  * the identity whose audit it was.
+ *
+ * It is platform, not Uranus: the deployed-site check and the rendered audit
+ * are jobs of the same kind, each with its own stages, limits and words, all
+ * written out in the jobs contract.
  */
 
-const crypto = require('crypto');
-const { JOB_ERROR_CODES, JOB_FIRST_STAGE, JOB_STAGES } = require('../packages/contracts/src/jobs.ts');
+import { randomBytes } from 'node:crypto';
+import { JOB_ERROR_CODES, JOB_FIRST_STAGE, JOB_STAGES, type JobFailure, type JobKind, type RunningJob } from '../../../../../packages/contracts/src/jobs.ts';
 
-const JOBS = Object.freeze({
+export interface JobLimits {
+  /* How long a finished job is held for the page to collect. */
+  readonly keepMs: number;
+  /* The longest a job may run, reading included, before it is abandoned. */
+  readonly maxRunMs: number;
+  /* Jobs running at once, across every identity. */
+  readonly maxRunning: number;
+}
+
+export const JOBS: JobLimits = Object.freeze({
   /* How long a finished audit is held for the page to collect. */
   keepMs: 2 * 60 * 1000,
   /* The longest an audit may run, reading included, before it is abandoned. */
@@ -35,16 +46,29 @@ const JOBS = Object.freeze({
   maxRunning: 16
 });
 
-const STAGES = new Set(JOB_STAGES.audit);
+const STAGES: ReadonlySet<string> = new Set(JOB_STAGES.audit);
 
 /*
  * A deployed-site check is the same kind of work -- a few dozen outbound
  * requests, longer than a quiet request is kept open at the edge -- so it is
  * the same kind of job, with its own stages, limits and words.
  */
-const SITE_JOBS = Object.freeze({ keepMs: 2 * 60 * 1000, maxRunMs: 90 * 1000, maxRunning: 8 });
-const SITE_STAGES = new Set(JOB_STAGES.site);
-const KINDS = Object.freeze({
+export const SITE_JOBS: JobLimits = Object.freeze({ keepMs: 2 * 60 * 1000, maxRunMs: 90 * 1000, maxRunning: 8 });
+export const SITE_STAGES: ReadonlySet<string> = new Set(JOB_STAGES.site);
+
+interface JobWords {
+  readonly codes: Readonly<Record<JobFailure, string>>;
+  readonly first: string;
+  readonly stages: ReadonlySet<string>;
+  readonly limits: JobLimits;
+  readonly safeState: string;
+  readonly gone: string;
+  readonly inProgress: string;
+  readonly busy: string;
+  readonly timeout: string;
+}
+
+const KINDS: Readonly<Record<JobKind, JobWords>> = Object.freeze({
   audit: Object.freeze({
     codes: JOB_ERROR_CODES.audit, first: JOB_FIRST_STAGE.audit, stages: STAGES, limits: JOBS,
     safeState: 'Nothing was changed. The audit only reads.',
@@ -72,59 +96,139 @@ const KINDS = Object.freeze({
   })
 });
 
-function jobError(code, message, status, safeState = KINDS.audit.safeState) {
-  const error = new Error(message);
-  error.code = code;
-  error.status = status;
-  error.providerChanged = false;
-  error.safeState = safeState;
-  return error;
+/* Which of a kind's words each failure is told in. */
+const FAILURE_WORDS: Readonly<Record<JobFailure, 'gone' | 'inProgress' | 'busy' | 'timeout'>> = Object.freeze({
+  RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout'
+});
+
+/* A failure as the server's public error body tells it. */
+export type JobError = Error & { readonly code: string; readonly status: number; readonly providerChanged: false; readonly safeState: string };
+
+function jobError(code: string, message: string, status: number, safeState: string = KINDS.audit.safeState): JobError {
+  return Object.assign(new Error(message), { code, status, providerChanged: false as const, safeState });
 }
+
+/* What the work reports as it goes: a stage, and counts. Anything else is ignored. */
+export interface JobUpdate {
+  readonly stage?: unknown;
+  readonly done?: unknown;
+  readonly total?: unknown;
+  readonly position?: unknown;
+  readonly limit?: unknown;
+}
+export interface JobLaunch {
+  readonly onProgress: (update: JobUpdate | null | undefined) => void;
+  readonly signal: AbortSignal;
+}
+export interface JobRequest<R> {
+  readonly identity: string;
+  readonly owner: unknown;
+  readonly repo: unknown;
+  readonly ref: unknown;
+  readonly run?: unknown;
+  readonly launch: (launch: JobLaunch) => R | Promise<R>;
+}
+export type JobAnswer<R> =
+  | { readonly status: 202; readonly body: RunningJob }
+  | { readonly status: 200; readonly body: R | null }
+  | { readonly error: unknown };
+export interface JobTarget {
+  readonly owner: unknown;
+  readonly repo: unknown;
+  readonly ref: unknown;
+}
+interface JobKey {
+  readonly identity: string;
+  readonly owner: unknown;
+  readonly repo: unknown;
+  readonly ref: unknown;
+  readonly run: unknown;
+}
+export interface AuditJobs<R> {
+  request(input: JobRequest<R>): JobAnswer<R>;
+  forget(identity: string): void;
+  cancel(input: JobKey): boolean;
+  target(input: { readonly identity: string; readonly run: unknown }): JobTarget | null;
+  close(): void;
+  size(): number;
+}
+export interface AuditJobsOptions {
+  readonly now?: () => number;
+  readonly randomId?: () => string;
+  readonly kind?: string;
+  readonly limits?: JobLimits | null;
+}
+
+interface Job<R> {
+  readonly id: string;
+  readonly identity: string;
+  readonly owner: unknown;
+  readonly repo: unknown;
+  readonly ref: unknown;
+  readonly startedAt: number;
+  finishedAt: number | null;
+  stage: string;
+  done: number;
+  total: number;
+  position: number | null;
+  limit: 'memory' | 'time' | null;
+  result: R | null;
+  error: unknown;
+  timer: ReturnType<typeof setTimeout> | null;
+  readonly controller: AbortController;
+}
+
+/* Each job kind the contract names, by its name; nothing else is a kind. */
+const kindOf = (kind: string): JobKind | null => (kind === 'audit' || kind === 'site' || kind === 'rendered' ? kind : null);
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 /*
  * Each answer is `{ status, body }` to send as it is, or `{ error }` for the
  * server to send as its public error body. `now` and `randomId` are
  * replaceable in tests.
  */
-function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(12).toString('hex'), kind = 'audit', limits = null } = {}) {
-  const words = KINDS[kind];
-  if (!words) throw new TypeError(`Unknown job kind ${kind}`);
-  limits = limits || words.limits;
+export function createAuditJobs<R = unknown>({ now = Date.now, randomId = () => randomBytes(12).toString('hex'), kind = 'audit', limits = null }: AuditJobsOptions = {}): AuditJobs<R> {
+  const named = kindOf(kind);
+  if (!named) throw new TypeError(`Unknown job kind ${kind}`);
+  const words = KINDS[named];
+  const held = limits || words.limits;
   /* Each failure's code is written out in the jobs contract (packages/contracts/src/jobs.ts). */
-  const failure = (name, status) => jobError(words.codes[name], words[{ RUN_GONE: 'gone', IN_PROGRESS: 'inProgress', BUSY: 'busy', TIMEOUT: 'timeout' }[name]], status, words.safeState);
-  const jobs = new Map();
+  const failure = (name: JobFailure, status: number): JobError => jobError(words.codes[name], words[FAILURE_WORDS[name]], status, words.safeState);
+  const jobs = new Map<string, Job<R>>();
   // A cancelled or expired result is no longer visible, but its underlying
   // execution may still be shutting down. Keep that work in the capacity
   // budget until launch actually settles, including non-cooperative work.
   let executing = 0;
 
-  const sweep = () => {
+  const sweep = (): void => {
     for (const [identity, job] of jobs) {
-      if (job.finishedAt !== null && now() - job.finishedAt > limits.keepMs) jobs.delete(identity);
+      if (job.finishedAt !== null && now() - job.finishedAt > held.keepMs) jobs.delete(identity);
     }
   };
 
-  const progress = job => update => {
-    if (job.finishedAt !== null || !update || !(update.stage === 'queued' || words.stages.has(update.stage))) return;
-    job.stage = update.stage;
-    if (Number.isFinite(update.done)) job.done = update.done;
-    if (Number.isFinite(update.total)) job.total = update.total;
-    job.position = update.stage === 'queued' && Number.isFinite(update.position) ? update.position : null;
-    job.limit = update.stage === 'patterns' && (update.limit === 'memory' || update.limit === 'time') ? update.limit : job.limit;
+  const progress = (job: Job<R>) => (update: JobUpdate | null | undefined): void => {
+    const stage = update ? update.stage : undefined;
+    if (job.finishedAt !== null || !update || typeof stage !== 'string' || !(stage === 'queued' || words.stages.has(stage))) return;
+    job.stage = stage;
+    if (finite(update.done)) job.done = update.done;
+    if (finite(update.total)) job.total = update.total;
+    job.position = stage === 'queued' && finite(update.position) ? update.position : null;
+    job.limit = stage === 'patterns' && (update.limit === 'memory' || update.limit === 'time') ? update.limit : job.limit;
   };
 
-  const settle = (job, outcome) => {
+  const settle = (job: Job<R>, outcome: { readonly error: unknown } | { readonly result: R }): void => {
     if (job.finishedAt !== null || jobs.get(job.identity) !== job) return;
-    clearTimeout(job.timer);
+    if (job.timer) clearTimeout(job.timer);
     job.finishedAt = now();
-    if (outcome.error) job.error = outcome.error;
+    if ('error' in outcome) job.error = outcome.error;
     else job.result = outcome.result;
     /* Dropped on time even if nobody asks again: a result is not kept waiting for a request that never comes. */
-    job.timer = setTimeout(() => { if (jobs.get(job.identity) === job) jobs.delete(job.identity); }, limits.keepMs + 1);
-    if (typeof job.timer.unref === 'function') job.timer.unref();
+    const timer = setTimeout(() => { if (jobs.get(job.identity) === job) jobs.delete(job.identity); }, held.keepMs + 1);
+    if (typeof timer.unref === 'function') timer.unref();
+    job.timer = timer;
   };
 
-  const running202 = job => ({
+  const running202 = (job: Job<R>): JobAnswer<R> => ({
     status: 202,
     body: {
       state: 'running', run: job.id, stage: job.stage, done: job.done, total: job.total,
@@ -132,11 +236,11 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     }
   });
 
-  function answer(identity, job) {
+  function answer(identity: string, job: Job<R>): JobAnswer<R> {
     if (job.finishedAt === null) return running202(job);
     if (job.error) {
       /* A failure is told once; asking again starts afresh. */
-      clearTimeout(job.timer);
+      if (job.timer) clearTimeout(job.timer);
       jobs.delete(identity);
       return { error: job.error };
     }
@@ -149,10 +253,10 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
    * `run` it reports on that audit. `launch({ onProgress, signal })` runs
    * the audit and resolves with its result.
    */
-  function request({ identity, owner, repo, ref, run, launch }) {
+  function request({ identity, owner, repo, ref, run, launch }: JobRequest<R>): JobAnswer<R> {
     sweep();
     const job = jobs.get(identity);
-    const same = Boolean(job) && job.owner === owner && job.repo === repo && job.ref === ref;
+    const same = job !== undefined && job.owner === owner && job.repo === repo && job.ref === ref;
     if (run) {
       if (!job || job.id !== String(run) || !same) {
         return { error: failure('RUN_GONE', 404) };
@@ -163,21 +267,22 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
       if (same) return running202(job);
       return { error: failure('IN_PROGRESS', 429) };
     }
-    if (executing >= limits.maxRunning) {
+    if (executing >= held.maxRunning) {
       return { error: failure('BUSY', 503) };
     }
-    const fresh = {
+    const fresh: Job<R> = {
       id: randomId(), identity, owner, repo, ref, startedAt: now(), finishedAt: null,
       stage: words.first, done: 0, total: 0, position: null, limit: null, result: null, error: null, timer: null, controller: new AbortController()
     };
     jobs.set(identity, fresh);
     const controller = fresh.controller;
-    fresh.timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       settle(fresh, { error: failure('TIMEOUT', 504) });
       controller.abort();
-    }, limits.maxRunMs);
-    if (typeof fresh.timer.unref === 'function') fresh.timer.unref();
-    let started;
+    }, held.maxRunMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    fresh.timer = timer;
+    let started: Promise<R>;
     executing += 1;
     try {
       started = Promise.resolve(launch({ onProgress: progress(fresh), signal: controller.signal }));
@@ -187,7 +292,7 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
     started.then(result => {
       executing -= 1;
       settle(fresh, { result });
-    }, error => {
+    }, (error: unknown) => {
       executing -= 1;
       settle(fresh, { error });
     });
@@ -195,15 +300,15 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   }
 
   /* Drop whatever an identity has held: its session ended. */
-  function forget(identity) {
+  function forget(identity: string): void {
     const job = jobs.get(identity);
     if (!job) return;
-    clearTimeout(job.timer);
+    if (job.timer) clearTimeout(job.timer);
     jobs.delete(identity);
     if (job.finishedAt === null) job.controller.abort();
   }
 
-  function cancel({ identity, owner, repo, ref, run }) {
+  function cancel({ identity, owner, repo, ref, run }: JobKey): boolean {
     const job = jobs.get(identity);
     if (!job || job.id !== run || job.owner !== owner || job.repo !== repo || job.ref !== ref) return false;
     forget(identity);
@@ -211,14 +316,12 @@ function createAuditJobs({ now = Date.now, randomId = () => crypto.randomBytes(1
   }
   // Server-side lookup lets clients poll an opaque run without repeating the
   // target URL in browser history, proxy logs, or request query strings.
-  function target({ identity, run }) {
+  function target({ identity, run }: { readonly identity: string; readonly run: unknown }): JobTarget | null {
     sweep();
     const job = jobs.get(identity);
     if (!job || job.id !== run) return null;
     return Object.freeze({ owner: job.owner, repo: job.repo, ref: job.ref });
   }
-  const close = () => { for (const identity of jobs.keys()) forget(identity); };
+  const close = (): void => { for (const identity of jobs.keys()) forget(identity); };
   return Object.freeze({ request, forget, cancel, target, close, size: () => jobs.size });
 }
-
-module.exports = Object.freeze({ createAuditJobs, JOBS, SITE_JOBS, SITE_STAGES });

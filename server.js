@@ -169,15 +169,17 @@ const {
   feed: buildActivityFeed
 } = require('./src/activity-feed');
 const { PROFILES: GUARDED_PROFILES, createGuardedSession, guardedFetch, guardedTxt } = require('./apps/api/src/platform/network/guarded-fetch.ts');
-const { auditRepository, assertAuditActive, exploitedInProduction } = require('./apps/api/src/modules/uranus/index.ts');
-const { analyseOffThread, scanOffThread } = require('./src/code-audit-worker');
-const { createAuditJobs } = require('./src/code-audit-jobs');
-const { CodeAuditHistory, createAuditWatch, describeKeptAudit } = require('./src/code-audit-history');
-const { watchComponents } = require('./src/code-audit-watch');
 const {
-  CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
-  previewMergePolicies, summarizeDecisions, VOCABULARY: TRIAGE_VOCABULARY
-} = require('./src/code-audit-triage');
+  auditRepository, assertAuditActive, exploitedInProduction,
+  auditWorker: { analyseOffThread, scanOffThread },
+  auditHistory: { CodeAuditHistory, describeKeptAudit },
+  auditWatch: { createAuditWatch, watchComponents },
+  auditTriage: {
+    CodeAuditTriage, applyTriage, rescore, inForce, evaluateMergeGate, unavailableGate, gateAttributes, mergeAttributes,
+    previewMergePolicies, summarizeDecisions, VOCABULARY: TRIAGE_VOCABULARY
+  }
+} = require('./apps/api/src/modules/uranus/index.ts');
+const { createAuditJobs } = require('./apps/api/src/platform/jobs/audit-jobs.ts');
 const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { securityContact } = require('./src/public-assets');
@@ -7835,8 +7837,8 @@ app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRep
  *
  * The first request starts the audit and answers 202 with a run id; the page
  * asks again with `run` and hears the stage until the result is there
- * (src/code-audit-jobs.js). The analysis runs on a worker thread with a heap
- * cap and a time limit (src/code-audit-worker.js), so this thread keeps
+ * (apps/api/src/platform/jobs/audit-jobs.ts). The analysis runs on a worker thread with a heap
+ * cap and a time limit (Uranus's application/audit-worker.ts), so this thread keeps
  * answering the platform's health check while it works. One audit per
  * identity at a time: it reads up to a few hundred files, and a second click
  * resumes the first instead of doubling it.
@@ -7901,10 +7903,10 @@ app.get('/api/repo/:owner/:repo/code-audit', providerSessionAccess, alphaReposit
 
 /*
  * Audits, kept. A finished audit is recorded for the identity that ran it --
- * reduced by src/code-audit-history.js to what can be stored without storing
+ * reduced by Uranus's audit history to what can be stored without storing
  * the repository -- and the page reads the branch's history back, one past
  * audit's findings, and the watch: whether anything has been published about
- * the branch's components since its latest audit (src/code-audit-watch.js).
+ * the branch's components since its latest audit (Uranus's application/audit-watch.ts).
  * Without a database there is no history, and the page is told so rather
  * than shown an empty one.
  */
@@ -8026,7 +8028,7 @@ function withClocks(result, firstSeen) {
 
 /*
  * Triage. A decision about a finding belongs to the repository and is shared
- * by its collaborators (src/code-audit-triage.js). Reading the decisions
+ * by its collaborators (Uranus's domain/audit-triage.ts). Reading the decisions
  * takes the reader role on the repository itself -- the access everyone has
  * to a public repository is not enough -- and deciding takes the reviewer
  * role, so a person who can push cannot wave away a finding in their own
@@ -8135,7 +8137,7 @@ app.post('/api/code-audit/score', providerSessionAccess, capabilityAccess('code-
 
 /*
  * Where a branch stands against its clocks, and how long fixing has taken
- * (src/code-audit-history.js). The reader's own audits, as the history is;
+ * (Uranus's audit history). The reader's own audits, as the history is;
  * the team's decisions take findings out of the count for a collaborator.
  */
 app.get('/api/repo/:owner/:repo/code-audit/metrics', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req, res) => {
@@ -8160,7 +8162,7 @@ app.get('/api/repo/:owner/:repo/code-audit/metrics', providerSessionAccess, alph
 /*
  * The merge gate: what the latest audit the person merging kept of a pull
  * request's head says about merging it, after the team's decisions, against
- * the clock of the branch it merges into (src/code-audit-triage.js). It is
+ * the clock of the branch it merges into (Uranus's application/merge-gate.ts). It is
  * evaluated again inside every governed merge and carried in the mutation's
  * metadata, where an active policy can act on it; this answers the same
  * question for the page before anybody presses Merge, with the active
@@ -8221,7 +8223,7 @@ app.get('/api/repo/:owner/:repo/code-audit/gate', providerSessionAccess, alphaRe
  * guarded transport's anonymous site profile, the libraries it finds asked
  * of OSV through the advisory profile, and the domain's email policy looked
  * up in public DNS. Every rule is in src/site-check.js. It is a job like the
- * audit (src/code-audit-jobs.js): the first request starts it and answers
+ * audit (apps/api/src/platform/jobs/audit-jobs.ts): the first request starts it and answers
  * 202 with a run id, and the page asks again with `run` and hears the stage.
  *
  * One check per identity at a time and a new one at most every fifteen

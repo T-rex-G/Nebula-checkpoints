@@ -242,7 +242,7 @@ for (const [parts, expected] of [
 for (const word of [undefined, null, '', 'constructor', '__proto__', 'measured ']) assert.equal(completenessOf(COMPLETENESS_OF.source, word), 'unknown');
 
 /* The job vocabularies are the ones the server's jobs and scans use. */
-const { createAuditJobs } = require('../src/code-audit-jobs');
+const { createAuditJobs } = require('../apps/api/src/platform/jobs/audit-jobs.ts');
 for (const kind of jobs.JOB_KINDS) {
   const queue = createAuditJobs({ kind });
   const gone = queue.request({ identity: 'i', owner: 'o', repo: 'r', ref: 'main', run: 'missing', launch: () => null });

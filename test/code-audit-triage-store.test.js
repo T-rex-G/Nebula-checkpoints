@@ -13,7 +13,7 @@ const path = require('path');
 const { Client, Pool } = require('pg');
 
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
-const { CodeAuditTriage, LIMITS } = require('../src/code-audit-triage');
+const { CodeAuditTriage, LIMITS } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();

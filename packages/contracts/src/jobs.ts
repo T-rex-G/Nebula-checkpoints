@@ -14,7 +14,8 @@
  * page and the error-code catalogue can name it.
  */
 
-export const JOBS_CONTRACT_VERSION = 1;
+/* 2: a running job's `limit` is the bound that stopped tracing, 'memory' or 'time', as the runner has always sent it; version 1 declared a number. */
+export const JOBS_CONTRACT_VERSION = 2;
 
 export const JOB_KINDS = Object.freeze(['audit', 'site', 'rendered'] as const);
 export type JobKind = (typeof JOB_KINDS)[number];
@@ -47,7 +48,8 @@ export interface RunningJob {
   readonly done: number;
   readonly total: number;
   readonly position: number | null;
-  readonly limit: number | null;
+  /* Which bound stopped tracing, once the rules-only run has begun ('patterns'). */
+  readonly limit: 'memory' | 'time' | null;
   readonly elapsedMs: number;
 }
 

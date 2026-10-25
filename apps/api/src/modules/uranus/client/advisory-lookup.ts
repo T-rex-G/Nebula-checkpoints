@@ -17,8 +17,9 @@ import type { RegistryAnswer } from '../domain/code-audit.ts';
 
 /* The guarded transport, as the advisory and registry profiles are asked through it; its answer is read field by field. */
 export type AuditTransport = (input: GuardedFetchInput) => Promise<unknown>;
-export interface AdvisoryIds {
-  readonly asked: AdvisedVersion[];
+/* The ids OSV holds for each version asked, keyed by `advisoryKey`. The entries asked are handed back as given. */
+export interface AdvisoryIds<E extends AdvisedVersion = AdvisedVersion> {
+  readonly asked: E[];
   readonly ids: Map<string, string[]>;
   readonly unknown: Set<string>;
   readonly total: number;
@@ -47,8 +48,8 @@ const advisoryRank = (id: string): number => (id.startsWith('MAL-') ? 0 : id.sta
  * profile. A batch that fails leaves its packages in `unknown`, and unknown is
  * never a finding -- nor, for the watch, news.
  */
-export async function queryAdvisoryIds(entries: readonly AdvisedVersion[], transport: AuditTransport, limits: AuditLimits = LIMITS): Promise<AdvisoryIds> {
-  const unique: AdvisedVersion[] = [];
+export async function queryAdvisoryIds<E extends AdvisedVersion>(entries: readonly E[], transport: AuditTransport, limits: AuditLimits = LIMITS): Promise<AdvisoryIds<E>> {
+  const unique: E[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
     const key = advisoryKey(entry);

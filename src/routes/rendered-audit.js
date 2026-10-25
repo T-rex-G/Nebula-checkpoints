@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
-const { createAuditJobs } = require('../code-audit-jobs');
+const { createAuditJobs } = require('../../apps/api/src/platform/jobs/audit-jobs.ts');
 const { renderedUrl } = require('../rendered-site-audit');
 const { runRenderedSite } = require('../rendered-site-runner');
 

@@ -265,7 +265,7 @@ const DEFINITIONS: readonly TemplateDefinition[] = Object.freeze([
   /*
    * Merging held to the audit of what merges. Every governed merge carries
    * what the merging person's latest audit of the pull request's head says
-   * (src/code-audit-triage.js): whether it is of the commit being merged,
+   * (Uranus's application/merge-gate.ts): whether it is of the commit being merged,
    * and what is still open there after the team's decisions. A head with an
    * open confirmed critical, a credential, a vulnerability being exploited
    * in something that ships, or a finding past the base branch's clock is

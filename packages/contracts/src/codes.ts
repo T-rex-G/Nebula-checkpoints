@@ -8,7 +8,7 @@
  * reader sees; a client branches on the code alone.
  */
 
-export const CODES_CONTRACT_VERSION = 1;
+export const CODES_CONTRACT_VERSION = 2;
 
 export const CODES = Object.freeze([
   'ACCESS_INVENTORY_PARTIAL',
@@ -100,6 +100,7 @@ export const CODES = Object.freeze([
   'CODE_AUDIT_REASON_INVALID',
   'CODE_AUDIT_REF_REQUIRED',
   'CODE_AUDIT_RESULT_INVALID',
+  'CODE_AUDIT_ROW_INVALID',
   'CODE_AUDIT_RULE_INVALID',
   'CODE_AUDIT_RULE_MISMATCH',
   'CODE_AUDIT_SCOPE_INVALID',

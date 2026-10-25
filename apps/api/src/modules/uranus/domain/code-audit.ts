@@ -138,6 +138,25 @@ interface CategoryScore {
   readonly counts: Record<Severity, number>;
   readonly toConfirm: Record<Severity, number>;
 }
+/*
+ * What the grade and the fix-first list read of a finding. An audit's own
+ * findings carry far more; a finding the page holds and sends back after a
+ * decision carries this much, and is scored the same way.
+ */
+export interface ScoredFinding {
+  readonly id: string;
+  readonly rule: string;
+  readonly category: string;
+  readonly severity: Severity;
+  readonly verdict?: string;
+  readonly reach?: { readonly auth?: unknown } | null;
+  readonly detail?: {
+    readonly risk?: { readonly score: number } | null;
+    readonly direct?: boolean;
+    readonly intel?: unknown;
+    readonly usage?: unknown;
+  } | null;
+}
 export interface ScoreReading {
   readonly score: number;
   readonly grade: Grade | null;
@@ -205,9 +224,9 @@ export function gradeOf(score: unknown): Grade | null {
   return GRADES.find(([, min]) => score >= min)?.[0] ?? null;
 }
 
-export function score(findings: readonly Finding[]): ScoreReading {
+export function score(findings: readonly ScoredFinding[]): ScoreReading {
   /* A finding to confirm weighs half: it is a lead, not a fact. Only a confirmed critical caps the grade. */
-  const weight = (finding: Finding): number => (finding.verdict === 'needs-validation' ? 0.5 : 1);
+  const weight = (finding: ScoredFinding): number => (finding.verdict === 'needs-validation' ? 0.5 : 1);
   const categories = CATEGORIES.map((category): CategoryScore => {
     const inCategory = findings.filter(finding => finding.category === category.id);
     const byRule = new Map<string, { penalty: number; count: number; cap: number }>();
@@ -234,7 +253,7 @@ export function score(findings: readonly Finding[]): ScoreReading {
   const exploited = findings.some(exploitedInProduction);
   const held = critical || exploited;
   /* Only categories the grade weighs count: a licence is compliance, and never moves the grade. */
-  const graded = new Set(CATEGORIES.filter(category => category.weight > 0).map(category => category.id));
+  const graded: ReadonlySet<string> = new Set(CATEGORIES.filter(category => category.weight > 0).map(category => category.id));
   const serious = findings.filter(finding => finding.severity === 'serious' && finding.verdict !== 'needs-validation' && graded.has(finding.category)).length;
   const seriousCap = SERIOUS_CAPS.find(([atLeast]) => serious >= atLeast)?.[1] ?? 100;
   const ceiling = held ? CRITICAL_CAP : seriousCap;
@@ -651,18 +670,18 @@ function componentList({ inventory, graphs }: DependencyReading, licenceAnswers:
  * -- then the riskier dependency, and a direct one before one that came
  * with it.
  */
-const REACH: Readonly<Partial<Record<CategoryId, number>>> = Object.freeze({ secrets: 0, access: 1, code: 1, 'supply-chain': 2, dependencies: 3, infrastructure: 3, hygiene: 4 });
-export function priorities(findings: readonly Finding[]): string[] {
-  const openReach = (finding: Finding): number => (finding.reach && finding.reach.auth === 'open' ? 0 : 1);
+const REACH: ReadonlyMap<string, number> = new Map([['secrets', 0], ['access', 1], ['code', 1], ['supply-chain', 2], ['dependencies', 3], ['infrastructure', 3], ['hygiene', 4]]);
+export function priorities(findings: readonly ScoredFinding[]): string[] {
+  const openReach = (finding: ScoredFinding): number => (finding.reach && finding.reach.auth === 'open' ? 0 : 1);
   /* Being exploited now outranks being severe in theory: such a vulnerability stands with the confirmed criticals. */
-  const urgent = (finding: Finding): number => ((finding.severity === 'critical' && finding.verdict !== 'needs-validation') || exploitedInProduction(finding) ? 0 : 1);
-  const risk = (finding: Finding): number => (finding.detail && finding.detail.risk ? finding.detail.risk.score : -1);
+  const urgent = (finding: ScoredFinding): number => ((finding.severity === 'critical' && finding.verdict !== 'needs-validation') || exploitedInProduction(finding) ? 0 : 1);
+  const risk = (finding: ScoredFinding): number => (finding.detail && finding.detail.risk ? finding.detail.risk.score : -1);
   const ranked = [...findings].sort((a, b) => Number(a.verdict === 'needs-validation') - Number(b.verdict === 'needs-validation') ||
     urgent(a) - urgent(b) ||
     Number(exploitedInProduction(b)) - Number(exploitedInProduction(a)) ||
     SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
     openReach(a) - openReach(b) ||
-    (REACH[a.category] ?? 5) - (REACH[b.category] ?? 5) ||
+    (REACH.get(a.category) ?? 5) - (REACH.get(b.category) ?? 5) ||
     risk(b) - risk(a) ||
     Number(Boolean(b.detail && b.detail.direct)) - Number(Boolean(a.detail && a.detail.direct)));
   const out: string[] = [];

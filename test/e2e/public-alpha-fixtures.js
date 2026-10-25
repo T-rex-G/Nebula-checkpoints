@@ -993,7 +993,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * the repository's Audit tab and the Website page.
      */
     if ((pathname === '/api/repo/sandbox/demo/site-check' || pathname === '/api/site-check') && method === 'GET') {
-      const { checkSite, siteOrigin } = require('../../src/site-check');
+      const { checkSite, siteOrigin } = require('../../apps/api/src/modules/parallax/index.ts').siteCheck;
       const run = url.searchParams.get('run');
       if (!run) {
         try { siteOrigin(url.searchParams.get('url')); }

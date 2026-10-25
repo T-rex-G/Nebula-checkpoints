@@ -8,7 +8,7 @@
 
 const assert = require('assert');
 const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
-const { checkSite } = require('../src/site-check');
+const { checkSite } = require('../apps/api/src/modules/parallax/index.ts').siteCheck;
 const ui = require('../apps/web/src/features/uranus/code-audit-ui');
 
 (async () => {

@@ -53,7 +53,7 @@ assert.deepEqual(unresolved, [], 'a compiled module names a file the compiled tr
 const { entryFile } = require(path.join(compiled, 'apps', 'api', 'src', 'entrypoint.js'));
 assert.equal(entryFile('code-audit-worker'), path.join(compiled, 'apps', 'api', 'src', 'modules', 'uranus', 'application', 'audit-worker.js'));
 assert(fs.existsSync(entryFile('code-audit-worker')));
-assert.equal(entryFile('rendered-site-worker'), path.join(compiled, 'src', 'rendered-site-worker.js'));
+assert.equal(entryFile('rendered-site-worker'), path.join(compiled, 'apps', 'api', 'src', 'modules', 'parallax', 'application', 'rendered-worker.js'));
 assert(fs.existsSync(entryFile('rendered-site-worker')));
 
 const runtime = describeServerRuntime(compiled);

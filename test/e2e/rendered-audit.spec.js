@@ -3,7 +3,7 @@
 const { test, expect, chromium } = require('@playwright/test');
 const fs = require('fs');
 const zlib = require('zlib');
-const { auditRenderedSite } = require('../../src/rendered-site-audit');
+const { auditRenderedSite } = require('../../apps/api/src/modules/parallax/index.ts').renderedAudit;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const AxeBuilder = require('@axe-core/playwright').default;
 test.use({ serviceWorkers: 'block' });

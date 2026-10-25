@@ -24,8 +24,8 @@ interface Entry {
 const ENTRIES: Readonly<Record<EntryName, Entry>> = Object.freeze({
   /* Uranus's analysis in a worker thread with its own heap cap: the module starts itself. */
   'code-audit-worker': Object.freeze({ file: './modules/uranus/application/audit-worker', language: 'ts' }),
-  /* Parallax's rendered check in a disposable child process. */
-  'rendered-site-worker': Object.freeze({ file: '../../../src/rendered-site-worker', language: 'js' })
+  /* Parallax's rendered check in a disposable child process: the module starts itself when it is forked with an IPC channel. */
+  'rendered-site-worker': Object.freeze({ file: './modules/parallax/application/rendered-worker', language: 'ts' })
 });
 
 /* `.ts` when the server runs its source, `.js` when it runs the compiled tree. */

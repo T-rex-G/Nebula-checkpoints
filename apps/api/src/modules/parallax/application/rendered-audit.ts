@@ -1,67 +1,119 @@
-'use strict';
+/*
+ * One public page, rendered by a real browser at two viewport sizes and
+ * assessed as a visitor would meet it: its title, description, headings and
+ * canonical link; whether it fits a phone; its interaction targets; the
+ * JavaScript errors it throws; an automated accessibility pass; a lab timing
+ * sample; and a screenshot of each viewport.
+ *
+ * All browser HTTP traffic is intercepted and fulfilled by the DNS-pinned
+ * transport. A dead proxy is the backstop for unhandled browser traffic.
+ * No browser launch option can disable its sandbox in the shipping path.
+ */
+import zlib from 'node:zlib';
+import axe from 'axe-core';
+import { chromium, type Browser, type LaunchOptions, type Response as PageResponse } from 'playwright-core';
+import { guardedFetch, PROFILES, type GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
+import { lookupTable, ownEntry, read } from '../../../platform/values/fields.ts';
+import { LIMITS, VIEWPORTS, auditError, displayUrl, httpsAddress, renderedUrl, type RenderedLimits } from '../domain/rendered-address.ts';
 
-const { chromium } = require('playwright-core');
-const axe = require('axe-core');
-const zlib = require('zlib');
-const { privatePathSegment } = require('./site-url-privacy');
-const { guardedFetch, PROFILES } = require('../apps/api/src/platform/network/guarded-fetch.ts');
+/* What the transport answers a browser request with: the part of the guarded response the interception reads. */
+export interface RenderedResponse {
+  readonly statusCode: number;
+  readonly headers?: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly body?: unknown;
+  readonly bodyUnread?: boolean;
+  readonly truncated?: boolean;
+}
+export type RenderedTransport = (input: GuardedFetchInput) => Promise<RenderedResponse>;
 
-const LIMITS = Object.freeze({ requests: 80, bytes: 20 * 1024 * 1024, resourceBytes: 2 * 1024 * 1024, deadlineMs: 90000, resourceMs: 10000, screenshots: 2 });
-const VIEWPORTS = Object.freeze([{ name: 'Desktop', width: 1440, height: 900 }, { name: 'Mobile', width: 390, height: 844 }]);
-function auditError(message, code = 'RENDERED_AUDIT_UNAVAILABLE', status = 503) {
-  return Object.assign(new Error(message), { code, status });
+/* The encodings a resource may arrive in, each with its bounded decoder; a table without a prototype, since the name is a response header's. */
+const DECODERS: Readonly<Record<string, (body: Buffer, options: zlib.ZlibOptions & zlib.BrotliOptions) => Buffer>> = lookupTable({
+  gzip: zlib.gunzipSync, deflate: zlib.inflateSync, br: zlib.brotliDecompressSync
+});
+/* Response headers the browser is never handed: cookies, the transport's own framing, and instructions to clear or reload. */
+const WITHHELD_HEADERS = ['set-cookie', 'set-cookie2', 'content-encoding', 'content-length', 'transfer-encoding', 'connection', 'alt-svc', 'clear-site-data', 'refresh'];
+
+/*
+ * The slice of the DOM the in-page measurements touch. The server is not
+ * compiled against the DOM, so what they read is declared here, and each
+ * in-page function checks for it before it reads: the functions run in the
+ * page, from their source text, and can reach nothing of this module.
+ */
+interface PageBox { readonly width: number; readonly height: number; readonly right: number }
+interface PageElement {
+  readonly textContent: string | null;
+  readonly content?: string;
+  getBoundingClientRect(): PageBox;
+  matches(selector: string): boolean;
+  getAttribute(name: string): string | null;
 }
-/* The shape every address the browser may load must have: HTTPS on 443, no userinfo, no fragment. */
-function httpsAddress(value) {
-  let url;
-  try { url = new URL(String(value)); } catch { throw auditError('Enter a public HTTPS page address.', 'RENDERED_URL_INVALID', 400); }
-  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || url.hash || url.href.length > 2048) {
-    throw auditError('Use HTTPS on port 443 without a username, password or fragment.', 'RENDERED_URL_INVALID', 400);
-  }
-  return url;
+interface PageScope {
+  readonly document: {
+    readonly title: string;
+    readonly documentElement: { readonly lang: string; readonly scrollWidth: number };
+    querySelectorAll(selector: string): { readonly length: number; readonly [index: number]: PageElement | undefined };
+    querySelector(selector: string): PageElement | null;
+  };
+  readonly performance: { getEntriesByType(type: string): readonly ({ readonly domContentLoadedEventEnd: number; readonly responseStart: number } | undefined)[] };
+  readonly __nvLab?: { lcp: number | null; cls: number };
 }
-/* The address a person enters. Only here is a credential-shaped query refused: the
-   page's own assets and redirects may carry them, and reports never keep a query. */
-function renderedUrl(value) {
-  const url = httpsAddress(value);
-  const sensitive = /^(?:access[-_]?token|refresh[-_]?token|id[-_]?token|token|auth(?:orization)?|auth[-_]?token|password|passwd|secret|client[-_]?secret|api[-_]?key|key|signature|sig|credential|code|session[-_]?id|session[-_]?token|jwt|oauth[-_]?token)$/i;
-  if ([...url.searchParams.keys()].some(key => sensitive.test(key) || /^(?:x-amz-|x-goog-)/i.test(key))) {
-    throw auditError('Use a public page address without credentials, access tokens or signed query parameters.', 'RENDERED_URL_SENSITIVE', 400);
-  }
-  return url.href;
+interface LabEntry { readonly startTime: number; readonly hadRecentInput?: boolean; readonly value: number }
+interface ObserverScope {
+  __nvLab: { lcp: number | null; cls: number };
+  readonly PerformanceObserver?: new (callback: (list: { getEntries(): readonly LabEntry[] }) => void) => { observe(options: { readonly type: string; readonly buffered: boolean }): void };
 }
-function displayUrl(value, base) {
-  try { const target = new URL(value, base); if (!/^https?:$/.test(target.protocol)) return null; target.search = ''; target.hash = ''; target.username = ''; target.password = '';
-    target.pathname = target.pathname.split('/').map(part => privatePathSegment(part) ? '[redacted]' : part).join('/');
-    return target.href;
-  } catch { return null; }
+interface AxeScope {
+  readonly document: unknown;
+  readonly axe: { run(context: unknown, options: unknown): Promise<{
+    readonly violations: readonly { readonly id: string; readonly impact: string | null; readonly help: string; readonly helpUrl: string; readonly nodes: readonly { readonly target: readonly unknown[] }[] }[];
+    readonly passes: readonly unknown[];
+    readonly incomplete: readonly unknown[];
+  }> };
 }
 
-/* All browser HTTP traffic is intercepted and fulfilled by the DNS-pinned
-   transport. A dead proxy is the backstop for unhandled browser traffic.
-   No browser launch option can disable its sandbox in the shipping path. */
-async function auditRenderedSite({ url, executablePath, signal, onProgress = () => {}, transport = guardedFetch,
-  launch = options => chromium.launch(options), limits = LIMITS } = {}) {
-  url = renderedUrl(url);
-  limits = { ...LIMITS, ...limits };
+export interface RenderedFinding {
+  readonly viewport: string;
+  readonly category: string;
+  readonly severity: string;
+  readonly title: string;
+  readonly detail: string;
+  readonly rule?: string;
+  readonly targets?: readonly (readonly string[])[];
+  readonly helpUrl?: string;
+}
+
+export interface RenderedAuditInput {
+  readonly url: unknown;
+  readonly executablePath?: string | null;
+  readonly signal?: AbortSignal | null;
+  readonly onProgress?: (progress: { readonly stage: string }) => void;
+  readonly transport?: RenderedTransport;
+  readonly launch?: (options: LaunchOptions) => Promise<Browser>;
+  readonly limits?: Partial<RenderedLimits>;
+}
+
+export async function auditRenderedSite({ url: requestedUrl, executablePath, signal, onProgress = () => {}, transport = guardedFetch,
+  launch = options => chromium.launch(options), limits: requestedLimits = LIMITS }: RenderedAuditInput = { url: undefined }) {
+  const url = renderedUrl(requestedUrl);
+  const limits: RenderedLimits = { ...LIMITS, ...requestedLimits };
   const origin = new URL(url).origin;
   const started = Date.now();
   const controller = new AbortController();
-  const reasons = new Set();
+  const reasons = new Set<string>();
   const network = { attempted: 0, completed: 0, blocked: 0, failed: 0, bytes: 0 };
-  let browser;
-  let timer;
-  const abort = () => { controller.abort(); if (browser) void browser.close().catch(() => {}); };
+  let browser: Browser | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const abort = (): void => { controller.abort(); if (browser) void browser.close().catch(() => {}); };
   if (signal && signal.aborted) throw auditError('The audit was cancelled.', 'RENDERED_AUDIT_CANCELLED', 499);
   if (signal) signal.addEventListener('abort', abort, { once: true });
   timer = setTimeout(abort, limits.deadlineMs);
-  const progress = stage => { try { onProgress({ stage }); } catch { /* advisory only */ } };
-  const checkTime = () => {
+  const progress = (stage: string): void => { try { onProgress({ stage }); } catch { /* advisory only */ } };
+  const checkTime = (): void => {
     if (signal && signal.aborted) throw auditError('The audit was cancelled.', 'RENDERED_AUDIT_CANCELLED', 499);
     if (controller.signal.aborted) throw auditError('The audit exceeded its time limit.', 'RENDERED_AUDIT_TIMEOUT', 504);
   };
-  const findings = [];
-  const add = (viewport, category, severity, title, detail, extra = {}) => findings.push({ viewport, category, severity, title, detail, ...extra });
+  const findings: RenderedFinding[] = [];
+  const add = (viewport: string, category: string, severity: string, title: string, detail: string, extra: Partial<RenderedFinding> = {}): void => { findings.push({ viewport, category, severity, title, detail, ...extra }); };
   try {
     progress('launching');
     try {
@@ -80,28 +132,28 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         deviceScaleFactor: 1, isMobile: viewport.name === 'Mobile', hasTouch: viewport.name === 'Mobile',
         serviceWorkers: 'block', acceptDownloads: false, ignoreHTTPSErrors: false, locale: 'en-US', colorScheme: 'light' });
       try {
-        await context.routeWebSocket(/.*/, socket => { network.blocked++; reasons.add('WebSockets were blocked'); socket.close(); });
+        await context.routeWebSocket(/.*/, socket => { network.blocked++; reasons.add('WebSockets were blocked'); void socket.close(); });
         let inFlight = 0;
         let reservedBytes = 0;
         let closed = false;
-        const pending = [];
-        const release = () => { inFlight--; const next = pending.shift(); if (next) next(); };
+        const pending: (() => void)[] = [];
+        const release = (): void => { inFlight--; const next = pending.shift(); if (next) next(); };
         const viewportController = new AbortController();
-        const stopViewport = () => { closed = true; viewportController.abort(); for (const next of pending.splice(0)) next(); };
+        const stopViewport = (): void => { closed = true; viewportController.abort(); for (const next of pending.splice(0)) next(); };
         controller.signal.addEventListener('abort', stopViewport, { once: true });
         context.on('close', () => { controller.signal.removeEventListener('abort', stopViewport); stopViewport(); });
         await context.route('**/*', async route => {
           const request = route.request();
-          let target;
+          let target: URL | undefined;
           try { target = httpsAddress(request.url()); } catch { /* refused below */ }
-          const reject = async reason => { network.blocked++; reasons.add(reason); await route.abort('blockedbyclient').catch(() => {}); };
+          const reject = async (reason: string): Promise<void> => { network.blocked++; reasons.add(reason); await route.abort('blockedbyclient').catch(() => {}); };
           if (!target || target.origin !== origin) return reject('Cross-origin or non-HTTPS resources were blocked');
           if (!['GET', 'HEAD'].includes(request.method())) return reject('Requests that could submit data were blocked');
           if (closed || controller.signal.aborted || network.attempted >= limits.requests || network.bytes >= limits.bytes) {
             return reject('The request, byte or time limit was reached');
           }
           network.attempted++;
-          if (inFlight >= 4) await new Promise(resolve => pending.push(resolve));
+          if (inFlight >= 4) await new Promise<void>(resolve => pending.push(resolve));
           if (closed || controller.signal.aborted) return reject('The page finished before all resources were assessed');
           inFlight++;
           const resourceBudget = Math.min(limits.resourceBytes, limits.bytes - network.bytes - reservedBytes);
@@ -117,7 +169,7 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
             if (!Buffer.isBuffer(response.body) || response.bodyUnread || response.truncated) return reject('A resource exceeded its limit or could not be read');
             let body = response.body;
             const encoding = String(response.headers && response.headers['content-encoding'] || 'identity').toLowerCase().trim();
-            const decode = { gzip: zlib.gunzipSync, deflate: zlib.inflateSync, br: zlib.brotliDecompressSync }[encoding];
+            const decode = ownEntry(DECODERS, encoding);
             if (encoding !== 'identity' && !decode) return reject('A resource used an unsupported encoding');
             if (decode) {
               // A refused decompression consumes its reservation too; repeatedly
@@ -127,14 +179,15 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
             }
             if (body.length > resourceBudget) return reject('A decoded resource exceeded its byte limit');
             chargedBytes = Math.max(response.body.length, body.length);
-            const headers = {};
+            const headers: Record<string, string> = {};
             for (const [name, value] of Object.entries(response.headers || {})) {
-              if (!['set-cookie', 'set-cookie2', 'content-encoding', 'content-length', 'transfer-encoding', 'connection', 'alt-svc', 'clear-site-data', 'refresh'].includes(name.toLowerCase())) {
+              if (!WITHHELD_HEADERS.includes(name.toLowerCase())) {
                 headers[name.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
               }
             }
-            if (response.statusCode >= 300 && response.statusCode < 400 && headers.location) {
-              const redirect = new URL(headers.location, target);
+            const location = headers.location;
+            if (response.statusCode >= 300 && response.statusCode < 400 && location) {
+              const redirect = new URL(location, target);
               if (redirect.origin !== origin) return reject('A redirect left the requested origin');
             }
             if (response.statusCode >= 400) { network.failed++; reasons.add('Some resources returned HTTP errors'); }
@@ -147,30 +200,40 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
           } finally { network.bytes += chargedBytes; reservedBytes -= resourceBudget; release(); }
         });
         await context.addInitScript(() => {
-          globalThis.__nvLab = { lcp: null, cls: 0 };
-          try { new globalThis.PerformanceObserver(list => {
-            for (const entry of list.getEntries()) globalThis.__nvLab.lcp = entry.startTime;
-          }).observe({ type: 'largest-contentful-paint', buffered: true }); } catch { /* unsupported */ }
-          try { new globalThis.PerformanceObserver(list => {
-            for (const entry of list.getEntries()) if (!entry.hadRecentInput) globalThis.__nvLab.cls += entry.value;
-          }).observe({ type: 'layout-shift', buffered: true }); } catch { /* unsupported */ }
+          const scope: unknown = globalThis;
+          const isGlobal = (value: unknown): value is ObserverScope => typeof value === 'object' && value !== null;
+          if (!isGlobal(scope)) return;
+          scope.__nvLab = { lcp: null, cls: 0 };
+          try {
+            if (!scope.PerformanceObserver) throw new Error('unsupported');
+            new scope.PerformanceObserver(list => {
+              for (const entry of list.getEntries()) scope.__nvLab.lcp = entry.startTime;
+            }).observe({ type: 'largest-contentful-paint', buffered: true });
+          } catch { /* unsupported */ }
+          try {
+            if (!scope.PerformanceObserver) throw new Error('unsupported');
+            new scope.PerformanceObserver(list => {
+              for (const entry of list.getEntries()) if (!entry.hadRecentInput) scope.__nvLab.cls += entry.value;
+            }).observe({ type: 'layout-shift', buffered: true });
+          } catch { /* unsupported */ }
         });
         const page = await context.newPage();
         const errors = { javascript: 0 };
         page.on('pageerror', () => { errors.javascript++; });
         page.on('dialog', dialog => void dialog.dismiss().catch(() => {}));
         context.on('page', other => { if (other !== page) { reasons.add('Popups were blocked'); void other.close().catch(() => {}); } });
-        let documentResponse = null;
+        let documentResponse: PageResponse | null = null;
         page.on('response', answer => {
           if (answer.request().isNavigationRequest() && answer.frame() === page.mainFrame()) documentResponse = answer;
         });
-        const documentIdentity = () => {
-          let final = null;
+        const documentIdentity = (): { readonly url: string; readonly response: PageResponse } => {
+          let final: URL | null = null;
           try { final = new URL(page.url()); final.hash = ''; final = httpsAddress(final.href); } catch { final = null; }
-          if (!final || final.origin !== origin || !documentResponse || documentResponse.status() < 200 || documentResponse.status() >= 300) {
+          const answered: PageResponse | null = documentResponse;
+          if (!final || final.origin !== origin || !answered || answered.status() < 200 || answered.status() >= 300) {
             throw auditError('The final page did not load successfully within the requested public origin.', 'RENDERED_PAGE_UNAVAILABLE', 502);
           }
-          return { url: final.href, response: documentResponse };
+          return { url: final.href, response: answered };
         };
         const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
         if (!response || response.status() < 200 || response.status() >= 300) throw auditError('The requested page did not load successfully.', 'RENDERED_PAGE_UNAVAILABLE', 502);
@@ -179,18 +242,22 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         await page.waitForTimeout(1500);
         checkTime();
         const assessedDocument = documentIdentity();
-        const facts = await page.evaluate(viewportWidth => {
-          const doc = globalThis.document;
-          const nav = globalThis.performance.getEntriesByType('navigation')[0];
-          const rect = element => element.getBoundingClientRect();
-          const visible = element => { const box = rect(element); return box.width > 0 && box.height > 0; };
+        const measured = await page.evaluate(viewportWidth => {
+          const scope: unknown = globalThis;
+          const isPage = (value: unknown): value is PageScope => typeof value === 'object' && value !== null && 'document' in value && 'performance' in value;
+          if (!isPage(scope)) throw new Error('The page has no document to measure.');
+          const doc = scope.document;
+          const nav = scope.performance.getEntriesByType('navigation')[0];
+          const rect = (element: PageElement): PageBox => element.getBoundingClientRect();
+          const visible = (element: PageElement): boolean => { const box = rect(element); return box.width > 0 && box.height > 0; };
           const elements = doc.querySelectorAll('body *');
-          const sampled = Array.from({ length: Math.min(elements.length, 10000) }, (_, index) => elements[index]);
+          const sampled = Array.from({ length: Math.min(elements.length, 10000) }, (_, index) => elements[index]).filter((element): element is PageElement => element !== undefined);
           const headings = doc.querySelectorAll('h1');
-          const h1 = Array.from({ length: Math.min(headings.length, 20) }, (_, index) => (headings[index].textContent || '').trim().slice(0, 160));
+          const h1 = Array.from({ length: Math.min(headings.length, 20) }, (_, index) => ((headings[index] && headings[index].textContent) || '').trim().slice(0, 160));
           const description = doc.querySelector('meta[name="description" i]');
           const canonical = doc.querySelector('link[rel="canonical" i]');
           const robots = doc.querySelector('meta[name="robots" i]');
+          const lab = scope.__nvLab;
           return {
             title: doc.title.slice(0, 200), description: description ? (description.content || '').slice(0, 320) : '',
             canonical: canonical ? (canonical.getAttribute('href') || '').slice(0, 2048) : null,
@@ -202,11 +269,11 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
             elements: elements.length, sampledElements: sampled.length,
             metrics: { domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
               ttfbMs: nav ? Math.round(nav.responseStart) : null,
-              lcpMs: Number.isFinite(globalThis.__nvLab && globalThis.__nvLab.lcp) ? Math.round(globalThis.__nvLab.lcp) : null,
-              cls: globalThis.__nvLab ? Math.round(globalThis.__nvLab.cls * 1000) / 1000 : null }
+              lcpMs: Number.isFinite(lab && lab.lcp) && lab && lab.lcp !== null ? Math.round(lab.lcp) : null,
+              cls: lab ? Math.round(lab.cls * 1000) / 1000 : null }
           };
         }, viewport.width);
-        facts.canonical = facts.canonical ? displayUrl(facts.canonical, assessedDocument.url) : null;
+        const facts = { ...measured, canonical: measured.canonical ? displayUrl(measured.canonical, assessedDocument.url) : null };
         if (facts.elements > facts.sampledElements) reasons.add('Layout inspection sampled the first 10,000 elements');
         if (!facts.title.trim()) add(viewport.name, 'SEO', 'serious', 'Add a page title', 'The rendered document has no title.');
         if (!facts.description.trim()) add(viewport.name, 'SEO', 'warning', 'Add a search description', 'The rendered document has no meta description. Search engines may choose their own excerpt.');
@@ -221,17 +288,21 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         let accessibility;
         try {
           await page.evaluate(axe.source);
-          accessibility = await page.evaluate(async () => {
-            const result = await globalThis.axe.run(globalThis.document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'] } });
+          const assessed = await page.evaluate(async () => {
+            const scope: unknown = globalThis;
+            const withAxe = (value: unknown): value is AxeScope => typeof value === 'object' && value !== null && 'axe' in value && 'document' in value;
+            if (!withAxe(scope)) throw new Error('The accessibility engine did not load.');
+            const result = await scope.axe.run(scope.document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'] } });
             return { violations: result.violations.slice(0, 50).map(item => ({ id: item.id, impact: item.impact, help: item.help,
               helpUrl: item.helpUrl, count: item.nodes.length,
               targets: item.nodes.slice(0, 5).map(node => node.target.map(value => String(value).slice(0, 160))) })),
               violationRules: result.violations.length, passes: result.passes.length, incomplete: result.incomplete.length };
           });
-          for (const violation of accessibility.violations) add(viewport.name, 'Accessibility', ['critical', 'serious'].includes(violation.impact) ? violation.impact : 'warning', violation.help,
+          for (const violation of assessed.violations) add(viewport.name, 'Accessibility', violation.impact === 'critical' || violation.impact === 'serious' ? violation.impact : 'warning', violation.help,
             `${violation.count} affected elements.`, { rule: violation.id, targets: violation.targets, helpUrl: violation.helpUrl });
-          if (accessibility.incomplete) reasons.add('Some accessibility checks require manual review');
-          if (accessibility.violationRules > 50) reasons.add('Accessibility evidence was capped at 50 rule violations');
+          if (assessed.incomplete) reasons.add('Some accessibility checks require manual review');
+          if (assessed.violationRules > 50) reasons.add('Accessibility evidence was capped at 50 rule violations');
+          accessibility = assessed;
         } catch { reasons.add('The accessibility engine could not finish'); accessibility = { unavailable: true }; }
         progress('capturing');
         const bytes = await page.screenshot({ type: 'jpeg', quality: 65, fullPage: false, animations: 'disabled', timeout: 10000 });
@@ -253,7 +324,7 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
         'Screenshots cover the initial viewport. SEO observations do not establish search indexing or rankings.'] };
   } catch (error) {
     checkTime();
-    if (error && /^RENDERED_/.test(error.code || '')) throw error;
+    if (error && /^RENDERED_/.test(String(read(error, 'code') || ''))) throw error;
     throw auditError('The page could not be assessed in the isolated browser.', 'RENDERED_PAGE_UNAVAILABLE', 502);
   } finally {
     clearTimeout(timer);
@@ -263,4 +334,4 @@ async function auditRenderedSite({ url, executablePath, signal, onProgress = () 
   }
 }
 
-module.exports = { auditRenderedSite, renderedUrl, displayUrl, auditError, LIMITS, VIEWPORTS };
+export type RenderedReport = Awaited<ReturnType<typeof auditRenderedSite>>;

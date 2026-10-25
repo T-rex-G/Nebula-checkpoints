@@ -9,7 +9,7 @@
  */
 
 const assert = require('assert');
-const { checkSite, declaredSite, siteOrigin, emailDomain, libraryFromAddress, librariesInText, robotsDisallowed, displayPath, LIMITS, STAGES } = require('../src/site-check');
+const { checkSite, declaredSite, siteOrigin, emailDomain, libraryFromAddress, librariesInText, robotsDisallowed, displayPath, LIMITS, STAGES } = require('../apps/api/src/modules/parallax/index.ts').siteCheck;
 
 const NOW = Date.UTC(2026, 8, 29, 12, 0, 0);
 const DAY = 86_400_000;
@@ -400,6 +400,24 @@ const withContact = files => ({ '/.well-known/security.txt': SECURITY_TXT, ...fi
   assert.strictEqual(libraryFromAddress('https://cdn.example.com/app-1.2.3.js'), null);
   assert.deepStrictEqual(libraryFromAddress('https://blog.example.com/wp-includes/js/jquery/jquery.min.js?ver=3.6.0'), { name: 'jquery', version: '3.6.0', source: 'address' });
   assert.strictEqual(libraryFromAddress('https://blog.example.com/wp-includes/js/jquery/jquery.min.js?ver=abc'), null);
+  /*
+   * A CDN's library name is read from the address, so it may be any text. A
+   * name such as `constructor` or `__proto__` used to find what every object
+   * inherits: the library came back named after a built-in function, and the
+   * advisory database was asked about a package with no name.
+   */
+  for (const inherited of ['constructor', '__proto__']) {
+    assert.strictEqual(libraryFromAddress(`https://cdnjs.cloudflare.com/ajax/libs/${inherited}/1.2.3/x.js`), null, inherited);
+    assert.strictEqual(libraryFromAddress(`https://cdn.jsdelivr.net/npm/${inherited}@1.2.3/x.js`), null, inherited);
+  }
+  {
+    const page = '<!doctype html><script src="https://cdnjs.cloudflare.com/ajax/libs/constructor/1.2.3/x.js"></script><script src="https://unpkg.com/__proto__@2.0.0/y.js"></script>';
+    const osvAsked = [];
+    const result = await check({ url: 'https://inherited.example.com', transport: site({ page, files: withContact({}) }).transport,
+      advisoryTransport: async input => { osvAsked.push(input); return { statusCode: 200, body: JSON.stringify({ results: [] }) }; } });
+    assert.deepStrictEqual(result.libraries, [], 'no library is recognised from an inherited name');
+    assert.deepStrictEqual(osvAsked, [], 'nothing is asked of the advisory database');
+  }
   assert.deepStrictEqual(librariesInText('/*!\n * AngularJS v1.7.9\n */').map(entry => entry.name), ['angular']);
   assert.deepStrictEqual(librariesInText('//! moment.js\n//! version : 2.29.1\n').map(entry => `${entry.name}@${entry.version}`), ['moment@2.29.1']);
 

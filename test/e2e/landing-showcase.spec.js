@@ -18,7 +18,7 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
 const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
 const audit = require('../../apps/api/src/modules/uranus/index.ts');
-const site = require('../../src/site-check');
+const site = require('../../apps/api/src/modules/parallax/index.ts').siteCheck;
 
 test.use({ serviceWorkers: 'block' });
 

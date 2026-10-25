@@ -186,7 +186,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  *
  * 168 to 169 adds the anonymous site check. The handler throttles per
  * identity and calls one function; the requests, the rules and the scoring are
- * in `src/site-check.js`, and the anonymous transport profile it uses is in
+ * in Parallax (`apps/api/src/modules/parallax/`), and the anonymous transport profile it uses is in
  * `apps/api/src/platform/network/guarded-fetch.ts`, each tested where it lives.
  *
  * 169 to 171 adds `/.well-known/security.txt` and `/robots.txt`. Both are
@@ -212,7 +212,7 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * repository's homepage. It is the same handler as the repository route --
  * one function that validates the address, throttles, and hands the check to
  * the job runner (apps/api/src/platform/jobs/audit-jobs.ts) -- registered twice; every rule is
- * in `src/site-check.js`.
+ * in Parallax (`apps/api/src/modules/parallax/`).
  */
 /*
  * 177 to 184 adds a team's decisions about its audit findings, the clocks

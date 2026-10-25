@@ -529,3 +529,45 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - lint, typecheck and the inventory;
   - the pulse, posture, pull-board and module-boundary programs;
   - every browser spec that draws the Overview, on desktop and mobile Chromium.
+
+### D8 — Parallax, the deployed-site module
+
+- **One module, behind its index.** `modules/parallax` holds the anonymous site check and the rendered audit:
+  - `domain/`:
+    - `site-rules.ts`: the thirty-seven rules, the files that must never be served, the debug and directory-listing signatures and the library banners, as data. A rule's id is a type, so a finding cannot name a rule that does not exist.
+    - `site-address.ts`: the origin a check accepts, a repository's declared site, the domain whose email policy is read, and a path as it may be shown.
+    - `site-headers.ts`: what the response headers enforce, and the cookies.
+    - `site-markup.ts`: what a page's markup loads, sends and links to, the libraries it names, and robots.txt.
+    - `site-email.ts`: the SPF and DMARC readings, taken out of the check's body.
+    - `rendered-address.ts`: the rendered audit's bounds, viewports and addresses.
+    - `url-privacy.ts`: which path segments are never repeated.
+  - `application/`:
+    - `site-check.ts`: the check itself. It stands on Uranus for the grade and the advisory lookup, on posture for the standards and on Quasar for credential detection, so it is application, not domain. Its concurrency is the platform's `boundedMap`.
+    - `rendered-audit.ts`: one page in the browser, every request fulfilled through the guarded transport.
+    - `rendered-runner.ts`: the disposable child process and the process-tree kill.
+    - `rendered-worker.ts`: the child's entry.
+  - The index exports `privatePathSegment` and two namespaces with their original names, `siteCheck` and `renderedAudit`: the two share `LIMITS`.
+- **The fork entry.** `rendered-site-worker` is a TypeScript entry in `entrypoint.ts`. The compiled tree starts `apps/api/src/modules/parallax/application/rendered-worker.js`, and the compiled-tree test checks it. The entry now starts only in a process with an IPC channel. Loaded anywhere else, it had registered a message listener and a disconnect listener that killed its own process tree.
+- **In-page code without the DOM in the server's types.** The server is not compiled against the DOM. The functions the audit runs inside the page declare the slice of it they read, and check for it before reading. They run from their source text and can reach nothing of the module, so each check is written inline.
+- **Defects the port found, each with a test that failed first against the original:**
+  - *A CDN's library name found inherited names.* An address such as `/ajax/libs/constructor/1.2.3/` or `/npm/__proto__@1.2.3/` was recognised as a library named after a built-in. The report carried a nameless library, and OSV was asked about a package with no name. The CDN table now has no prototype.
+  - *A content encoding found inherited names.*
+    - A resource sent with `content-encoding: constructor` was handed to the browser undecoded, with its encoding header taken away, as though it had been decoded.
+    - With `__proto__`, the request failed as a fetch error.
+    - The decoders are now a table without a prototype, so both are refused as unsupported, as any encoding the audit cannot decode is.
+- **Behaviour otherwise unchanged**, by two oracles that ran the original JavaScript beside the port:
+  - *The site check.*
+    - 25,041 comparisons of the pure functions: origins, declared sites, email domains, path privacy, robots.txt, banners and CDN addresses.
+    - 1,500 generated sites: every redirect shape, header, certificate, plain-HTTP answer, CORS reply, probe, security.txt, robots policy, page, script, source map, advisory answer, DNS record, request budget, cancellation and a ticking clock. Each compared the report or error, every request made with its bounds, every advisory request and every progress update.
+    - All thirty-seven rules fired, and every ledger state was reached. All identical.
+  - *The rendered audit*, through a scripted browser: 1,500 scenarios of routed requests, encodings, redirects, limits, page errors, accessibility results, screenshots and documents that change while their evidence is collected. The report and the full log of routing, fulfilment and abort were identical, except where the encoding was an inherited name.
+  - Errors keep their own-property order.
+- **Removed:** `src/site-check.js`, `src/site-url-privacy.js` and the three `src/rendered-site-*` files. The routes in `src/routes/rendered-audit.js` stay in `src/` until D12 and reach Parallax through its index. So do the server, the tests and the browser fixtures. The baseline inventories keep their baseline paths.
+- **Checks:**
+  - typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify;
+  - the site-check, accuracy, rendered-audit, landing-claims, standards, jobs, audit-UI and route-surface programs;
+  - the contracts and the module boundaries;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests;
+  - the rendered-audit browser test on real Chromium.
+- **Next:** D9 (Pulsar).

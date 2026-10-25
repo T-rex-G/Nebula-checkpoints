@@ -3,8 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
 const { createAuditJobs } = require('../../apps/api/src/platform/jobs/audit-jobs.ts');
-const { renderedUrl } = require('../rendered-site-audit');
-const { runRenderedSite } = require('../rendered-site-runner');
+const { renderedAudit: { renderedUrl, runRenderedSite } } = require('../../apps/api/src/modules/parallax/index.ts');
 
 function registerRenderedAudit(app, { providerSessionAccess, capabilityAccess, auth, identityKey, fail,
   enabled = process.env.NV_RENDERED_AUDIT_ENABLED === 'true', executablePath = process.env.NV_RENDERED_AUDIT_BROWSER_PATH || chromium.executablePath(),

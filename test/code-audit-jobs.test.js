@@ -205,7 +205,7 @@ function deferred() {
   /* ---- A site check is the same kind of job, in its own words and stages ----------------------- */
   {
     const { SITE_JOBS, SITE_STAGES } = require('../apps/api/src/platform/jobs/audit-jobs.ts');
-    const { STAGES } = require('../src/site-check');
+    const { STAGES } = require('../apps/api/src/modules/parallax/index.ts').siteCheck;
     assert.deepStrictEqual([...SITE_STAGES], [...STAGES], 'the job knows every stage the check reports');
     assert(SITE_JOBS.maxRunMs >= 60 * 1000 && SITE_JOBS.maxRunMs <= 2 * 60 * 1000, 'a site check has a minute and a half');
     let ids = 0;

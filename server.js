@@ -180,7 +180,7 @@ const {
   }
 } = require('./apps/api/src/modules/uranus/index.ts');
 const { createAuditJobs } = require('./apps/api/src/platform/jobs/audit-jobs.ts');
-const { checkSite, declaredSite, siteOrigin } = require('./src/site-check');
+const { siteCheck: { checkSite, declaredSite, siteOrigin } } = require('./apps/api/src/modules/parallax/index.ts');
 const { registerRenderedAudit } = require('./src/routes/rendered-audit');
 const { securityContact } = require('./src/public-assets');
 const {
@@ -8222,7 +8222,7 @@ app.get('/api/repo/:owner/:repo/code-audit/gate', providerSessionAccess, alphaRe
  * The deployed site, anonymously: a few dozen bounded requests through the
  * guarded transport's anonymous site profile, the libraries it finds asked
  * of OSV through the advisory profile, and the domain's email policy looked
- * up in public DNS. Every rule is in src/site-check.js. It is a job like the
+ * up in public DNS. Every rule is in Parallax (apps/api/src/modules/parallax). It is a job like the
  * audit (apps/api/src/platform/jobs/audit-jobs.ts): the first request starts it and answers
  * 202 with a run id, and the page asks again with `run` and hears the stage.
  *

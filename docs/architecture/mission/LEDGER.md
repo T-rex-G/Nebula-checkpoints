@@ -607,7 +607,6 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the compiled-server tests.
 - **Next:** D10 (Corona).
 
-
 ### D10 — Corona, the safeguards and recovery module
 
 - **One module, behind its index.** `modules/corona/domain` holds what was left of `src/intelligence.js` after D9, and the snapshot signatures:
@@ -640,3 +639,9 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the compiled-server tests;
   - the D9 oracle again, over the shared HMAC helper: 121,533 comparisons identical.
 - **Next:** D11 (the HTTP pipeline).
+
+### Qualifier — a press test that missed its own press
+
+- **What failed.** On `dbe8c70` the qualification's mobile slice failed "a reading that lands during the press on a repository does not swallow it" before the reading landed: the test helper reported that the repository's name was not being pressed.
+- **Why.** The helper attached its `pointerdown` listener to the control and then pressed. Hovering scrolls the control into view, which can start the pull board's reading after the page has gone quiet, and that reading redraws the Overview cards. A redraw between the listener and the press left the listener on an element the page no longer showed, while the press landed on its replacement. A probe that redraws at exactly that moment reproduced it on desktop and mobile.
+- **Fix.** `test/e2e/press.js` records the press's target at the window and looks for it in the control as the locator finds it after the press. The product's behaviour is unchanged: a redraw before the press was never held, and one during it still is. The probe passes with the new check, and the six press tests pass three times in a row on desktop and mobile.

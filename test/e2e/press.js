@@ -19,13 +19,21 @@ async function pressOn(page, control) {
   const under = await control.evaluate((element, [x, y]) => element.contains(document.elementFromPoint(x, y)),
     [box.x + box.width / 2, box.y + box.height / 2]);
   expect(under, 'the control is under the pointer').toBe(true);
-  /* The press is seen where the page sees it: a pointerdown on the control. `:active` is not set for a pointer on every emulated device. */
-  await control.evaluate(element => {
-    window.__nvPressed = false;
-    element.addEventListener('pointerdown', () => { window.__nvPressed = true; }, { once: true, capture: true });
+  /*
+   * The press is seen where the page sees it: the pointerdown's target, read at
+   * the window. `:active` is not set for a pointer on every emulated device.
+   * The target is then looked for in the control as the locator finds it now:
+   * a card may be rebuilt between the check above and the press, and a
+   * listener on the element it replaced would never hear the press its
+   * replacement received.
+   */
+  await page.evaluate(() => {
+    window.__nvPressTarget = null;
+    window.addEventListener('pointerdown', event => { window.__nvPressTarget = event.target; }, { once: true, capture: true });
   });
   await page.mouse.down();
-  expect(await page.evaluate(() => window.__nvPressed), 'the control is being pressed').toBe(true);
+  const pressed = await control.evaluate(element => element.contains(window.__nvPressTarget));
+  expect(pressed, 'the control is being pressed').toBe(true);
 }
 
 module.exports = Object.freeze({ pressOn });

@@ -5,7 +5,7 @@ const { expect } = require('@playwright/test');
 /*
  * Presses and holds the pointer on a control, once the page has settled: no
  * reading still in flight, nothing still moving, and the control itself under
- * the pointer and being pressed -- so what follows is a reading landing under
+ * the pointer and pressed -- so what follows is a reading landing under
  * a press, not a press that missed. A route that finishes loading resets the
  * scroll, and a press made before then lands on whatever is at that point.
  */
@@ -19,8 +19,13 @@ async function pressOn(page, control) {
   const under = await control.evaluate((element, [x, y]) => element.contains(document.elementFromPoint(x, y)),
     [box.x + box.width / 2, box.y + box.height / 2]);
   expect(under, 'the control is under the pointer').toBe(true);
+  /* The press is seen where the page sees it: a pointerdown on the control. `:active` is not set for a pointer on every emulated device. */
+  await control.evaluate(element => {
+    window.__nvPressed = false;
+    element.addEventListener('pointerdown', () => { window.__nvPressed = true; }, { once: true, capture: true });
+  });
   await page.mouse.down();
-  expect(await control.evaluate(element => element.matches(':active')), 'the control is being pressed').toBe(true);
+  expect(await page.evaluate(() => window.__nvPressed), 'the control is being pressed').toBe(true);
 }
 
 module.exports = Object.freeze({ pressOn });

@@ -19,23 +19,27 @@ const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all']);
 const SETTINGS = new Set(['set', 'disable', 'enable']);
 
 /*
- * The global middlewares have no names in the monolith, so each is named by
+ * The global middlewares had no names in the monolith, so each is named by
  * what it does: the first signature its source matches. These are the names
  * the decomposed pipeline must give them. A middleware no signature matches
  * fails the capture rather than being guessed at.
+ *
+ * Since D11 each step is built by a factory in apps/api/src/http/pipeline and
+ * installed where it always was; the factory's name is the second signature.
+ * The baseline's inline form is the first, so the record still reads.
  */
 const MIDDLEWARE_SIGNATURES = Object.freeze([
-  ['retire-legacy-cookies', /nv_workspace_session/],
-  ['correlation-id', /x-nebulaverse-correlation-id/],
-  ['structured-logging', /res\.on\('finish'/],
-  ['security-headers', /Content-Security-Policy/],
-  ['api-no-store', /writeOfflineCacheHeaders/],
-  ['api-same-origin', /APP_HEADER_REQUIRED/],
-  ['api-rate-admission', /rateLimitIdentity/],
-  ['json-body', /^express\.json\(/],
-  ['api-maintenance', /SERVICE_IN_MAINTENANCE/],
+  ['retire-legacy-cookies', /nv_workspace_session|^retireLegacyCookies\(/],
+  ['correlation-id', /x-nebulaverse-correlation-id|^correlationId\(/],
+  ['structured-logging', /res\.on\('finish'|^structuredLogging\(/],
+  ['security-headers', /Content-Security-Policy|^securityHeaders\(/],
+  ['api-no-store', /writeOfflineCacheHeaders|^apiNoStore\(/],
+  ['api-same-origin', /APP_HEADER_REQUIRED|^apiSameOrigin\(/],
+  ['api-rate-admission', /rateLimitIdentity|^apiRateAdmission\(/],
+  ['json-body', /^express\.json\(|^jsonBody\(/],
+  ['api-maintenance', /SERVICE_IN_MAINTENANCE|^apiMaintenance\(/],
   ['stripped-public-assets', /PUBLIC_ASSETS/],
-  ['static-files', /^express\.static\(/],
+  ['static-files', /^express\.static\(|^staticFiles\(/],
   ['alpha-access-boundary', /^alphaAccessBoundary$/]
 ]);
 const MIDDLEWARE_LABELS = Object.freeze(MIDDLEWARE_SIGNATURES.map(([label]) => label));

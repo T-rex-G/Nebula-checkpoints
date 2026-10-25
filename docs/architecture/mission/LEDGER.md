@@ -645,3 +645,38 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **What failed.** On `dbe8c70` the qualification's mobile slice failed "a reading that lands during the press on a repository does not swallow it" before the reading landed: the test helper reported that the repository's name was not being pressed.
 - **Why.** The helper attached its `pointerdown` listener to the control and then pressed. Hovering scrolls the control into view, which can start the pull board's reading after the page has gone quiet, and that reading redraws the Overview cards. A redraw between the listener and the press left the listener on an element the page no longer showed, while the press landed on its replacement. A probe that redraws at exactly that moment reproduced it on desktop and mobile.
 - **Fix.** `test/e2e/press.js` records the press's target at the window and looks for it in the control as the locator finds it after the press. The product's behaviour is unchanged: a redraw before the press was never held, and one during it still is. The probe passes with the new check, and the six press tests pass three times in a row on desktop and mobile.
+
+### D11 — The HTTP pipeline
+
+- **Each global step is a factory in `apps/api/src/http/pipeline`, behind one index:**
+  - `legacy-cookies.ts`: the owner cookies from before provider authentication, cleared on sight and never adopted;
+  - `correlation-id.ts` and `request-log.ts`: one safe request identity, and the structured line written once an API answer has gone;
+  - `security-headers.ts`: the framing, sniffing, isolation and feature policy, the CSP, and HSTS and `upgrade-insecure-requests` in production;
+  - `api-cache.ts`: every API answer no-store, except a 200 the offline binding vouches for. The binding is handed in;
+  - `same-origin.ts`: the app header, fetch metadata and origin checks on unsafe API calls, and `SAFE_API_METHODS`, which CSRF verification also reads;
+  - `rate-admission.ts`: the local bucket in front of the shared counter. The caller's identity and the counter are handed in, so the order that keeps a throttled flood from becoming a query per request can be tested by watching it;
+  - `maintenance.ts`: the switch, read once, and the API's 503;
+  - `static-files.ts`: the JSON body and the built page's files.
+- **Order stays where it is policy.** The server installs each step where the inline middleware was, so its position among the routes is unchanged. The route policy reads the steps by their factory names now: `test/oracles/route-policy.js` gives each label the baseline's inline signature and the factory's name, and the record is unchanged: 195 routes, 13 steps, the same 1,011 negative-matrix answers.
+- **Environment reads stay per request where they were.** The cookie, header and origin steps take the environment and read `NODE_ENV`, `PUBLIC_BASE_URL` and `RENDER_EXTERNAL_URL` by name on each request, as the inline code did. Maintenance is read once at startup, as before.
+- **The contracts' names, not copies.** The steps read and write the correlation, app and offline headers by the names `packages/contracts` gives them, and check a supplied correlation id with `isCorrelationId`. The adoption record shrinks: `server.js` holds 9 copies, not 19, and six contract exports that waited for a consumer now have one. The contracts spell header names in lower case, so three response headers (`x-nebulaverse-correlation-id`, `x-nv-offline-scope` and `x-nv-offline-repo`) and two `Vary` entries are now written in lower case. HTTP compares field names without case (RFC 9110, section 5.1), and every reader in the product and its tests already did, so no answer changes.
+- **The alpha access boundary moves with its routes in D12.** It shares the alpha session helpers with the alpha routes, so it moves with them into identity-access rather than being split from them here.
+- **Behaviour unchanged**, by an oracle that cut each inline middleware out of the previous server source and ran it beside its factory. It made 264,048 comparisons, every call on the response compared in order, header names without case:
+  - the cookie, header and origin steps over 24,000 generated requests across six environments, production and public origins among them;
+  - 6,000 correlation identities and their log lines;
+  - 6,000 offline bindings, each status line written in every form `writeHead` accepts;
+  - 12 rate-admission rounds of 4,000 to 16,000 requests, with and without a shared counter that allows, refuses and fails, clock jumps across the window and the stale sweep, and three rounds that hold more than 5,000 live buckets so the size cap decides. Mutants that remove the cap, or shift it by one at the break, fail the oracle;
+  - maintenance over twelve spellings of the switch.
+- **Six source-reading checks became behavioural:**
+  - `rate-limit-server-contract` drives the admission step with a counter that records every question: a refused caller is answered from memory, a failing counter answers 503 and never `next()`, and the local ceiling refuses without a query. Mutants that consult the counter first, or let a failure through, fail it.
+  - `public-errors-server-contract` runs the correlation and logging steps, including identities that must be replaced rather than echoed. It reads the order from the route policy.
+  - `security-foundation-contract` sends the same-origin step the cross-site and foreign-origin requests it exists to refuse, and reads from the route policy that it stands in front of every API route.
+  - `offline-cache-policy` writes status lines through the no-store step and reads the binding headers it leaves.
+  - `overlay-motion` and `verify.js` read the CSP from `contentSecurityPolicy`, in both environments, rather than from the server's text.
+- **New:** `test/http-pipeline.test.js` holds each step's guarantees in both environments, so they outlive `server.js`.
+- **Checks:**
+  - typecheck under all four projects, lint, syntax, secrets, docs, inventory and verify (which now parses every pipeline file);
+  - the architecture oracles, server smoke, maintenance mode, configuration registry, rate-limit and public-error contracts, the alpha access and privacy server contracts and module boundaries;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+- **Next:** D12 (routes).

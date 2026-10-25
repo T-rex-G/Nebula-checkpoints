@@ -78,13 +78,27 @@ assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the ea
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
   'service worker must require a server-verified response binding before caching');
 const serverSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-const offlineBoundaryStart = serverSource.indexOf('/* Private offline reads are opt-in');
-const offlineBoundaryEnd = serverSource.indexOf('/* Browser request boundary', offlineBoundaryStart);
-assert(offlineBoundaryStart >= 0 && offlineBoundaryEnd > offlineBoundaryStart,
-  'server must retain the bounded private offline response middleware');
-const offlineBoundary = serverSource.slice(offlineBoundaryStart, offlineBoundaryEnd);
-assert(offlineBoundary.includes("res.setHeader('Cache-Control', 'no-store')"));
-assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Scope', binding.scope)"));
-assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Repo', binding.repoKey)"));
+{
+  /* The server's no-store step, which decides the binding once the status line is known. */
+  const { apiNoStore } = require('../apps/api/src/http/pipeline/index.ts');
+  const headers = new Map();
+  const res = {
+    statusCode: 200,
+    setHeader(name, value) { headers.set(name.toLowerCase(), value); },
+    removeHeader(name) { headers.delete(name.toLowerCase()); },
+    vary() {},
+    writeHead() { return this; }
+  };
+  apiNoStore(() => ({ scope: 'scope-value', repoKey: 'github:o/r' }))({}, res, () => {});
+  assert.strictEqual(headers.get('cache-control'), 'no-store', 'an API answer is no-store until it is known to be a bound 200');
+  res.writeHead(200);
+  assert.strictEqual(headers.get('x-nv-offline-scope'), 'scope-value');
+  assert.strictEqual(headers.get('x-nv-offline-repo'), 'github:o/r');
+  res.writeHead(404);
+  assert.strictEqual(headers.get('cache-control'), 'no-store');
+  assert.strictEqual(headers.get('x-nv-offline-scope'), undefined);
+  assert(serverSource.includes("app.use('/api', apiNoStore(offlineCacheResponseBinding));"),
+    'server must retain the bounded private offline response middleware');
+}
 assert(serverSource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
 console.log('offline cache policy tests passed');

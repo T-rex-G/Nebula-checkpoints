@@ -97,49 +97,86 @@ async function exhaust(cookieFor) {
  * consulted first. Once the shared counter has refused a caller, this process
  * must answer from memory until their window closes, so the caller sending the
  * most requests is the one costing no queries at all. That ordering is the
- * design; asserted here because no behavioural test without a database can see
- * it.
+ * design. No behavioural test against a server without a database can see it,
+ * so the limiter is driven here with a counter that records every question.
  */
-{
-  const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-  /* Bounded to this middleware. A slice that runs to the end of the file would
-     find every later handler's next() and report them as this one's. */
-  const limiterStart = serverSource.indexOf("app.use('/api', (req, res, next) => {\n  const { key } = rateLimitIdentity(");
-  assert(limiterStart > -1, 'the API limiter middleware was not found');
-  const limiterEnd = serverSource.indexOf('\n});', limiterStart);
-  assert(limiterEnd > limiterStart, 'the API limiter middleware has no visible end');
-  const limiter = serverSource.slice(limiterStart, limiterEnd);
-  const refusedAt = limiter.indexOf('b.refusedUntil > now');
-  const storeAt = limiter.indexOf('apiRateLimitStore()');
-  assert(refusedAt > -1, 'the limiter must remember a refusal locally');
-  assert(storeAt > -1, 'the limiter must consult the shared counter');
-  assert(
-    refusedAt < storeAt,
-    'an already-refused caller must be answered from memory before the shared counter is asked, '
-    + 'or a throttled flood becomes a query per request'
-  );
+async function admissionProperties() {
+  const {
+    apiRateAdmission, API_RATE_LIMIT, API_RATE_WINDOW_MS, LOCAL_ADMISSION_CEILING
+  } = require('../apps/api/src/http/pipeline/index.ts');
+  assert.strictEqual(API_RATE_LIMIT, LIMIT);
+  let now = 1_000_000;
+  let answer = () => Promise.resolve({ allowed: true });
+  const asked = [];
+  const counter = { count(request) { asked.push(request); return answer(request); } };
+  let shared = counter;
+  const step = apiRateAdmission({ identify: req => req.caller, counter: () => shared, now: () => now });
+  /* One request: how it was answered, or that it was passed on. */
+  const admit = caller => new Promise(resolve => {
+    const res = {
+      code: 200,
+      status(code) { this.code = code; return this; },
+      json(body) { resolve({ status: this.code, body }); return this; }
+    };
+    step({ caller }, res, () => resolve({ status: 'next' }));
+  });
 
-  /* A counter that cannot answer must not fall back to the local count: that
-     count says "well within" on every instance that has not seen the caller. */
-  const catchAt = limiter.indexOf('.catch(');
-  const unavailableAt = limiter.indexOf('RATE_LIMIT_UNAVAILABLE');
-  assert(catchAt > -1 && unavailableAt > catchAt,
-    'a shared-counter failure must be caught and reported as unavailable rather than permitting the request');
-  assert.strictEqual(
-    /catch[\s\S]{0,400}next\(\)/.test(limiter.slice(catchAt)), false,
-    'no failure path may call next(): an unanswerable counter has not said the caller is within their limit'
-  );
-  assert.match(
-    serverSource, /inclusiveReset: false/,
-    'the API window keeps its own boundary rather than adopting the webhook one'
-  );
-  assert.match(
-    serverSource, /inclusiveReset: true/,
-    'and the webhook window keeps its own'
-  );
+  /* Within the limit the shared counter decides, on the API's own window. */
+  assert.deepStrictEqual(await admit('a'), { status: 'next' });
+  assert.deepStrictEqual(asked, [{ namespace: 'api', key: 'a', windowMs: API_RATE_WINDOW_MS, limit: LIMIT, inclusiveReset: false }],
+    'the API window keeps its own boundary rather than adopting the webhook one');
+
+  /* Refused once by the shared counter, the caller is refused from memory for the rest of the window. */
+  answer = () => Promise.resolve({ allowed: false });
+  assert.strictEqual((await admit('b')).status, 429);
+  const askedBefore = asked.length;
+  for (let i = 0; i < 50; i += 1) assert.strictEqual((await admit('b')).status, 429);
+  assert.strictEqual(asked.length, askedBefore,
+    'an already-refused caller must be answered from memory before the shared counter is asked, '
+    + 'or a throttled flood becomes a query per request');
+  /* Another caller is still asked about. */
+  answer = () => Promise.resolve({ allowed: true });
+  assert.deepStrictEqual(await admit('c'), { status: 'next' });
+  assert.strictEqual(asked.length, askedBefore + 1);
+  /* Once the window has closed, the refused caller is asked about again. */
+  now += API_RATE_WINDOW_MS + 1;
+  assert.deepStrictEqual(await admit('b'), { status: 'next' });
+  assert.strictEqual(asked.length, askedBefore + 2);
+
+  /* A counter that cannot answer has not said the caller is within their limit. */
+  answer = () => Promise.reject(new Error('connection refused'));
+  const unavailable = await admit('d');
+  assert.strictEqual(unavailable.status, 503,
+    'a shared-counter failure must be reported as unavailable rather than permitting the request');
+  assert.strictEqual(unavailable.body.code, 'RATE_LIMIT_UNAVAILABLE');
+
+  /* The local ceiling is the backstop for a shared counter that never refuses. */
+  answer = () => Promise.resolve({ allowed: true });
+  now += API_RATE_WINDOW_MS + 1;
+  const askedAtStart = asked.length;
+  let firstRefusal = null;
+  for (let sent = 1; sent <= LOCAL_ADMISSION_CEILING + 5 && firstRefusal === null; sent += 1) {
+    if ((await admit('e')).status === 429) firstRefusal = sent;
+  }
+  assert.strictEqual(firstRefusal, LOCAL_ADMISSION_CEILING + 1);
+  assert.strictEqual(asked.length - askedAtStart, LOCAL_ADMISSION_CEILING,
+    'the request over the ceiling is refused without a query');
+
+  /* Without a database this process is the only counter, and the local bucket is the limit. */
+  shared = null;
+  now += API_RATE_WINDOW_MS + 1;
+  let localRefusal = null;
+  for (let sent = 1; sent <= LIMIT + 5 && localRefusal === null; sent += 1) {
+    if ((await admit('f')).status === 429) localRefusal = sent;
+  }
+  assert.strictEqual(localRefusal, LIMIT + 1);
+
+  const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  assert.match(serverSource, /inclusiveReset: true/, 'and the webhook window keeps its own');
 }
 
 (async () => {
+  await admissionProperties();
   await waitForServer();
 
   /* A forged cookie is not a session, so it must not buy its own bucket. */

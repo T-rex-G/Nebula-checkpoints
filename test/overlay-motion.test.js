@@ -2260,7 +2260,8 @@ check('the restore runs from the head, before anything is painted', () => {
   assert.ok(/<script[^>]+src="\/theme-boot\.js/.test(head),
     'theme-boot is not in the head, so the shell paints in one theme and corrects to the other');
   /* An inline block here would be refused: script-src is 'self' with no 'unsafe-inline'. */
-  assert.ok(/script-src 'self'/.test(serverSource),
+  const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
+  assert.ok([true, false].every(production => contentSecurityPolicy(production).split('; ').includes("script-src 'self'")),
     'the policy this file is a file rather than an inline block for has changed');
   /*
    * In the landing nav specifically. Counting toggles across the document

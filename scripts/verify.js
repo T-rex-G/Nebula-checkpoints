@@ -154,7 +154,13 @@ for (const file of [
   'apps/api/src/modules/github-provider/domain/provider-references.ts',
   'apps/api/src/platform/values/stable-hash.ts', 'apps/api/src/platform/values/text.ts',
   'apps/api/src/platform/values/path-patterns.ts', 'apps/api/src/platform/crypto/hmac.ts',
-  'apps/api/src/platform/persistence/backup-format.ts'
+  'apps/api/src/platform/persistence/backup-format.ts',
+  'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
+  'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
+  'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
+  'apps/api/src/http/pipeline/api-cache.ts', 'apps/api/src/http/pipeline/same-origin.ts',
+  'apps/api/src/http/pipeline/rate-admission.ts', 'apps/api/src/http/pipeline/static-files.ts',
+  'apps/api/src/http/pipeline/maintenance.ts'
 ]) {
   assertParses(file);
 }
@@ -294,7 +300,13 @@ must(!sw.includes("const API = 'nv-api-perm'"), 'A shared persistent API cache m
 must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includes('nv-api-${CACHE_SCHEMA}-${scope}'), 'Private cache namespaces must be schema-versioned');
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
 must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
-must(server.includes("object-src 'none'") && server.includes("base-uri 'none'"), 'CSP active-content restrictions are incomplete');
+{
+  const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
+  must([true, false].every(production => {
+    const directives = contentSecurityPolicy(production).split('; ');
+    return directives.includes("object-src 'none'") && directives.includes("base-uri 'none'");
+  }), 'CSP active-content restrictions are incomplete');
+}
 must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing');
 /*
  * Typefaces were proxied from Google through an allowlisted route, so every

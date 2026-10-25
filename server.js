@@ -119,7 +119,7 @@ const {
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
 const { describeServerRuntime } = require('./apps/api/src/platform/release/server-runtime.ts');
-const { loadWebBuild, webCacheControl } = require('./apps/api/src/platform/release/web-build.ts');
+const { loadWebBuild } = require('./apps/api/src/platform/release/web-build.ts');
 const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
 const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
@@ -140,7 +140,11 @@ const WEB_BUILD = loadWebBuild(WEB_ROOT);
  * shell cache it replaces. A stamp that only names the version leaves a
  * returning browser with new HTML and cache-first scripts from an older build.
  */
-const { createCorrelationId, publicErrorBody } = require('./apps/api/src/http/errors.ts');
+const { publicErrorBody } = require('./apps/api/src/http/errors.ts');
+const {
+  retireLegacyCookies, correlationId, structuredLogging, securityHeaders, apiNoStore, SAFE_API_METHODS,
+  apiSameOrigin, apiRateAdmission, jsonBody, apiMaintenance, maintenanceMode, staticFiles
+} = require('./apps/api/src/http/pipeline/index.ts');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
 const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
 const {
@@ -473,131 +477,17 @@ function startTempMaintenance() {
 }
 
 app.disable('x-powered-by');
-/* Retire old owner cookies without adopting them into provider authentication. */
-app.use((req, res, next) => {
-  const cookies = String(req.headers.cookie || '').split(';').map(item => item.trim());
-  for (const [name, scope] of [
-    ['nv_workspace_session', '/api/workspace'],
-    ['nv_workspace_challenge', '/api/workspace'],
-    ['nv_workspace_oauth', '/api/workspace'],
-    ['nv_workspace_oauth_intent', '/']
-  ]) {
-    if (cookies.some(item => item.startsWith(`${name}=`))) {
-      res.clearCookie(name, { path: scope, httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-    }
-  }
-  next();
-});
-/* one safe request identity shared by logs and tester-facing errors */
-app.use((req, res, next) => {
-  const supplied = String(req.headers['x-nebulaverse-correlation-id'] || '');
-  const correlationId = /^nvx-[0-9a-f]{16}$/.test(supplied)
-    ? supplied
-    : createCorrelationId();
-  res.locals.correlationId = correlationId;
-  res.setHeader('X-Nebulaverse-Correlation-Id', correlationId);
-  next();
-});
-/* structured request logging */
-app.use((req, res, next) => {
-  const t0 = Date.now();
-  res.on('finish', () => {
-    if (req.path.startsWith('/api/')) console.log(JSON.stringify({
-      t: new Date().toISOString(), correlationId: res.locals.correlationId,
-      m: req.method, p: req.path, s: res.statusCode, ms: Date.now() - t0
-    }));
-  });
-  next();
-});
 /*
- * Security headers. The CSP's frame-ancestors is what modern browsers obey;
- * X-Frame-Options says the same to the ones that predate it. The page opens
- * nothing it needs to talk back to, so it keeps a browsing context group of
- * its own (COOP), serves nothing another origin may embed (CORP), and asks
- * for its own agent cluster. Every powerful feature the product never uses
- * is switched off rather than left to a default.
+ * The global pipeline, in the order the route policy records. Each step is
+ * built in apps/api/src/http/pipeline; where it is installed among the routes
+ * is policy, so that stays here.
  */
-const PERMISSIONS_POLICY = [
-  'accelerometer=()', 'autoplay=()', 'bluetooth=()', 'browsing-topics=()', 'camera=()', 'display-capture=()',
-  'geolocation=()', 'gyroscope=()', 'hid=()', 'magnetometer=()', 'microphone=()', 'midi=()', 'payment=()',
-  'publickey-credentials-get=()', 'serial=()', 'usb=()', 'xr-spatial-tracking=()'
-].join(', ');
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Origin-Agent-Cluster', '?1');
-  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-  if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Content-Security-Policy', [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self'",
-    "img-src 'self' data: https://*.githubusercontent.com https://*.gravatar.com",
-    "media-src 'self'",
-    "connect-src 'self'",
-    "worker-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-    "frame-src 'none'",
-    "manifest-src 'self'",
-    "frame-ancestors 'none'",
-    ...(process.env.NODE_ENV === 'production' ? ['upgrade-insecure-requests'] : [])
-  ].join('; '));
-  next();
-});
-/* Private offline reads are opt-in and bound to the authenticated session,
-   provider identity, and repository. All other API responses stay no-store. */
-app.use('/api', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const writeHead = res.writeHead;
-  res.writeHead = function writeOfflineCacheHeaders(...args) {
-    const responseStatus = Number(args[0] || res.statusCode);
-    const binding = responseStatus === 200 ? offlineCacheResponseBinding(req) : null;
-    if (binding) {
-      res.setHeader('X-NV-Offline-Scope', binding.scope);
-      res.setHeader('X-NV-Offline-Repo', binding.repoKey);
-      res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-      for (const name of ['Cookie', 'X-NV-Offline-Scope', 'X-NV-Offline-Repo']) res.vary(name);
-    } else {
-      res.removeHeader('X-NV-Offline-Scope');
-      res.removeHeader('X-NV-Offline-Repo');
-      res.setHeader('Cache-Control', 'no-store');
-    }
-    return writeHead.apply(this, args);
-  };
-  next();
-});
-/* Browser request boundary: unsafe API calls must be intentional and same-origin. */
-const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-app.use('/api', (req, res, next) => {
-  if (SAFE_API_METHODS.has(req.method)) return next();
-  if (req.headers['x-nv'] !== '1') {
-    return res.status(403).json({ error: 'Missing app header', code: 'APP_HEADER_REQUIRED' });
-  }
-  const fetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
-  if (fetchSite === 'cross-site') {
-    return res.status(403).json({ error: 'Cross-site API requests are not allowed', code: 'CROSS_SITE_REQUEST' });
-  }
-  const origin = String(req.headers.origin || '').trim();
-  if (origin) {
-    const allowed = new Set([`${req.protocol}://${req.get('host')}`]);
-    for (const configured of [process.env.PUBLIC_BASE_URL, process.env.RENDER_EXTERNAL_URL]) {
-      try { if (configured) allowed.add(new URL(configured).origin); } catch {}
-    }
-    let parsedOrigin = '';
-    try { parsedOrigin = new URL(origin).origin; } catch {}
-    if (!parsedOrigin || !allowed.has(parsedOrigin)) {
-      return res.status(403).json({ error: 'Request origin does not match Nebulaverse-X', code: 'CROSS_SITE_REQUEST' });
-    }
-  }
-  next();
-});
+app.use(retireLegacyCookies(process.env));
+app.use(correlationId());
+app.use(structuredLogging());
+app.use(securityHeaders(process.env));
+app.use('/api', apiNoStore(offlineCacheResponseBinding));
+app.use('/api', apiSameOrigin(process.env));
 /*
  * Per-session rate limit: 300 API req/min.
  *
@@ -608,104 +498,22 @@ app.use('/api', (req, res, next) => {
  * returns it to zero. apps/api/src/platform/rate-limit/rate-limit-identity.ts records what the previous
  * key did instead.
  */
-const API_RATE_WINDOW_MS = 60000;
-const API_RATE_LIMIT = 300;
-/*
- * Two limiters, and the local one exists to protect the shared one.
- *
- * The shared counter is what makes a limit of three hundred mean three
- * hundred rather than three hundred per instance. But consulting it is a
- * query, and a limiter that queries once per request hands an attacker a way
- * to turn a flood of cheap HTTP into a flood of database work -- against a
- * pool of three connections on a free plan. The in-process bucket in front of
- * it is what stops that: once the shared counter has refused a caller, this
- * process remembers until their window closes and refuses them again without
- * asking anything. A caller being throttled therefore costs no queries at all,
- * which is exactly the caller sending the most requests.
- *
- * An absolute local ceiling sits above that as a backstop for the case the
- * shared counter never refuses because it cannot answer.
- */
-const LOCAL_ADMISSION_CEILING = API_RATE_LIMIT + 30;
-const _buckets = new Map();
 function apiRateLimitStore() {
   if (!DB_URL) return null;
   if (!_rateLimitStore) _rateLimitStore = new RateLimitStore({ pool: pool() });
   return _rateLimitStore;
 }
-app.use('/api', (req, res, next) => {
-  const { key } = rateLimitIdentity({
+app.use('/api', apiRateAdmission({
+  identify: req => rateLimitIdentity({
     session: unseal(getCookie(req, 'nv_session') || ''),
     address: req.ip,
     hmacKey: RATE_LIMIT_IDENTITY_KEY,
     namespace: 'api'
-  });
-  const now = Date.now();
-  let b = _buckets.get(key);
-  if (!b || now - b.t > API_RATE_WINDOW_MS) { b = { t: now, n: 0, refusedUntil: 0 }; _buckets.set(key, b); }
-  b.n += 1;
-  if (_buckets.size > 5000) {
-    for (const [bucketKey, value] of _buckets) {
-      if (now - value.t > 120000) _buckets.delete(bucketKey);
-    }
-    while (_buckets.size > 5000) _buckets.delete(_buckets.keys().next().value);
-  }
-
-  /* Already refused inside this window: answer from memory, ask nothing. */
-  if (b.refusedUntil > now) return res.status(429).json({ error: 'Rate limit: slow down a little' });
-  if (b.n > LOCAL_ADMISSION_CEILING) {
-    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
-    return res.status(429).json({ error: 'Rate limit: slow down a little' });
-  }
-
-  const store = apiRateLimitStore();
-  /* Without a database this process is the only counter there is, and the
-     local bucket is the limit rather than an admission filter in front of it. */
-  if (!store) {
-    if (b.n > API_RATE_LIMIT) return res.status(429).json({ error: 'Rate limit: slow down a little' });
-    return next();
-  }
-
-  store.count({
-    namespace: 'api', key, windowMs: API_RATE_WINDOW_MS, limit: API_RATE_LIMIT,
-    /* The window this limiter has always kept: it reopens once MORE than
-       sixty seconds have passed, which is not the webhook limiter's rule. */
-    inclusiveReset: false
-  }).then(verdict => {
-    if (verdict.allowed) return next();
-    b.refusedUntil = b.t + API_RATE_WINDOW_MS;
-    res.status(429).json({ error: 'Rate limit: slow down a little' });
-  }).catch(() => {
-    /* A counter that cannot answer has not said this caller is within their
-       limit, and a local count would answer "well within" on every instance
-       that has not seen them. Refuse, and say it is the limiter that is
-       unavailable rather than the caller who is over. */
-    res.status(503).json({
-      error: 'Request limits cannot be checked right now; retry shortly',
-      code: 'RATE_LIMIT_UNAVAILABLE'
-    });
-  });
-});
-/*
- * Maintenance mode.
- *
- * render.yaml has carried NV_MAINTENANCE_MODE since the blueprint was written
- * and a contract test asserted it was set, but nothing read it: turning it on
- * did nothing whatsoever. An operator reaching for it during an incident would
- * have had a documented switch, a passing test, and a fully serving
- * application.
- *
- * What it must not do is take the health check down with it. The host restarts
- * an instance that fails health, so a maintenance switch that answers 503 to
- * everything removes the very thing the operator just reached for. Health stays
- * green and discloses the state; readiness reports not-ready, which is the
- * honest answer and the one load balancers act on.
- *
- * Read once at startup rather than per request: on the hosted platform an
- * environment change redeploys the service, so there is no state to poll for,
- * and a per-request read would invite the value to change midway through one.
- */
-const MAINTENANCE_MODE = /^(1|true|on|yes)$/i.test(String(process.env.NV_MAINTENANCE_MODE || '').trim());
+  }).key,
+  counter: apiRateLimitStore
+}));
+/* Maintenance mode, read once at startup (apps/api/src/http/pipeline/maintenance.ts says why). */
+const MAINTENANCE_MODE = maintenanceMode(process.env);
 
 /*
  * No version here. This answers "is the process up" to anyone who asks, with
@@ -901,7 +709,7 @@ app.get('/vendor/*', async (req, res) => {
 });
 /* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
 app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
-app.use(express.json({ limit: '30mb' }));
+app.use(jsonBody());
 /*
  * The page and the service worker are the build's own files, read once (WEB_BUILD,
  * near the top). The build has already removed their source comments and named
@@ -916,27 +724,8 @@ app.get('/sw.js', (req, res) => {
   res.setHeader('Service-Worker-Allowed', '/');
   res.type('application/javascript').send(WEB_BUILD.serviceWorker);
 });
-/*
- * Placed after health and readiness and before everything else: those two have
- * to answer during maintenance, and nothing else may. Static assets are served
- * below this line so the shell can still render and show the notice rather
- * than a bare browser error.
- */
-app.use('/api', (req, res, next) => {
-  if (!MAINTENANCE_MODE) return next();
-  res.setHeader('Retry-After', '120');
-  res.setHeader('Cache-Control', 'no-store');
-  return res.status(503).json({
-    error: 'SERVICE_IN_MAINTENANCE',
-    message: 'Nebulaverse-X is in maintenance and is not accepting requests right now.',
-    nextAction: 'Retry once maintenance has finished. No data has been changed by this request.'
-  });
-});
-
-app.use(express.static(WEB_ROOT, {
-  index: false,
-  setHeaders(res, filePath) { res.setHeader('Cache-Control', webCacheControl(WEB_ROOT, filePath)); }
-}));
+app.use('/api', apiMaintenance(MAINTENANCE_MODE));
+app.use(staticFiles(WEB_ROOT));
 
 /* ---------------- encrypted cookie session ---------------- */
 function seal(obj) {

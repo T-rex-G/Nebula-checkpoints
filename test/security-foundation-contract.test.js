@@ -9,7 +9,24 @@ const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app
 const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
 assert(server.includes("require('./apps/api/src/platform/authorization/security-foundation.ts')"), 'server must use the centralized security foundation module');
-assert(server.includes("req.headers['sec-fetch-site']") && server.includes("req.headers.origin"), 'unsafe API requests must reject cross-site browser origins');
+{
+  /* The same-origin step itself, on the requests it exists to refuse, and its place in front of every API route. */
+  const { apiSameOrigin } = require('../apps/api/src/http/pipeline/index.ts');
+  const { currentRoutePolicy } = require('./oracles/current-route-policy');
+  const refuses = headers => {
+    let passed = false;
+    let status = 0;
+    const res = { status(code) { status = code; return this; }, json() { return this; } };
+    apiSameOrigin({})({ method: 'POST', headers: { 'x-nv': '1', ...headers }, protocol: 'https', get: () => 'nebulaverse.example' }, res, () => { passed = true; });
+    return !passed && status === 403;
+  };
+  assert(refuses({ 'sec-fetch-site': 'cross-site' }) && refuses({ origin: 'https://evil.example' }) && !refuses({ origin: 'https://nebulaverse.example' }),
+    'unsafe API requests must reject cross-site browser origins');
+  const sequence = currentRoutePolicy(root).sequence;
+  const sameOrigin = sequence.findIndex(entry => entry.kind === 'middleware' && entry.label === 'api-same-origin' && entry.mount === '/api');
+  const firstApiRoute = sequence.findIndex(entry => entry.kind === 'route' && entry.path.startsWith('/api/'));
+  assert(sameOrigin > -1 && sameOrigin < firstApiRoute, 'the same-origin step must stand in front of every API route');
+}
 assert(server.includes("app.get('/api/security/csrf'"), 'authenticated clients need a CSRF token endpoint');
 assert(server.includes("app.post('/api/security/step-up'"), 'sensitive actions need a step-up grant endpoint');
 assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(server), 'auth must centrally enforce CSRF and single-use step-up grants');

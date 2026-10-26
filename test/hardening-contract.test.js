@@ -30,7 +30,7 @@ assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(se
 for (const [route, nextRoute] of [
   ["/api/accounts/switch-idx", "/api/accounts/remove"],
   ["/api/accounts/remove", "/api/accounts/switch"],
-  ["/api/accounts/switch", "/api/config"]
+  ["/api/accounts/switch", "/* ---- OAuth"]
 ]) {
   const start = server.indexOf(`app.post('${route}'`);
   const end = server.indexOf(nextRoute, start + 1);
@@ -61,8 +61,10 @@ assert(server.includes('/api/security/scanner-status'), 'Scanner status endpoint
  * typefaces are served from this origin -- so the surviving outbound path is
  * the vendor CDN fallback, which must stay allowlisted and size-bounded.
  */
-assert(server.includes('readBoundedResponse'), 'Outbound vendor responses must be size-bounded');
-assert(server.includes('VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy must serve allowlisted paths only');
+/* The vendor proxy is the platform's own route (apps/api/src/http/routes/vendor.ts). */
+const vendor = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'routes', 'vendor.ts'), 'utf8');
+assert(/await readBoundedResponse\(r, 2 \* MB\)/.test(vendor), 'Outbound vendor responses must be size-bounded');
+assert(vendor.includes('!VENDOR_ALLOWLIST.has(p)) return res.status(404).end();'), 'The vendor proxy must serve allowlisted paths only');
 assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed');
 
 assert(/restore-paths[\s\S]+deps\.enforceProtectedPaths\(req, matches\.map\(item => member\(item, 'path'\)\)\)/.test(corona), 'Restore-paths must enforce policies against every restored child path');

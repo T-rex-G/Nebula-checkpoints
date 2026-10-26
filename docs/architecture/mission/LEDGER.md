@@ -1264,3 +1264,64 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the dry run's output was parsed as Playwright prints it, with packages missing and with none;
   - the workflow contract now requires the network timeouts, the bounded index refresh, the bounded download before the install, the dry run at the end, and no `--with-deps`. Removing any of the first four fails it;
   - the full unit gate and every verify-job gate pass on Node 22.23.4.
+
+### D12j — the platform's own routes
+
+- **Routes.** The seventeen routes that belong to no module move to `apps/api/src/http/routes`, beside D11's pipeline. Each group is registered where the route policy records it among the pipeline's steps:
+  - `registerProbeRoutes`: health and readiness (`probes.ts`);
+  - `registerPublicFileRoutes`: security.txt, robots.txt and the two home-screen icon aliases (`public-files.ts`);
+  - `registerVendorRoute`: the browser's libraries and fonts, from disk or the CDN, with the response bound and the cache (`vendor.ts`);
+  - `registerWebhookIntakeRoute`: GitHub's deliveries, read raw before the JSON parser (`webhook-intake.ts`);
+  - `registerWebShellRoutes`: the page and its service worker (`public-files.ts`);
+  - `registerConfigRoutes`: the deployment's configuration and capabilities, and the account's (`config.ts`);
+  - `registerProviderRateRoute`: the account's GitHub API budget (`provider-rate.ts`);
+  - `registerVersionRoute`: the build's identity, by digest (`release.ts`);
+  - `registerShellFallback`: the page for a route the browser owns, and a 404 for an API path or a file that is not there, last of all (`public-files.ts`).
+
+  The comments that explained each route moved with it. `server.js` now registers only identity-access's twenty-seven routes itself.
+- **Dead code.** The server no longer has the vendor cache, its allowlist, the bounded reader, the public-origin helper, `fs` or `hostedConfigProjection`, which only these routes used.
+- **One wiring fault, caught before this landed.** The draft handed the probes `Boolean(DB_URL)` when they were registered, but the server declares `DB_URL` further down, so the server would not start. The old readiness route read it per request. The probes now read it when asked. The oracle compares the route code and could not see this; the tests that start the server could, and did.
+- **Behaviour unchanged.** An oracle evaluated those regions of the previous `server.js` on one express app, and the platform's registrations on another. It ran five pairs, for the settings fixed at startup: maintenance on and off, a database or none, the hosted or local profile, with and without qualification capabilities and a compiled build.
+
+  The 20,000 scenarios varied:
+  - the database ready, not ready, failing its check or its round trip, and its readiness state;
+  - the security contact and the public origin (HTTPS, plain HTTP, trailing slashes, none), and the Host the request arrived with;
+  - vendor paths bundled, fetched or refused (outside the allowlist, a dot-dot path, an encoded one, a different case);
+  - CDN answers small, just under 2 MB, over 2 MB as streamed or as declared, missing, empty or failing, mostly near 2 MB, so the 24 MB cache filled and evicted;
+  - webhook bodies of every content type, empty, malformed and over 2 MB;
+  - capability queries naming other providers and authorities, accounts by OAuth or as an installation, and API budgets in every shape;
+  - HEAD as well as GET, and unknown routes, API paths and dotfiles for the fallback.
+
+  The oracle compared each answer (status, the headers that matter, the bytes), every call to the database, the CDN, the provider, the webhook receiver and the failure answer, in order, and the readiness left behind. All 60,000 comparisons were identical. They included 3,343 vendor files served, 523 webhook deliveries accepted, 664 ready answers and 1,406 not-ready ones.
+
+  Thirty-four mutants each fail on a comparison:
+  - **probes:** health saying alive in maintenance; readiness during maintenance; no Retry-After; a hosted deployment ready without its database; ready without asking the database; a failed check not invalidating readiness; a database not ready answered ready;
+  - **public files:** an HTTP origin taken as canonical; a trailing slash kept; security.txt expiring in a year; robots letting the API be indexed; one icon alias dropped; the service worker cached; the service worker scoped to its folder; an unknown API path given the page; a missing dotfile given the page;
+  - **vendor:** a path outside the allowlist fetched; the declared size trusted; the streamed size unbounded; the cache never consulted; a cached asset served without its type; the cache never evicting; the newest entry evicted; a bundled file fetched anyway; a failed upstream passed through; the fallback without its User-Agent;
+  - **webhook:** a larger body accepted;
+  - **configuration:** the qualification capabilities hidden; the Git Data boundary unpublished; another provider projected; public capabilities uncached; account capabilities shared between cookies;
+  - **budget and build:** the reset time dropped; a compiled build without its digest.
+
+  The first run left four alive. Two could not be told apart from the original, because the allowlist holds only lower-case paths with no `..`. One dropped the dot-dot check and the other lower-cased the CDN path. They were replaced, by "a cached asset served without its type" and "the fallback without its User-Agent". The two eviction mutants survived because the scripted CDN never filled the cache. It now mostly answers near 2 MB, and both are caught. All thirty-four were then run again on the final oracle.
+- **Tests.**
+  - `test/platform-routes.test.js` drives the registrations over HTTP. It covers:
+    - each route's chain and its place: the webhook before the JSON parser, the page before the API's maintenance gate, the fallback last;
+    - health naming no release, and readiness draining for maintenance and for a hosted deployment without its database;
+    - security.txt canonical only on a configured HTTPS origin, and expiring six months out;
+    - vendor files only from the allowlist, from disk when bundled, bounded and cached from the CDN, and the oldest evicted first;
+    - the webhook's exact bytes, and its 2 MB limit;
+    - the configuration's fields, and the private, per-cookie account capabilities;
+    - the build named by digest;
+    - a 404, not the page, for an API path or a missing file.
+  - The source checks follow the code:
+    - `hardening-contract` reads the vendor route's bound and allowlist, and ends the account-switch block at the next statement;
+    - `package-contract` reads the DOMPurify path from the vendor route;
+    - `scripts/verify.js` reads the webhook intake, the vendor allowlist and its CDN fallback, the self-hosted faces, the absence of a font proxy, and readiness from the routes, and the wiring from the server.
+- **Ratchet:** the routes `server.js` registers itself fall from 40 to 27.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the eight new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - every converted contract and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the seventeen routes, the vendor helpers and the imports that went with them.

@@ -175,6 +175,9 @@ for (const file of [
   'apps/api/src/platform/values/stable-hash.ts', 'apps/api/src/platform/values/text.ts',
   'apps/api/src/platform/values/path-patterns.ts', 'apps/api/src/platform/crypto/hmac.ts',
   'apps/api/src/platform/persistence/backup-format.ts',
+  'apps/api/src/http/routes/index.ts', 'apps/api/src/http/routes/probes.ts', 'apps/api/src/http/routes/public-files.ts',
+  'apps/api/src/http/routes/vendor.ts', 'apps/api/src/http/routes/webhook-intake.ts', 'apps/api/src/http/routes/config.ts',
+  'apps/api/src/http/routes/provider-rate.ts', 'apps/api/src/http/routes/release.ts',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -319,7 +322,10 @@ must(sw.includes("cache: 'no-store'"), 'Network-only API responses must not use 
 must(!sw.includes("const API = 'nv-api-perm'"), 'A shared persistent API cache must not exist');
 must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includes('nv-api-${CACHE_SCHEMA}-${scope}'), 'Private cache namespaces must be schema-versioned');
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
-must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
+/* The platform's own routes (apps/api/src/http/routes). */
+const platformRoute = name => read(`apps/api/src/http/routes/${name}`);
+must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && server.includes('registerWebhookIntakeRoute(app, { receiveGithubWebhook })')
+  && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
 {
   const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
   must([true, false].every(production => {
@@ -327,7 +333,8 @@ must(server.includes('/hooks/github/:hookId') && server.includes('verifyGithubSi
     return directives.includes("object-src 'none'") && directives.includes("base-uri 'none'");
   }), 'CSP active-content restrictions are incomplete');
 }
-must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing');
+const vendorRoute = platformRoute('vendor.ts');
+must(vendorRoute.includes('!VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy allowlist is missing');
 /*
  * Typefaces were proxied from Google through an allowlisted route, so every
  * reader's address reached a third party, an offline session lost the faces,
@@ -335,12 +342,12 @@ must(server.includes('VENDOR_ALLOWLIST'), 'The vendor proxy allowlist is missing
  * hosted gate verifies. They are served from this origin now, so the stronger
  * property is that no font proxy exists at all.
  */
-must(!/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(server), 'A stylesheet font proxy has returned');
-must(!/\/gstatic|fonts\.gstatic/.test(server), 'A font-file proxy has returned');
-must(server.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
-must(server.includes("path.join(__dirname, 'public', 'vendor')") && server.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
+must([server, vendorRoute].every(text => !/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(text)), 'A stylesheet font proxy has returned');
+must([server, vendorRoute].every(text => !/\/gstatic|fonts\.gstatic/.test(text)), 'A font-file proxy has returned');
+must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
+must(server.includes("vendorRoot: path.join(__dirname, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
-must(server.includes('/readyz'), 'Readiness endpoint is missing');
+must(platformRoute('probes.ts').includes("app.get('/readyz'") && server.includes('registerProbeRoutes(app, {'), 'Readiness endpoint is missing');
 must(server.includes('normalizeDatabaseUrl') && server.includes('createDatabasePool(DB_URL,')
   && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');

@@ -258,8 +258,11 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 65 to 40: the workbench's collaboration routes (pull requests, issues,
  * notifications, search, stars, workflow runs, releases), its uploads, the
  * folder move and the dependency audit.
+ * 40 to 27: the platform's own routes -- the probes, the public files and the
+ * page, the vendor libraries, the webhook intake, the configuration and
+ * capabilities, the API budget, the build's identity and the shell fallback.
  */
-const SERVER_ROUTE_CEILING = 40;
+const SERVER_ROUTE_CEILING = 27;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

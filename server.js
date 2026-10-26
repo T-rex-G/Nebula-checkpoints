@@ -51,7 +51,6 @@ async function fetchT(url, opts = {}, ms = 20000) {
     headers: response.headers
   });
 }
-const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
@@ -92,10 +91,7 @@ const {
   loadGithubAppConfig,
   loadAlphaAccessConfig
 } = require('./apps/api/src/platform/config/config.ts');
-const {
-  databaseReadiness,
-  hostedConfigProjection
-} = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
+const { databaseReadiness } = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
 const {
   AlphaAccessStore,
   AlphaAccessOperationalError,
@@ -135,6 +131,10 @@ const WEB_BUILD = loadWebBuild(WEB_ROOT);
  * returning browser with new HTML and cache-first scripts from an older build.
  */
 const { publicErrorBody } = require('./apps/api/src/http/errors.ts');
+const {
+  registerProbeRoutes, registerPublicFileRoutes, registerVendorRoute, registerWebhookIntakeRoute, registerWebShellRoutes,
+  registerConfigRoutes, registerProviderRateRoute, registerVersionRoute, registerShellFallback
+} = require('./apps/api/src/http/routes/index.ts');
 const {
   retireLegacyCookies, correlationId, structuredLogging, securityHeaders, apiNoStore, SAFE_API_METHODS,
   apiSameOrigin, apiRateAdmission, jsonBody, apiMaintenance, maintenanceMode, staticFiles
@@ -442,214 +442,31 @@ app.use('/api', apiRateAdmission({
 const MAINTENANCE_MODE = maintenanceMode(process.env);
 
 /*
- * No version here. This answers "is the process up" to anyone who asks, with
- * no session and no invitation, which makes it the cheapest place in the
- * product to read the build number off. Liveness does not depend on knowing
- * which release is alive, and the operator checklist verifies that this route
- * answers, not what it says about the release.
- */
-/*
  * Opaque and fresh each time the process starts: a restart is something an
  * operator has to be able to see happen, without the process saying how long
  * it has been up.
  */
 const BOOT_ID = crypto.randomUUID();
-app.get('/healthz', (req, res) => res.json({
-  ok: true,
-  service: MAINTENANCE_MODE ? 'maintenance' : 'alive',
-  maintenance: MAINTENANCE_MODE,
-  bootId: BOOT_ID
-}));
-app.get('/readyz', async (req, res) => {
-  /*
-   * Not ready, deliberately. Readiness is what a load balancer drains on, and
-   * during maintenance draining is exactly the intent -- unlike health, which
-   * has to stay green so the host does not recycle the instance out from under
-   * the operator.
-   */
-  if (MAINTENANCE_MODE) {
-    res.setHeader('Retry-After', '120');
-    return res.status(503).json({ ok: false, service: 'maintenance', maintenance: true });
-  }
-  if (!DB_URL) {
-    if (HOSTING_PROFILE === 'hosted-alpha') {
-      return res.status(503).json({
-        ok: false,
-        database: 'unavailable',
-        migration: _databaseMigration
-      });
-    }
-    return res.json({ ok: true, database: 'optional-not-configured' });
-  }
-  try {
-    const ready = await dbReady();
-    if (!ready) return res.status(503).json({
-      ok: false,
-      database: _databaseReadiness.state,
-      migration: _databaseMigration
-    });
-    await pool().query('SELECT 1');
-    return res.json({
-      ok: _databaseReadiness.ok,
-      database: _databaseReadiness.state,
-      migration: _databaseMigration
-    });
-  } catch (error) {
-    invalidateDatabaseReady('unavailable');
-    return res.status(503).json({
-      ok: false,
-      database: _databaseReadiness.state,
-      migration: _databaseMigration
-    });
-  }
+/* The platform's probes: liveness and readiness (apps/api/src/http/routes/probes.ts). */
+registerProbeRoutes(app, {
+  maintenance: MAINTENANCE_MODE, bootId: BOOT_ID, hostedAlpha: HOSTING_PROFILE === 'hosted-alpha',
+  databaseConfigured: () => Boolean(DB_URL), databaseReady: () => dbReady(), selectOne: () => pool().query('SELECT 1'),
+  readiness: () => _databaseReadiness, migration: () => _databaseMigration, invalidateDatabaseReady
 });
-/*
- * Where to report a vulnerability (RFC 9116), and what crawlers may index.
- * The contact defaults to the repository's private advisory form and can be
- * pointed elsewhere; Expires is always six months out, so the file never
- * lapses into a stale promise.
- */
-function publicOrigin(req) {
-  const configured = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
-  return /^https:\/\//.test(configured) ? configured : `${req.protocol}://${req.get('host')}`;
-}
-app.get('/.well-known/security.txt', (req, res) => {
-  const contact = securityContact(process.env.NV_SECURITY_CONTACT);
-  const expires = new Date(Date.now() + 182 * 24 * 60 * 60 * 1000);
-  expires.setUTCHours(0, 0, 0, 0);
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.type('text/plain').send([
-    `Contact: ${contact}`,
-    `Expires: ${expires.toISOString()}`,
-    'Preferred-Languages: en',
-    `Canonical: ${publicOrigin(req)}/.well-known/security.txt`,
-    ''
-  ].join('\n'));
-});
-app.get('/robots.txt', (req, res) => {
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.type('text/plain').send('User-agent: *\nAllow: /$\nDisallow: /api/\n');
+/* The public files: security.txt, robots.txt and the home-screen icon (apps/api/src/http/routes/public-files.ts). */
+registerPublicFileRoutes(app, {
+  securityContact: () => securityContact(process.env.NV_SECURITY_CONTACT),
+  configuredOrigin: () => String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || ''),
+  webRoot: WEB_ROOT
 });
 
-/* iOS requests these at the root by convention when adding to home screen */
-for (const alias of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
-  app.get(alias, (req, res) => res.sendFile(path.join(WEB_ROOT, 'assets', 'apple-touch-icon.png')));
-}
-
-/* ============ same-origin vendor proxy (server fetches, memory-caches, serves) ============ */
-const VCACHE = new Map();
-let vBytes = 0;
-const SAFE_ASSET = /^[A-Za-z0-9@._/+-]+$/;
-const VENDOR_ALLOWLIST = new Set([
-  'codemirror/5.65.16/codemirror.min.js',
-  'codemirror/5.65.16/codemirror.min.css',
-  'codemirror/5.65.16/mode/meta.min.js',
-  'codemirror/5.65.16/mode/javascript/javascript.min.js',
-  'codemirror/5.65.16/mode/xml/xml.min.js',
-  'codemirror/5.65.16/mode/css/css.min.js',
-  'codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js',
-  'codemirror/5.65.16/mode/markdown/markdown.min.js',
-  'codemirror/5.65.16/mode/python/python.min.js',
-  'codemirror/5.65.16/mode/shell/shell.min.js',
-  'codemirror/5.65.16/mode/yaml/yaml.min.js',
-  'codemirror/5.65.16/addon/search/searchcursor.min.js',
-  'codemirror/5.65.16/theme/ayu-mirage.min.css',
-  'codemirror/5.65.16/theme/base16-light.min.css',
-  'codemirror/5.65.16/theme/dracula.min.css',
-  'codemirror/5.65.16/theme/eclipse.min.css',
-  'codemirror/5.65.16/theme/material-ocean.min.css',
-  'codemirror/5.65.16/theme/monokai.min.css',
-  'codemirror/5.65.16/theme/nord.min.css',
-  'marked/15.0.12/marked.min.js',
-  'three/0.185.1/three.module.min.js',
-  'three/0.185.1/three.core.min.js',
-  'dompurify/3.4.17/purify.min.js',
-  'fonts/archivo-variable-latin.woff2',
-  'fonts/public-sans-variable-latin.woff2',
-  'fonts/jetbrains-mono-variable-latin.woff2',
-  'fonts/fira-code-variable-latin.woff2',
-  'fonts/source-code-pro-variable-latin.woff2',
-  'fonts/ibm-plex-mono-400-latin.woff2',
-  'fonts/ibm-plex-mono-500-latin.woff2',
-  'fonts/dm-mono-400-latin.woff2',
-  'fonts/dm-mono-500-latin.woff2'
-]);
-async function readBoundedResponse(response, maxBytes = 2 * MB) {
-  const declared = Number(response.headers.get('content-length') || 0);
-  if (Number.isFinite(declared) && declared > maxBytes) throw Object.assign(new Error('Vendor asset exceeds the response limit'), { status: 502 });
-  if (!response.body) return Buffer.alloc(0);
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      try { await reader.cancel('response limit exceeded'); } catch {}
-      throw Object.assign(new Error('Vendor asset exceeds the response limit'), { status: 502 });
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks, total);
-}
-async function proxyAsset(res, upstream) {
-  const hit = VCACHE.get(upstream);
-  if (hit) {
-    res.setHeader('Content-Type', hit.type);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    return res.end(hit.buf);
-  }
-  const r = await fetchT(upstream, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36' }
-  });
-  if (!r.ok) return res.status(502).json({ error: `Vendor upstream ${r.status}` });
-  let buf = await readBoundedResponse(r, 2 * MB);
-  const type = r.headers.get('content-type') || 'application/octet-stream';
-  if (buf.length <= 2 * MB) {
-    vBytes += buf.length;
-    VCACHE.set(upstream, { buf, type });
-    while (vBytes > 24 * MB && VCACHE.size) {
-      const k = VCACHE.keys().next().value;
-      vBytes -= VCACHE.get(k).buf.length;
-      VCACHE.delete(k);
-    }
-  }
-  res.setHeader('Content-Type', type);
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  res.end(buf);
-}
-app.get('/vendor/*', async (req, res) => {
-  try {
-    const p = req.params[0] || '';
-    if (!SAFE_ASSET.test(p) || p.includes('..') || !VENDOR_ALLOWLIST.has(p)) return res.status(404).end();
-    const localRoot = path.join(__dirname, 'public', 'vendor');
-    const localPath = path.resolve(localRoot, p);
-    if (localPath.startsWith(localRoot + path.sep) && fs.existsSync(localPath)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      return res.sendFile(localPath);
-    }
-    /* Exact allowlisted CDN fallback only; normal deployments bundle every vendor asset. */
-    await proxyAsset(res, 'https://cdnjs.cloudflare.com/ajax/libs/' + p);
-  } catch (e) { res.status(502).json({ error: e.message }); }
-});
-/* GitHub sends the exact bytes used to calculate X-Hub-Signature-256. */
-app.post('/hooks/github/:hookId', express.raw({ type: 'application/json', limit: '2mb' }), receiveGithubWebhook);
+/* The browser's libraries and fonts from this origin (apps/api/src/http/routes/vendor.ts). */
+registerVendorRoute(app, { fetch: fetchT, vendorRoot: path.join(__dirname, 'public', 'vendor') });
+/* GitHub's webhook deliveries, read raw for their signature, before the JSON parser (http/routes/webhook-intake.ts). */
+registerWebhookIntakeRoute(app, { receiveGithubWebhook });
 app.use(jsonBody());
-/*
- * The page and the service worker are the build's own files, read once (WEB_BUILD,
- * near the top). The build has already removed their source comments and named
- * every script and stylesheet by its content.
- */
-app.get(['/','/index.html'], (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(WEB_BUILD.index);
-});
-app.get('/sw.js', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Service-Worker-Allowed', '/');
-  res.type('application/javascript').send(WEB_BUILD.serviceWorker);
-});
+/* The page and its service worker (http/routes/public-files.ts). */
+registerWebShellRoutes(app, { webBuild: WEB_BUILD });
 app.use('/api', apiMaintenance(MAINTENANCE_MODE));
 app.use(staticFiles(WEB_ROOT));
 
@@ -3690,44 +3507,22 @@ function githubAppConnectionView(account, active) {
     active: !!active
   };
 }
-app.get('/api/config', (req, res) => res.json({
-  ...hostedConfigProjection({
-    profile: HOSTING_PROFILE,
-    alphaMode: ALPHA_CONFIG.mode,
-    termsVersion: ALPHA_CONFIG.termsVersion,
-    limits: PUBLIC_ALPHA_LIMITS,
-    database: _databaseReadiness
+/* The deployment's configuration and capabilities, and the account's (apps/api/src/http/routes/config.ts). */
+registerConfigRoutes(app, {
+  providerSessionAccess,
+  hostedConfig: () => ({
+    profile: HOSTING_PROFILE, alphaMode: ALPHA_CONFIG.mode, termsVersion: ALPHA_CONFIG.termsVersion,
+    limits: PUBLIC_ALPHA_LIMITS, database: _databaseReadiness
   }),
   oauth: !!(OAUTH_ID && OAUTH_SECRET),
   githubApp: { enabled: !!GITHUB_APP_CONFIG.enabled, webhookConfigured: !!GITHUB_APP_CONFIG.webhookConfigured },
-  uploadMaxMb: UPLOAD_MAX_MB,
-  gitDataMaxMb: GIT_DATA_MAX_MB,
-  nativePushMaxMb: NATIVE_PUSH_MAX_MB,
-  /* The boundary above which an upload leaves the blob API for a native push.
-   * Published because the browser labels queued files against it; a copy
+  /* Published because the browser labels queued files against them; a copy
    * written into the browser would be a second source of truth. */
-  contentsMaxMb: CONTENTS_MAX / MB,
-  /* Said, never hidden: a qualification deployment names what it serves ahead of its proof. */
-  ...(QUALIFICATION_CAPABILITIES.length ? { qualification: { capabilities: [...QUALIFICATION_CAPABILITIES] } } : {})
-}));
-app.get('/api/capabilities', (req, res) => {
-  if (req.query.provider !== undefined && req.query.provider !== 'github') {
-    return res.status(400).json({ error: 'Only GitHub is supported', code: 'PROVIDER_UNSUPPORTED' });
-  }
-  if (req.query.authority !== undefined && req.query.authority !== 'github.com') {
-    return res.status(400).json({ error: 'Only github.com is supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
-  }
-  const provider = 'github';
-  const authority = 'github.com';
-  res.setHeader('Cache-Control', 'public, max-age=300');
-  res.json(projectCapabilities(CAPABILITY_DOCUMENT, {
-    provider, authority, deployment: DEPLOYMENT_PROFILE
-  }));
-});
-app.get('/api/account/capabilities', providerSessionAccess, (req, res) => {
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('Vary', 'Cookie');
-  res.json(projectCapabilities(CAPABILITY_DOCUMENT, providerCapabilityContext(req.gh)));
+  uploads: { uploadMaxMb: UPLOAD_MAX_MB, gitDataMaxMb: GIT_DATA_MAX_MB, nativePushMaxMb: NATIVE_PUSH_MAX_MB, contentsMaxMb: CONTENTS_MAX / MB },
+  qualificationCapabilities: QUALIFICATION_CAPABILITIES,
+  projectCapabilities: context => projectCapabilities(CAPABILITY_DOCUMENT, context),
+  deployment: DEPLOYMENT_PROFILE,
+  accountCapabilityContext: providerCapabilityContext, account: req => req.gh
 });
 app.post('/api/github-app/connect', requireGithubAppFeature, auth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -4222,12 +4017,8 @@ app.get('/api/me', accountAuth, async (req, res) => {
     res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req), release: APP_VERSION });
   } catch (e) { fail(res, e); }
 });
-app.get('/api/rate', auth, capabilityAccess('rate.read'), async (req, res) => {
-  try {
-    const r = await gh(req.gh, '/rate_limit');
-    res.json({ remaining: r.resources.core.remaining, limit: r.resources.core.limit, reset: r.resources.core.reset });
-  } catch (e) { fail(res, e); }
-});
+/* The account's GitHub API budget (apps/api/src/http/routes/provider-rate.ts). */
+registerProviderRateRoute(app, { auth, capabilityAccess, account: req => req.gh, fail, gh });
 
 /* Posture: the workspace posture, the security posture and the findings inbox (apps/api/src/modules/posture/http/posture-routes.ts). */
 registerWorkspacePostureRoutes(app, {
@@ -4496,44 +4287,13 @@ app.post('/api/security/revoke-others', auth, async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
-/*
- * Identity, not a version number.
- *
- * This route is deliberately readable before an invitation -- the hosted
- * alpha.17 validator and the operator checklist both probe it anonymously --
- * so whatever it says is said to everyone. releaseTreeSha256 is what those
- * callers actually read: ci/run-hosted-alpha17-validation.js takes the
- * fingerprint and nothing else, and the qualification manual records it at
- * the start and end of a run. It names the build exactly without publishing
- * the semantic version, which is the half an attacker can line up against a
- * list of known vulnerabilities.
- *
- * The version itself is not secret and is not being hidden from the people
- * running the alpha: it travels on /api/me, behind a session, and Settings
- * shows it to the tester who needs to quote it in a report.
- */
-app.get('/api/version', (req, res) => res.json({
-  product: PRODUCT_NAME,
-  releaseTreeSha256: RELEASE_TREE_SHA256,
-  servedAssetsSha256: WEB_BUILD.servedAssetsSha256,
-  serverRuntime: SERVER_RUNTIME.mode,
-  ...(SERVER_RUNTIME.buildSha256 ? { serverBuildSha256: SERVER_RUNTIME.buildSha256 } : {})
-}));
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
-  /*
-   * The page is served for a route, not for a file. A path with a dot segment
-   * or an extension that the static server did not find is a file that does
-   * not exist -- /.env, /.git/HEAD, /package.json -- and answering it with the
-   * app's own page at 200 reads, to every scanner, as the file being there.
-   */
-  if (/(^|\/)\.[^/]*|\.[a-z0-9]{1,8}$/i.test(req.path)) {
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(404).type('text/plain').send('Not found\n');
-  }
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(WEB_BUILD.index);
+/* The build's identity, by digest (apps/api/src/http/routes/release.ts). */
+registerVersionRoute(app, {
+  product: PRODUCT_NAME, releaseTreeSha256: RELEASE_TREE_SHA256, servedAssetsSha256: WEB_BUILD.servedAssetsSha256,
+  serverRuntime: { mode: SERVER_RUNTIME.mode, buildSha256: SERVER_RUNTIME.buildSha256 }
 });
+/* Last of all: the page for any route the browser owns, and a 404 for anything else (http/routes/public-files.ts). */
+registerShellFallback(app, { webBuild: WEB_BUILD });
 startTempMaintenance();
 const httpServer = app.listen(PORT, () => console.log(`${PRODUCT_NAME} v${APP_VERSION} orbiting on :${PORT}`));
 let shuttingDown = false;

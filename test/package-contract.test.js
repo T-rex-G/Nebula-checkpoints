@@ -158,7 +158,7 @@ assert.strictEqual(JSON.parse(read('node_modules/dompurify/package.json')).versi
   const builtEntry = fs.readdirSync(path.join(root, 'dist', 'web', 'build')).find(file => /^index-.+\.js$/.test(file));
   assert(builtEntry && read(`dist/web/build/${builtEntry}`).includes('DOMPurify 3.4.17'), 'the built page does not carry the pinned DOMPurify');
 }
-for (const source of ['server.js', 'scripts/copy-vendor.js']) {
+for (const source of ['apps/api/src/http/routes/vendor.ts', 'scripts/copy-vendor.js']) {
   assert(read(source).includes('dompurify/3.4.17/purify.min.js'), `${source} has a stale DOMPurify asset path`);
 }
 assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.17/purify.min.js')));

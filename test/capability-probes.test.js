@@ -455,16 +455,21 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
     const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
+    /* A route where it is registered: in server.js, or in the workbench's own registrations. */
+    const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts']
+      .map(file => fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', file), 'utf8'));
     const route = (method, routePath) => {
-      const start = server.indexOf(`app.${method}('${routePath}'`);
-      assert(start >= 0, `missing ${method.toUpperCase()} ${routePath}`);
-      return server.slice(start, server.indexOf('\n});', start));
+      for (const [source, end] of [[server, '\n});'], ...workbenchRoutes.map(text => [text, '\n  });'])]) {
+        const start = source.indexOf(`app.${method}('${routePath}'`);
+        if (start >= 0) return source.slice(start, source.indexOf(end, start));
+      }
+      assert.fail(`missing ${method.toUpperCase()} ${routePath}`);
     };
 
     /* Rename: the source found a level at a time, re-linked by identity on the observed head, destination required free. */
     const rename = route('post', '/api/repo/:owner/:repo/rename');
     assert.match(rename, /gitTreeEntryByPath\(/);
-    assert.match(rename, /\{ path: to, sha: entry\.sha, preserveFrom: from \}/);
+    assert.match(rename, /\{ path: to, sha: member\(entry, 'sha'\), preserveFrom: from \}/);
     assert.match(rename, /\{ path: from, sha: null, preserveFrom: from \}/);
     assert.match(rename, /observedHead, \{ mustNotExist: \[to\] \}/);
     assert.match(harness, /\{ path: to, sha: sourceSha, preserveFrom: from \}/);

@@ -188,23 +188,26 @@ const oauthCallbackBlock = server.slice(
   oauthCallbackEnd < 0 ? server.length : oauthCallbackEnd
 );
 assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
+const lfsDownload = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
 assert.strictEqual(
-  (server.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
+  [server, lfsDownload].map(text => (text.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length).reduce((a, b) => a + b, 0),
   2,
   'both authenticated LFS batch negotiations must reject redirects'
 );
-const lfsUrlHelperStart = server.indexOf('function requireHttpsLfsActionUrl(');
-const lfsUrlHelperEnd = server.indexOf('\n}', lfsUrlHelperStart) + 2;
+/* The validator and the download are the workbench's LFS transfer; the server's upload imports the validator. */
+const lfsUrlHelperStart = lfsDownload.indexOf('export function requireHttpsLfsActionUrl(');
+const lfsUrlHelperEnd = lfsDownload.indexOf('\n}', lfsUrlHelperStart) + 2;
 assert(lfsUrlHelperStart >= 0, 'missing HTTPS-only LFS action URL validator');
-const lfsUrlHelper = server.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
+const lfsUrlHelper = lfsDownload.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
 assert(lfsUrlHelper.includes("target.protocol !== 'https:'"));
 assert(lfsUrlHelper.includes('target.username || target.password'));
-const lfsDownloadStart = server.indexOf('async function lfsDownloadStream(');
-assert(lfsDownloadStart >= 0, 'missing lfsDownloadStream');
-const lfsDownloadEnd = server.indexOf('\n}', lfsDownloadStart) + 2;
-const lfsDownloadBlock = server.slice(lfsDownloadStart, lfsDownloadEnd);
-assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(act.href, 'download')"));
-assert(lfsDownloadBlock.includes('fetchT(downloadUrl,'));
+assert(/\brequireHttpsLfsActionUrl\b/.test(/const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/workbench\/index\.ts'\)/.exec(server)[1]), 'the server must take the validator from the workbench');
+const lfsDownloadStart = lfsDownload.indexOf('async function downloadStream(');
+assert(lfsDownloadStart >= 0, 'missing the LFS download');
+const lfsDownloadEnd = lfsDownload.indexOf('\n  }', lfsDownloadStart) + 4;
+const lfsDownloadBlock = lfsDownload.slice(lfsDownloadStart, lfsDownloadEnd);
+assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(member(act, 'href'), 'download')"));
+assert(lfsDownloadBlock.includes('deps.fetch(downloadUrl,'));
 const lfsUploadStart = server.indexOf('async function uploadViaLFS(');
 assert(lfsUploadStart >= 0, 'missing uploadViaLFS');
 const lfsUploadEnd = server.indexOf('\n}', lfsUploadStart) + 2;

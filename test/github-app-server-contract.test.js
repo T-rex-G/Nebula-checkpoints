@@ -22,7 +22,7 @@ assert(server.includes('consumeGithubAppPending'), 'callback state must be consu
 assert.match(server, /authMethod:\s*'github-app'/);
 assert.match(server, /installationId:/);
 assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(server), 'GitHub App session accounts must remain tokenless');
-assert(server.includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'repository-list.ts'), 'utf8').includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
 assert(server.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
 assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
 assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);

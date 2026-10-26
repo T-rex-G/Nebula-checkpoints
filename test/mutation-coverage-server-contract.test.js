@@ -53,6 +53,6 @@ assert(server.includes("case 'recovery.restore-refs':"));
 assert(server.includes('requireAggregateExpectedHead(expectedHeadSha)'));
 /* The reference restore reports each branch, a partial failure as one (Corona's recovery routes). */
 assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/corona/http/recovery-routes.ts'), 'utf8').includes('partialFailure: !ok && report.some(item => item.ok)'));
-assert(server.includes('providerOperationIds: execution ? execution.operationIds : []'));
+assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench/http/content-routes.ts'), 'utf8').includes('providerOperationIds: execution ? execution.operationIds : []'));
 
 console.log('mutation coverage server contract tests passed');

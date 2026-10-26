@@ -1044,3 +1044,96 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
   - Comparing `server.js`'s top-level statements before and after the cut left only the fifty routes, the two helpers and the import change.
+
+### D12h — the workbench's repository, content and history routes
+
+- **A new module.** `apps/api/src/modules/workbench` is the repository as a person works in it. This step moves the first twenty of its forty-five routes, in the two runs the route policy keeps them in:
+  - `registerCodeownersRoute`: who owns what, by the repository's CODEOWNERS file;
+  - `registerRepositoryRoutes`: the repositories a session may see and a new one, a repository's view, its deletion and archive, a branch created or deleted, and two refs compared;
+  - `registerContentRoutes`: a folder's listing, a branch's file paths, a file, its raw bytes, and the writes (a file saved or deleted, a rename, and a batch);
+  - `registerHistoryRoutes`: a branch's commits, one commit, and a revert.
+
+  The other twenty-five (pulls, issues, notifications, stars, actions, releases, search, uploads, the folder move and the dependency audit) follow in D12i.
+- **Services.** The services are built once by the server and handed to the routes and to the code that still needs them:
+  - **The commit writer** (`application/commit-writer.ts`). It is the one way content changes: a commit of tree entries on the head the change was made against, the branch moved without force, and an entry's mode kept from the path it replaces. Corona's recoveries and the uploads still in the server use the same writer.
+  - **The repository list** (`application/repository-list.ts`). It holds the hosted alpha's list filter in one place for the repositories page, the activity feed and the safeguards.
+  - **LFS storage** (`application/lfs.ts`): the download behind a pointer, and the HTTPS-only address check the server's upload still uses.
+- **Domain.** The pure rules are in `domain/`:
+  - the head checks and the refusal of an occupied destination;
+  - the account's permission in a repository;
+  - how a file's bytes are served: content a browser would run is a download, and an LFS pointer is recognised by its exact text.
+- **Dead code.** `uploadViaContents` was a wrapper nothing called. It stays in the server until D12i moves the uploads, and is then removed. The server no longer imports what only these routes used: the repository creation and deletion checks, branch normalising, the declared-site reader, the CODEOWNERS contract, `Readable`, `encodePath` and `requireCommitSha`.
+- **Behaviour unchanged.** The route code reads a provider's answer as the inline code did, failures included:
+  - A list that is not one, or a text that is not one, throws the TypeError the engine throws for the same expression, named as the engine names it. A text can still be sliced.
+  - A field the provider sends to `Buffer.from` or `Readable.fromWeb` is passed to the real function, so Node refuses it as it always did.
+  - `server.js` is not strict mode, so its writes to a request body that is not an object did nothing; the module's writes keep that.
+
+  An oracle evaluated those regions of the previous `server.js`, with the commit writer, head checks and MIME guess they used, on one express app. It ran the module's registrations on another, against a scripted provider that answers both sides alike.
+
+  The 20,000 scenarios varied:
+  - every route, with bodies that are valid, missing fields, malformed or not objects, and queries with lists, empty and unusual values;
+  - repositories, lists and installations in every shape, including the alpha filter hiding some;
+  - branches, refs, commits and trees (full, truncated, failing or malformed);
+  - contents, CODEOWNERS (absent, a folder, bounded or too large) and raw bytes (text, LFS pointers whole or split, active content);
+  - LFS negotiations (HTTPS, plain HTTP, embedded credentials, missing, refused) and storage that answers or fails;
+  - archives, a branch that moves under a write, refs the provider refuses, and protected paths.
+
+  The oracle compared each answer (status, the headers that matter, the bytes), and every call to the provider, LFS storage, the archive, the alpha filter, the protected-path check, the LFS qualification, the mutation gateway and the failure answer, in order. All 40,000 comparisons were identical. They included 942 successful writes (saves, deletions, renames, batches, reverts, branches and new repositories) and 573 raw downloads.
+
+  Twenty-five mutants each fail on a comparison:
+  - a forced branch update;
+  - a refused ref not read as a moved branch;
+  - a replaced path losing its mode;
+  - destinations never checked;
+  - a truncated tree not looked up;
+  - an expected head compared by case;
+  - an aggregate change without its head;
+  - the alpha list filter skipped;
+  - maintain read as write;
+  - SVG rendered inline;
+  - an LFS object without its length;
+  - a large file shown;
+  - a rename onto a taken path;
+  - a batch without its operations;
+  - a revert past a protected path;
+  - a renamed file's old path not restored;
+  - commit pages capped at 100;
+  - a refused deletion said to have changed things;
+  - an archive name keeping slashes;
+  - a comparison keeping 19 commits;
+  - plain-HTTP storage accepted;
+  - storage redirects followed;
+  - a missing CODEOWNERS answered as a failure;
+  - a smaller CODEOWNERS bound;
+  - folders listed after files.
+
+  The first runs let four survive. One was an equivalent mutant: lower-casing an aggregate head no comparison can see. It was replaced by an aggregate change without its head. The other three showed gaps in the oracle: no active-content path, no record of the redirect setting, and no CODEOWNERS between the two bounds. It now has all three.
+- **Tests:**
+  - `test/workbench-repository-routes.test.js` checks the twenty chains against the baseline inventory. Over HTTP, on the module's commit writer, repository list and LFS transfer with a scripted GitHub, it checks:
+    - CODEOWNERS found where GitHub looks first, and bounded;
+    - the list held to the alpha filter, and an installation's own list;
+    - a repository's permission, archive state and site;
+    - a deletion refused before the provider for an account that cannot administer, and a refusal that changed nothing;
+    - the archive's sanitised name;
+    - a comparison of the latest twenty;
+    - folders first;
+    - LFS pointers and large files named for what they are;
+    - active content downloaded, and an LFS object served from storage with its length and no redirect, refused over plain HTTP;
+    - writes on the head the view had, never forced, keeping an executable's mode, a moved head and a refused ref answered as a moved branch;
+    - a rename that will not overwrite or move a folder, and links the same blob;
+    - a batch that must name its head;
+    - a revert refused for a merge or a protected path before anything is written, and its inverse entries and message.
+  - The source checks follow the code into the module:
+    - `capability-probes` finds each probed route in `server.js` or the workbench's registrations;
+    - `findings-inbox` reads the CODEOWNERS route;
+    - `github-app-server-contract` reads the installation listing;
+    - `mutation-coverage-server-contract` reads the batch's provider operations;
+    - `provider-disconnect-server-contract` reads the LFS validator and download, and counts both LFS negotiations across the server and the module.
+- **Ratchet:** the routes `server.js` registers itself fall from 85 to 65.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the twelve new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - every converted contract and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the twenty routes, their helpers, the commit writer and head checks, the MIME guess and the imports that went with them.

@@ -254,8 +254,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 162 to 150: Uranus's twelve.
  * 150 to 135: Corona's fifteen.
  * 135 to 85: Kepler's fifty.
+ * 85 to 65: the workbench's repository, content and history routes, and CODEOWNERS.
  */
-const SERVER_ROUTE_CEILING = 85;
+const SERVER_ROUTE_CEILING = 65;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

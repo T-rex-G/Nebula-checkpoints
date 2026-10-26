@@ -56,7 +56,6 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const {
   CapabilityError, loadCapabilityDocument, projectCapabilities,
@@ -64,10 +63,9 @@ const {
 } = require('./src/capability-registry');
 const {
   githubTokenKind, validateRepositoryCreation, githubRepositoryScopes, validateCodeQuery, scopedCodeQuery,
-  createVerifiedRepository, searchAccessibleCode, listAccessibleNotifications,
-  verifyRepositoryDeletion,
+  searchAccessibleCode, listAccessibleNotifications,
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
-  resolveProviderAccount, normalizeProviderBranches
+  resolveProviderAccount
 } = require('./apps/api/src/modules/github-provider/index.ts');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
@@ -79,7 +77,7 @@ const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
 const {
   evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
   protectedPatternsForRepository,
-  normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern,
+  normalizeRepoPath, normalizeBranchName, lfsAttributePattern,
   createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
   registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
 } = require('./apps/api/src/modules/corona/index.ts');
@@ -178,7 +176,7 @@ const {
   auditTriage: { unavailableGate, gateAttributes, mergeAttributes, VOCABULARY: TRIAGE_VOCABULARY },
   createCodeAuditService, registerCodeAuditRoutes
 } = require('./apps/api/src/modules/uranus/index.ts');
-const { siteCheck: { declaredSite }, registerParallaxRoutes } = require('./apps/api/src/modules/parallax/index.ts');
+const { registerParallaxRoutes } = require('./apps/api/src/modules/parallax/index.ts');
 const { securityContact } = require('./src/public-assets');
 const {
   DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker, resolveExposureSession: resolveStoredExposureSession,
@@ -190,7 +188,11 @@ const { probeAnonymousReadability } = readabilityProbe;
 const {
   pullListItem, registerWorkspacePostureRoutes, registerBranchProtectionRoutes
 } = require('./apps/api/src/modules/posture/index.ts');
-const codeowners = require('./packages/contracts/src/codeowners.ts');
+const {
+  createCommitWriter, createRepositoryList, createLfsTransfer, requireHttpsLfsActionUrl,
+  assertExpectedHead, branchChangedError, requireAggregateExpectedHead,
+  registerCodeownersRoute, registerRepositoryRoutes, registerContentRoutes, registerHistoryRoutes
+} = require('./apps/api/src/modules/workbench/index.ts');
 
 const app = express();
 app.set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES));
@@ -2851,8 +2853,6 @@ function governanceMutationContext(action) {
 }
 const requireRepoPath = normalizeRepoPath;
 const requireBranchName = normalizeBranchName;
-const requireCommitSha = normalizeCommitSha;
-const encodePath = p => (p || '').split('/').map(encodeURIComponent).join('/');
 const R = (req) => `/repos/${req.params.owner}/${req.params.repo}`;
 
 /* ================= AUTH ================= */
@@ -4302,33 +4302,17 @@ registerWorkspacePostureRoutes(app, {
 });
 
 /*
- * Who owns what in a repository, by its CODEOWNERS file, for the findings
- * inbox to name beside each finding (packages/contracts/src/codeowners.ts parses and
- * matches). Read from the default branch at the three places GitHub looks,
- * first found wins; patterns and owners only, bounded in size and lines.
+ * The workbench's services: the commit writer every content change goes
+ * through, Corona's recoveries included; the repositories a session may see,
+ * through the hosted alpha's list filter; and Git LFS storage.
  */
-const CODEOWNERS_MAX_BYTES = 256 * 1024;
-app.get('/api/repo/:owner/:repo/codeowners', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    for (const location of codeowners.LOCATIONS) {
-      let meta;
-      try {
-        meta = await gh(req.gh, `${R(req)}/contents/${encodePath(location)}`);
-      } catch (error) {
-        if (error && Number(error.status) === 404) continue;
-        throw error;
-      }
-      if (!meta || meta.type !== 'file') continue;
-      if (Number(meta.size) > CODEOWNERS_MAX_BYTES || !meta.content) {
-        return res.json({ path: location, rules: [], tooLarge: Number(meta.size) > CODEOWNERS_MAX_BYTES });
-      }
-      const text = Buffer.from(meta.content, 'base64').toString('utf8');
-      return res.json({ path: location, rules: codeowners.serialize(codeowners.parse(text)), tooLarge: false });
-    }
-    res.json({ path: null, rules: [], tooLarge: false });
-  } catch (e) { fail(res, e); }
-});
+const commitWriter = createCommitWriter(gh);
+const { commitTree } = commitWriter;
+const listRepositories = createRepositoryList({ gh, account: req => req.gh, listAllowed: alphaRepositoryListAllowed });
+const lfsTransfer = createLfsTransfer({ fetch: fetchT, assertProviderBoundLfs, transferTimeoutMs: UPLOAD_TIMEOUT_MS });
+
+/* Workbench: who owns what in a repository, by its CODEOWNERS file (apps/api/src/modules/workbench/http/codeowners-route.ts). */
+registerCodeownersRoute(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
 
 /* Kepler: governance -- templates and baselines, the digital twin, notifications, webhooks, exports, policies, reviews and exceptions (apps/api/src/modules/kepler/http/governance-routes.ts). */
 registerGovernanceRoutes(app, {
@@ -4369,414 +4353,21 @@ registerGovernanceLifecycleRoutes(app, {
   governance: req => req.governance, account: req => req.gh, gh
 });
 
-/* ================= REPOS ================= */
-/*
- * The inventory a session may see, in one place.
- *
- * Two screens read this list now -- the repositories page and the overview's
- * activity feed -- and the filter it applies is a security boundary, not a
- * convenience: alphaRepositoryListAllowed is what keeps a cohort session from
- * being told about repositories its invitation does not reach. A second copy
- * of this logic is a second place for that filter to be forgotten, so both
- * callers come through here.
- */
-async function listRepositoriesFor(req, query = {}) {
-  const page = parseInt(query.page || '1', 10);
-  const sort = ['pushed', 'created', 'updated', 'full_name'].includes(query.sort) ? query.sort : 'pushed';
-  const result = req.gh.authMethod === 'github-app'
-    ? await gh(req.gh, `/installation/repositories?per_page=30&page=${page}`)
-    : await gh(req.gh, `/user/repos?sort=${sort}&per_page=30&page=${page}&affiliation=owner,collaborator,organization_member`);
-  const repos = req.gh.authMethod === 'github-app' ? (Array.isArray(result && result.repositories) ? result.repositories : []) : result;
-  return repos.filter(r => alphaRepositoryListAllowed(
-    req,
-    r && r.owner && r.owner.login,
-    r && r.name
-  )).map(r => ({
-    full_name: r.full_name, name: r.name, owner: r.owner.login,
-    private: r.private, description: r.description, language: r.language,
-    default_branch: r.default_branch, pushed_at: r.pushed_at,
-    stars: r.stargazers_count, forks: r.forks_count, open_issues: r.open_issues_count
-  }));
-}
-
-app.get('/api/repos', providerSessionAccess, alphaRepositoryListAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    res.json(await listRepositoriesFor(req, req.query));
-  } catch (e) { fail(res, e); }
+/* Workbench: repositories, branches and comparisons; folders, files and their writes; commits and a revert (apps/api/src/modules/workbench/http/). */
+registerRepositoryRoutes(app, {
+  providerSessionAccess, alphaRepositoryListAccess, alphaRepositoryAccess, capabilityAccess,
+  repositoryCreationAccess, repositoryDeletionConfirmation, auth, mutationContext, account: req => req.gh, fail, gh,
+  listRepositories, archiveResponse: githubArchiveResponse
 });
-app.post('/api/repos', providerSessionAccess, capabilityAccess('repository.create'), repositoryCreationAccess, auth, mutationContext('repository.create'), async (req, res) => {
-  try {
-    const result = await createVerifiedRepository((route, options) => gh(req.gh, route, options), req.gh, req.body);
-    res.status(201).json(result);
-  } catch (e) { fail(res, e); }
+registerContentRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  ghRaw: (acct, apiPath, options) => gh(acct, apiPath, { ...options, raw: true }),
+  commits: commitWriter, lfs: lfsTransfer, assertProviderBoundLfs,
+  executionSnapshot: () => mutationGateway.executionSnapshot()
 });
-/*
- * What the signed-in account may do in a repository, as the provider reports
- * it on the repository itself: the page opens a repository somebody else owns
- * -- any public one -- read-only, and says so, rather than offering changes
- * the provider would refuse. The provider still decides every change.
- */
-function repositoryPermission(info) {
-  const permissions = info && info.permissions;
-  if (!permissions || typeof permissions !== 'object') return 'unknown';
-  return permissions.admin ? 'admin' : permissions.maintain ? 'maintain' : permissions.push ? 'write' : permissions.triage ? 'triage' : permissions.pull ? 'read' : 'none';
-}
-app.get('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
-  try {
-    const [info, branches] = await Promise.all([
-      gh(req.gh, R(req)),
-      gh(req.gh, `${R(req)}/branches?per_page=100`)
-    ]);
-    res.json({
-      full_name: info.full_name, default_branch: info.default_branch,
-      private: info.private, description: info.description,
-      homepage: declaredSite(info.homepage || info.website),
-      permission: repositoryPermission(info),
-      archived: info.archived === true,
-      branches: normalizeProviderBranches(req.gh.provider || 'github', branches)
-    });
-  } catch (e) { fail(res, e); }
-});
-/* delete repository (requires PAT with delete_repo scope or OAuth) */
-app.delete('/api/repo/:owner/:repo', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.delete'), repositoryDeletionConfirmation, auth, mutationContext('repository.delete'), async (req, res) => {
-  try {
-    await verifyRepositoryDeletion((route, options) => gh(req.gh, route, options), `${req.params.owner}/${req.params.repo}`, req.gh);
-    await gh(req.gh, R(req), { method: 'DELETE' });
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.status === 403 && e.code === 'PROVIDER_FORBIDDEN') {
-      e.nextAction = 'For OAuth, use Accounts → Allow repository deletion on GitHub. Otherwise check repository administrator access and deletion permission on the connected credential.';
-      e.providerChanged = false;
-    }
-    fail(res, e);
-  }
-});
-/* download repo as zip */
-app.get('/api/repo/:owner/:repo/zip', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    const ref = req.query.ref || '';
-    const r = await githubArchiveResponse(req.gh, req.params.owner, req.params.repo, ref);
-    if (!r.ok) return res.status(r.status).json({ error: 'Could not download archive' });
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition',
-      `attachment; filename="${req.params.repo}-${(ref || 'default').replace(/[^\w.-]/g, '_')}.zip"`);
-    await pipeline(Readable.fromWeb(r.body), res);
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= BRANCHES ================= */
-app.post('/api/repo/:owner/:repo/branches', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('branches.write'), auth, mutationContext('branch.create'), async (req, res) => {
-  try {
-    let { name, from } = req.body || {};
-    if (!name || !from) return res.status(400).json({ error: 'name and from required' });
-    name = requireBranchName(name, 'new branch');
-    from = requireBranchName(from, 'source branch');
-    const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(from)}`);
-    await gh(req.gh, `${R(req)}/git/refs`, {
-      method: 'POST', body: { ref: `refs/heads/${name}`, sha: ref.object.sha }
-    });
-    res.json({ ok: true, name, sha: ref.object.sha });
-  } catch (e) { fail(res, e); }
-});
-app.delete('/api/repo/:owner/:repo/branches/:name', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('branches.write'), auth, mutationContext('branch.delete'), async (req, res) => {
-  try {
-    const name = requireBranchName(req.params.name);
-    await gh(req.gh, `${R(req)}/git/refs/heads/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-/* compare two refs */
-app.get('/api/repo/:owner/:repo/compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    const { base, head } = req.query;
-    const c = await gh(req.gh,
-      `${R(req)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
-    res.json({
-      status: c.status, ahead_by: c.ahead_by, behind_by: c.behind_by, total_commits: c.total_commits,
-      commits: (c.commits || []).slice(-20).map(x => ({ sha: x.sha, message: x.commit.message.split('\n')[0], author: x.commit.author && x.commit.author.name })),
-      files: (c.files || []).map(f => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }))
-    });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= TREE / FILES ================= */
-app.get('/api/repo/:owner/:repo/tree', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), auth, async (req, res) => {
-  try {
-    const p = req.query.path ? requireRepoPath(req.query.path) : '';
-    const items = await gh(req.gh,
-      `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`);
-    const list = Array.isArray(items) ? items : [items];
-    list.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1));
-    res.json(list.map(i => ({ name: i.name, path: i.path, type: i.type, size: i.size, sha: i.sha })));
-  } catch (e) { fail(res, e); }
-});
-/* flat recursive file list (for command-palette fuzzy finder) */
-app.get('/api/repo/:owner/:repo/files', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('tree.read'), capabilityAccess('branches.read'), auth, async (req, res) => {
-  try {
-    const ref = req.query.ref;
-    const br = await gh(req.gh, `${R(req)}/branches/${encodeURIComponent(ref)}`);
-    const tree = await gh(req.gh,
-      `${R(req)}/git/trees/${br.commit.sha}?recursive=1`);
-    res.json({
-      truncated: !!tree.truncated,
-      files: (tree.tree || []).filter(t => t.type === 'blob').map(t => t.path).slice(0, 8000)
-    });
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
-  try {
-    const requestedPath = requireRepoPath(req.query.path);
-    const meta = await gh(req.gh,
-      `${R(req)}/contents/${encodePath(requestedPath)}?ref=${encodeURIComponent(req.query.ref)}`);
-    if (meta.content) {
-      const txt = Buffer.from(meta.content, 'base64').toString('utf8');
-      const lm = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize (\d+)\s*$/.exec(txt);
-      if (lm) return res.json({ lfs: true, name: meta.name, path: meta.path, sha: meta.sha, size: parseInt(lm[2], 10), oid: lm[1] });
-    }
-    if (meta.size > MB) return res.json({ tooLarge: true, name: meta.name, path: meta.path, sha: meta.sha, size: meta.size });
-    res.json({ name: meta.name, path: meta.path, sha: meta.sha, size: meta.size, content: meta.content, encoding: meta.encoding });
-  } catch (e) { fail(res, e); }
-});
-const ACTIVE_CONTENT_RX = /\.(html?|xhtml|svg|svgz|xml|xslt?)$/i;
-function setRawHeaders(res, p) {
-  const fname = path.basename(p).replace(/"/g, '');
-  if (ACTIVE_CONTENT_RX.test(p)) {
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
-  } else {
-    res.setHeader('Content-Type', guessMime(p));
-    res.setHeader('Content-Disposition', `inline; filename="${fname}"`);
-  }
-}
-app.get('/api/repo/:owner/:repo/raw', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.read'), auth, async (req, res) => {
-  try {
-    const requestedPath = requireRepoPath(req.query.path);
-    const p = requestedPath;
-    const r = await gh(req.gh,
-      `${R(req)}/contents/${encodePath(p)}?ref=${encodeURIComponent(req.query.ref)}`,
-      { accept: 'application/vnd.github.raw+json', raw: true });
-    if (!r.ok) return res.status(r.status).json({ error: 'Could not fetch raw content' });
-    /* peek the head: LFS pointers are ~130 bytes of text */
-    const reader = r.body.getReader();
-    const cancelReader = () => { void reader.cancel().catch(() => {}); };
-    res.once('close', cancelReader);
-    try {
-      const headChunks = [];
-      let total = 0, ended = false;
-      while (total < 400) {
-        const { value, done } = await reader.read();
-        if (done) { ended = true; break; }
-        headChunks.push(Buffer.from(value));
-        total += value.length;
-      }
-      const headBuf = Buffer.concat(headChunks);
-      const lm = ended && /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize (\d+)\s*$/.exec(headBuf.toString('utf8'));
-      if (lm) {
-        assertProviderBoundLfs(req.gh);
-        setRawHeaders(res, p);
-        /* it's a pointer — fetch the real bytes from LFS storage */
-        const stream = await lfsDownloadStream(req.gh, req.params.owner, req.params.repo, lm[1], parseInt(lm[2], 10));
-        res.setHeader('Content-Length', lm[2]);
-        await pipeline(Readable.fromWeb(stream), res);
-        return;
-      }
-      setRawHeaders(res, p);
-      async function* chunks() {
-        yield headBuf;
-        if (ended) return;
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) return;
-          yield Buffer.from(value);
-        }
-      }
-      await pipeline(Readable.from(chunks()), res);
-    } finally {
-      res.removeListener('close', cancelReader);
-      await reader.cancel().catch(() => {});
-    }
-  } catch (e) { fail(res, e); }
-});
-function requireHttpsLfsActionUrl(raw, action) {
-  let target;
-  try { target = new URL(String(raw || '')); }
-  catch { throw Object.assign(new Error(`LFS ${action} URL is invalid`), { status: 502 }); }
-  if (target.protocol !== 'https:' || target.username || target.password) {
-    throw Object.assign(new Error(`LFS ${action} URL must use HTTPS without embedded credentials`), { status: 502 });
-  }
-  return target;
-}
-async function lfsDownloadStream(sess, owner, repo, oid, size) {
-  assertProviderBoundLfs(sess);
-  const basic = Buffer.from(`${sess.login}:${sess.token}`).toString('base64');
-  const batchRes = await fetchT(`https://github.com/${owner}/${repo}.git/info/lfs/objects/batch`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json',
-      Authorization: `Basic ${basic}`, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
-    },
-    body: JSON.stringify({ operation: 'download', transfers: ['basic'], objects: [{ oid, size }] }),
-    redirect: 'error'
-  });
-  if (!batchRes.ok) throw Object.assign(new Error('LFS download negotiation failed'), { status: 502 });
-  const batch = await batchRes.json();
-  const obj = batch.objects && batch.objects[0];
-  const act = obj && obj.actions && obj.actions.download;
-  if (!act) throw Object.assign(new Error('LFS object not found in storage'), { status: 404 });
-  const downloadUrl = requireHttpsLfsActionUrl(act.href, 'download');
-  const dl = await fetchT(downloadUrl, { headers: act.header || {}, redirect: 'error' }, UPLOAD_TIMEOUT_MS);
-  if (!dl.ok) throw Object.assign(new Error(`LFS storage fetch failed (${dl.status})`), { status: 502 });
-  return dl.body;
-}
-app.put('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.write'), auth, mutationContext('file.write'), async (req, res) => {
-  try {
-    if (req.body) {
-      req.body.path = requireRepoPath(req.body.path);
-      req.body.branch = requireBranchName(req.body.branch);
-    }
-    const { path: p, content, message, branch, expectedHeadSha } = req.body || {};
-    if (!p || content == null || !branch) return res.status(400).json({ error: 'path, content, branch required' });
-    const blob = await gh(req.gh, `${R(req)}/git/blobs`, {
-      method: 'POST', body: { content: Buffer.from(String(content), 'utf8').toString('base64'), encoding: 'base64' }
-    });
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
-      message || `Update ${p} via ${PRODUCT_NAME}`, [{ path: p, sha: blob.sha }], expectedHeadSha);
-    res.json({ ok: true, sha: blob.sha, commit });
-  } catch (e) { fail(res, e); }
-});
-app.delete('/api/repo/:owner/:repo/file', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.delete'), auth, mutationContext('file.delete'), async (req, res) => {
-  try {
-    if (req.body) {
-      req.body.path = requireRepoPath(req.body.path);
-      req.body.branch = requireBranchName(req.body.branch);
-    }
-    const { path: p, message, branch, sha, expectedHeadSha } = req.body || {};
-    if (!p || !branch || !sha) return res.status(400).json({ error: 'path, branch, sha required' });
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
-      message || `Delete ${p} via ${PRODUCT_NAME}`, [{ path: p, sha: null }], expectedHeadSha);
-    res.json({ ok: true, commit });
-  } catch (e) { fail(res, e); }
-});
-/* rename/move (any size — reuses blob sha, no re-upload) */
-app.post('/api/repo/:owner/:repo/rename', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.rename'), auth, mutationContext('file.rename'), async (req, res) => {
-  try {
-    let { from, to, branch, message, expectedHeadSha } = req.body || {};
-    if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
-    from = requireRepoPath(from, 'source path');
-    to = requireRepoPath(to, 'destination path');
-    branch = requireBranchName(branch);
-    if (from === to) return res.status(400).json({ error: 'Destination equals source' });
-    /*
-     * The source is found in the tree of the head this request observed, and
-     * that head is the one the commit must land on. A directory listing capped
-     * at a thousand entries could not find a file past the thousandth, and a
-     * lookup against one head followed by a commit against a newer one would
-     * re-link content the branch had already moved past.
-     */
-    const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(branch)}`);
-    const observedHead = ref.object.sha;
-    assertExpectedHead(expectedHeadSha, observedHead);
-    const head = await gh(req.gh, `${R(req)}/git/commits/${observedHead}`);
-    const entry = await gitTreeEntryByPath(req.gh, req.params.owner, req.params.repo, head.tree.sha, from);
-    if (!entry) return res.status(404).json({ error: 'Source file not found' });
-    if (entry.type === 'tree') return res.status(400).json({ error: `${from} is a folder. Use folder move to move it.`, code: 'SOURCE_IS_FOLDER' });
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
-      message || `Rename ${from} → ${to} via ${PRODUCT_NAME}`, [
-        { path: to, sha: entry.sha, preserveFrom: from },
-        { path: from, sha: null, preserveFrom: from }
-      ], observedHead, { mustNotExist: [to] });
-    res.json({ ok: true, commit });
-  } catch (e) { fail(res, e); }
-});
-/* batch: commit many staged operations atomically */
-app.post('/api/repo/:owner/:repo/batch', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('file.batch'), auth, mutationContext('file.batch'), async (req, res) => {
-  try {
-    let { branch, message, ops, expectedHeadSha } = req.body || {};
-    if (!branch || !Array.isArray(ops) || !ops.length) return res.status(400).json({ error: 'branch and ops required' });
-    branch = requireBranchName(branch);
-    expectedHeadSha = requireAggregateExpectedHead(expectedHeadSha);
-    const normalizedBatch = normalizeFileBatch(ops);
-    ops = normalizedBatch.items;
-    const entries = [];
-    for (const op of ops) {
-      const itemPath = requireRepoPath(op.path);
-      if (op.op === 'put' && op.sha) entries.push({ path: itemPath, mode: '100644', type: 'blob', sha: op.sha });
-      else if (op.op === 'put') entries.push({ path: itemPath, mode: '100644', type: 'blob', content: String(op.content ?? '') });
-      else entries.push({ path: itemPath, mode: '100644', type: 'blob', sha: null });
-    }
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
-      message || `Batch commit (${ops.length} changes) via ${PRODUCT_NAME}`, entries, expectedHeadSha);
-    const execution = mutationGateway.executionSnapshot();
-    res.json({
-      ok: true, commit, count: ops.length, batchHash: normalizedBatch.batchHash, itemIds: normalizedBatch.itemIds,
-      providerOperationIds: execution ? execution.operationIds : []
-    });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= COMMITS ================= */
-app.get('/api/repo/:owner/:repo/commits', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    /* One page of 25 in one shape for every provider: the list pages by the count it receives. */
-    const page = Math.max(1, Math.min(1000, parseInt(req.query.page || '1', 10) || 1));
-    const pathFilter = req.query.path ? `&path=${encodeURIComponent(req.query.path)}` : '';
-    const commits = await gh(req.gh,
-      `${R(req)}/commits?sha=${encodeURIComponent(req.query.ref)}&per_page=25&page=${page}${pathFilter}`);
-    res.json(commits.map(c => ({
-      sha: c.sha, message: c.commit.message,
-      author: (c.commit.author && c.commit.author.name) || (c.author && c.author.login) || '?',
-      avatar: c.author && c.author.avatar_url,
-      date: c.commit.author && c.commit.author.date
-    })));
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/repo/:owner/:repo/commit/:sha', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('repository.read'), auth, async (req, res) => {
-  try {
-    const c = await gh(req.gh, `${R(req)}/commits/${encodeURIComponent(req.params.sha)}`);
-    res.json({
-      sha: c.sha, message: c.commit.message, stats: c.stats,
-      files: (c.files || []).map(f => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }))
-    });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= TIME MACHINE (rollback) ================= */
-/* Revert one commit: apply its inverse on top of the current branch head */
-app.post('/api/repo/:owner/:repo/revert', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('commit.revert'), async (req, res) => {
-  try {
-    let { sha, branch, expectedHeadSha } = req.body || {};
-    if (!sha || !branch) return res.status(400).json({ error: 'sha and branch required' });
-    sha = requireCommitSha(sha);
-    branch = requireBranchName(branch);
-    const c = await gh(req.gh, `${R(req)}/commits/${sha}`);
-    if ((c.parents || []).length !== 1)
-      return res.status(400).json({ error: 'Only non-merge commits can be reverted (this one has ' + (c.parents || []).length + ' parents)' });
-    const parentSha = c.parents[0].sha;
-    const parent = await gh(req.gh, `${R(req)}/commits/${parentSha}`);
-    const ptree = await gh(req.gh, `${R(req)}/git/trees/${parent.commit.tree.sha}?recursive=1`);
-    if (ptree.truncated) return res.status(400).json({ error: 'Repository too large for automatic revert' });
-    const parentMap = new Map((ptree.tree || []).filter(t => t.type === 'blob' || t.type === 'commit')
-      .map(t => [t.path, { sha: t.sha, mode: t.mode, type: t.type }]));
-    const entries = [];
-    for (const f of (c.files || [])) {
-      const prev = parentMap.get(f.filename);
-      if (f.status === 'added' || f.status === 'copied') {
-        entries.push({ path: f.filename, mode: '100644', type: 'blob', sha: null });
-      } else if (f.status === 'renamed') {
-        entries.push({ path: f.filename, mode: '100644', type: 'blob', sha: null });
-        const old = parentMap.get(f.previous_filename);
-        if (old) entries.push({ path: f.previous_filename, mode: old.mode, type: old.type, sha: old.sha, forceMode: true });
-      } else if (prev) { /* removed | modified | changed */
-        entries.push({ path: f.filename, mode: prev.mode, type: prev.type, sha: prev.sha, forceMode: true });
-      }
-    }
-    if (!entries.length) return res.status(400).json({ error: 'Nothing to revert in that commit' });
-    const protectedError = protectedPathError(req, entries.map(entry => entry.path));
-    if (protectedError) return res.status(423).json({ error: protectedError, locked: true });
-    const msg = `Revert "${(c.commit.message || '').split('\n')[0]}" (${sha.slice(0, 7)}) via ${PRODUCT_NAME}`;
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch, msg, entries, expectedHeadSha);
-    res.json({ ok: true, commit, changed: entries.length });
-  } catch (e) { fail(res, e); }
+registerHistoryRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  commits: commitWriter, protectedPathError
 });
 /* Corona: a repository or some of its paths restored as a new commit, a commit's file listing, and a branch moved back (apps/api/src/modules/corona/http/recovery-routes.ts). */
 registerCommitRecoveryRoutes(app, {
@@ -5360,138 +4951,6 @@ async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, messag
   const commit = await commitTree(token, owner, repo, branch, message, entries, expectedHeadSha);
   return { commit, oid };
 }
-function branchChangedError() {
-  return Object.assign(new Error('The branch changed since this view was loaded. Refresh the repository and retry so newer work is not overwritten.'), {
-    status: 409,
-    code: 'BRANCH_CHANGED'
-  });
-}
-function assertExpectedHead(expectedHeadSha, actualHeadSha) {
-  if (!expectedHeadSha) return;
-  if (!/^[0-9a-f]{40}$/i.test(String(expectedHeadSha))) {
-    throw Object.assign(new Error('expectedHeadSha must be a 40-character commit SHA'), { status: 400, code: 'INVALID_EXPECTED_HEAD' });
-  }
-  if (String(expectedHeadSha).toLowerCase() !== String(actualHeadSha || '').toLowerCase()) throw branchChangedError();
-}
-
-function requireAggregateExpectedHead(expectedHeadSha) {
-  if (!/^[0-9a-f]{40}$/i.test(String(expectedHeadSha || ''))) {
-    throw Object.assign(new Error('Aggregate mutations require expectedHeadSha from a fresh repository view'), {
-      status: 409, code: 'AGGREGATE_EXPECTED_HEAD_REQUIRED'
-    });
-  }
-  return String(expectedHeadSha).toLowerCase();
-}
-async function gitTreeEntryByPath(token, owner, repo, rootTreeSha, repoPath, cache = new Map()) {
-  const parts = requireRepoPath(repoPath).split('/');
-  let treeSha = rootTreeSha;
-  for (let index = 0; index < parts.length; index += 1) {
-    let tree = cache.get(treeSha);
-    if (!tree) {
-      tree = await gh(token, `/repos/${owner}/${repo}/git/trees/${treeSha}`);
-      cache.set(treeSha, tree);
-    }
-    const entry = (tree.tree || []).find(item => item.path === parts[index]);
-    if (!entry) return null;
-    if (index === parts.length - 1) return entry;
-    if (entry.type !== 'tree') return null;
-    treeSha = entry.sha;
-  }
-  return null;
-}
-
-/*
- * A destination that already holds something is refused rather than
- * replaced. A rename or a folder move names a new path; a tree entry for a
- * path that exists is an overwrite, and git accepts it without a word -- so
- * renaming a.txt onto b.txt used to replace b.txt in the same commit that
- * removed a.txt, and the only trace was a diff nobody had asked to see.
- *
- * A parent that is a file is refused for the same reason: the provider
- * rejects the tree, and the reader should hear which path was in the way
- * rather than a 422 from the Git Data API. A path this same commit removes is
- * not in the way.
- */
-function destinationExistsError(target, parent) {
-  return Object.assign(new Error(parent
-    ? `${parent} is a file, so ${target} cannot be created under it.`
-    : `${target} already exists. Choose another name, or delete it first.`), {
-    status: 409, code: 'DESTINATION_EXISTS'
-  });
-}
-async function assertPathsFree(token, owner, repo, rootTreeSha, existing, complete, targets, removed) {
-  const cache = new Map();
-  const lookup = async target => (complete ? existing.get(target) || null
-    : await gitTreeEntryByPath(token, owner, repo, rootTreeSha, target, cache));
-  for (const target of targets) {
-    const parts = target.split('/');
-    for (let index = 1; index < parts.length; index += 1) {
-      const parent = parts.slice(0, index).join('/');
-      if (removed.has(parent)) continue;
-      const found = await lookup(parent);
-      if (found && found.type !== 'tree') throw destinationExistsError(target, parent);
-      if (!found) break;
-    }
-    if (removed.has(target)) continue;
-    if (await lookup(target)) throw destinationExistsError(target);
-  }
-}
-
-async function commitTree(token, owner, repo, branch, message, treeEntries, expectedHeadSha = '', options = {}) {
-  const ref = await gh(token, `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
-  const parentSha = ref.object.sha;
-  assertExpectedHead(expectedHeadSha, parentSha);
-  const parent = await gh(token, `/repos/${owner}/${repo}/git/commits/${parentSha}`);
-  let existing = new Map();
-  let baseTreeTruncated = false;
-  let baseTreeRead = false;
-  try {
-    const base = await gh(token, `/repos/${owner}/${repo}/git/trees/${parent.tree.sha}?recursive=1`);
-    existing = new Map((base.tree || []).map(entry => [entry.path, entry]));
-    baseTreeTruncated = !!base.truncated;
-    baseTreeRead = true;
-  } catch {}
-  const mustNotExist = Array.isArray(options.mustNotExist) ? options.mustNotExist : [];
-  if (mustNotExist.length) {
-    const removed = new Set(treeEntries.filter(entry => entry.sha === null).map(entry => entry.path));
-    await assertPathsFree(token, owner, repo, parent.tree.sha, existing, baseTreeRead && !baseTreeTruncated, mustNotExist, removed);
-  }
-  if (baseTreeTruncated) {
-    const treeCache = new Map();
-    for (const entry of treeEntries) {
-      if (entry.forceMode) continue;
-      const priorPath = entry.preserveFrom || entry.path;
-      if (existing.has(priorPath)) continue;
-      const prior = await gitTreeEntryByPath(token, owner, repo, parent.tree.sha, priorPath, treeCache);
-      if (prior) existing.set(priorPath, prior);
-    }
-  }
-  const normalizedEntries = treeEntries.map(entry => {
-    const prior = existing.get(entry.preserveFrom || entry.path);
-    const mode = entry.forceMode && entry.mode ? entry.mode : (prior && prior.mode) || entry.mode || '100644';
-    const type = entry.forceMode && entry.type ? entry.type : (prior && prior.type) || entry.type || (mode === '160000' ? 'commit' : 'blob');
-    const out = { path: entry.path, mode, type };
-    if (Object.prototype.hasOwnProperty.call(entry, 'sha')) out.sha = entry.sha;
-    else if (Object.prototype.hasOwnProperty.call(entry, 'content')) out.content = entry.content;
-    return out;
-  });
-  const tree = await gh(token, `/repos/${owner}/${repo}/git/trees`, {
-    method: 'POST', body: { base_tree: parent.tree.sha, tree: normalizedEntries }
-  });
-  const commit = await gh(token, `/repos/${owner}/${repo}/git/commits`, {
-    method: 'POST', body: { message, tree: tree.sha, parents: [parentSha] }
-  });
-  try {
-    await gh(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
-      method: 'PATCH', body: { sha: commit.sha, force: false }
-    });
-  } catch (error) {
-    if (error.status === 409 || error.status === 422) throw branchChangedError();
-    throw error;
-  }
-  return commit.sha;
-}
-
 app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move'), auth, mutationContext('directory.move'), async (req, res) => {
   try {
     const { owner, repo } = req.params;
@@ -5566,7 +5025,7 @@ registerSnapshotRoutes(app, {
 registerActivityRoutes(app, {
   providerSessionAccess, alphaRepositoryAccess, alphaRepositoryListAccess, capabilityAccess, auth, account: req => req.gh, fail,
   gh: (acct, apiPath) => gh(acct, apiPath), supportsCapability: requestSupportsCapability,
-  listRepositories: req => listRepositoriesFor(req), publicErrorBody
+  listRepositories: req => listRepositories(req), publicErrorBody
 });
 
 const MANIFESTS = ['package-lock.json', 'package.json', 'requirements.txt', 'go.mod', 'Cargo.lock', 'Gemfile.lock'];
@@ -5721,19 +5180,6 @@ app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaReposit
     });
   } catch (e) { fail(res, e); }
 });
-
-/* ---------------- utils ---------------- */
-function guessMime(p) {
-  const map = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-    '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
-    '.pdf': 'application/pdf', '.mp4': 'video/mp4', '.webm': 'video/webm',
-    '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
-    '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8',
-    '.json': 'application/json', '.html': 'text/html; charset=utf-8'
-  };
-  return map[path.extname(p || '').toLowerCase()] || 'application/octet-stream';
-}
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
 /* Pulsar: verified live events -- connection, stored events and the stream (apps/api/src/modules/pulsar/http/live-event-routes.ts). */

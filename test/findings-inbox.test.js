@@ -133,11 +133,12 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
 
 /* The inbox's route -- gated, uncached, credential-free, provider-free, paths masked -- is held in test/posture-routes.test.js. */
 {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  /* The workbench registers the CODEOWNERS route (apps/api/src/modules/workbench/http/codeowners-route.ts). */
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'codeowners-route.ts'), 'utf8');
   const slice = name => {
-    const start = server.indexOf(name);
+    const start = routes.indexOf(name);
     assert(start > 0, `${name} must exist`);
-    return server.slice(start, server.indexOf('\n});', start));
+    return routes.slice(start, routes.indexOf('\n  });', start));
   };
   const owners = slice("app.get('/api/repo/:owner/:repo/codeowners'");
   assert.match(owners, /providerSessionAccess, alphaRepositoryAccess, capabilityAccess\('file\.read'\), auth,/);

@@ -623,8 +623,20 @@ assert(
 const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
 const playwrightInstall = automated.indexOf('bash ci/install-browser.sh');
 const browserInstaller = fs.readFileSync(path.join(__dirname, '..', 'ci', 'install-browser.sh'), 'utf8');
-assert(browserInstaller.includes('npx playwright install --with-deps "${browsers[@]}"') && browserInstaller.includes('browsers=(chromium)'),
+assert(browserInstaller.includes('npx playwright install "${browsers[@]}"') && browserInstaller.includes('browsers=(chromium)'),
   'browser provisioning must install the pinned browser and its system dependencies');
+/*
+ * The system packages are Playwright's own list, installed under bounds of the
+ * script's: apt gives up on a silent connection, every step that only reads
+ * the network has a wall clock and is retried, dpkg is never the step a retry
+ * cuts short, and Playwright's dry run must then report nothing missing.
+ */
+assert(browserInstaller.includes('Acquire::http::Timeout') && browserInstaller.includes('Acquire::https::Timeout'), 'apt must give up on a silent mirror');
+assert(/bounded \d+ \d+ sudo apt-get update/.test(browserInstaller), "the index refresh must be bounded and retried");
+assert(/bounded \d+ \d+ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --download-only "\$\{packages\[@\]\}"/.test(browserInstaller),
+  'the packages must be fetched, bounded and retried, before dpkg installs them');
+assert(/npx playwright install-deps --dry-run "\$\{browsers\[@\]\}"\n$/.test(browserInstaller), "the install must end with Playwright's dry run reporting nothing missing");
+assert(!browserInstaller.includes('install --with-deps "'), "apt must not run under Playwright's installer, which bounds nothing");
 assert(automated.includes('bash ci/install-browser.sh chromium webkit'),
   'the extracted candidate must have both browsers for the real integration gate');
 assert(!browserInstaller.includes('PLAYWRIGHT_BROWSERS_PATH='),

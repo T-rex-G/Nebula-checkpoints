@@ -1243,3 +1243,24 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
   - Comparing `server.js`'s top-level statements before and after the cut left only the twenty-five routes, their helpers, the upload slot and intake, the Git object encoder, the manifests and the imports that went with them.
+
+### CI — apt under bounds of our own
+
+- **What happened.** On `9a51f65` the qualification's browser shard 5 stopped at its 15-minute install bound. The cache from the previous entry could not help: it never reached the package downloads.
+  - Its Azure mirror did not answer, and apt fell back to archive.ubuntu.com.
+  - There `apt-get update` fetched three release files and then printed nothing for fourteen and a half minutes.
+  - The other five shards installed in about twenty seconds and saved the Chromium set to the cache.
+  - `playwright install --with-deps` runs `apt-get update` and `apt-get install` with no bound of its own, so a stalled mirror holds it for as long as the job allows.
+- **The fix.** `ci/install-browser.sh` now installs the system packages itself, then has Playwright fetch only the browsers:
+  - apt gives up on a connection after 20 seconds of silence, and retries it (`Acquire::http(s)::Timeout`, `Acquire::Retries`);
+  - the index refresh has a wall clock of 150 seconds and three tries;
+  - the package list is Playwright's own, read from its dry run (`install-deps --dry-run`, which simulates the install without touching the network);
+  - the packages are downloaded first, with a wall clock of 240 seconds and three tries, so what a retry cuts short is a download and never dpkg; then they are installed;
+  - the browsers are fetched with five minutes and two tries;
+  - and Playwright's dry run must then report nothing missing, or the step fails by name.
+
+  The cached packages from the previous entry still go back into apt's archive first, so with the cache warm the download step fetches nothing.
+- **Checks:**
+  - the dry run's output was parsed as Playwright prints it, with packages missing and with none;
+  - the workflow contract now requires the network timeouts, the bounded index refresh, the bounded download before the install, the dry run at the end, and no `--with-deps`. Removing any of the first four fails it;
+  - the full unit gate and every verify-job gate pass on Node 22.23.4.

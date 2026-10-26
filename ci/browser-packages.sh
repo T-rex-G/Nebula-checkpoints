@@ -3,8 +3,8 @@ set -euo pipefail
 
 # The browsers' system packages, kept between runs.
 #
-# `playwright install --with-deps` has apt download the Ubuntu packages
-# Chromium and WebKit need -- about 120 MB for both -- on every run. A slow
+# ci/install-browser.sh has apt download the Ubuntu packages Chromium and
+# WebKit need -- about 120 MB for both -- on every run. A slow
 # mirror once spent a job's whole install budget on them: it served its signed
 # indexes at 10 MB/s and the packages at 150 KB/s. The workflow keeps what apt
 # downloaded in the Actions cache and puts it back in apt's own archive before

@@ -55,17 +55,23 @@ assert.deepStrictEqual(ownWork, [
   'POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel'
 ], 'exactly the identity-scoped routes accept a public reader');
 /*
- * OWN_WORK is used nowhere else: in server.js its definition, the routes still
- * registered there, and its one hand-over to Quasar's routes; in Quasar's
- * routes, the field that receives it, the binding that names it, and its routes.
+ * OWN_WORK is used nowhere else. In server.js: its definition, the routes
+ * still registered there, and one hand-over to each module whose routes take
+ * it. In each such module's routes: the field that receives it, the binding
+ * that names it, and its routes.
  */
-const quasarRoutesFile = 'apps/api/src/modules/quasar/http/exposure-routes.ts';
-const quasarRoutes = fs.readFileSync(path.join(root, quasarRoutesFile), 'utf8');
 const ownWorkIn = file => policyRoutes.filter(entry => entry.at.startsWith(`${file}:`) && entry.guards.includes("governanceAccess('reader', OWN_WORK)")).length;
-assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWorkIn('server.js') + 2, 'OWN_WORK is used nowhere else in server.js');
-assert(/registerExposureRoutes\(app, \{[^}]*\bOWN_WORK\b/.test(server), 'and the one hand-over is to the exposure routes');
-assert.strictEqual((quasarRoutes.match(/OWN_WORK/g) || []).length, ownWorkIn(quasarRoutesFile) + 2, 'nor in the exposure routes');
-assert.strictEqual(ownWorkIn('server.js') + ownWorkIn(quasarRoutesFile), ownWork.length, 'and no other file registers a route with it');
+const ownWorkFiles = [...new Set(policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => entry.at.split(':')[0]))];
+const moduleFiles = ownWorkFiles.filter(file => file !== 'server.js');
+assert.deepStrictEqual(moduleFiles.sort(), ['apps/api/src/modules/quasar/http/exposure-routes.ts', 'apps/api/src/modules/uranus/http/code-audit-routes.ts']);
+for (const file of moduleFiles) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  assert.strictEqual((text.match(/OWN_WORK/g) || []).length, ownWorkIn(file) + 2, `OWN_WORK is used nowhere else in ${file}`);
+}
+const handOvers = (server.match(/register[A-Za-z]+Routes\(app, \{[^}]*\bOWN_WORK\b/g) || []).length;
+assert.strictEqual(handOvers, moduleFiles.length, 'one hand-over to each module whose routes take it');
+assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWorkIn('server.js') + 1 + handOvers, 'OWN_WORK is used nowhere else in server.js');
+assert.strictEqual(ownWorkFiles.reduce((sum, file) => sum + ownWorkIn(file), 0), ownWork.length, 'and no other file registers a route with it');
 for (const entry of policyRoutes.filter(item => item.path.startsWith('/api/repo/:owner/:repo/governance'))) {
   assert(!entry.guards.some(guard => guard.includes('OWN_WORK')), `governance is collaborators' business: ${entry.method} ${entry.path}`);
 }

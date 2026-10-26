@@ -826,3 +826,72 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the exposure, narration, report-client and authorization tests;
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
+
+### D12e — Uranus's routes, and the code-audit service
+
+- **A service as well as routes.** Uranus's twelve code-audit routes were contiguous in `server.js`, but their helpers were not only theirs. The governed merge reads the merge gate and a pull request's facts, sign-out forgets an account's audit, shutdown closes the jobs, and the security posture reads the kept history. `modules/uranus/application/code-audit-service.ts` holds all of it, and the server builds it once:
+  - the audit jobs;
+  - the lazily opened history, watch and triage stores;
+  - one audit run, start to finish: the per-audit provider pool, the guarded transports, the off-thread analysis, the team's decisions, the record and the clocks;
+  - the record that never fails an audit, except by its cancellation;
+  - a collaborator's decisions;
+  - a pull request's facts, the merge gate and the policies a merge would meet.
+
+  `http/code-audit-routes.ts` registers the twelve routes in the route policy's order, answering from the service. The history guard, the ref and finding-id checks and the failure helper move with them, so the last copy of that helper leaves `server.js`.
+- **Ports.** The service takes its run ports (the session pool, the guarded transport, the repository audit and the two off-thread functions) and its stores, each with the real ones by default. A test can stand them in without a database or a worker thread.
+- **The worker's answer is checked where it crosses.** The off-thread analysis returns what the worker posted, which TypeScript cannot vouch for. The run now checks the parts the audit reads before passing the rest through: the components and the two status objects of an analysis, and the raw matches and packages of a rules-only batch. Anything else fails the audit, or leaves that batch unread, as reading those parts already did. The worker always posts the engine's own output, so no reachable answer changes. No type assertion was added.
+- **Behaviour unchanged otherwise**, by an oracle that evaluated that whole region of the previous `server.js` beside the module's routes and service. The old region kept its audit jobs, stores, record, triage, clock, pull-request, merge-gate and failure helpers. Both sides used the real triage rules, clocks, merge gate, kept-audit description, watch, authorization check and public error body, and the same held clock.
+
+  The 20,000 scenarios varied:
+  - every job answer, and audits a job launched, run to their end or aborted before they start, after the analysis, during the team's decisions or during the record;
+  - audits that fail, results with and without a clock policy, and record outcomes that succeed, fail or are cancelled;
+  - authorization snapshots for a collaborator, a reader, a public reader and another repository, and a resolver that fails;
+  - decisions in force, lapsed and under another rule, and a decision store that fails;
+  - store failures at each method, with and without a database;
+  - pull requests from the same repository in another case, from a fork, missing their branches or naming no repository, and a provider that fails;
+  - a policy store that is not ready or fails;
+  - finding ids of every length and case, reviewer roles that are not booleans, every body, ref, run, refresh and pull value, and missing governance contexts and accounts.
+
+  The oracle compared every answer, every launched audit's result or failure, and every call to the jobs, the pool, the audit, the worker, the provider, the resolver, the stores, the policy store and the warnings, in order. All 60,000 comparisons were identical, over 1,669 launched audits. Eighteen mutants fail it, each on a comparison:
+  - an audit without the team's decisions;
+  - a record without the signal;
+  - no clocks;
+  - a cancellation swallowed as a history failure;
+  - a public reader's audit carrying the team's decisions;
+  - the pool left open;
+  - a fork compared by case;
+  - a stage's detail dropped;
+  - GraphQL reads through the pool;
+  - a gate whose policy store failed answering nothing;
+  - a clear on another word;
+  - a finding id of twenty characters;
+  - metrics reading decisions for a public reader;
+  - an unavailable history refusing a read;
+  - anyone able to decide;
+  - a decision under another key;
+  - another retry interval;
+  - a job under another identity.
+
+  Two of these survived the first generator, which drew no finding id of that length and no reviewer role that is not a boolean. It now draws both.
+- **Tests:**
+  - `test/uranus-code-audit-routes.test.js` reads each route's chain from the route policy. Over HTTP, on the real service with stood-in ports and stores, it checks:
+    - an audit started and its result fetched by run id;
+    - the decided finding moved out of the open ones, and the open one's clock;
+    - no history without a database, and the gate unavailable;
+    - kept audits read for this identity and refused for a missing or overlong ref;
+    - the clear's word checked before the store;
+    - `canDecide` only for a literal true;
+    - a decision made in the reviewer's name, and refused for a bad id before the store;
+    - the pure grade;
+    - metrics that leave decided findings out for a collaborator and ask nobody for a public reader;
+    - a fork's head never read, and the same repository in another case not treated as a fork;
+    - a failing policy store, and failures without their message.
+  - `code-audit-cancellation-server` drives the route and the service rather than a slice of `server.js`.
+  - `authorization-resolver-server-contract` counts `OWN_WORK` in each module that receives it, with one hand-over per module.
+- **Ratchet:** the routes `server.js` registers itself fall from 162 to 150.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the two new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the code-audit, merge-gate, authorization and posture tests;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.

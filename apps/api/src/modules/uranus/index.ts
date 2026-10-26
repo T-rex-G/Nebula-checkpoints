@@ -4,7 +4,9 @@
  * it in JavaScript, TypeScript, Python, Go, Java and PHP, the map of every
  * endpoint and what guards it, the dependencies, their advisories, their
  * licences and how close each is to the running code -- and the audit of a
- * repository through the guarded reader that puts them together.
+ * repository through the guarded reader that puts them together. The
+ * code-audit service runs, keeps, watches, triages and gates audits, and
+ * http/ holds the routes that answer from it.
  *
  * The other modules, and the server code still in src/, reach it here only.
  */
@@ -109,3 +111,7 @@ export type { Gate, GateAudit } from './application/merge-gate.ts';
 export type { Decision, KeptRow } from './domain/audit-triage.ts';
 export type { KeptAlert, KeptAudit, KeptComponent, KeptFinding } from './persistence/audit-history-records.ts';
 export type { KeptAuditRead, RecordOutcome, WatchedAudit } from './persistence/audit-history-store.ts';
+export { AUDIT_RUN_PORTS, CODE_AUDIT_STORES, createCodeAuditService } from './application/code-audit-service.ts';
+export type { AccountTriage, AuditRunPorts, CodeAuditDeps, CodeAuditStores, CodeAuditService, PullFacts, RecordedHistory, RepositoryTarget, RunAuditInput } from './application/code-audit-service.ts';
+export { registerCodeAuditRoutes } from './http/code-audit-routes.ts';
+export type { CodeAuditRouteDeps } from './http/code-audit-routes.ts';

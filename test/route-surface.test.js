@@ -251,8 +251,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 185 to 181: Posture's four.
  * 181 to 174: Pulsar's seven.
  * 174 to 162: Quasar's twelve.
+ * 162 to 150: Uranus's twelve.
  */
-const SERVER_ROUTE_CEILING = 162;
+const SERVER_ROUTE_CEILING = 150;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

@@ -668,6 +668,36 @@ assert(/fail-fast:\s*false/.test(browserMatrix),
   'one failing shard must not cancel the others, which is how you tell a local break from a general one');
 assert(browserMatrix.includes('bash ci/install-browser.sh'),
   'the browser-matrix job provisions its own browser, having no cache to share');
+/*
+ * Every browser install sits inside the package cache (ci/browser-packages.sh):
+ * restored into apt's archive before it, collected and saved after it whether
+ * or not it finished, under a key for its own set of browsers. A slow mirror
+ * then costs only what changed since the last run.
+ */
+const browserPackages = fs.readFileSync(path.join(__dirname, '..', 'ci', 'browser-packages.sh'), 'utf8');
+assert(browserPackages.includes('APT::Keep-Downloaded-Packages "true";'), 'apt must keep what it downloads for the browsers');
+assert(browserPackages.includes('apt-get autoclean'), 'versions the index no longer offers must not be kept');
+for (const [label, source] of [['standard CI', ciWorkflow], ['the qualification workflow', workflow]]) {
+  const jobs = source.slice(source.indexOf('\njobs:\n')).split(/^  (?=[a-zA-Z0-9_-]+:\n)/m).slice(1);
+  const installing = jobs.filter(text => text.includes('bash ci/install-browser.sh'));
+  assert(installing.length >= 2, `${label} installs browsers in at least two jobs`);
+  for (const text of installing) {
+    const name = text.slice(0, text.indexOf(':'));
+    const set = /bash ci\/install-browser\.sh chromium webkit\n/.test(text) ? 'chromium-webkit' : 'chromium';
+    const order = [
+      'uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830',
+      `key: browser-packages-ubuntu-24.04-${set}.\n`,
+      'bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"',
+      'bash ci/install-browser.sh',
+      `bash ci/browser-packages.sh collect "\${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-${set}.\n`,
+      'uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830'
+    ].map(marker => text.indexOf(marker));
+    assert(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
+      `${label} ${name}: the browser install must sit between the package cache's restore and its keeping`);
+    const collect = text.slice(text.lastIndexOf('- name:', order[4]), order[4]);
+    assert(/if: always\(\)/.test(collect), `${label} ${name}: packages must be collected even when the install fails`);
+  }
+}
 assert(
   automated.includes('playwright_browsers="${RUNNER_TEMP}/ms-playwright"') &&
     automated.includes('>> "${GITHUB_ENV}"'),

@@ -110,6 +110,19 @@ jobs:
       # so that digest must name the same bytes on every build.
       - run: npm run build:web:check
       - run: npm run test:runtime:matrix
+      # The browsers' system packages are kept between runs (see ci.yml).
+      - name: Restore the browsers' system packages
+        id: browser-packages
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: browser-packages-ubuntu-24.04-chromium-webkit.
+          restore-keys: browser-packages-ubuntu-24.04-chromium-webkit.
+      - name: Return them to apt's archive
+        continue-on-error: true
+        run: bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"
       # Chromium is installed here for the qualifier below, which runs the
       # browser suite inside the extracted candidate.
       #
@@ -130,6 +143,19 @@ jobs:
       # by name, rather than eating into the qualification.
       - run: bash ci/install-browser.sh chromium webkit
         timeout-minutes: 15
+      - name: Collect the browsers' system packages
+        id: browser-packages-kept
+        if: always()
+        continue-on-error: true
+        run: bash ci/browser-packages.sh collect "${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-chromium-webkit.
+      - name: Keep them for the next run
+        if: always() && steps.browser-packages-kept.outputs.key != '' && steps.browser-packages-kept.outputs.key != steps.browser-packages.outputs.cache-matched-key
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: ${{ steps.browser-packages-kept.outputs.key }}
       - run: bash ci/install-postgres-client.sh
       - name: Build candidate twice and freeze bytes
         id: freeze
@@ -230,8 +256,34 @@ jobs:
           node-version: '22.23.4'
           cache: npm
       - run: npm ci
+      # The browsers' system packages are kept between runs (see ci.yml).
+      - name: Restore the browsers' system packages
+        id: browser-packages
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: browser-packages-ubuntu-24.04-chromium.
+          restore-keys: browser-packages-ubuntu-24.04-chromium.
+      - name: Return them to apt's archive
+        continue-on-error: true
+        run: bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"
       - run: bash ci/install-browser.sh
         timeout-minutes: 15
+      - name: Collect the browsers' system packages
+        id: browser-packages-kept
+        if: always()
+        continue-on-error: true
+        run: bash ci/browser-packages.sh collect "${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-chromium.
+      - name: Keep them for the next run
+        if: always() && steps.browser-packages-kept.outputs.key != '' && steps.browser-packages-kept.outputs.key != steps.browser-packages.outputs.cache-matched-key
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: ${{ steps.browser-packages-kept.outputs.key }}
       - run: npx playwright test --shard=${{ matrix.shard }}/6
         timeout-minutes: 18
       # This job uses synthetic browser credentials. Keep only its diagnostics;

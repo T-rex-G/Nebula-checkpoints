@@ -1150,3 +1150,20 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 
   A slow mirror now fails the install step by name instead of taking the tests' time, and a hung spec still fails at 18 minutes. No test, shard or check changed.
 - **Checks:** both workflows parse, and every contract that reads them passes (the workflow, package, alpha.17 harness and staging contracts among them).
+
+### CI — the browsers' system packages kept between runs
+
+- **What happened.** On `2472d78` the new 15-minute bound did what it was set to do: CI's `integration` job and the qualification's `automated` job each stopped at their browser install, by name.
+  - The Ubuntu mirror served its signed indexes at about 10 MB/s and the packages at about 150 KB/s. Chromium and WebKit need 119 MB of them, and 15 minutes fetched about a third.
+  - Nothing ran after the install in either job, so no test failed; neither job was re-run.
+- **The fix.** The packages apt downloads are kept in the Actions cache (`ci/browser-packages.sh`). Every job that installs a browser now:
+  - restores the last set it kept into apt's own archive before the install;
+  - collects apt's archive after the install, even when the install fails or times out, minus the versions the index no longer offers;
+  - saves that set under a name taken from the package file names: an unchanged set is never saved twice, and a run cut short leaves the next one less to fetch;
+  - keeps one set for Chromium and one for Chromium with WebKit.
+
+  apt checks every archived package against the signed index it has just fetched and downloads again whatever does not match. A cached package is only ever a skipped download, never a package trusted because the cache supplied it. The cache steps cannot fail a job: when one fails, the install simply downloads everything, as before. The bounds are unchanged.
+- **Checks:**
+  - the script was exercised against apt's real archive: an empty archive, a first set, an unchanged set (same name, no second save), a changed set (a new name) and bad usage;
+  - the workflow contract now requires the restore, the install, the collection (`if: always()`) and the save in that order in every installing job, keyed for that job's browsers. A missing `always()` and a key for the wrong set each fail it;
+  - both workflows parse, the local CI runner still reads every gate, and the full unit gate and every verify-job gate pass on Node 22.23.4.

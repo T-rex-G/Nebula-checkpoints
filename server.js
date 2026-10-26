@@ -83,14 +83,8 @@ const {
   verifyGithubSignature, normalizeGithubWebhook, riskForEvent,
   createLiveHub, registerActivityRoutes, registerLiveEventRoutes
 } = require('./apps/api/src/modules/pulsar/index.ts');
-const {
-  normalizeDatabaseUrl,
-  loadTrustedProxies,
-  normalizeGovernanceRuntimeFailureMode,
-  loadHostedAlphaLimits,
-  loadGithubAppConfig,
-  loadAlphaAccessConfig
-} = require('./apps/api/src/platform/config/config.ts');
+const { loadTrustedProxies } = require('./apps/api/src/platform/config/config.ts');
+const { loadServerSecrets, loadServerSettings } = require('./apps/api/src/platform/config/server-settings.ts');
 const { databaseReadiness } = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
 const {
   AlphaAccessStore,
@@ -154,7 +148,6 @@ const {
   verifyCsrfToken, verifyStepUpGrant,
   normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp
 } = require('./apps/api/src/platform/authorization/security-foundation.ts');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./apps/api/src/platform/crypto/key-derivation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
@@ -201,68 +194,17 @@ const {
 
 const app = express();
 app.set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES));
-const PORT = process.env.PORT || 10000;
-const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
-const HOSTING_PROFILE = String(process.env.NV_DEPLOYMENT_PROFILE || 'local').trim().toLowerCase();
-if (!['local', 'hosted-alpha'].includes(HOSTING_PROFILE)) {
-  throw new Error('NV_DEPLOYMENT_PROFILE must be local or hosted-alpha');
-}
-const DATABASE_MIGRATION_MODE = String(process.env.NV_DATABASE_MIGRATION_MODE || 'apply').trim().toLowerCase();
-if (!['apply', 'verify'].includes(DATABASE_MIGRATION_MODE)) {
-  throw new Error('NV_DATABASE_MIGRATION_MODE must be apply or verify');
-}
-if (HOSTING_PROFILE === 'hosted-alpha' && process.env.NODE_ENV === 'production' && DATABASE_MIGRATION_MODE !== 'verify') {
-  throw new Error('hosted-alpha production requires NV_DATABASE_MIGRATION_MODE=verify');
-}
-if (process.env.NODE_ENV === 'production' && SECRET === 'dev-secret-change-me') {
-  throw new Error(
-    'SESSION_SECRET must be configured in production. Set it in the Render dashboard under Environment, ' +
-    'or let render.yaml generate one automatically.'
-  );
-}
-if (process.env.NODE_ENV === 'production' && Buffer.byteLength(SECRET, 'utf8') < 32) {
-  throw new Error(
-    'SESSION_SECRET must contain at least 32 bytes in production. ' +
-    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))" ' +
-    'then set it in the Render dashboard under Environment.'
-  );
-}
-/*
- * Every keyed construction below derives its own key from SECRET through a
- * distinct HKDF purpose. See apps/api/src/platform/crypto/key-derivation.ts for why the previous shared
- * key was a hazard even though nothing was exploitable.
- */
-const SESSION_CONTENT_KEY = deriveKey(SECRET, KEY_PURPOSES.SESSION_CONTENT);
-const OFFLINE_CACHE_SCOPE_KEY = deriveKey(SECRET, KEY_PURPOSES.OFFLINE_CACHE_SCOPE);
-const GITHUB_APP_STATE_REPLAY_KEY = deriveKey(SECRET, KEY_PURPOSES.GITHUB_APP_STATE_REPLAY);
-const CSRF_SECRET = deriveSecret(SECRET, KEY_PURPOSES.CSRF_TOKEN);
-const STEP_UP_SECRET = deriveSecret(SECRET, KEY_PURPOSES.STEP_UP_GRANT);
-const GITHUB_APP_STATE_SECRET = deriveSecret(SECRET, KEY_PURPOSES.GITHUB_APP_STATE);
-const EVIDENCE_LEDGER_SECRET = deriveSecret(SECRET, KEY_PURPOSES.EVIDENCE_LEDGER);
-const RATE_LIMIT_IDENTITY_KEY = deriveKey(SECRET, KEY_PURPOSES.RATE_LIMIT_IDENTITY);
-/*
- * Derived once at startup, like every other key here, so a finding's identity
- * does not depend on when it was computed. It is also why a scan records the
- * key version: rotating SESSION_SECRET changes every fingerprint, and the
- * store refuses to compare across that rather than reporting the entire
- * backlog resolved.
- */
-const EXPOSURE_FINGERPRINT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_FINDING_FINGERPRINT);
-/*
- * The grant a verification probe requires, and the key that digests the
- * provider account it comes back with. Separate purposes because one is a
- * MAC over a grant this server issued and the other a MAC over a value a
- * provider told us.
- */
-const EXPOSURE_VERIFICATION_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_AUTHORIZATION);
-const EXPOSURE_VERIFICATION_SUBJECT_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_VERIFICATION_SUBJECT);
-/*
- * And the grant a readability probe requires, which is a third purpose rather
- * than a reuse of the second. A grant to ask a provider "is this credential
- * yours" is not a grant to ask a project "may the public read this table", and
- * a shared key would make one signature satisfy both checks.
- */
-const EXPOSURE_READABILITY_KEY = deriveKey(SECRET, KEY_PURPOSES.EXPOSURE_READABILITY_AUTHORIZATION);
+/* The secrets and the keys derived from them (apps/api/src/platform/config/server-settings.ts). */
+const {
+  port: PORT, secret: SECRET, hostingProfile: HOSTING_PROFILE, databaseMigrationMode: DATABASE_MIGRATION_MODE,
+  keys: {
+    sessionContent: SESSION_CONTENT_KEY, offlineCacheScope: OFFLINE_CACHE_SCOPE_KEY, githubAppStateReplay: GITHUB_APP_STATE_REPLAY_KEY,
+    csrf: CSRF_SECRET, stepUp: STEP_UP_SECRET, githubAppState: GITHUB_APP_STATE_SECRET, evidenceLedger: EVIDENCE_LEDGER_SECRET,
+    rateLimitIdentity: RATE_LIMIT_IDENTITY_KEY, exposureFingerprint: EXPOSURE_FINGERPRINT_KEY,
+    exposureVerification: EXPOSURE_VERIFICATION_KEY, exposureVerificationSubject: EXPOSURE_VERIFICATION_SUBJECT_KEY,
+    exposureReadability: EXPOSURE_READABILITY_KEY
+  }
+} = loadServerSecrets(process.env);
 /*
  * Evidence verification holds two keyrings, assembled together in
  * Corona's evidence ledger so their retired lists cannot drift apart.
@@ -292,7 +234,15 @@ const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(p
   // requires the explicit NV_SNAPSHOT_LEGACY_KEYS_JSON operator keyring.
   sessionSecret: SECRET
 }));
-const GITHUB_APP_CONFIG = loadGithubAppConfig(process.env, { production: process.env.NODE_ENV === 'production' });
+/* Everything else the environment sets at startup (apps/api/src/platform/config/server-settings.ts). */
+const {
+  githubApp: GITHUB_APP_CONFIG, governanceRuntimeFailureMode: GOVERNANCE_RUNTIME_FAILURE_MODE,
+  publicAlphaLimits: PUBLIC_ALPHA_LIMITS, gitDataMaxMb: GIT_DATA_MAX_MB, nativePushMaxMb: NATIVE_PUSH_MAX_MB,
+  uploadMaxMb: UPLOAD_MAX_MB, uploadConcurrency: UPLOAD_CONCURRENCY, uploadTimeoutMinutes: UPLOAD_TIMEOUT_MINUTES, staleUploadHours: STALE_UPLOAD_HOURS,
+  databaseUrl: DB_URL, alphaAccess: ALPHA_CONFIG, eventRetentionDays: EVENT_RETENTION_DAYS, sessionRetentionDays: SESSION_RETENTION_DAYS,
+  governanceAuditSecret: GOVERNANCE_AUDIT_SECRET, liveClientsPerRepo: MAX_LIVE_CLIENTS_PER_KEY, liveClientsTotal: MAX_LIVE_CLIENTS_TOTAL,
+  oauth: { clientId: OAUTH_ID, clientSecret: OAUTH_SECRET }, snapshotManifestMax: SNAPSHOT_MANIFEST_MAX, snapshotRetentionCount: SNAPSHOT_RETENTION_COUNT
+} = loadServerSettings(process.env, { secret: SECRET, hostingProfile: HOSTING_PROFILE });
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
     return recordGithubAppAudit(
@@ -303,7 +253,6 @@ const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_A
     );
   }
 }) : null;
-const GOVERNANCE_RUNTIME_FAILURE_MODE = normalizeGovernanceRuntimeFailureMode(process.env.NV_GOVERNANCE_RUNTIME_FAILURE_MODE);
 const governanceRuntime = createGovernanceRuntime({
   failureMode: GOVERNANCE_RUNTIME_FAILURE_MODE,
   onError(event) {
@@ -346,16 +295,9 @@ const API_VERSION = '2022-11-28';
 
 const MB = 1024 * 1024;
 const CONTENTS_MAX = 40 * MB;
-const HOSTED_LIMITS = HOSTING_PROFILE === 'hosted-alpha' ? loadHostedAlphaLimits(process.env) : null;
-const PUBLIC_ALPHA_LIMITS = HOSTED_LIMITS || loadHostedAlphaLimits({});
-const GIT_DATA_MAX_MB = HOSTED_LIMITS?.gitDataMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_GIT_DATA_MAX_MB || '64', 10) || 64, 10), 95);
 const BLOB_MAX = GIT_DATA_MAX_MB * MB;
-const NATIVE_PUSH_MAX_MB = HOSTED_LIMITS?.nativePushMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_NATIVE_PUSH_MAX_MB || '64', 10) || 64, 10), 95);
 const GIT_PUSH_MAX = NATIVE_PUSH_MAX_MB * MB; /* Memory-safe ceiling; GitHub's absolute non-LFS object ceiling is 100 MB. */
-const UPLOAD_MAX_MB = HOSTED_LIMITS?.uploadMaxMb ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_MAX_MB || '2048', 10) || 2048, 25), 2048);
 const UPLOAD_MAX = UPLOAD_MAX_MB * MB;
-const UPLOAD_CONCURRENCY = HOSTED_LIMITS?.uploadConcurrency ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_CONCURRENCY || '1', 10) || 1, 1), 4);
-const UPLOAD_TIMEOUT_MINUTES = HOSTED_LIMITS?.uploadTimeoutMinutes ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_TIMEOUT_MINUTES || '20', 10) || 20, 2), 60);
 const UPLOAD_TIMEOUT_MS = UPLOAD_TIMEOUT_MINUTES * 60 * 1000;
 async function scanUploadOrThrow(req, tmp, repoPath, size) {
   const result = await scanUploadFile(tmp, { repoPath, size });
@@ -390,7 +332,6 @@ async function scanUploadOrThrow(req, tmp, repoPath, size) {
   };
 }
 
-const STALE_UPLOAD_HOURS = HOSTED_LIMITS?.staleUploadHours ?? Math.min(Math.max(parseInt(process.env.NV_STALE_UPLOAD_HOURS || '6', 10) || 6, 1), 72);
 const STALE_UPLOAD_AGE_MS = STALE_UPLOAD_HOURS * 60 * 60 * 1000;
 async function cleanupStaleUploads() {
   const tempRoot = os.tmpdir();
@@ -504,10 +445,6 @@ function getCookie(req, name) {
   return null;
 }
 /* ===== session store: Postgres (Neon/any) when DATABASE_URL is set, sealed cookie otherwise ===== */
-const DB_URL = normalizeDatabaseUrl(process.env.DATABASE_URL || '', {
-  production: process.env.NODE_ENV === 'production',
-  insecure: process.env.NV_DB_INSECURE === '1'
-});
 let _pool = null;
 function pool() {
   if (!_pool) {
@@ -519,10 +456,6 @@ function pool() {
   }
   return _pool;
 }
-const ALPHA_CONFIG = loadAlphaAccessConfig(process.env, {
-  production: process.env.NODE_ENV === 'production',
-  databaseUrl: DB_URL
-});
 const ALPHA_SESSION_ID = Symbol('alpha session id');
 const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
 const HOSTED_SESSION_REVISION = Symbol('hosted provider session revision');
@@ -616,8 +549,6 @@ async function initializeDatabase() {
     return true;
   } finally { client.release(); }
 }
-const EVENT_RETENTION_DAYS = HOSTED_LIMITS?.eventRetentionDays ?? Math.min(Math.max(parseInt(process.env.NV_EVENT_RETENTION_DAYS || '90', 10) || 90, 7), 730);
-const SESSION_RETENTION_DAYS = HOSTED_LIMITS?.sessionRetentionDays ?? Math.min(Math.max(parseInt(process.env.NV_SESSION_RETENTION_DAYS || '35', 10) || 35, 7), 365);
 let _maintenanceStarted = false;
 let _alphaPrivacyRetentionStarted = false;
 async function cleanupDatabase() {
@@ -707,15 +638,6 @@ function dbReady() {
   return _dbReady;
 }
 
-const GOVERNANCE_AUDIT_SECRET_SOURCE = process.env.NV_GOVERNANCE_AUDIT_SECRET || SECRET;
-if (process.env.NODE_ENV === 'production' && process.env.NV_GOVERNANCE_AUDIT_SECRET &&
-    Buffer.byteLength(process.env.NV_GOVERNANCE_AUDIT_SECRET, 'utf8') < 32) {
-  throw new Error('NV_GOVERNANCE_AUDIT_SECRET must contain at least 32 bytes in production when configured.');
-}
-const GOVERNANCE_AUDIT_SECRET = deriveKey(
-  GOVERNANCE_AUDIT_SECRET_SOURCE,
-  KEY_PURPOSES.GOVERNANCE_AUDIT
-).toString('hex');
 let _governanceStore = null;
 let _governanceApiService = null;
 let governanceWebhookWorker = null;
@@ -1153,8 +1075,6 @@ async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
   return null;
 }
 
-const MAX_LIVE_CLIENTS_PER_KEY = HOSTED_LIMITS?.liveClientsPerRepo ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_PER_REPO || '5', 10) || 5, 1), 20);
-const MAX_LIVE_CLIENTS_TOTAL = HOSTED_LIMITS?.liveClientsTotal ?? Math.min(Math.max(parseInt(process.env.NV_LIVE_CLIENTS_TOTAL || '100', 10) || 100, 10), 500);
 /* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
 const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
 function closeLiveSessions(sessionIds, reason = 'session-revoked') {
@@ -2984,8 +2904,6 @@ const accountDeps = {
 };
 registerAccountRoutes(app, accountDeps);
 /* ---- OAuth (activates when GITHUB_CLIENT_ID/SECRET env vars are set) ---- */
-const OAUTH_ID = (process.env.GITHUB_CLIENT_ID || '').trim();
-const OAUTH_SECRET = (process.env.GITHUB_CLIENT_SECRET || '').trim();
 /* The deployment's configuration and capabilities, and the account's (apps/api/src/http/routes/config.ts). */
 registerConfigRoutes(app, {
   providerSessionAccess,
@@ -3154,8 +3072,6 @@ registerSafeguardRoutes(app, {
   safetyOf, alphaSafetyView, savePersistentSafety, saveSessionSafetyCopy, appendEvidence, retainedActor, identityKey
 });
 
-const SNAPSHOT_MANIFEST_MAX = HOSTED_LIMITS?.snapshotManifestMax ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_MANIFEST_MAX || '10000', 10) || 10000, 1000), 50000);
-const SNAPSHOT_RETENTION_COUNT = HOSTED_LIMITS?.snapshotRetentionCount ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_RETENTION_COUNT || '50', 10) || 50, 5), 200);
 /*
  * Corona: snapshots of a repository's references, their comparison, and the
  * single-use grant a restore preview hands to its restore

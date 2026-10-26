@@ -293,6 +293,20 @@ assert(
   + 'Lower SERVER_ROUTE_CEILING to match so the ratchet keeps meaning something.'
 );
 
+/*
+ * From D13 what is left of server.js moves into the platform and the modules,
+ * with apps/api/src/main.ts composing them, so the lines server.js holds only
+ * fall, and each move lowers this ceiling to match.
+ * 3,332 to 3,248: the startup settings and the keys derived from the secret
+ * (apps/api/src/platform/config/server-settings.ts).
+ */
+const SERVER_LINE_CEILING = 3248;
+const serverLines = (serverSource.match(/\n/g) || []).length;
+assert(serverLines <= SERVER_LINE_CEILING,
+  `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);
+assert(serverLines >= SERVER_LINE_CEILING - 40,
+  `server.js holds ${serverLines} lines, well under the ${SERVER_LINE_CEILING} ceiling. Lower SERVER_LINE_CEILING to match.`);
+
 /* A route module that nothing mounts is worse than no route module: it reads
    as covered and serves nothing. Every registration function a module's http
    folder exports is called by the server. */

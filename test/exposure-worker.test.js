@@ -877,13 +877,20 @@ function runnerFor(store, reader, options = {}) {
    * grant to ask a project "may the public read this table", and a shared key
    * would let one signature satisfy both checks.
    */
-  for (const [name, purpose] of [
-    ['EXPOSURE_VERIFICATION_KEY', 'EXPOSURE_VERIFICATION_AUTHORIZATION'],
-    ['EXPOSURE_VERIFICATION_SUBJECT_KEY', 'EXPOSURE_VERIFICATION_SUBJECT'],
-    ['EXPOSURE_READABILITY_KEY', 'EXPOSURE_READABILITY_AUTHORIZATION']
+  const { loadServerSecrets } = require('../apps/api/src/platform/config/server-settings.ts');
+  const secret = 's'.repeat(48);
+  const { keys } = loadServerSecrets({ SESSION_SECRET: secret });
+  const grants = [];
+  for (const [name, setting, purpose] of [
+    ['EXPOSURE_VERIFICATION_KEY', 'exposureVerification', 'EXPOSURE_VERIFICATION_AUTHORIZATION'],
+    ['EXPOSURE_VERIFICATION_SUBJECT_KEY', 'exposureVerificationSubject', 'EXPOSURE_VERIFICATION_SUBJECT'],
+    ['EXPOSURE_READABILITY_KEY', 'exposureReadability', 'EXPOSURE_READABILITY_AUTHORIZATION']
   ]) {
-    assert(server.includes(`const ${name} = deriveKey(SECRET, KEY_PURPOSES.${purpose});`), `${name} is derived for its own purpose`);
+    assert.deepStrictEqual(keys[setting], deriveKey(secret, KEY_PURPOSES[purpose]), `${name} is derived for its own purpose`);
+    assert(server.includes(`${setting}: ${name}`), `the server takes ${name} from the settings`);
+    grants.push(keys[setting].toString('hex'));
   }
+  assert.strictEqual(new Set(grants).size, 3, 'no two grants share a key');
   assert(
     /keys: \{\s*fingerprint: EXPOSURE_FINGERPRINT_KEY, verification: EXPOSURE_VERIFICATION_KEY,\s*verificationSubject: EXPOSURE_VERIFICATION_SUBJECT_KEY, readability: EXPOSURE_READABILITY_KEY\s*\}/.test(server),
     'and each reaches the routes under its own name'

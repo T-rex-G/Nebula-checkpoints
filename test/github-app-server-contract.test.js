@@ -8,7 +8,8 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 /* The App connection's routes are identity and access's; the server builds the broker and hands it in. */
 const appRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 
-assert(server.includes('loadGithubAppConfig'), 'server must load optional GitHub App configuration');
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8').includes('loadGithubAppConfig(env, { production })')
+  && server.includes('githubApp: GITHUB_APP_CONFIG'), 'server must load optional GitHub App configuration');
 assert(server.includes('new GithubAppBroker'), 'server must construct the server-side installation credential broker');
 assert(server.includes('resolveProviderAccount'), 'authenticated provider operations must resolve credentials through one boundary');
 /* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */

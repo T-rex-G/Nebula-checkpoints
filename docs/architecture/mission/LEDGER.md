@@ -1494,3 +1494,35 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the converted contracts and the new route test;
   - the full unit gate and every verify-job gate on Node 22.23.4.
   - Comparing `server.js`'s top-level statements before and after the cut left only the thirteen routes, the App flow's helpers and constants, `secureTextEqual` and the imports that went with them.
+
+### D13a — the server's startup settings
+
+- **What moved.** D13 dissolves what is left of `server.js` into the platform and the modules, leaf first, with `apps/api/src/main.ts` composing them at the end. The first leaf is the settings the environment fixes at startup. They move to `apps/api/src/platform/config/server-settings.ts` as two readings, because the server reads them in two places:
+  - `loadServerSecrets`: the port, the session secret and its production checks, the deployment profile, the migration mode, and the twelve keys derived from the secret, each for its own purpose;
+  - `loadServerSettings`, after Corona has read its evidence keyrings and snapshot signing keys: the GitHub App configuration, the governance failure mode, the hosted alpha's limits or the local ones, the database URL, the alpha's access configuration, the retention periods, the governance audit key, the live-stream limits, the OAuth client, and the snapshot limits.
+
+  The comments on why each key has its own purpose moved with the keys. The server takes the values under their old names, so nothing else in it changes yet.
+- **Why two readings, in that order.** A deployment with a setting wrong is refused at startup with the first wrong thing named. Corona's two loaders can refuse too, and the server has always read them between the secrets and the rest. One reading would name a platform setting first where the server used to name Corona's, whenever both were wrong. Reading in two parts keeps every check in its place, with the same message.
+- **The trusted proxies stay where they were.** The route policy records the application's settings word for word, and `app.set('trust proxy', loadTrustedProxies(process.env.NV_TRUSTED_PROXIES))` is the first of them. The draft moved it into the secrets, and the architecture oracle refused the change. It stays in the composition, set before anything else, as before.
+- **Dead code.** The server no longer has the 45 constants, the six startup checks, or its imports of the five configuration loaders and the key derivation.
+- **Behaviour unchanged.** An oracle evaluated those statements of the previous `server.js` against the two readings with Corona's between them, as the server now composes them, over 30,000 environments. Each started from a valid development or production one, local or hosted, with or without a database, an invitation-only alpha and a GitHub App. Then nothing, one, two or three of 25 variables were broken or pushed to an edge: the secret absent, the default, short or counted in multi-byte characters; profiles and modes in other cases or unknown; proxy lists valid, universal or malformed; database URLs without TLS, with the opt-out spelt otherwise, of another scheme or unreadable; invitation, audit, governance, OAuth, App, evidence and snapshot variables each malformed; and every limit as text, a fraction, an exponent, zero, negative or out of range.
+
+  The oracle compared every value (keys by their bytes, configurations and keyrings as data) and the trust-proxy setting or, when startup refused, the error thrown first. Both sides read the one environment object, as the server does, so a loader's default argument sees what the server sees. All 30,000 were identical: 8,916 started (4,798 in development and 4,118 in production), and 21,084 were refused across 56 different messages, each reached alone and beside another.
+
+  Thirty-four mutants each fail on a comparison:
+  - **the secrets:** another default port; the profile untrimmed or an unknown one accepted; the migration mode read by case; a hosted production applying migrations; the development secret in production; the secret measured in characters; the CSRF key under the step-up purpose; a rate-limit key derived as text; the readability grant under the verification purpose;
+  - **the providers and governance:** the App configuration read as development; the governance failure mode from another variable;
+  - **the limits:** hosted limits read locally; the published limits read from the environment; a hosted Git Data limit ignored; the Git Data ceiling raised; the native push floor raised; the upload floor lowered; more uploads at once; another upload timeout by default; stale uploads kept for less; a limit read as any number rather than a whole one; events kept for a day; sessions kept for another default; more streams per repository or in all; a smaller snapshot manifest; fewer snapshots kept;
+  - **the database and the alpha:** any value disabling database TLS; the database URL read as development; invitations without a database;
+  - **the audit and OAuth:** a short audit secret accepted; the audit key ignoring its own secret; the OAuth client untrimmed.
+
+  The new test, run as the judge in the oracle's place, catches all thirty-four too. Its first draft let two through; it now covers a production App configuration with a plain-HTTP public URL, and the hosted defaults where they differ from the local ones.
+- **Tests.**
+  - `test/server-settings.test.js` covers each refusal and its message, the first of two named, the secret's length in bytes, every key from its own purpose and no two alike, the local defaults, floors and ceilings, a limit read as a whole number, the hosted alpha's published limits winning and refusing what they cannot hold, the database's TLS rule and its literal opt-out, an invitation needing a database, the audit key's own secret and its production length, the OAuth client trimmed and the App configuration read for production.
+  - The source checks follow the code: `exposure-worker` derives the three probe grants through the settings and checks the server takes each under its own name; `github-app-server-contract` and `scripts/verify.js` read the App configuration and the database URL from the settings; `governance-enforcement-server-contract` reads the failure mode's validation there and checks the server hands the runtime the validated value. The full gate found that last one still reading `server.js`.
+- **Ratchet:** `test/route-surface.test.js` now also holds `server.js`'s lines to a ceiling that each D13 step lowers: 3,332 to 3,248.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles (the route policy, every guard and setting in order, and the negative matrix), route surface, module boundaries and contracts;
+  - the converted contracts and the new test;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

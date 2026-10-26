@@ -67,7 +67,7 @@ const {
   createVerifiedRepository, searchAccessibleCode, listAccessibleNotifications,
   verifyRepositoryDeletion,
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
-  resolveProviderAccount, referenceSha, normalizeProviderBranches
+  resolveProviderAccount, normalizeProviderBranches
 } = require('./apps/api/src/modules/github-provider/index.ts');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
@@ -78,9 +78,10 @@ const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
   .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
   evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
-  riskForAccessSurface, compareSnapshots, protectedPatternsForRepository,
+  protectedPatternsForRepository,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern,
-  createSnapshotSignatures, loadSnapshotSigningConfig
+  createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
+  registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
 } = require('./apps/api/src/modules/corona/index.ts');
 const { stableJson, hashJson } = require('./apps/api/src/platform/values/stable-hash.ts');
 const { cleanText } = require('./apps/api/src/platform/values/text.ts');
@@ -2443,7 +2444,7 @@ function baseMutationMetadataFor(req, action) {
     case 'file.upload': return { path: text(query.path, 1000), branch: text(query.branch, 255), lfsMode: text(query.lfs || 'auto', 20), expectedHeadSha: text(query.expectedHeadSha, 40) };
     case 'directory.move': return { branch: text(body.branch, 255), from: text(body.from, 1000), to: text(body.to, 1000), expectedHeadSha: text(body.expectedHeadSha, 40) };
     case 'recovery.restore-refs': {
-      const inspected = inspectRestoreAuthorization(req, body.authorization);
+      const inspected = recovery.inspectRestoreAuthorization({ account: req.gh, owner: req.params.owner, repo: req.params.repo }, body.authorization);
       return { confirmation: text(body.confirm, 20), ...summarizeBatchItems('recovery.restore-refs', inspected.actions) };
     }
     default: return {};
@@ -5322,92 +5323,10 @@ app.post('/api/repo/:owner/:repo/revert', providerSessionAccess, alphaRepository
     res.json({ ok: true, commit, changed: entries.length });
   } catch (e) { fail(res, e); }
 });
-/* Restore the whole repo to how it was at a commit — as a NEW commit (history preserved) */
-app.post('/api/repo/:owner/:repo/restore', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('commit.restore'), async (req, res) => {
-  try {
-    let { sha, branch, expectedHeadSha } = req.body || {};
-    if (!sha || !branch) return res.status(400).json({ error: 'sha and branch required' });
-    sha = requireCommitSha(sha);
-    branch = requireBranchName(branch);
-    const target = await gh(req.gh, `${R(req)}/commits/${sha}`);
-    const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(branch)}`);
-    assertExpectedHead(expectedHeadSha, ref.object.sha);
-    const commit = await gh(req.gh, `${R(req)}/git/commits`, {
-      method: 'POST',
-      body: {
-        message: `Restore repository to ${sha.slice(0, 7)} ("${(target.commit.message || '').split('\n')[0]}") via ${PRODUCT_NAME}`,
-        tree: target.commit.tree.sha,
-        parents: [ref.object.sha]
-      }
-    });
-    try {
-      await gh(req.gh, `${R(req)}/git/refs/heads/${encodeURIComponent(branch)}`, {
-        method: 'PATCH', body: { sha: commit.sha, force: false }
-      });
-    } catch (error) {
-      if (error.status === 409 || error.status === 422) throw branchChangedError();
-      throw error;
-    }
-    res.json({ ok: true, commit: commit.sha });
-  } catch (e) { fail(res, e); }
-});
-/* Restore specific files/folders from an old commit onto the current branch */
-app.post('/api/repo/:owner/:repo/restore-paths', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('commit.restore-paths'), async (req, res) => {
-  try {
-    let { sha, branch, prefix, expectedHeadSha } = req.body || {};
-    if (!sha || !branch || !prefix) return res.status(400).json({ error: 'sha, branch and prefix required' });
-    sha = requireCommitSha(sha);
-    branch = requireBranchName(branch);
-    expectedHeadSha = requireAggregateExpectedHead(expectedHeadSha);
-    const safePrefix = requireRepoPath(prefix, 'restore path');
-    const target = await gh(req.gh, `${R(req)}/commits/${sha}`);
-    const ttree = await gh(req.gh, `${R(req)}/git/trees/${target.commit.tree.sha}?recursive=1`);
-    if (ttree.truncated) return res.status(400).json({ error: 'Repository too large for path restore' });
-    const clean = safePrefix;
-    const matches = (ttree.tree || []).filter(t =>
-      (t.type === 'blob' || t.type === 'commit') && (t.path === clean || t.path.startsWith(clean + '/')));
-    if (!matches.length) return res.status(404).json({ error: `Nothing at "${clean}" in commit ${sha.slice(0, 7)}` });
-    if (matches.length > 500) return res.status(400).json({ error: `${matches.length} files match — restore a narrower path (max 500)` });
-    enforceProtectedPaths(req, matches.map(item => item.path));
-    const entries = matches.map(t => ({ path: t.path, mode: t.mode, type: t.type, sha: t.sha, forceMode: true }));
-    const commit = await commitTree(req.gh, req.params.owner, req.params.repo, branch,
-      `Restore ${clean} from ${sha.slice(0, 7)} via ${PRODUCT_NAME}`, entries, expectedHeadSha);
-    res.json({ ok: true, commit, restored: entries.length });
-  } catch (e) { fail(res, e); }
-});
-/* Snapshot: the full file listing of the repo as it existed at a commit */
-app.get('/api/repo/:owner/:repo/snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    let sha = req.query.sha;
-    if (!sha) return res.status(400).json({ error: 'sha required' });
-    sha = requireCommitSha(sha);
-    const c = await gh(req.gh, `${R(req)}/commits/${sha}`);
-    const t = await gh(req.gh, `${R(req)}/git/trees/${c.commit.tree.sha}?recursive=1`);
-    const files = (t.tree || []).filter(x => x.type === 'blob' || x.type === 'commit')
-      .map(x => ({ path: x.path, sha: x.sha, size: x.size || 0, mode: x.mode, type: x.type }));
-    res.json({
-      sha, truncated: !!t.truncated, count: files.length,
-      files: files.slice(0, 4000)
-    });
-  } catch (e) { fail(res, e); }
-});
-
-/* Hard reset: move the branch pointer back, ERASING later commits from it */
-app.post('/api/repo/:owner/:repo/reset', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('branch.reset'), async (req, res) => {
-  try {
-    let { sha, branch, expectedHeadSha } = req.body || {};
-    if (!sha || !branch) return res.status(400).json({ error: 'sha and branch required' });
-    sha = requireCommitSha(sha);
-    branch = requireBranchName(branch);
-    if (expectedHeadSha) {
-      const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(branch)}`);
-      assertExpectedHead(expectedHeadSha, ref.object.sha);
-    }
-    await gh(req.gh, `${R(req)}/git/refs/heads/${encodeURIComponent(branch)}`, {
-      method: 'PATCH', body: { sha, force: true }
-    });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
+/* Corona: a repository or some of its paths restored as a new commit, a commit's file listing, and a branch moved back (apps/api/src/modules/corona/http/recovery-routes.ts). */
+registerCommitRecoveryRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  commitTree, enforceProtectedPaths, assertExpectedHead, branchChangedError, requireAggregateExpectedHead
 });
 
 /* ================= SEARCH ================= */
@@ -6161,468 +6080,31 @@ app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaReposito
 });
 
 /* ================= SAFEGUARDS (v5.0.0) ================= */
-app.get('/api/safety', providerSessionAccess, accountAuth, (req, res) => res.json(alphaSafetyView(req, safetyOf(req))));
-app.post('/api/safety', providerSessionAccess, alphaSafetyMutationAccess, accountAuth, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const cur = await savePersistentSafety(req, b);
-    req.effectiveSafety = cur;
-    /* The change has committed: its evidence is written before anything else can fail. */
-    const relatedRepo = b.protect && b.protect.repo ? b.protect.repo : 'identity';
-    await appendEvidence(`safety:${identityKey(req.gh)}`, 'safety-change', crypto.randomUUID(), {
-      actor: retainedActor(req), repository: relatedRepo, readOnly: cur.readOnly, freezeSync: cur.freezeSync,
-      protectedCount: Object.values(cur.protected).reduce((n, x) => n + x.length, 0), changedAt: new Date().toISOString()
-    }).catch(() => {});
-    await saveSessionSafetyCopy(req, res);
-    /* The same view the read gives: no other repository's protected paths come back from a change to this one. */
-    res.json(alphaSafetyView(req, req.effectiveSafety));
-  } catch (e) { fail(res, e); }
+/* Corona: the session's safeguards (apps/api/src/modules/corona/http/safeguard-routes.ts). */
+registerSafeguardRoutes(app, {
+  providerSessionAccess, alphaSafetyMutationAccess, accountAuth, account: req => req.gh, fail,
+  safetyOf, alphaSafetyView, savePersistentSafety, saveSessionSafetyCopy, appendEvidence, retainedActor, identityKey
 });
 
-async function pagedRepoList(req, resource, maxPages = 10) {
-  const pageSize = 100;
-  const items = [];
-  let truncated = false;
-  for (let page = 1; page <= maxPages; page++) {
-    const query = `per_page=${pageSize}&page=${page}`;
-    const batch = await gh(req.gh, `${R(req)}/${resource}?${query}`);
-    if (!Array.isArray(batch)) break;
-    items.push(...batch);
-    if (batch.length < pageSize) return { items, truncated: false };
-    if (page === maxPages) truncated = true;
-  }
-  return { items, truncated };
-}
 const SNAPSHOT_MANIFEST_MAX = HOSTED_LIMITS?.snapshotManifestMax ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_MANIFEST_MAX || '10000', 10) || 10000, 1000), 50000);
-const SNAPSHOT_KINDS = new Set(['nebulaverse-snapshot', 'nebulaverse-emergency-manifest']);
 const SNAPSHOT_RETENTION_COUNT = HOSTED_LIMITS?.snapshotRetentionCount ?? Math.min(Math.max(parseInt(process.env.NV_SNAPSHOT_RETENTION_COUNT || '50', 10) || 50, 5), 200);
-const RESTORE_AUTH_TTL_MS = 10 * 60 * 1000;
-const USED_RESTORE_AUTHORIZATIONS = new Map();
-
-function createRestoreAuthorization(req, actions) {
-  const normalized = (Array.isArray(actions) ? actions : []).map(action => {
-    const kind = action && action.action === 'recreate' ? 'recreate' : 'reset';
-    const name = requireBranchName(action && action.name, 'recovery branch');
-    const to = requireCommitSha(action && action.to, 'recovery target SHA');
-    const from = kind === 'reset' ? requireCommitSha(action && action.from, 'preview branch SHA') : '';
-    return { name, action: kind, from, to };
-  });
-  if (!normalized.length || normalized.length > 50) {
-    throw Object.assign(new Error('Recovery authorization requires between 1 and 50 branch actions'), { status: 400, code: 'RESTORE_ACTION_LIMIT' });
-  }
-  return seal({
-    kind: 'nebulaverse-restore-authorization', version: 1,
-    expiresAt: Date.now() + RESTORE_AUTH_TTL_MS,
-    provider: req.gh.provider || 'github', owner: req.params.owner, repo: req.params.repo,
-    identityKey: identityKey(req.gh), nonce: crypto.randomUUID(), actions: normalized
-  });
-}
-
-function inspectRestoreAuthorization(req, token) {
-  const encoded = String(token || '');
-  if (!encoded || encoded.length > 65536) {
-    throw Object.assign(new Error('A valid recovery preview authorization is required'), { status: 400, code: 'RESTORE_AUTHORIZATION_REQUIRED' });
-  }
-  const payload = unseal(encoded);
-  if (!payload || payload.kind !== 'nebulaverse-restore-authorization' || payload.version !== 1 ||
-      !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) {
-    throw Object.assign(new Error('Recovery preview authorization is invalid or expired'), { status: 409, code: 'RESTORE_AUTHORIZATION_INVALID' });
-  }
-  if (String(payload.owner || '').toLowerCase() !== String(req.params.owner || '').toLowerCase() ||
-      String(payload.repo || '').toLowerCase() !== String(req.params.repo || '').toLowerCase() ||
-      String(payload.provider || '').toLowerCase() !== String(req.gh.provider || 'github').toLowerCase() ||
-      payload.identityKey !== identityKey(req.gh)) {
-    throw Object.assign(new Error('Recovery preview authorization does not match this repository session'), { status: 409, code: 'RESTORE_AUTHORIZATION_SCOPE' });
-  }
-  const actions = (Array.isArray(payload.actions) ? payload.actions : []).map(action => {
-    const kind = action && action.action === 'recreate' ? 'recreate' : 'reset';
-    const name = requireBranchName(action && action.name, 'recovery branch');
-    const to = requireCommitSha(action && action.to, 'recovery target SHA');
-    const from = kind === 'reset' ? requireCommitSha(action && action.from, 'preview branch SHA') : '';
-    return { name, action: kind, from, to };
-  });
-  if (!actions.length || actions.length > 50 || new Set(actions.map(action => action.name)).size !== actions.length) {
-    throw Object.assign(new Error('Recovery preview authorization contains invalid actions'), { status: 400, code: 'RESTORE_AUTHORIZATION_ACTIONS' });
-  }
-  return { encoded, actions, expiresAt: payload.expiresAt };
-}
-
 /*
- * This one was not a single-use guard at all, whatever it looked like.
- *
- * The check and the record were separated by `await preflightRestoreActions`,
- * which is a series of reads against the provider. Two requests carrying one
- * authorization both passed the check while the first was still waiting on the
- * network, and both went on to record it and restore the refs. That is not the
- * multi-instance problem the other two guards had: one process was enough,
- * because an await is all it takes to interleave a read and a write.
- *
- * So preparation no longer consults the guard. It validates the token and
- * hashes it, and the claim happens as one operation at the point of use, below.
+ * Corona: snapshots of a repository's references, their comparison, and the
+ * single-use grant a restore preview hands to its restore
+ * (apps/api/src/modules/corona/application/recovery.ts); the mutation
+ * descriptor reads that grant too, so the server builds it here.
  */
-function prepareRestoreAuthorization(req, token) {
-  const inspected = inspectRestoreAuthorization(req, token);
-  const tokenHash = crypto.createHash('sha256').update(inspected.encoded).digest('hex');
-  return { actions: inspected.actions, expiresAt: inspected.expiresAt, tokenHash };
-}
-
-function restoreAuthorizationStore() {
-  if (!DB_URL) return memorySingleUseStore(USED_RESTORE_AUTHORIZATIONS, { maxEntries: 5000 });
-  return durableSingleUseStore();
-}
-
-/*
- * Claimed immediately before the refs are written and never before the
- * preflight, so a preview that turns out to be stale leaves its authorization
- * unspent exactly as it did before -- the reader is told to regenerate it, and
- * nothing has been consumed on their behalf.
- */
-async function claimRestoreAuthorization(grant, now = Date.now()) {
-  let claimed;
-  try {
-    claimed = await restoreAuthorizationStore().consumeOnce({
-      kind: 'restore-authorization',
-      key: grant.tokenHash,
-      expiresAt: Number(grant.expiresAt),
-      now: Number(now)
-    });
-  } catch (error) {
-    throw Object.assign(
-      new Error('Recovery authorization cannot be verified right now; retry shortly'),
-      { status: 503, code: 'RESTORE_AUTHORIZATION_UNAVAILABLE' }
-    );
-  }
-  if (!claimed) {
-    throw Object.assign(
-      new Error('Recovery preview authorization has already been used; generate a fresh preview before retrying'),
-      { status: 409, code: 'RESTORE_AUTHORIZATION_REPLAY' }
-    );
-  }
-  return grant;
-}
-
-async function preflightRestoreActions(req, actions) {
-  const conflicts = [];
-  for (const action of actions) {
-    let current = null;
-    try { current = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(action.name)}`); }
-    catch (error) {
-      if (error.status !== 404) throw error;
-    }
-    const currentSha = current ? referenceSha(current) : '';
-    if (action.action === 'reset' && currentSha !== action.from) {
-      conflicts.push({ name: action.name, expected: action.from, current: currentSha, reason: currentSha ? 'branch moved after preview' : 'branch was deleted after preview' });
-    } else if (action.action === 'recreate' && currentSha) {
-      conflicts.push({ name: action.name, expected: '', current: currentSha, reason: 'branch was created after preview' });
-    }
-  }
-  return conflicts;
-}
-async function captureRefsSnapshot(req, includeManifest) {
-  const [info, branchPage] = await Promise.all([
-    gh(req.gh, `${R(req)}`),
-    pagedRepoList(req, 'branches')
-  ]);
-  let tagPage = { items: [], truncated: false };
-  let tagsAvailable = true;
-  let tagsError = '';
-  try { tagPage = await pagedRepoList(req, 'tags'); }
-  catch (error) {
-    tagsAvailable = false;
-    tagsError = cleanText(error && error.message || 'Tag inventory unavailable', 240);
-  }
-  const refs = branchPage.items.map(b => ({ name: b.name, sha: referenceSha(b), protected: !!b.protected })).filter(r => r.name && r.sha);
-  let manifest = null;
-  if (includeManifest) {
-    const head = refs.find(r => r.name === info.default_branch) || refs[0];
-    if (head) {
-      const t = await gh(req.gh, `${R(req)}/git/trees/${head.sha}?recursive=1`);
-      const allFiles = (t.tree || []).filter(e => e.type === 'blob' || e.type === 'commit');
-      manifest = {
-        branch: head.name,
-        truncated: !!t.truncated || allFiles.length > SNAPSHOT_MANIFEST_MAX,
-        providerTreeTruncated: !!t.truncated,
-        totalFiles: allFiles.length,
-        files: allFiles.slice(0, SNAPSHOT_MANIFEST_MAX).map(e => ({ path: e.path, sha: e.sha, size: e.size || 0, mode: e.mode, type: e.type }))
-      };
-    }
-  }
-  return {
-    kind: 'nebulaverse-snapshot', version: 2, capturedAt: new Date().toISOString(),
-    owner: req.params.owner, repo: req.params.repo, provider: req.gh.provider || 'github', defaultBranch: info.default_branch,
-    refs,
-    refsTruncated: branchPage.truncated,
-    tags: tagPage.items.map(t => ({ name: t.name, sha: referenceSha(t) })).filter(t => t.name && t.sha),
-    tagsAvailable,
-    tagsError,
-    tagsTruncated: tagPage.truncated,
-    manifest
-  };
-}
-
-app.get('/api/repo/:owner/:repo/refs-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
-  try { res.json(await captureRefsSnapshot(req, req.query.manifest === '1')); }
-  catch (e) { fail(res, e); }
+const recovery = createRecovery({
+  gh, seal, unseal, identityKey, databaseConfigured: Boolean(DB_URL), durableSingleUse: durableSingleUseStore,
+  manifestMax: SNAPSHOT_MANIFEST_MAX
 });
-
-function validateSnapshotForRequest(req, snapshot) {
-  if (!snapshot || typeof snapshot !== 'object' || !Array.isArray(snapshot.refs)) {
-    throw Object.assign(new Error('A valid Nebulaverse-X snapshot with refs is required'), { status: 400, code: 'INVALID_SNAPSHOT' });
-  }
-  if (!SNAPSHOT_KINDS.has(String(snapshot.kind || ''))) {
-    throw Object.assign(new Error('Unsupported recovery snapshot kind'), { status: 400, code: 'SNAPSHOT_KIND_INVALID' });
-  }
-  if (String(snapshot.owner || '').toLowerCase() !== String(req.params.owner || '').toLowerCase() ||
-      String(snapshot.repo || '').toLowerCase() !== String(req.params.repo || '').toLowerCase()) {
-    throw Object.assign(new Error('Snapshot repository does not match the open repository'), { status: 409, code: 'SNAPSHOT_REPOSITORY_MISMATCH' });
-  }
-  if (snapshot.provider && String(snapshot.provider).toLowerCase() !== String(req.gh.provider || 'github').toLowerCase()) {
-    throw Object.assign(new Error('Snapshot provider does not match the active repository provider'), { status: 409, code: 'SNAPSHOT_PROVIDER_MISMATCH' });
-  }
-  if (snapshot.refs.length > 1000) throw Object.assign(new Error('Snapshot contains too many branch refs'), { status: 413 });
-  return snapshot;
-}
-
-async function snapshotComparisonForRequest(req, snapshot) {
-  const baseline = validateSnapshotForRequest(req, snapshot);
-  const compareManifest = !!(baseline.manifest && Array.isArray(baseline.manifest.files));
-  const current = await captureRefsSnapshot(req, compareManifest);
-  return { baseline, current, comparison: compareSnapshots(baseline, current) };
-}
-
-app.post('/api/repo/:owner/:repo/snapshot-compare', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
-    res.json({
-      kind: 'nebulaverse-snapshot-comparison', version: 1, generatedAt: new Date().toISOString(),
-      baselineCapturedAt: result.baseline.capturedAt || null,
-      currentCapturedAt: result.current.capturedAt,
-      comparison: result.comparison
-    });
-  } catch (e) { fail(res, e); }
-});
-
-app.post('/api/repo/:owner/:repo/restore-preview', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    const result = await snapshotComparisonForRequest(req, req.body && req.body.snapshot);
-    const currentByName = new Map((result.current.refs || []).map(ref => [ref.name, ref]));
-    const actions = [];
-    for (const item of result.comparison.refs.move) {
-      const current = currentByName.get(item.name);
-      actions.push({ name: item.name, action: 'reset', from: item.current, to: item.expected, protected: !!(current && current.protected) });
-    }
-    for (const item of result.comparison.refs.recreate) {
-      actions.push({ name: item.name, action: 'recreate', from: '', to: item.expected, protected: false });
-    }
-    const warnings = [];
-    if (result.baseline.refsTruncated) warnings.push('The snapshot branch inventory was truncated.');
-    if (result.baseline.tagsTruncated) warnings.push('The snapshot tag inventory was truncated. Tags are compared but not changed by ref restore.');
-    if (result.comparison.truncated) warnings.push('At least one file manifest is truncated, so file counts are incomplete.');
-    const requiresReset = actions.some(action => action.action === 'reset');
-    if (requiresReset) warnings.push('Existing branch resets are unavailable: this provider API has no expected-old compare-and-swap. Use commit restoration to recover file contents while preserving newer commits.');
-    if (actions.length > 50) warnings.push('This preview contains more than 50 branch changes. Split recovery into smaller, reviewed snapshots before restoring.');
-    if (protectedPatternsForReq(req).length) warnings.push('Nebulaverse-X protected-path policies are active. The actual restore remains blocked until those policies are unlocked.');
-    if (safetyOf(req).readOnly) warnings.push('Nebulaverse-X read-only mode is active. Disable it before restoring branch references.');
-    const canRestore = !requiresReset && result.comparison.compatible && actions.length > 0 && actions.length <= 50 && !result.baseline.refsTruncated && !protectedPatternsForReq(req).length && !safetyOf(req).readOnly;
-    const authorization = canRestore ? createRestoreAuthorization(req, actions) : '';
-    res.json({
-      kind: 'nebulaverse-restore-preview', version: 1, generatedAt: new Date().toISOString(),
-      repository: `${req.params.owner}/${req.params.repo}`,
-      canRestore,
-      authorization,
-      authorizationExpiresInSeconds: canRestore ? Math.floor(RESTORE_AUTH_TTL_MS / 1000) : 0,
-      actions,
-      preservedBranches: result.comparison.refs.preserve,
-      unchangedBranches: result.comparison.refs.unchanged,
-      fileImpact: result.comparison.files,
-      counts: result.comparison.counts,
-      warnings
-    });
-  } catch (e) { fail(res, e); }
-});
-
-app.post('/api/repo/:owner/:repo/signed-snapshot', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    if (!(await dbReady())) return res.status(503).json({ error: 'Signed snapshots require the existing Neon DATABASE_URL' });
-    const includeManifest = !(req.body && req.body.manifest === false);
-    const snapshot = await captureRefsSnapshot(req, includeManifest);
-    const snapshotId = crypto.randomUUID();
-    const signature = SNAPSHOT_SIGNATURES.sign(snapshotId, snapshot);
-    const provider = req.gh.provider || 'github';
-    const identity = identityKey(req.gh);
-    await pool().query(
-      `INSERT INTO nv_recovery_snapshots(snapshot_id,provider,owner,repo,identity_key,snapshot,signature)
-       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
-      [snapshotId, provider, req.params.owner, req.params.repo, identity, JSON.stringify(snapshot), signature]
-    );
-    await pool().query(
-      `DELETE FROM nv_recovery_snapshots WHERE snapshot_id IN (
-         SELECT snapshot_id FROM nv_recovery_snapshots
-         WHERE provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4
-         ORDER BY created_at DESC, snapshot_id DESC OFFSET $5
-       )`,
-      [provider, req.params.owner, req.params.repo, identity, SNAPSHOT_RETENTION_COUNT]
-    );
-    const evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'recovery-snapshot', snapshotId, { snapshot, signature });
-    res.status(201).json({
-      snapshotId,
-      signature,
-      signatureKeyId: SNAPSHOT_SIGNATURES.activeKeyId,
-      evidence,
-      snapshot
-    });
-  } catch (e) { fail(res, e); }
-});
-
-app.post('/api/repo/:owner/:repo/emergency-manifest', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth, async (req, res) => {
-  try {
-    if (String(req.body && req.body.confirm || '').toUpperCase() !== 'FREEZE') {
-      return res.status(400).json({ error: 'Type FREEZE to confirm emergency containment' });
-    }
-    if (ALPHA_CONFIG.enabled) {
-      return res.status(403).json({
-        error: 'Emergency Shield changes identity-wide controls, which are unavailable in a repository-scoped alpha. Use repository Safeguards and session revocation instead.',
-        code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED'
-      });
-    }
-    const captured = await captureRefsSnapshot(req, true);
-    req.effectiveSafety = await savePersistentSafety(req, { readOnly: true, freezeSync: true });
-    /* Once the controls have committed, containment finishes even if this session ended meanwhile. */
-    await saveSessionSafetyCopy(req, res);
-
-    const inventory = await sessionsForIdentity(req);
-    const requestedRevocations = inventory.available
-      ? inventory.rows.filter(row => !row.current).map(row => row.sid)
-      : [];
-    const revokedIds = await revokeContainedSessions(req, requestedRevocations);
-    const streamsClosed = closeLiveSessions(revokedIds, 'emergency-containment');
-
-    const manifestId = crypto.randomUUID();
-    const manifest = {
-      ...captured,
-      kind: 'nebulaverse-emergency-manifest',
-      version: 1,
-      incidentId: manifestId,
-      activatedAt: new Date().toISOString(),
-      activatedBy: retainedActor(req),
-      controls: {
-        readOnly: true,
-        freezeSync: true,
-        sessionsRevoked: revokedIds.length,
-        streamsClosed,
-        sessionRevocationAvailable: !!inventory.available
-      }
-    };
-    const signature = SNAPSHOT_SIGNATURES.sign(manifestId, manifest);
-    const signatureVerification = SNAPSHOT_SIGNATURES.verify(signature, manifestId, manifest);
-    if (!signatureVerification.valid) {
-      const error = new Error('Emergency manifest signature verification failed');
-      error.code = 'SNAPSHOT_SIGNATURE_VERIFICATION_FAILED';
-      throw error;
-    }
-    let persisted = false;
-    let evidence = null;
-    if (await dbReady()) {
-      const provider = req.gh.provider || 'github';
-      const identity = identityKey(req.gh);
-      await pool().query(
-        `INSERT INTO nv_recovery_snapshots(snapshot_id,provider,owner,repo,identity_key,snapshot,signature)
-         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
-        [manifestId, provider, req.params.owner, req.params.repo, identity, JSON.stringify(manifest), signature]
-      );
-      await pool().query(
-        `DELETE FROM nv_recovery_snapshots WHERE snapshot_id IN (
-           SELECT snapshot_id FROM nv_recovery_snapshots
-           WHERE provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4
-           ORDER BY created_at DESC, snapshot_id DESC OFFSET $5
-         )`,
-        [provider, req.params.owner, req.params.repo, identity, SNAPSHOT_RETENTION_COUNT]
-      );
-      evidence = await appendEvidence(scopedEvidenceKey(provider, req.params.owner, req.params.repo, identity), 'emergency-manifest', manifestId, { manifest, signature });
-      persisted = true;
-    }
-    res.status(201).json({
-      manifestId,
-      signature,
-      signatureKeyId: signatureVerification.keyId,
-      signatureValid: signatureVerification.valid,
-      persisted,
-      evidence,
-      manifest
-    });
-  } catch (e) { fail(res, e); }
-});
-
-app.get('/api/repo/:owner/:repo/signed-snapshots', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, async (req, res) => {
-  try {
-    if (!(await dbReady())) return res.json({ available: false, snapshots: [] });
-    const r = await pool().query(
-      `SELECT snapshot_id,snapshot,signature,created_at FROM nv_recovery_snapshots
-       WHERE provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4
-       ORDER BY created_at DESC LIMIT 25`,
-      [req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh)]
-    );
-    res.json({ available: true, snapshots: r.rows.map(x => {
-      const verification = SNAPSHOT_SIGNATURES.verify(x.signature, x.snapshot_id, x.snapshot);
-      return {
-        snapshotId: x.snapshot_id,
-        signature: x.signature,
-        signatureValid: verification.valid,
-        signatureKeyId: verification.keyId,
-        signatureLegacy: verification.legacy,
-        createdAt: x.created_at,
-        snapshot: x.snapshot
-      };
-    }) });
-  } catch (e) { fail(res, e); }
-});
-
-app.post('/api/repo/:owner/:repo/restore-refs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), auth, mutationContext('recovery.restore-refs'), async (req, res) => {
-  try {
-    const { authorization, confirm } = req.body || {};
-    if (String(confirm || '').toUpperCase() !== 'RESTORE') return res.status(400).json({ error: 'Type RESTORE to confirm recovery', code: 'RESTORE_CONFIRMATION_REQUIRED' });
-    const grant = prepareRestoreAuthorization(req, authorization);
-    if (grant.actions.some(action => action.action !== 'recreate')) {
-      return res.status(409).json({
-        error: 'Resetting an existing branch requires provider-enforced expected-old comparison. Use commit restoration to preserve concurrent work.',
-        code: 'RESTORE_ATOMIC_RESET_UNAVAILABLE'
-      });
-    }
-    const conflicts = await preflightRestoreActions(req, grant.actions);
-    if (conflicts.length) {
-      return res.status(409).json({
-        error: 'Repository branch heads changed after the recovery preview. Generate a new preview before restoring.',
-        code: 'RESTORE_PREVIEW_STALE', conflicts
-      });
-    }
-    await claimRestoreAuthorization(grant);
-    const report = [];
-    for (const action of grant.actions) {
-      try {
-        // GitHub creates only absent references; a branch created after
-        // preflight is rejected by the provider instead of overwritten.
-        await gh(req.gh, `${R(req)}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${action.name}`, sha: action.to } });
-        const execution = mutationGateway.executionSnapshot();
-        report.push({
-          name: action.name, ok: true, action: 'recreated',
-          operationId: execution && execution.operationIds[execution.operationIds.length - 1] || null
-        });
-      } catch (error) {
-        const execution = mutationGateway.executionSnapshot();
-        report.push({
-          name: action.name, ok: false,
-          operationId: execution && execution.operationIds[execution.operationIds.length - 1] || null,
-          error: cleanText(error.message || 'Provider rejected branch recovery', 300)
-        });
-      }
-    }
-    const ok = report.every(item => item.ok);
-    res.json({
-      ok, partialFailure: !ok && report.some(item => item.ok), previewBound: true,
-      batchHash: req.mutation && req.mutation.metadata && req.mutation.metadata.batchHash || null,
-      report
-    });
-  } catch (e) { fail(res, e); }
+/* Corona: snapshots, signed snapshots, the emergency manifest, and the restore a preview authorized (http/recovery-routes.ts). */
+registerSnapshotRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  recovery, dbReady, pool, identityKey, scopedEvidenceKey, appendEvidence, signatures: SNAPSHOT_SIGNATURES,
+  retentionCount: SNAPSHOT_RETENTION_COUNT, safetyOf, protectedPatternsForReq, alphaEnabled: ALPHA_CONFIG.enabled,
+  savePersistentSafety, saveSessionSafetyCopy, sessionsForIdentity, revokeContainedSessions, closeLiveSessions, retainedActor,
+  executionSnapshot: () => mutationGateway.executionSnapshot()
 });
 
 /* Pulsar: one repository's recent activity, and the overview's feed (apps/api/src/modules/pulsar/http/activity-routes.ts). */
@@ -6678,102 +6160,8 @@ function parseManifest(name, text) {
   return out;
 }
 
-async function pagedGithubCollection(req, resource, maxPages = 3) {
-  const items = [];
-  let truncated = false;
-  for (let page = 1; page <= maxPages; page += 1) {
-    const join = resource.includes('?') ? '&' : '?';
-    const batch = await gh(req.gh, `${R(req)}/${resource}${join}per_page=100&page=${page}`);
-    if (!Array.isArray(batch)) break;
-    items.push(...batch);
-    if (batch.length < 100) return { items, truncated: false };
-    if (page === maxPages) truncated = true;
-  }
-  return { items, truncated };
-}
-
-function permissionFromCollaborator(item) {
-  if (item && item.role_name) return cleanText(item.role_name, 40).toLowerCase();
-  const p = item && item.permissions || {};
-  if (p.admin) return 'admin';
-  if (p.maintain) return 'maintain';
-  if (p.push) return 'write';
-  if (p.triage) return 'triage';
-  if (p.pull) return 'read';
-  return 'unknown';
-}
-
-function webhookHost(raw) {
-  try {
-    const u = new URL(String(raw || ''));
-    return ['http:', 'https:'].includes(u.protocol) ? u.hostname.toLowerCase().slice(0, 253) : '';
-  } catch { return ''; }
-}
-
-app.get('/api/repo/:owner/:repo/access-surface', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('access-surface'), auth, async (req, res) => {
-  try {
-    if ((req.gh.provider || 'github') !== 'github') {
-      return res.json({ available: false, partial: true, reason: 'Shadow Access Radar currently uses GitHub administration APIs.', collaborators: [], deployKeys: [], webhooks: [], risk: riskForAccessSurface({ partial: true }) });
-    }
-    const settled = await Promise.allSettled([
-      gh(req.gh, `${R(req)}`),
-      pagedGithubCollection(req, 'collaborators?affiliation=all', 3),
-      pagedGithubCollection(req, 'keys', 3),
-      pagedGithubCollection(req, 'hooks', 3)
-    ]);
-    const errors = [];
-    const repo = settled[0].status === 'fulfilled' ? settled[0].value : null;
-    if (settled[0].status === 'rejected') errors.push(`repository: ${cleanText(settled[0].reason && settled[0].reason.message, 160)}`);
-    const collaboratorPage = settled[1].status === 'fulfilled' ? settled[1].value : { items: [], truncated: false };
-    if (settled[1].status === 'rejected') errors.push(`collaborators: ${cleanText(settled[1].reason && settled[1].reason.message, 160)}`);
-    const keyPage = settled[2].status === 'fulfilled' ? settled[2].value : { items: [], truncated: false };
-    if (settled[2].status === 'rejected') errors.push(`deploy keys: ${cleanText(settled[2].reason && settled[2].reason.message, 160)}`);
-    const hookPage = settled[3].status === 'fulfilled' ? settled[3].value : { items: [], truncated: false };
-    if (settled[3].status === 'rejected') errors.push(`webhooks: ${cleanText(settled[3].reason && settled[3].reason.message, 160)}`);
-
-    const collaborators = collaboratorPage.items.slice(0, 300).map(item => ({
-      login: cleanText(item.login || '', 100),
-      avatar: cleanText(item.avatar_url || '', 500),
-      permission: permissionFromCollaborator(item),
-      type: cleanText(item.type || 'User', 40),
-      siteAdmin: !!item.site_admin
-    })).filter(item => item.login);
-    const deployKeys = keyPage.items.slice(0, 300).map(item => ({
-      id: Number(item.id || 0),
-      title: cleanText(item.title || 'Deploy key', 160),
-      readOnly: item.read_only !== false,
-      verified: item.verified !== false,
-      enabled: item.enabled !== false,
-      addedBy: cleanText(item.added_by || '', 100),
-      createdAt: item.created_at || null,
-      lastUsed: item.last_used || null
-    })).filter(item => item.id);
-    const webhooks = hookPage.items.slice(0, 300).map(item => ({
-      id: Number(item.id || 0),
-      name: cleanText(item.name || 'web', 80),
-      active: item.active !== false,
-      events: Array.isArray(item.events) ? item.events.slice(0, 50).map(event => cleanText(event, 80)) : [],
-      host: webhookHost(item.config && item.config.url),
-      insecureSsl: String(item.config && item.config.insecure_ssl || '0') === '1',
-      updatedAt: item.updated_at || null
-    })).filter(item => item.id);
-    const partial = errors.length > 0 || collaboratorPage.truncated || keyPage.truncated || hookPage.truncated;
-    const surface = {
-      available: true,
-      partial,
-      errors,
-      currentIdentity: cleanText(req.gh.login || '', 100),
-      currentPermission: repo && repo.permissions ? permissionFromCollaborator({ permissions: repo.permissions }) : 'unknown',
-      collaborators,
-      deployKeys,
-      webhooks,
-      truncated: { collaborators: collaboratorPage.truncated, deployKeys: keyPage.truncated, webhooks: hookPage.truncated }
-    };
-    surface.risk = riskForAccessSurface(surface);
-    res.setHeader('Cache-Control', 'no-store');
-    res.json(surface);
-  } catch (e) { fail(res, e); }
-});
+/* Corona: who and what can reach a repository (apps/api/src/modules/corona/http/access-surface-routes.ts). */
+registerAccessSurfaceRoutes(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
 
 /*
  * Uranus: the repository audit, its kept history and watch, the team's
@@ -6903,43 +6291,10 @@ registerLiveEventRoutes(app, {
   sessionSid: sessionSidFromRequest, hub: liveHub
 });
 
-app.get('/api/repo/:owner/:repo/evidence', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('governance'), auth, async (req, res) => {
-  try {
-    const identity = identityKey(req.gh);
-    const key = scopedEvidenceKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identity);
-    const chain = await verifyEvidenceChain(key, 5000);
-    if (!(await dbReady())) return res.json({ available: false, chain, events: [], snapshots: [] });
-    const [events, snapshots] = await Promise.all([
-      pool().query(
-        `SELECT event_id,event_type,actor,severity,risk_score,summary,reasons,created_at FROM nv_intelligence_events
-         WHERE provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4 ORDER BY created_at DESC LIMIT 500`,
-        [req.gh.provider || 'github', req.params.owner, req.params.repo, identity]
-      ),
-      pool().query(
-        `SELECT snapshot_id,signature,created_at,snapshot FROM nv_recovery_snapshots
-         WHERE provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4 ORDER BY created_at DESC LIMIT 50`,
-        [req.gh.provider || 'github', req.params.owner, req.params.repo, identity]
-      )
-    ]);
-    const evidenceRecords = chain.records || [];
-    const chainSummary = { ...chain };
-    delete chainSummary.records;
-    res.json({
-      kind: 'nebulaverse-evidence', version: 1, generatedAt: new Date().toISOString(),
-      repository: `${req.params.owner}/${req.params.repo}`, chain: chainSummary,
-      records: evidenceRecords,
-      events: events.rows,
-      snapshots: snapshots.rows.map(row => {
-        const verification = SNAPSHOT_SIGNATURES.verify(row.signature, row.snapshot_id, row.snapshot);
-        return {
-          ...row,
-          signature_valid: verification.valid,
-          signature_key_id: verification.keyId,
-          signature_legacy: verification.legacy
-        };
-      })
-    });
-  } catch (e) { fail(res, e); }
+/* Corona: the identity's evidence chain for a repository, its events and signed snapshots (apps/api/src/modules/corona/http/evidence-routes.ts). */
+registerEvidenceRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail,
+  identityKey, scopedEvidenceKey, verifyEvidenceChain, dbReady, pool, signatures: SNAPSHOT_SIGNATURES
 });
 
 /* ================= SESSION CONTAINMENT (Neural Command Center) ================= */

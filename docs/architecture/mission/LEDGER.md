@@ -895,3 +895,77 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the code-audit, merge-gate, authorization and posture tests;
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
+
+### D12f — Corona's routes, and recovery
+
+- **Five registrations.** Corona's fifteen routes stand in four places in the route policy, with the workbench's, Pulsar's, Uranus's and Parallax's routes between them. There is one registration per concern in `modules/corona/http/`, each where its routes stood, in the policy's order:
+  - `registerCommitRecoveryRoutes`: a repository or some of its paths restored as a new commit, a commit's file listing, and a branch moved back;
+  - `registerSafeguardRoutes`: the session's safety state, read and changed;
+  - `registerSnapshotRoutes`: a snapshot of the references, a comparison, a restore preview, signed snapshots, the emergency manifest, and the restore that spends a preview's grant;
+  - `registerAccessSurfaceRoutes`: who and what can reach a repository;
+  - `registerEvidenceRoutes`: the evidence chain with its events and signed snapshots.
+- **Recovery is a service.** `application/recovery.ts` holds the snapshot capture, its paging, the comparison against a kept snapshot, and the restore grant: issued, inspected, prepared, claimed once and preflighted. The mutation descriptor reads a grant before the restore runs, so the server builds the service once and both use it. The grants' in-process store belongs to the service. The shared store is handed in for when a database is configured.
+- **What stays in the server.** The safety state, the sessions and their revocation, and the live streams belong to identity-access and Pulsar's wiring until those move. The commit writer and the head checks belong to the workbench. They are handed in. The two snapshot limits read the environment, so they stay where the configuration is read.
+- **Behaviour unchanged**, by an oracle that evaluated those five regions of the previous `server.js` beside the module's registrations over the recovery service. Both sides used the workbench's head checks, the real name normalizers, snapshot comparison, reference shapes, single-use store, access-surface risk and public error body, the same seal, and a held clock and UUIDs.
+
+  The 20,000 scenarios varied:
+  - branch and tag lists in both providers' shapes, empty, a page long or longer, failing or not a list;
+  - default-branch trees that are full, truncated, missing or not a list, against every manifest limit, including one equal to the file count;
+  - commits and their messages, heads that are present, moved or missing, and branch reads that fail;
+  - forced writes refused as conflicts, and reference creation refused because the branch exists;
+  - protected paths, safety states and their store refusing or unavailable;
+  - evidence, session inventories and revocations, signature checks, database readiness and failures, and the mutation gateway's operations;
+  - every kind of restore grant: from a real preview, recreations, resets, expired, for another repository, identity or provider, too many actions, duplicate branches, a bad commit, the wrong kind, garbage, empty and oversized, each also replayed;
+  - snapshots of every kind, for other repositories and providers, with too many references, without references, or not objects;
+  - collaborators, deploy keys and webhooks with each permission and address shape, and each list failing in turn;
+  - hosted alpha on and off, and accounts for both providers or none.
+
+  The oracle compared every answer, the grant each side reads, the branch heads afterwards, and every call to the provider, the commit writer, the protected-path check, the safety store, the ledger, the sessions, the database, the signatures and the single-use store, in order. All 60,000 comparisons were identical, including 233 restores that went through, 151 that partly failed and 107 replays refused. Twenty mutants fail it, each on a comparison:
+  - a restore that never spends its grant;
+  - a twenty-minute grant;
+  - a grant for anyone;
+  - duplicate branches in a grant;
+  - a manifest cut one late;
+  - an unread tag list reported as read;
+  - every preflight failure read as a missing branch;
+  - the shared store used without a database;
+  - one reference too many accepted;
+  - a forced restore;
+  - a reset without its head check;
+  - a preview that ignores read-only mode;
+  - containment in a hosted alpha;
+  - one more snapshot kept;
+  - a partial failure not told apart;
+  - a ledger failure failing a safety change;
+  - a safety change recorded under another repository;
+  - write access named by its flag;
+  - insecure delivery read backwards;
+  - an evidence snapshot trusted unchecked.
+
+  Two of these survived the first generator, which drew no manifest limit equal to the file count and no branch read that failed other than as missing. It now draws both.
+- **Tests:**
+  - `test/corona-routes.test.js` checks each route's chain against the baseline inventory. Over HTTP, on the recovery service with a scripted provider, it checks:
+    - a restore committed on the head it read and never forced, and refused on a head that moved;
+    - a path restore refused for a protected path before anything is written;
+    - a reset that checks its head;
+    - a safety change committed, then evidenced, then copied, and kept when the ledger fails;
+    - both providers' reference shapes and a disclosed tag failure;
+    - a truncated manifest;
+    - signed snapshots pruned and verified;
+    - containment that revokes only the other sessions and closes their streams;
+    - a hosted alpha's containment refused before anything happens;
+    - an access surface that keeps only a webhook's host and says when it is partial;
+    - evidence verified as it is read.
+  - `corona-recovery` drives the snapshot routes and the service rather than evaluating slices of `server.js`.
+  - The source checks follow the code into the module, or read the route policy:
+    - `alpha-access-server-contract` reads every route's alpha boundary from the policy, so it now holds all 135 repository routes, not only those left in `server.js`, and its mutation cases edit the policy;
+    - `capability-registry-server-contract` and `provider-disconnect-server-contract` read each route where the policy finds it;
+    - `hardening-contract`, `mutation-coverage-server-contract` and `security-foundation-server` read the recovery service and routes for the grant's claim, its placement and the retention query.
+- **Ratchet:** the routes `server.js` registers itself fall from 150 to 135.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the five new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - every converted contract and the recovery tests;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+  - A cut of `server.js` is also checked by comparing its top-level statements before and after. That check caught a first cut that had taken the Uranus and Parallax registrations with the access surface, before anything ran.

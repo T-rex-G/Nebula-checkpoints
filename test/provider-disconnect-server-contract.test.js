@@ -4,14 +4,21 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
+const { locations } = require('./oracles/route-policy');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+/* A POST route's registration up to the next one, in whichever file the route policy found it. */
+const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
 function routeBlock(routePath) {
+  const entry = policyRoutes.find(item => item.method === 'POST' && item.path === routePath);
+  assert(entry, `missing POST ${routePath}`);
+  const file = entry.at.split(':')[0];
+  const text = file === 'server.js' ? server : fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   const marker = `app.post('${routePath}'`;
-  const start = server.indexOf(marker);
-  assert(start >= 0, `missing POST ${routePath}`);
-  const next = server.indexOf('\napp.', start + marker.length);
-  return server.slice(start, next < 0 ? server.length : next);
+  const start = text.indexOf(marker);
+  assert(start >= 0, `missing POST ${routePath} in ${file}`);
+  const next = text.slice(start + marker.length).search(/\n\s*app\./);
+  return next < 0 ? text.slice(start) : text.slice(start, start + marker.length + next);
 }
 
 /* The server reaches identity and access through the module's index only. */

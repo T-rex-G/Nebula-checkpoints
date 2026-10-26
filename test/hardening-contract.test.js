@@ -9,15 +9,18 @@ for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-ap
   assert.strictEqual(forbidden.length, 0, `${sourceFile} must not contain literal control bytes`);
 }
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+/* Corona's recovery service and routes, which hold the snapshot, restore, access-surface and evidence code (D12f). */
+const corona = ['application/recovery.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
+  .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', file), 'utf8')).join('\n');
 const schema = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => fs.readFileSync(path.join(root, 'db', 'migrations', name), 'utf8')).join('\n');
 
 assert(server.includes('protectedPatternsForRepository'), 'Webhook risk must use case-insensitive protected-pattern lookup');
-assert(server.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
+assert(corona.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
 assert(server.includes('MAX_LIVE_CLIENTS_PER_KEY'), 'SSE per-repository connection cap is missing');
 assert(server.includes('MAX_LIVE_CLIENTS_TOTAL'), 'SSE global connection cap is missing');
 assert(server.includes('createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY })'), 'SSE admission is not held to both caps');
 assert(server.includes('SNAPSHOT_RETENTION_COUNT'), 'Snapshot retention cap is missing');
-assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(server), 'Old snapshot pruning query is missing');
+assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(corona), 'Old snapshot pruning query is missing');
 /* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
 
 assert(/async function setSession\(req, res, data\b[\s\S]+if \(DB_URL\)[\s\S]+Session database is temporarily unavailable/.test(server), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
@@ -34,10 +37,10 @@ for (const [route, nextRoute] of [
   const block = server.slice(start, end);
   assert(start >= 0 && end > start && block.includes('try {') && block.includes('catch (e) { fail(res, e); }'), `Async account route ${route} must handle database failures`);
 }
-assert(server.includes('tagsAvailable') && server.includes('tagsError'), 'Snapshots must disclose an unavailable tag inventory');
+assert(corona.includes('tagsAvailable') && corona.includes('tagsError'), 'Snapshots must disclose an unavailable tag inventory');
 assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_identity_keys_idx'), 'Session containment must index identity ownership instead of scanning an arbitrary global window');
 assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(server), 'Session inventory must query the active identity directly');
-assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(server), 'Evidence export must include the bounded chain records it verifies');
+assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
 assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(server), 'Evidence append must be idempotent across webhook retries');
 const webhookStart = server.indexOf('async function receiveGithubWebhook');
 const webhookEnd = server.indexOf('const SAFETY_EXEMPT', webhookStart);
@@ -46,11 +49,11 @@ assert(webhookBlock.includes("const sf = await pool().query('SELECT state FROM n
 assert(/await appendEvidence\(scopedEvidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(server), 'Webhook acceptance must require an evidence append that can complete on retry');
 assert(server.includes('evidence.deduplicated') && server.includes('stored.rowCount || !evidence.deduplicated'), 'A retried delivery must broadcast after its missing evidence record is completed');
 
-assert(server.includes('/access-surface') && server.includes('riskForAccessSurface'), 'Shadow Access Radar endpoint or deterministic access risk is missing');
-assert(server.includes('/snapshot-compare') && server.includes('compareSnapshots'), 'Snapshot comparison endpoint is missing');
-assert(server.includes('/restore-preview'), 'Restore preview endpoint is missing');
-assert(/const canRestore = [^;]+!protectedPatternsForReq\(req\)\.length[^;]+!safetyOf\(req\)\.readOnly/.test(server), 'Restore preview must fail closed while protected paths or read-only mode are active');
-assert(server.includes('/emergency-manifest'), 'Signed emergency manifest endpoint is missing');
+assert(corona.includes('/access-surface') && corona.includes('riskForAccessSurface'), 'Shadow Access Radar endpoint or deterministic access risk is missing');
+assert(corona.includes('/snapshot-compare') && corona.includes('compareSnapshots'), 'Snapshot comparison endpoint is missing');
+assert(corona.includes('/restore-preview'), 'Restore preview endpoint is missing');
+assert(/const canRestore = [^;]+!deps\.protectedPatternsForReq\(req\)\.length[^;]+!deps\.safetyOf\(req\)\.readOnly/.test(corona), 'Restore preview must fail closed while protected paths or read-only mode are active');
+assert(corona.includes('/emergency-manifest'), 'Signed emergency manifest endpoint is missing');
 assert(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware signature gate is not enforced');
 assert(server.includes('/api/security/scanner-status'), 'Scanner status endpoint is missing');
 /*
@@ -62,7 +65,7 @@ assert(server.includes('readBoundedResponse'), 'Outbound vendor responses must b
 assert(server.includes('VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy must serve allowlisted paths only');
 assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed');
 
-assert(/restore-paths[\s\S]+enforceProtectedPaths\(req, matches\.map\(item => item\.path\)\)/.test(server), 'Restore-paths must enforce policies against every restored child path');
+assert(/restore-paths[\s\S]+deps\.enforceProtectedPaths\(req, matches\.map\(item => member\(item, 'path'\)\)\)/.test(corona), 'Restore-paths must enforce policies against every restored child path');
 assert(/move-dir[\s\S]+enforceProtectedPaths\(req, affectedPaths\)/.test(server), 'Folder moves must enforce policies against source and destination child paths');
 
 const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
@@ -83,14 +86,14 @@ assert(app.includes('function activityCsv'), 'Activity export must support CSV')
 assert(exportSafety.includes('intelligenceEvents') && exportSafety.includes('verified_event'), 'JSON/CSV activity export must include verified intelligence events when available');
 assert(exportSafety.includes('/^\\s*[=+\\-@]/') || exportSafety.includes('/^\s*[=+\-@]/'), 'CSV export must neutralize spreadsheet formulas');
 assert(app.includes("snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest'"), 'Recovery must accept signed emergency manifests as snapshot inputs');
-assert(server.includes("SNAPSHOT_KINDS = new Set(['nebulaverse-snapshot', 'nebulaverse-emergency-manifest'])") && server.includes('SNAPSHOT_KIND_INVALID'), 'Server-side recovery must explicitly accept only trusted Nebulaverse snapshot kinds');
+assert(/SNAPSHOT_KINDS: ReadonlySet<string> = new Set\(\['nebulaverse-snapshot', 'nebulaverse-emergency-manifest'\]\)/.test(corona) && corona.includes('SNAPSHOT_KIND_INVALID'), 'Server-side recovery must explicitly accept only trusted Nebulaverse snapshot kinds');
 assert(app.includes('/snapshot-compare') && app.includes('/restore-preview'), 'Recovery workflow must compare snapshots and preview ref changes');
 /* The write route claims the authorization rather than checking it and
    recording it later: those two sat either side of an awaited preflight, so
    one process was enough for two requests to spend one authorization. The
    await is part of the contract, not an implementation detail. */
-assert(server.includes('createRestoreAuthorization') && server.includes('await claimRestoreAuthorization('), 'Restore preview must issue a short-lived server authorization claimed exactly once by the write route');
-assert(server.includes('RESTORE_PREVIEW_STALE') && server.includes('preflightRestoreActions'), 'Restore must verify branch heads still match the preview before changing refs');
+assert(corona.includes('createRestoreAuthorization') && corona.includes('await recovery.claimRestoreAuthorization('), 'Restore preview must issue a short-lived server authorization claimed exactly once by the write route');
+assert(corona.includes('RESTORE_PREVIEW_STALE') && corona.includes('preflightRestoreActions'), 'Restore must verify branch heads still match the preview before changing refs');
 assert(app.includes("authorization: preview.authorization") && app.includes("confirm: 'RESTORE'"), 'Client restore must submit only the preview authorization and typed confirmation');
 assert(neural.includes("osv && data.deps.osv.available === false"), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
 assert(app.includes('Dependency scan incomplete'), 'Dependency scan dialog must not report a clean result when OSV is unavailable');

@@ -48,10 +48,11 @@ for (const helper of ['async function gh(', 'async function uploadViaGitPush(', 
 assert(server.includes("transport: 'git-lfs.batch'"));
 assert(server.includes("transport: 'git-lfs.upload'"));
 assert(server.includes("transport: 'git-lfs.verify'"));
-assert(server.includes('inspectRestoreAuthorization(req, body.authorization)'));
+assert(server.includes('recovery.inspectRestoreAuthorization({ account: req.gh, owner: req.params.owner, repo: req.params.repo }, body.authorization)'));
 assert(server.includes("case 'recovery.restore-refs':"));
 assert(server.includes('requireAggregateExpectedHead(expectedHeadSha)'));
-assert(server.includes('partialFailure: !ok && report.some(item => item.ok)'));
+/* The reference restore reports each branch, a partial failure as one (Corona's recovery routes). */
+assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/corona/http/recovery-routes.ts'), 'utf8').includes('partialFailure: !ok && report.some(item => item.ok)'));
 assert(server.includes('providerOperationIds: execution ? execution.operationIds : []'));
 
 console.log('mutation coverage server contract tests passed');

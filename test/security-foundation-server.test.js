@@ -96,25 +96,26 @@ assert.strictEqual(
  * the refs are written, so nothing is restored on an authorization that was
  * not claimed.
  */
+const coronaRecovery = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'corona', 'application', 'recovery.ts'), 'utf8');
+const coronaRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'corona', 'http', 'recovery-routes.ts'), 'utf8');
 assert.match(
-  serverSource, /async function claimRestoreAuthorization\(/,
+  coronaRecovery, /const claimRestoreAuthorization: Recovery\['claimRestoreAuthorization'\] = async \(/,
   'claiming a recovery authorization must be asynchronous'
 );
 let claimRestoreAuthorizationCalls = 0;
-for (const line of serverSource.split('\n')) {
+for (const line of `${serverSource}\n${coronaRoutes}`.split('\n')) {
   if (!line.includes('claimRestoreAuthorization(')) continue;
-  if (line.includes('async function')) continue;
   assert.match(
-    line, /await claimRestoreAuthorization\(/,
+    line, /await recovery\.claimRestoreAuthorization\(/,
     `every claimRestoreAuthorization call must be awaited: ${line.trim()}`
   );
   claimRestoreAuthorizationCalls += 1;
 }
 assert(claimRestoreAuthorizationCalls > 0, 'no claimRestoreAuthorization call was found to check: this guard has gone vacuous');
 
-const restoreRoute = serverSource.slice(serverSource.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"), serverSource.indexOf("app.get('/api/repo/:owner/:repo/activity'"));
-const preflightAt = restoreRoute.indexOf('await preflightRestoreActions(');
-const claimAt = restoreRoute.indexOf('await claimRestoreAuthorization(');
+const restoreRoute = coronaRoutes.slice(coronaRoutes.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"), coronaRoutes.indexOf('\nfunction rowsOf('));
+const preflightAt = restoreRoute.indexOf('await recovery.preflightRestoreActions(');
+const claimAt = restoreRoute.indexOf('await recovery.claimRestoreAuthorization(');
 const writeAt = restoreRoute.indexOf("method: 'POST'");
 assert(!restoreRoute.includes("force: true"), 'reference recovery must never force-update an existing branch');
 assert(preflightAt > -1 && claimAt > -1 && writeAt > -1, 'the restore route must still preflight, claim and write');
@@ -128,11 +129,11 @@ assert(
 );
 
 assert.strictEqual(
-  /USED_RESTORE_AUTHORIZATIONS\.(set|has|delete)\(/.test(serverSource), false,
+  /usedAuthorizations\.(set|has|delete)\(/.test(coronaRecovery), false,
   'the recovery guard must be reached through the claim contract, never poked directly'
 );
 assert.strictEqual(
-  /catch[\s\S]{0,200}USED_RESTORE_AUTHORIZATIONS/.test(serverSource), false,
+  /catch[\s\S]{0,200}usedAuthorizations/.test(coronaRecovery), false,
   'no failure path may fall back to the in-process recovery guard'
 );
 let consumeStepUpAuthorizationCalls = 0;

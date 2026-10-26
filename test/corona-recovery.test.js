@@ -1,28 +1,23 @@
 'use strict';
 
+/*
+ * Reference recovery and emergency containment, through Corona's snapshot
+ * routes and recovery service: an old grant to reset a branch is refused
+ * before any provider call, a preview never offers a force update, only
+ * create-if-absent restores run and each grant is spent once, a branch
+ * created after the preflight is never overwritten, and a hosted alpha's
+ * identity-wide containment fails before anything is captured or changed.
+ */
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
-const { compareSnapshots, normalizeBranchName, normalizeCommitSha } = require('../apps/api/src/modules/corona/index.ts');
-const { referenceSha } = require('../apps/api/src/modules/github-provider/index.ts');
-const { memorySingleUseStore } = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
+const { compareSnapshots, createRecovery, registerSnapshotRoutes } = require('../apps/api/src/modules/corona/index.ts');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);
 const routePrefix = '/api/repo/:owner/:repo';
 const identity = 'fixture-identity';
-
-function section(startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
-  const end = source.indexOf(endMarker, start);
-  assert(start >= 0 && end > start, `server section ${startMarker} must exist`);
-  return source.slice(start, end);
-}
-function routeSource(suffix, nextSuffix, nextMethod = 'post') {
-  return section(`app.post('${routePrefix}/${suffix}'`, `app.${nextMethod}('${routePrefix}/${nextSuffix}'`);
-}
+/* A seal any grant survives intact: the routes are under test, not the session's encryption. */
+const seal = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+const unseal = value => { try { return JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8')); } catch { return null; } };
 
 function fixture(options = {}) {
   const handlers = new Map();
@@ -30,66 +25,68 @@ function fixture(options = {}) {
   const heads = new Map([['main', A]]);
   const persistedSafety = {};
   const req = { params: { owner: 'alice', repo: 'demo' }, gh: { provider: 'github' }, body: {}, session: {} };
-  const sandbox = {
-    crypto, Buffer, Map, SESSION_CONTENT_KEY: crypto.randomBytes(32), DB_URL: '',
-    app: { post: (route, ...callbacks) => handlers.set(route, callbacks.at(-1)) },
-    providerSessionAccess() {}, alphaRepositoryAccess() {}, auth() {},
-    capabilityAccess: () => () => {}, mutationContext: () => () => {},
-    requireBranchName: normalizeBranchName, requireCommitSha: normalizeCommitSha,
-    identityKey: () => identity, memorySingleUseStore, referenceSha,
-    R: () => '/repos/alice/demo',
-    fail: (res, error) => res.status(error.status || 500).json({ code: error.code, error: error.message }),
-    cleanText: text => String(text),
-    mutationGateway: { executionSnapshot: () => null },
-    protectedPatternsForReq: () => [], safetyOf: () => ({ readOnly: false }),
-    ALPHA_CONFIG: { enabled: options.alpha === true },
-    captureRefsSnapshot: async () => { effects.push(['capture']); return { refs: [{ name: 'main', sha: A }] }; },
-    savePersistentSafety: async (_req, safety) => { effects.push(['safety-save']); Object.assign(persistedSafety, safety); return safety; },
-    setSession: async () => { effects.push(['session-save']); },
-    sessionsForIdentity: async () => ({ available: false, rows: [] }),
-    revokeContainedSessions: async () => [], closeLiveSessions: () => 0,
-    retainedActor: () => 'fixture-operator', dbReady: async () => false,
-    SNAPSHOT_SIGNATURES: { sign: () => 'synthetic', verify: () => ({ valid: true, keyId: 'fixture' }) },
-    gh: async (_account, apiPath, input = {}) => {
-      const method = input.method || 'GET';
-      effects.push(['provider', method, apiPath]);
-      if (method === 'GET') {
-        const branch = decodeURIComponent(apiPath.split('/heads/')[1]);
-        const sha = heads.get(branch);
-        if (options.raceAfterRead && branch === options.raceAfterRead) heads.set(branch, B);
-        if (!sha) throw Object.assign(new Error('Missing ref'), { status: 404 });
-        return { object: { sha } };
-      }
-      if (method === 'PATCH') {
-        const branch = decodeURIComponent(apiPath.split('/heads/')[1]);
-        effects.push(['overwritten', heads.get(branch)]);
-        heads.set(branch, input.body.sha);
-        return { object: { sha: input.body.sha } };
-      }
-      const branch = input.body.ref.slice('refs/heads/'.length);
-      if (heads.has(branch)) throw Object.assign(new Error('Reference already exists'), { status: 422 });
+  const gh = async (_account, apiPath, input = {}) => {
+    const method = input.method || 'GET';
+    effects.push(['provider', method, apiPath]);
+    if (method === 'GET') {
+      const branch = decodeURIComponent(apiPath.split('/heads/')[1]);
+      const sha = heads.get(branch);
+      if (options.raceAfterRead && branch === options.raceAfterRead) heads.set(branch, B);
+      if (!sha) throw Object.assign(new Error('Missing ref'), { status: 404 });
+      return { object: { sha } };
+    }
+    if (method === 'PATCH') {
+      const branch = decodeURIComponent(apiPath.split('/heads/')[1]);
+      effects.push(['overwritten', heads.get(branch)]);
       heads.set(branch, input.body.sha);
       return { object: { sha: input.body.sha } };
-    },
-    snapshotComparisonForRequest: async (_req, baseline) => {
-      const current = { owner: 'alice', repo: 'demo', provider: 'github', refs: [...heads].map(([name, sha]) => ({ name, sha })) };
-      return { baseline, current, comparison: compareSnapshots(baseline, current) };
     }
+    const branch = input.body.ref.slice('refs/heads/'.length);
+    if (heads.has(branch)) throw Object.assign(new Error('Reference already exists'), { status: 422 });
+    heads.set(branch, input.body.sha);
+    return { object: { sha: input.body.sha } };
   };
-  vm.createContext(sandbox);
-  vm.runInContext(section('function seal(obj)', 'function getCookie('), sandbox);
-  vm.runInContext(section('function defaultSafety(', 'async function loadPersistentSafety('), sandbox);
-  vm.runInContext(section('const RESTORE_AUTH_TTL_MS', 'async function captureRefsSnapshot('), sandbox);
-  vm.runInContext(routeSource('restore-preview', 'signed-snapshot'), sandbox);
-  vm.runInContext(section(`app.post('${routePrefix}/restore-refs'`, '/* Pulsar: one repository'), sandbox);
-  vm.runInContext(routeSource('emergency-manifest', 'signed-snapshots', 'get'), sandbox);
+  const recovery = createRecovery({
+    gh, seal, unseal, identityKey: () => identity, databaseConfigured: false,
+    durableSingleUse: () => assert.fail('without a database the grants are this instance\'s'), manifestMax: 10000
+  });
+  const pass = () => {};
+  registerSnapshotRoutes({
+    get: (route, ...callbacks) => handlers.set(route, callbacks.at(-1)),
+    post: (route, ...callbacks) => handlers.set(route, callbacks.at(-1))
+  }, {
+    providerSessionAccess: pass, alphaRepositoryAccess: pass, capabilityAccess: () => pass, auth: pass, mutationContext: () => pass,
+    account: request => request.gh,
+    fail: (res, error) => res.status(error.status || 500).json({ code: error.code, error: error.message }),
+    gh,
+    /* The provider's references are the fixture's heads: capture and comparison read them directly. */
+    recovery: {
+      ...recovery,
+      captureRefsSnapshot: async () => { effects.push(['capture']); return { refs: [{ name: 'main', sha: A }] }; },
+      compareWith: async (_target, baseline) => {
+        const current = { owner: 'alice', repo: 'demo', provider: 'github', refs: [...heads].map(([name, sha]) => ({ name, sha })) };
+        return { baseline, current, comparison: compareSnapshots(baseline, current) };
+      }
+    },
+    dbReady: async () => false, pool: () => assert.fail('no database'), identityKey: () => identity,
+    scopedEvidenceKey: () => 'evidence', appendEvidence: async () => null,
+    signatures: { sign: () => 'synthetic', verify: () => ({ valid: true, keyId: 'fixture' }), activeKeyId: 'fixture' },
+    retentionCount: 50, safetyOf: () => ({ readOnly: false }), protectedPatternsForReq: () => [],
+    alphaEnabled: options.alpha === true,
+    savePersistentSafety: async (_req, safety) => { effects.push(['safety-save']); Object.assign(persistedSafety, safety); return safety; },
+    saveSessionSafetyCopy: async () => { effects.push(['session-save']); },
+    sessionsForIdentity: async () => ({ available: false, rows: [] }),
+    revokeContainedSessions: async () => [], closeLiveSessions: () => 0,
+    retainedActor: () => 'fixture-operator',
+    executionSnapshot: () => null
+  });
   async function call(suffix, body) {
     const response = { statusCode: 200, status(value) { this.statusCode = value; return this; }, json(value) { this.body = value; return this; } };
     await handlers.get(`${routePrefix}/${suffix}`)({ ...req, body }, response);
     return { status: response.statusCode, body: response.body };
   }
   function oldGrant(actions) {
-    return sandbox.seal({ kind: 'nebulaverse-restore-authorization', version: 1, expiresAt: Date.now() + 300000,
+    return seal({ kind: 'nebulaverse-restore-authorization', version: 1, expiresAt: Date.now() + 300000,
       provider: 'github', owner: 'alice', repo: 'demo', identityKey: identity, nonce: crypto.randomUUID(), actions });
   }
   return { call, oldGrant, effects, heads, persistedSafety };

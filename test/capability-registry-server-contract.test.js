@@ -12,6 +12,8 @@ const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
+const { locations } = require('./oracles/route-policy');
+
 const root = path.resolve(__dirname, '..');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const fixture = path.join(__dirname, 'fixtures', 'capability-provider-fetch.js');
@@ -37,11 +39,12 @@ const account = {
   baseUrl: 'https://gitea.example'
 };
 
+/* A route's guard chain, read from the route policy wherever the route is registered. */
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 function routeRegistration(method, routePath) {
-  const prefix = `app.${method}('${routePath}'`;
-  const line = serverSource.split('\n').find(candidate => candidate.startsWith(prefix));
-  assert(line, `missing route registration: ${method.toUpperCase()} ${routePath}`);
-  return line;
+  const entry = policyRoutes.find(candidate => candidate.method === method.toUpperCase() && candidate.path === routePath);
+  assert(entry, `missing route registration: ${method.toUpperCase()} ${routePath}`);
+  return entry.guards.join(', ');
 }
 
 for (const [method, routePath, feature] of [

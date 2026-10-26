@@ -148,6 +148,9 @@ for (const file of [
   'apps/api/src/modules/posture/http/posture-routes.ts',
   'apps/api/src/modules/quasar/http/exposure-routes.ts', 'apps/api/src/modules/quasar/http/finding-payload.ts',
   'apps/api/src/modules/uranus/application/code-audit-service.ts', 'apps/api/src/modules/uranus/http/code-audit-routes.ts',
+  'apps/api/src/modules/corona/application/recovery.ts', 'apps/api/src/modules/corona/http/recovery-routes.ts',
+  'apps/api/src/modules/corona/http/safeguard-routes.ts', 'apps/api/src/modules/corona/http/access-surface-routes.ts',
+  'apps/api/src/modules/corona/http/evidence-routes.ts',
   'apps/api/src/modules/pulsar/index.ts', 'apps/api/src/modules/pulsar/domain/webhook-events.ts',
   'apps/api/src/modules/pulsar/domain/webhook-signature.ts', 'apps/api/src/modules/pulsar/domain/activity-feed.ts',
   'apps/api/src/modules/pulsar/application/live-stream.ts',
@@ -339,7 +342,10 @@ must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP e
     && liveEventRoutes.includes("'/api/repo/:owner/:repo/live-events/stream'"), 'Live event registration or SSE streaming is missing');
 }
 const migrationSql = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => read('db/migrations/' + name)).join('\n');
-must(migrationSql.includes('nv_evidence_chain') && server.includes('/evidence'), 'Tamper-evident export is missing');
+/* Corona's routes: the evidence export, the access surface and the snapshot routes (D12f). */
+const coronaRoutes = ['recovery-routes', 'access-surface-routes', 'evidence-routes']
+  .map(name => read(`apps/api/src/modules/corona/http/${name}.ts`)).join('\n');
+must(migrationSql.includes('nv_evidence_chain') && coronaRoutes.includes("app.get('/api/repo/:owner/:repo/evidence'") && server.includes('registerEvidenceRoutes(app,'), 'Tamper-evident export is missing');
 
 must(migrationSql.includes('nv_governance_policies') && migrationSql.includes('nv_governance_policy_versions'), 'Governance persistence schema is missing');
 must(migrationSql.includes('nv_governance_reject_history_mutation') && migrationSql.includes('BEFORE TRUNCATE'), 'Governance history must be append-only at the database layer');
@@ -356,8 +362,8 @@ must(neural.includes('graphShortestPath') && neural.includes('Explain this conne
 must(neural.includes('EventSource') && neural.includes('VERIFIED LIVE'), 'Neural verified live stream is missing');
 must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeURIComponent(after)}'), 'Cursor-based Neural event catch-up is missing');
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');
-must(server.includes('/access-surface') && server.includes('riskForAccessSurface'), 'Shadow Access Radar is missing');
-must(server.includes('/snapshot-compare') && server.includes('/restore-preview'), 'Snapshot comparison or restore preview is missing');
+must(coronaRoutes.includes("app.get('/api/repo/:owner/:repo/access-surface'") && coronaRoutes.includes('riskForAccessSurface') && server.includes('registerAccessSurfaceRoutes(app,'), 'Shadow Access Radar is missing');
+must(coronaRoutes.includes("app.post('/api/repo/:owner/:repo/snapshot-compare'") && coronaRoutes.includes("app.post('/api/repo/:owner/:repo/restore-preview'") && server.includes('registerSnapshotRoutes(app,'), 'Snapshot comparison or restore preview is missing');
 must(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware gate is missing');
 must(server.includes('normalizeFileBatch') && server.includes('summarizeBatchItems'), 'Task 18 aggregate mutation evidence is not wired');
 const mutationCoverage = read('apps/api/src/platform/mutation-gateway/mutation-coverage.ts');

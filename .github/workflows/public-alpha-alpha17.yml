@@ -126,7 +126,10 @@ jobs:
       # whether the bytes that were packaged from it are -- and a failure in
       # the candidate alone is what tells you packaging broke something. What
       # they no longer do is wait for each other.
+      # Bounded on its own, as in ci.yml: a slow package mirror fails here,
+      # by name, rather than eating into the qualification.
       - run: bash ci/install-browser.sh chromium webkit
+        timeout-minutes: 15
       - run: bash ci/install-postgres-client.sh
       - name: Build candidate twice and freeze bytes
         id: freeze
@@ -206,9 +209,13 @@ jobs:
   # A shallow checkout is enough here. The server computes its release
   # fingerprint with `git ls-files`, which reads the working tree rather than
   # history, and declines to claim anything when git cannot answer.
+  #
+  # Each step has its own bound, as in ci.yml's browser job: the install may
+  # take 15 minutes on a slow mirror and the tests 18, neither at the other's
+  # expense.
   browser-matrix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -224,7 +231,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: bash ci/install-browser.sh
+        timeout-minutes: 15
       - run: npx playwright test --shard=${{ matrix.shard }}/6
+        timeout-minutes: 18
       # This job uses synthetic browser credentials. Keep only its diagnostics;
       # live-provider and hosted jobs must not upload browser session material.
       - name: Retain browser failure evidence

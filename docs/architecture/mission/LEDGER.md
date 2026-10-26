@@ -1137,3 +1137,16 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
   - Comparing `server.js`'s top-level statements before and after the cut left only the twenty routes, their helpers, the commit writer and head checks, the MIME guess and the imports that went with them.
+
+### CI — a slow package mirror kept out of the tests' time
+
+- **What happened.** CI's browser shard 4 on D12g (`591e612`) was stopped at its 20-minute limit while its tests were still passing.
+  - Installing the browser's system packages took eleven minutes: the Ubuntu mirror served a few megabytes a minute. That left about eight minutes for 175 tests that take eight and a half.
+  - The same shard passed on the same commit in the push run, and once more when re-run. The re-run's install took ten minutes, and the job finished a minute inside its limit.
+- **The fix.** Every job that installs the browser bounds that step on its own, at 15 minutes:
+  - CI's browser shards and the qualification's browser matrix also bound their tests at 18 minutes, with 40 for the job;
+  - CI's integration job now has 30;
+  - the qualification's `automated` job had no job limit and still has none.
+
+  A slow mirror now fails the install step by name instead of taking the tests' time, and a hung spec still fails at 18 minutes. No test, shard or check changed.
+- **Checks:** both workflows parse, and every contract that reads them passes (the workflow, package, alpha.17 harness and staging contracts among them).

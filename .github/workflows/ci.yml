@@ -112,10 +112,16 @@ jobs:
   # reported in minutes and no browser time is spent on a change that fails
   # them. fail-fast is off so one slice's failure says whether the problem is
   # local to a few specs or general.
+  #
+  # Each step has its own bound, so neither can spend the other's time: the
+  # browser's system packages usually install in under a minute, but a slow
+  # Ubuntu mirror took eleven on 26 October and left a 20-minute job too little
+  # for its tests. The install may take 15 minutes and the tests 18, and a hung
+  # spec still fails at 18.
   browser:
     needs: verify
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -130,9 +136,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: bash ci/install-browser.sh
+        timeout-minutes: 15
       # The slice is read by playwright.config.js, so the command is the one a
       # local run uses; unset there, the whole suite runs.
       - run: npm run test:e2e
+        timeout-minutes: 18
         env:
           NV_E2E_SHARD: ${{ matrix.shard }}/6
       # This job uses synthetic browser credentials. Keep only its diagnostics;
@@ -175,9 +183,11 @@ jobs:
             ${{ runner.temp }}/release/*.sha256
           if-no-files-found: error
 
+  # The browser install is bounded on its own, as in the browser job, and the
+  # job is bounded with room for it.
   integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17
@@ -202,6 +212,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: bash ci/install-browser.sh chromium webkit
+        timeout-minutes: 15
       - run: bash ci/install-postgres-client.sh
       - run: npm run build:web
       - run: npm run test:restore-integration

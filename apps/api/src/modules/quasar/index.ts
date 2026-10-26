@@ -4,7 +4,8 @@
  * its store, and the three provider clients -- the repository reader, the
  * credential verifier and the readability probe -- each a namespace of its
  * own, because each speaks to a different party and their vocabularies
- * overlap. The rest of the server reaches this module through this file only.
+ * overlap. Its routes are in http/. The rest of the server reaches this module
+ * through this file only.
  */
 export { KEY_KINDS, KEY_PATTERN, MAX_KEY_LENGTH, classifyKey } from './domain/supabase-key-kinds.ts';
 export type { KeyClassification, KeyKind } from './domain/supabase-key-kinds.ts';
@@ -76,6 +77,7 @@ export {
   describeProbe,
   describeVerification,
   narrationForRule,
+  exposureSeverityOf,
   observationFreshness,
   safeDisplayPath
 } from './domain/exposure-narration.ts';
@@ -123,3 +125,6 @@ export type {
   ScanRecord,
   VerificationRecord
 } from './persistence/exposure-store.ts';
+export { EXPOSURE_VERIFIABLE_RULES, exposureFindingPayload } from './http/finding-payload.ts';
+export { registerExposureRoutes } from './http/exposure-routes.ts';
+export type { ExposureRecords, ExposureRouteDeps, GovernanceAccessOptions } from './http/exposure-routes.ts';

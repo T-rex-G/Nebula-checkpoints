@@ -704,6 +704,16 @@ export function narrationForRule(rule: unknown): RuleNarration | null {
   return entryOf(RULE_NARRATION, name);
 }
 
+/*
+ * A rule's severity, as a scan's history and the security posture sum it. A
+ * rule with no entry is serious, as `describeFinding` describes it, rather
+ * than nothing.
+ */
+export function exposureSeverityOf(rule: unknown): Severity {
+  const entry = narrationForRule(rule);
+  return entry ? entry.severity : 'serious';
+}
+
 /* Only stored UTC instants are displayed. Date.parse alone accepts prose and
    rolls impossible dates into a later month, which would make corrupt
    observations appear fresh or reflect arbitrary text into the report. */

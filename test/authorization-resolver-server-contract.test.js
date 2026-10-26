@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { locations } = require('./oracles/route-policy');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
@@ -34,7 +35,9 @@ assert(descriptorContract.includes('security: normalizeMutationSecurity(input.se
  */
 assert(/if \(isPublicReaderAccess\(context\.authorization\) && options\.publicRepositories !== true\)/.test(server), 'governance access must refuse public readers unless the route opts in');
 assert(server.includes("code: 'GOVERNANCE_COLLABORATORS_ONLY'"), 'the refusal must say why');
-const ownWork = [...server.matchAll(/^app\.(get|post|put|patch|delete)\('([^']+)'[^\n]*governanceAccess\('reader', OWN_WORK\)/gm)].map(match => `${match[1].toUpperCase()} ${match[2]}`).sort();
+/* Read from the route policy, so a route counts wherever it is registered: server.js or a module's routes. */
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
+const ownWork = policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => `${entry.method} ${entry.path}`).sort();
 assert.deepStrictEqual(ownWork, [
   'GET /api/repo/:owner/:repo/code-audit/history',
   'GET /api/repo/:owner/:repo/code-audit/history/:auditId',
@@ -51,9 +54,20 @@ assert.deepStrictEqual(ownWork, [
   'POST /api/repo/:owner/:repo/exposure/scans',
   'POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel'
 ], 'exactly the identity-scoped routes accept a public reader');
-assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWork.length + 1, 'OWN_WORK is used nowhere else');
-for (const line of server.split('\n').filter(text => /^app\.\w+\('\/api\/repo\/:owner\/:repo\/governance/.test(text))) {
-  assert(!line.includes('OWN_WORK'), `governance is collaborators' business: ${line.slice(0, 90)}`);
+/*
+ * OWN_WORK is used nowhere else: in server.js its definition, the routes still
+ * registered there, and its one hand-over to Quasar's routes; in Quasar's
+ * routes, the field that receives it, the binding that names it, and its routes.
+ */
+const quasarRoutesFile = 'apps/api/src/modules/quasar/http/exposure-routes.ts';
+const quasarRoutes = fs.readFileSync(path.join(root, quasarRoutesFile), 'utf8');
+const ownWorkIn = file => policyRoutes.filter(entry => entry.at.startsWith(`${file}:`) && entry.guards.includes("governanceAccess('reader', OWN_WORK)")).length;
+assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWorkIn('server.js') + 2, 'OWN_WORK is used nowhere else in server.js');
+assert(/registerExposureRoutes\(app, \{[^}]*\bOWN_WORK\b/.test(server), 'and the one hand-over is to the exposure routes');
+assert.strictEqual((quasarRoutes.match(/OWN_WORK/g) || []).length, ownWorkIn(quasarRoutesFile) + 2, 'nor in the exposure routes');
+assert.strictEqual(ownWorkIn('server.js') + ownWorkIn(quasarRoutesFile), ownWork.length, 'and no other file registers a route with it');
+for (const entry of policyRoutes.filter(item => item.path.startsWith('/api/repo/:owner/:repo/governance'))) {
+  assert(!entry.guards.some(guard => guard.includes('OWN_WORK')), `governance is collaborators' business: ${entry.method} ${entry.path}`);
 }
 /*
  * A team decision about an audit finding is the collaborators' business:
@@ -67,12 +81,12 @@ for (const [method, route, role] of [
   ['post', '/api/repo/:owner/:repo/code-audit/findings/:findingId/triage', 'reviewer'],
   ['post', '/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen', 'reviewer']
 ]) {
-  const line = server.split('\n').find(text => text.startsWith(`app.${method}('${route}'`));
-  assert(line && line.includes(`governanceAccess('${role}')`) && !line.includes('OWN_WORK'), `${route} takes the ${role} role of a collaborator`);
+  const entry = policyRoutes.find(item => item.method === method.toUpperCase() && item.path === route);
+  assert(entry && entry.guards.includes(`governanceAccess('${role}')`) && !entry.guards.some(guard => guard.includes('OWN_WORK')), `${route} takes the ${role} role of a collaborator`);
 }
 for (const action of ['verify', 'probe-readability', 'accept-risk']) {
-  const line = server.split('\n').find(text => text.includes(`/exposure/findings/:fingerprint/${action}'`) && text.startsWith('app.post('));
-  assert(line && line.includes("governanceAccess('administrator')") && !line.includes('OWN_WORK'), `${action} stays with administrators`);
+  const route = policyRoutes.find(entry => entry.method === 'POST' && entry.path === `/api/repo/:owner/:repo/exposure/findings/:fingerprint/${action}`);
+  assert(route && route.guards.includes("governanceAccess('administrator')") && !route.guards.some(guard => guard.includes('OWN_WORK')), `${action} stays with administrators`);
 }
 
 console.log('authorization resolver server contract tests passed');

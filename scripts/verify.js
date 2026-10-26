@@ -146,6 +146,7 @@ for (const file of [
   'apps/api/src/modules/parallax/application/rendered-runner.ts', 'apps/api/src/modules/parallax/application/rendered-worker.ts',
   'apps/api/src/modules/parallax/http/parallax-routes.ts',
   'apps/api/src/modules/posture/http/posture-routes.ts',
+  'apps/api/src/modules/quasar/http/exposure-routes.ts', 'apps/api/src/modules/quasar/http/finding-payload.ts',
   'apps/api/src/modules/pulsar/index.ts', 'apps/api/src/modules/pulsar/domain/webhook-events.ts',
   'apps/api/src/modules/pulsar/domain/webhook-signature.ts', 'apps/api/src/modules/pulsar/domain/activity-feed.ts',
   'apps/api/src/modules/pulsar/application/live-stream.ts',

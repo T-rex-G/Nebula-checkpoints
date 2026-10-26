@@ -759,3 +759,70 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **What CI found.** With the settling helper (`26b21ea`), CI's mobile slice named where a missed press landed: a severity bar beside the repository's name, in the security posture card.
 - **Why.** `hover()` leaves the pointer where the control was when it scrolled into view, and a reading that the scroll starts can move the card after that. The helper waited for the page to hold still and checked the control's new centre, but pressed wherever the pointer had been left. A probe that moves the card after the hover reproduced the miss on desktop and mobile. It also showed that the move can carry the control out of view.
 - **Fix.** After settling, `test/e2e/press.js` scrolls the control back into view if it left, settles again, moves the pointer to the control's centre as it is now, and checks and presses that point. The probe presses the control with the fix. The six press tests pass three times in a row on desktop and mobile. The earlier qualifier entries on these tests stand: the redraw race was real, and this was a second cause behind it.
+- **Held in CI.** On `63b8a74`, all 27 checks that run without the owner's authorization passed: every browser shard on both runs, the browser matrix, integration, verify, the compiled server and the qualification's `automated` run. The four live jobs were skipped, as designed.
+
+### D12d — Quasar's routes
+
+- **One registration.** The twelve exposure routes were contiguous in `server.js`, so `modules/quasar/http/exposure-routes.ts` exports a single `registerExposureRoutes`. It registers them where they stood and in their order, so the route policy is unchanged.
+- **What moved with them:**
+  - The finding payload, with the set of rules a verifier exists for (`http/finding-payload.ts`).
+  - The severity lookup a scan's history sums by (`exposureSeverityOf`, now in `domain/exposure-narration.ts`). The security posture's registration takes it from Quasar's index.
+  - The comment that explains why the chain is load-bearing.
+- **What stays in the server.** The store is shared with the scan worker, so `exposureService` stays in `server.js` and is handed in. The failure helper also stays, because the code-audit routes use it until Uranus's routes move.
+- **What the routes are handed:**
+  - their guards, including the governance role, `OWN_WORK` and the mutation context;
+  - the governance context and the session's account;
+  - the retained actor, the public error body and the store;
+  - the worker's nudge;
+  - the four keys, each under its own name;
+  - the repository reader, the credential verifier and the readability prober.
+
+  The two outbound clients are handed in rather than imported, so a test can give them a stand-in transport.
+- **One deliberate change.** The old severity lookup indexed the narration table directly. A rule named after an inherited property, such as `constructor`, found the prototype's member, and a history summed it as `undefined`. The lookup now uses the table's own entries, as `narrationForRule` does, so such a rule counts as serious, like any rule without an entry. Stored rules are detection rule names, so no stored finding can reach this case. `exposure-narration.test.js` now checks the lookup for every rule and for these names.
+- **Behaviour unchanged otherwise**, by an oracle that ran the twelve handlers cut from the previous `server.js` beside the module. The old side included the previous payload, severity lookup and failure helper. Both sides used the real detection, fingerprints, grant signing, project discovery and public error body, a held clock and the same UUIDs.
+
+  The 20,000 scenarios varied:
+  - store answers, and failures that are coded, uncoded, carry a credential in their message, or carry a status that is not an integer;
+  - a missing database;
+  - files that are missing, unreadable, changed, not text, or without a project reference;
+  - fingerprints in either case and under either key version;
+  - every body shape, including a Buffer, a string and confirmations given as arrays;
+  - governance contexts and accounts that are missing;
+  - queries.
+
+  The oracle compared every answer and every call to the store, the reader, the verifier, the prober, the nudge and the actor lookup, in order. All 40,000 comparisons were identical, including 183 verifications and 63 probes that went out. Fourteen mutants fail it, each on a comparison rather than a crash:
+  - a confirmation without `authorized: true`;
+  - an accept-risk without the identity;
+  - history on any truthy value;
+  - a two-minute grant;
+  - a probe grant signed with the verification key;
+  - `probeable` naming another rule;
+  - a fingerprint left in its case;
+  - failures defaulting to 400;
+  - a clear that reaches the store before its confirmation;
+  - every severity summed as serious;
+  - a scan request that does not start the worker;
+  - untrimmed columns;
+  - a verification recorded under a fixed name;
+  - a probe that reads the file before refusing a key that is not anonymous.
+- **Source-reading checks became behavioural or follow the policy:**
+  - `test/quasar-exposure-routes.test.js` reads each route's chain from the route policy. Over HTTP, it checks:
+    - the identity in every store call;
+    - each explicit word refused before the store or the repository is read;
+    - the file read at the finding's commit, and the candidate matched by fingerprint;
+    - grants that the real verifier and prober accept, through a stand-in transport, with a one-minute life and bound to the project and question;
+    - a grant signed with the wrong key refused before the network;
+    - neither credential in a response or a record;
+    - both sentences on every finding, and the path masked;
+    - every route failing through the public error body without repeating a message.
+
+    It replaces the route sections of `exposure-worker.test.js`, which keeps how the server hands the routes their keys and clients.
+  - `authorization-resolver-server-contract` reads the identity-scoped and administrator routes from the route policy, and counts `OWN_WORK` in both files that hold it.
+  - `exposure-report-client` uses the module's payload rather than evaluating a slice of `server.js`.
+- **Ratchet:** the routes `server.js` registers itself fall from 174 to 162.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the two new files);
+  - the architecture oracles, route surface, module boundaries, contracts and configuration registry;
+  - the exposure, narration, report-client and authorization tests;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.

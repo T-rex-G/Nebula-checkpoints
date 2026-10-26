@@ -41,11 +41,13 @@ const { REASONS: PROBE_REASONS, PROBE_STATES } = require('../apps/api/src/module
 const { DISPOSITIONS } = require('../apps/api/src/modules/quasar/index.ts');
 const {
   NARRATION_VERSION,
+  RULE_NARRATION,
   describeDisposition,
   describeFinding,
   describeLocation,
   describeProbe,
   describeVerification,
+  exposureSeverityOf,
   narrationForRule,
   observationFreshness,
   safeDisplayPath
@@ -91,7 +93,11 @@ const finding = Object.freeze({
   /* A rule that does not exist has no narration, rather than a generic one. */
   for (const unknown of ['not-a-rule', '', null, 'github-token ', 'constructor', 'toString', '__proto__', 'valueOf']) {
     assert.strictEqual(narrationForRule(unknown), null, JSON.stringify(unknown));
+    /* And it is summed as serious, as describeFinding describes it -- never as nothing. */
+    assert.strictEqual(exposureSeverityOf(unknown), 'serious', JSON.stringify(unknown));
   }
+  /* A rule with an entry is summed under that entry's severity. */
+  for (const rule of Object.keys(RULE_NARRATION)) assert.strictEqual(exposureSeverityOf(rule), RULE_NARRATION[rule].severity, rule);
 
   /*
    * Nor anywhere else a word is looked up. Every table here is keyed by a

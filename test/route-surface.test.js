@@ -250,8 +250,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * routes were already registered from their own file).
  * 185 to 181: Posture's four.
  * 181 to 174: Pulsar's seven.
+ * 174 to 162: Quasar's twelve.
  */
-const SERVER_ROUTE_CEILING = 174;
+const SERVER_ROUTE_CEILING = 162;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

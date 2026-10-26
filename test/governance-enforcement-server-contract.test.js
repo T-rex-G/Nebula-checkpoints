@@ -3,6 +3,11 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const governanceRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-routes.ts'), 'utf8');
+/* Every route as the route policy reads them from server.js and the modules' registrations. */
+const { locations } = require('./oracles/route-policy');
+const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
+const exposes = routePath => policyRoutes.some(entry => entry.method === 'GET' && entry.path === routePath);
 const gateway = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 assert(server.includes('createGovernanceRuntime'), 'server must create the runtime policy evaluator');
 assert(server.includes('policyEvaluator:'), 'mutation gateway must receive the policy evaluator');
@@ -13,7 +18,7 @@ for (const injected of ['policyDecision', 'controlMapping', 'enforcementMode']) 
     error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_POLICY_INPUT_FORBIDDEN', 'client/server descriptors must not inject policy decisions');
 }
 assert(gateway.includes('policy.evaluated'), 'gateway must emit policy evaluation evidence');
-assert(server.includes("/governance/decisions/verify"), 'server must expose decision-chain verification');
-assert(server.includes("/governance/decisions'"), 'server must expose bounded policy decision history');
-assert(/GOVERNANCE\|MUTATION\|AUTHORIZATION\|SIMULATION\|POLICY/.test(server), 'governance API errors must preserve bounded policy decision codes');
+assert(exposes('/api/repo/:owner/:repo/governance/decisions/verify'), 'server must expose decision-chain verification');
+assert(exposes('/api/repo/:owner/:repo/governance/decisions'), 'server must expose bounded policy decision history');
+assert(/GOVERNANCE\|MUTATION\|AUTHORIZATION\|SIMULATION\|POLICY/.test(governanceRoutes), 'governance API errors must preserve bounded policy decision codes');
 console.log('governance enforcement server contract tests passed');

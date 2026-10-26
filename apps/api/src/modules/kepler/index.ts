@@ -1,7 +1,8 @@
 /*
  * Kepler: repository governance. Policies, their review and activation, the
  * evaluation the mutation gateway consults, exceptions, templates, the
- * digital twin, delivery of governance events, and the evidence each leaves.
+ * digital twin, delivery of governance events, the evidence each leaves, and
+ * the routes that serve them (http/governance-routes.ts).
  * The rest of the server reaches this module through this file only.
  */
 export {
@@ -95,3 +96,5 @@ export { GovernanceApiError, assertGovernanceAuthorization, createGovernanceApiS
 export type { GovernanceApiOptions, GovernanceApiStore, GovernanceContext, ServiceInput } from './application/governance-api.ts';
 export { GovernanceStore, translateDatabaseError } from './persistence/governance-store.ts';
 export type { AuthorizationEvidence, GovernanceActor, GovernanceStoreOptions } from './persistence/governance-store.ts';
+export { governanceFailure, registerGovernanceLifecycleRoutes, registerGovernanceRoutes } from './http/governance-routes.ts';
+export type { GovernanceRequest, GovernanceRouteDeps } from './http/governance-routes.ts';

@@ -4,20 +4,27 @@ const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-for (const route of [
-  "/api/repo/:owner/:repo/governance/templates",
-  "/api/repo/:owner/:repo/governance/templates/:templateId",
-  "/api/repo/:owner/:repo/governance/baselines/generate",
-  "/api/repo/:owner/:repo/governance/digital-twin"
-]) assert(server.includes(route), `missing ${route}`);
-assert(server.includes("governanceAccess('reader')"));
+const governanceRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-routes.ts'), 'utf8');
+/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+const { locations } = require('./oracles/route-policy');
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
+for (const [method, routePath] of [
+  ['GET', '/api/repo/:owner/:repo/governance/templates'],
+  ['GET', '/api/repo/:owner/:repo/governance/templates/:templateId'],
+  ['POST', '/api/repo/:owner/:repo/governance/baselines/generate'],
+  ['GET', '/api/repo/:owner/:repo/governance/digital-twin']
+]) {
+  const entry = policyRoutes.find(candidate => candidate.method === method && candidate.path === routePath);
+  assert(entry, `missing ${method} ${routePath}`);
+  assert(entry.guards.includes("governanceAccess('reader')"), `${method} ${routePath} must be reader authorized`);
+}
 assert(server.includes("res.setHeader('Cache-Control', 'no-store')"));
-assert(server.includes('governanceRepositoryFacts'));
-assert(server.includes('repositoryFacts'));
+assert(governanceRoutes.includes('const readRepositoryFacts = async (req: Request)'));
+assert(governanceRoutes.includes('const repositoryFacts = await readRepositoryFacts(req);'));
 
 assert(server.includes("new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$')"),
   'read-only safeguards must exempt only the exact baseline generation route');
-assert(server.includes('gh(req.gh, `${R(req)}/branches?per_page=100`)'),
+assert(governanceRoutes.includes('deps.gh(account(req), `${repositoryPath(req)}/branches?per_page=100`)'),
   'branch facts must use GitHub pagination');
 
 console.log('governance template and Digital Twin server contract tests passed');

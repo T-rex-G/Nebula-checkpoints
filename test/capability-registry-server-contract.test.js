@@ -136,35 +136,24 @@ for (const [method, routePath] of [
   );
 }
 
+/* The governance routes with their guard chains, as the route policy reads them from server.js and Kepler's registrations. */
 function governanceRegistrations(methods) {
-  const pattern = new RegExp(
-    `\\b(?:app|router)\\s*\\.\\s*(${methods})\\s*\\(\\s*(['"])` +
-      '(\\/api\\/repo\\/:owner\\/:repo\\/governance\\/[^\'"]+)\\2',
-    'g'
-  );
-  return [...serverSource.matchAll(pattern)];
+  return policyRoutes.filter(entry => methods.includes(entry.method) && entry.path.startsWith('/api/repo/:owner/:repo/governance/'));
 }
 
-const governanceReadRoutes = governanceRegistrations('get');
+const governanceReadRoutes = governanceRegistrations(['GET']);
 assert(governanceReadRoutes.length >= 15, 'governance read-route inventory unexpectedly shrank');
-function registrationHeader(match) {
-  const remainder = serverSource.slice(match.index);
-  const handlerIndex = remainder.search(/(?:async\s*)?\(\s*req\s*,\s*res\s*\)\s*=>/);
-  assert(handlerIndex >= 0, `governance route ${match[1].toUpperCase()} ${match[3]} is missing its handler`);
-  return remainder.slice(0, handlerIndex);
-}
-
-const governanceAccessNamed = /capabilityAccess\(\s*'governance'\s*\)/;
+const governanceAccessNamed = /^capabilityAccess\(\s*'governance'\s*\)$/;
 const experimentalGovernanceAccess = /allowExperimental/;
 assert(
-  governanceReadRoutes.every(match => governanceAccessNamed.test(registrationHeader(match))
-    && !experimentalGovernanceAccess.test(registrationHeader(match))),
+  governanceReadRoutes.every(entry => entry.guards.some(guard => governanceAccessNamed.test(guard))
+    && !entry.guards.some(guard => experimentalGovernanceAccess.test(guard))),
   'every governance GET route names governance, with no experimental opt-in'
 );
-const governanceMutationRoutes = governanceRegistrations('post|put|patch|delete');
+const governanceMutationRoutes = governanceRegistrations(['POST', 'PUT', 'PATCH', 'DELETE']);
 assert(governanceMutationRoutes.length >= 15, 'governance mutation-route inventory unexpectedly shrank');
 assert(
-  governanceMutationRoutes.every(match => !experimentalGovernanceAccess.test(registrationHeader(match))),
+  governanceMutationRoutes.every(entry => !entry.guards.some(guard => experimentalGovernanceAccess.test(guard))),
   'governance mutations must remain blocked for providers with view-only experimental coverage'
 );
 const activeIdentityKey = hashJson({

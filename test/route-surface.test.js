@@ -253,8 +253,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 174 to 162: Quasar's twelve.
  * 162 to 150: Uranus's twelve.
  * 150 to 135: Corona's fifteen.
+ * 135 to 85: Kepler's fifty.
  */
-const SERVER_ROUTE_CEILING = 135;
+const SERVER_ROUTE_CEILING = 85;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

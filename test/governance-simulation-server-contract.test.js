@@ -8,13 +8,14 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const kepler = path.join(root, 'apps', 'api', 'src', 'modules', 'kepler');
 assert(fs.existsSync(path.join(kepler, 'domain', 'governance-simulation.ts')), 'simulation module must exist');
 assert(/import \{[^}]*\bsimulatePolicyImpact\b[^}]*\} from '\.\.\/domain\/governance-simulation\.ts'/.test(fs.readFileSync(path.join(kepler, 'application', 'governance-api.ts'), 'utf8')), 'governance service must load simulation');
-const route = "app.post('/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate'";
-assert(server.includes(route), 'simulation route must exist');
-assert(server.includes("(?:GOVERNANCE|MUTATION|AUTHORIZATION|SIMULATION|POLICY)_"), 'simulation and policy errors must remain bounded API errors');
-const routeIndex = server.indexOf(route);
-const routeSlice = server.slice(routeIndex, routeIndex + 900);
-assert(routeSlice.includes("governanceAccess('reader')"), 'simulation requires reader authorization');
-assert(!routeSlice.includes('governanceMutationContext('), 'simulation must not enter the mutation gateway');
+/* The simulation route with its guard chain, as the route policy reads it from Kepler's registration. */
+const { locations } = require('./oracles/route-policy');
+const simulation = locations(root).find(entry => entry.kind === 'route' && entry.method === 'POST' && entry.path === '/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate');
+assert(simulation, 'simulation route must exist');
+const governanceRoutes = fs.readFileSync(path.join(kepler, 'http', 'governance-routes.ts'), 'utf8');
+assert(governanceRoutes.includes("(?:GOVERNANCE|MUTATION|AUTHORIZATION|SIMULATION|POLICY)_"), 'simulation and policy errors must remain bounded API errors');
+assert(simulation.guards.includes("governanceAccess('reader')"), 'simulation requires reader authorization');
+assert(!simulation.guards.some(guard => guard.startsWith('governanceMutationContext(')), 'simulation must not enter the mutation gateway');
 assert(server.includes("new RegExp(`${prefix}/[^/]+/versions/[^/]+/simulate$`)"), 'read-only safeguard exemption must enumerate only the exact simulation route');
 assert(pkg.scripts['test:unit'].includes('governance-simulation.test.js'), 'unit manifest must run simulation tests');
 assert(pkg.scripts['test:unit'].includes('governance-simulation-api.test.js'), 'unit manifest must run simulation API tests');

@@ -988,3 +988,59 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - a gate takes about 3 s;
   - the contract check takes 1.9 s, where it took 2.3–2.6 s.
 - **Checks:** the release test, the contract (whole and focused), lint, and the full unit gate and every verify-job gate on Node 22.23.4, on a clean checkout with the fix.
+
+### D12g — Kepler's routes
+
+- **Two registrations.** Kepler's fifty governance routes stand in two runs in the route policy, with Quasar's exposure routes between them. `modules/kepler/http/governance-routes.ts` registers each run where it stood:
+  - `registerGovernanceRoutes`: templates and baselines, the digital twin, notifications, webhooks and evidence exports, policies with their drafts, versions, simulations, reviews and decisions, and exceptions up to their decision (39 routes);
+  - `registerGovernanceLifecycleRoutes`: the rest of a policy's life, from an exception's revocation through activation and rollback, deactivation, archive and restore, a draft's discard and a version's withdrawal, to a reset of the repository's governance (11 routes).
+- **What moved with them.** `governanceFailure`, the answer a governance failure gets, moves into the module and is exported, because the server's governance guard and its two mutation guards still answer with it. The repository facts a baseline is generated from move in as `readRepositoryFacts`, reading the provider through the `gh` that is handed in. The routes load the access projection from Kepler's own domain, so the server no longer imports it.
+- **What stays in the server.** The governance guard resolves the caller's authorization and attaches the service. The mutation guards build each action's descriptor. The read-only exemptions name the control-plane routes. All of these belong to the pipeline and to identity-access's authorization until those move. The routes read what the guard attached through `governance(req)`, so the request is the only thing they share with it.
+- **Behaviour unchanged**, by an oracle that evaluated both regions of the previous `server.js`, with the failure and facts helpers they used, beside the module's two registrations.
+
+  The 20,000 scenarios varied:
+  - each of the fifty routes;
+  - a governance service that answers or fails per method, with governance, mutation, authorization, simulation and policy errors, statuses out of range, long and control-character messages, raw errors, thrown strings and null;
+  - every path parameter present or absent, including empty and traversal-shaped ones;
+  - query values that are numbers, words, empty or repeated;
+  - bodies that are absent, empty, objects, text or null, with and without an idempotency key;
+  - governance contexts with and without a service, a scope key or an authorization;
+  - repositories of every visibility, archived or not, with branch lists that are empty, mixed, a full page, not a list or failing.
+
+  The oracle compared every answer (its status, headers, body, and a sent export's type and bytes), every service call with its input, the provider reads and the logged failures, in order. All 40,000 comparisons were identical, including 231 export downloads and 1,934 reads that failed as unknown. Twelve mutants fail it, each on a comparison:
+  - a policy error answered as unknown;
+  - a shorter message;
+  - an unknown failure not logged;
+  - a twin without its access;
+  - an export under another name;
+  - an export as plain JSON;
+  - preferences without their idempotency key;
+  - one protected branch fewer;
+  - a full page of branches read as complete;
+  - a reset answered as a read;
+  - notifications without their cursor;
+  - protected branches left unsorted.
+- **Tests:**
+  - `test/kepler-governance-routes.test.js` checks each route's chain against the baseline inventory. Over HTTP, on the real governance service with a store that records what it is asked, it checks:
+    - templates served from the catalogue, touching neither the store nor the provider;
+    - a baseline built from the repository's own facts, equal to the domain's own build from those facts: only protected branches, sorted and bounded at fifty, with a full page of branches, the truncation and an archived repository each warned of;
+    - a provider failure during a baseline answered as unknown, and logged by its code alone;
+    - a role the service refuses before the store is touched;
+    - the server's scope and actor on each call, with roles in a body never passed on;
+    - query, path, body and key reaching the store for reads, revocations, archives and discards, each through its gateway action;
+    - an archive without its key refused before the store;
+    - an export downloaded as its envelope under its own name and type;
+    - a digital twin whose access is the caller's, a reader's and an administrator's apart;
+    - a raw failure's words kept from the answer and the log, and a governance error's kept, bounded, with a status outside 4xx and 5xx answered as 500.
+  - The source checks read the route policy or the module:
+    - the eight governance server contracts (activation, API, delivery, enforcement, exceptions, interface, simulation, and templates with the digital twin) find each route, its role and its gateway action in the policy, and the handlers' code in the module;
+    - `capability-registry-server-contract` reads the governance routes' guards from the policy;
+    - `verify` reads the digital twin's access projection in the module.
+- **Ratchet:** the routes `server.js` registers itself fall from 135 to 85.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new file);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - every converted contract and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the fifty routes, the two helpers and the import change.

@@ -151,6 +151,7 @@ for (const file of [
   'apps/api/src/modules/corona/application/recovery.ts', 'apps/api/src/modules/corona/http/recovery-routes.ts',
   'apps/api/src/modules/corona/http/safeguard-routes.ts', 'apps/api/src/modules/corona/http/access-surface-routes.ts',
   'apps/api/src/modules/corona/http/evidence-routes.ts',
+  'apps/api/src/modules/kepler/http/governance-routes.ts',
   'apps/api/src/modules/pulsar/index.ts', 'apps/api/src/modules/pulsar/domain/webhook-events.ts',
   'apps/api/src/modules/pulsar/domain/webhook-signature.ts', 'apps/api/src/modules/pulsar/domain/activity-feed.ts',
   'apps/api/src/modules/pulsar/application/live-stream.ts',
@@ -197,7 +198,7 @@ for (const id of ['tab-governance', 'govRoot', 'govLive']) must(ids.includes(id)
 must(html.includes('data-tab="governance"') && html.includes('data-act="governance"'), 'Governance desktop/mobile navigation missing');
 must(shellImports().includes('apps/web/src/features/governance/governance-ui.js'), 'Governance renderer must be loaded and precached');
 must(/\/governance/.test(read('packages/contracts/src/offline-cache-policy.ts')), 'Governance APIs must remain network-only');
-must(read('server.js').includes('projectGovernanceInterfaceAccess') && read('server.js').includes('res.json({ digitalTwin, access })'), 'Digital Twin access projection is not wired');
+must(read('apps/api/src/modules/kepler/http/governance-routes.ts').includes('projectGovernanceInterfaceAccess(governance(req).authorization)') && read('apps/api/src/modules/kepler/http/governance-routes.ts').includes('res.json({ digitalTwin, access })'), 'Digital Twin access projection is not wired');
 
 
 const pkg = JSON.parse(read('package.json'));

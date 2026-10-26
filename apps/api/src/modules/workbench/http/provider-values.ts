@@ -26,10 +26,10 @@ export function listed(value: unknown, expression: string): readonly unknown[] {
   return value;
 }
 
-/* `value.slice(start)`, as JavaScript calls it: a list or a text can be sliced, anything else cannot. */
-export function sliced(value: unknown, start: number, expression: string): unknown {
+/* `value.slice(start, end)`, as JavaScript calls it: a list or a text can be sliced, anything else cannot. */
+export function sliced(value: unknown, start: number, expression: string, end?: number): unknown {
   if (value === null || value === undefined) throw new TypeError(`Cannot read properties of ${value} (reading 'slice')`);
-  if (Array.isArray(value) || typeof value === 'string') return value.slice(start);
+  if (Array.isArray(value) || typeof value === 'string') return value.slice(start, end);
   throw new TypeError(`${expression} is not a function`);
 }
 

@@ -517,7 +517,8 @@ function createGithubClient({ env, fetchImpl }) {
   /*
    * Git LFS speaks to a different host from the REST API -- github.com rather
    * than api.github.com -- and authenticates with Basic rather than Bearer.
-   * These mirror uploadViaLFS in server.js request for request, because a
+   * These mirror the workbench's LFS upload (apps/api/src/modules/workbench/
+   * application/lfs.ts) request for request, because a
    * probe that reached the provider by some other route would prove the
    * provider works and leave the product's own path unproven. The guard in
    * test/lfs-probe-contract.test.js holds the two together.
@@ -551,7 +552,7 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   /* Written out rather than parameterised, so the body is visibly the one
-   * uploadViaLFS sends and the contract guard can hold them together. */
+   * the LFS upload sends and the contract guard can hold them together. */
   async function lfsBatch({ login, branch, objects }) {
     return requestJson(fetchImpl, lfsBatchUrl(), {
       method: 'POST',
@@ -607,7 +608,7 @@ function createGithubClient({ env, fetchImpl }) {
    * The proof that the provider really took the bytes is the second batch
    * call. An LFS server omits the upload action for an object it already
    * holds, so asking again for the same oid and being offered nothing is the
-   * provider stating it has them. That is also the branch of uploadViaLFS that
+   * provider stating it has them. That is also the branch of the LFS upload that
    * has never been observed -- `if (uploadAction)` falling through -- and it
    * is the deduplication the upload page depends on to avoid resending.
    */

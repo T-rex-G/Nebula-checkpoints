@@ -66,7 +66,8 @@ assert(server.includes('VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy must serve 
 assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed');
 
 assert(/restore-paths[\s\S]+deps\.enforceProtectedPaths\(req, matches\.map\(item => member\(item, 'path'\)\)\)/.test(corona), 'Restore-paths must enforce policies against every restored child path');
-assert(/move-dir[\s\S]+enforceProtectedPaths\(req, affectedPaths\)/.test(server), 'Folder moves must enforce policies against source and destination child paths');
+const folderMove = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'folder-move-route.ts'), 'utf8');
+assert(/move-dir[\s\S]+deps\.enforceProtectedPaths\(req, affectedPaths\)/.test(folderMove), 'Folder moves must enforce policies against source and destination child paths');
 
 const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');

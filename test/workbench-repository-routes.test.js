@@ -130,7 +130,7 @@ function harness() {
   const commits = workbench.createCommitWriter(gh);
   const listRepositories = workbench.createRepositoryList({ gh, account, listAllowed: (_req, owner, name) => name !== state.listHidden });
   const assertProviderBoundLfs = () => true;
-  const lfs = workbench.createLfsTransfer({ fetch: fetchT, assertProviderBoundLfs, transferTimeoutMs: 60_000 });
+  const lfs = workbench.createLfsTransfer({ fetch: fetchT, gh, commits, assertProviderBoundLfs, assertProviderMutation: () => true, transferTimeoutMs: 60_000 });
   const app = express();
   app.use(express.json());
   workbench.registerCodeownersRoute(app, { ...guards, account, fail, gh });

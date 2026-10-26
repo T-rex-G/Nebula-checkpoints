@@ -11,7 +11,6 @@
 
 const express = require('express');
 const crypto = require('crypto');
-const zlib = require('zlib');
 async function fetchT(url, opts = {}, ms = 20000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Upstream timeout after ${ms / 1000}s`)), ms);
@@ -56,14 +55,12 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { pipeline } = require('stream/promises');
 const {
   CapabilityError, loadCapabilityDocument, projectCapabilities,
   resolveCapability, assertCapabilityAvailable, legacyCapsFor
 } = require('./src/capability-registry');
 const {
   githubTokenKind, validateRepositoryCreation, githubRepositoryScopes, validateCodeQuery, scopedCodeQuery,
-  searchAccessibleCode, listAccessibleNotifications,
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
   resolveProviderAccount
 } = require('./apps/api/src/modules/github-provider/index.ts');
@@ -77,7 +74,6 @@ const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
 const {
   evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
   protectedPatternsForRepository,
-  normalizeRepoPath, normalizeBranchName, lfsAttributePattern,
   createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
   registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
 } = require('./apps/api/src/modules/corona/index.ts');
@@ -120,7 +116,6 @@ const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/r
 const { describeServerRuntime } = require('./apps/api/src/platform/release/server-runtime.ts');
 const { loadWebBuild } = require('./apps/api/src/platform/release/web-build.ts');
 const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
-const { normalizeTransportChoice, planUploadTransport } = require('./packages/contracts/src/upload-planning.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 // The compiled fallback (apps/api/src/platform/release/server-runtime.ts, ADR-088) still names the source it
@@ -186,12 +181,13 @@ const {
 const { verifyCredential } = credentialVerifier;
 const { probeAnonymousReadability } = readabilityProbe;
 const {
-  pullListItem, registerWorkspacePostureRoutes, registerBranchProtectionRoutes
+  registerWorkspacePostureRoutes, registerBranchProtectionRoutes
 } = require('./apps/api/src/modules/posture/index.ts');
 const {
-  createCommitWriter, createRepositoryList, createLfsTransfer, requireHttpsLfsActionUrl,
+  createCommitWriter, createRepositoryList, createLfsTransfer, createNativePush, createUploadIntake,
   assertExpectedHead, branchChangedError, requireAggregateExpectedHead,
-  registerCodeownersRoute, registerRepositoryRoutes, registerContentRoutes, registerHistoryRoutes
+  registerCodeownersRoute, registerRepositoryRoutes, registerContentRoutes, registerHistoryRoutes,
+  registerCollaborationRoutes, registerUploadRoutes, registerFolderMoveRoute, registerDependencyAuditRoute
 } = require('./apps/api/src/modules/workbench/index.ts');
 
 const app = express();
@@ -352,62 +348,6 @@ const UPLOAD_MAX = UPLOAD_MAX_MB * MB;
 const UPLOAD_CONCURRENCY = HOSTED_LIMITS?.uploadConcurrency ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_CONCURRENCY || '1', 10) || 1, 1), 4);
 const UPLOAD_TIMEOUT_MINUTES = HOSTED_LIMITS?.uploadTimeoutMinutes ?? Math.min(Math.max(parseInt(process.env.NV_UPLOAD_TIMEOUT_MINUTES || '20', 10) || 20, 2), 60);
 const UPLOAD_TIMEOUT_MS = UPLOAD_TIMEOUT_MINUTES * 60 * 1000;
-let activeUploads = 0;
-
-async function acquireUploadSlot(req, maxBytes) {
-  const rawLength = req.headers['content-length'];
-  const declared = rawLength == null ? 0 : Number(rawLength);
-  if (!Number.isFinite(declared) || declared < 0) throw Object.assign(new Error('Invalid Content-Length'), { status: 400 });
-  if (declared > maxBytes) throw Object.assign(new Error(`Upload exceeds the ${Math.floor(maxBytes / MB)} MB route limit`), { status: 413 });
-  if (activeUploads >= UPLOAD_CONCURRENCY) throw Object.assign(new Error('Another upload is already in progress — retry shortly'), { status: 429 });
-  if (declared) {
-    try {
-      const st = await fsp.statfs(os.tmpdir());
-      const available = Number(st.bavail) * Number(st.bsize);
-      if (Number.isFinite(available) && declared + 32 * MB > available) {
-        throw Object.assign(new Error('Not enough temporary disk space for this upload on the current hosting plan'), { status: 507 });
-      }
-    } catch (error) {
-      if (error && error.status === 507) throw error;
-      /* Some filesystems do not expose statfs; the streamed hard limit still applies. */
-    }
-  }
-  activeUploads += 1;
-  req.setTimeout(UPLOAD_TIMEOUT_MS, () => req.destroy(new Error('Upload timed out')));
-  let released = false;
-  return () => { if (!released) { released = true; activeUploads = Math.max(0, activeUploads - 1); } };
-}
-
-function receiveRawFile(req, tmp, maxBytes, hash) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let settled = false;
-    const w = fs.createWriteStream(tmp, { flags: 'wx', mode: 0o600 });
-    const finishError = error => {
-      if (settled) return;
-      settled = true;
-      req.unpipe(w);
-      w.destroy();
-      req.resume();
-      reject(error);
-    };
-    req.on('aborted', () => finishError(Object.assign(new Error('Upload was aborted'), { status: 499 })));
-    req.on('error', finishError);
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) return finishError(Object.assign(new Error(`Upload exceeds the ${Math.floor(maxBytes / MB)} MB route limit`), { status: 413 }));
-      if (hash) hash.update(chunk);
-    });
-    w.on('error', finishError);
-    w.on('finish', () => {
-      if (settled) return;
-      settled = true;
-      resolve(size);
-    });
-    req.pipe(w);
-  });
-}
-
 async function scanUploadOrThrow(req, tmp, repoPath, size) {
   const result = await scanUploadFile(tmp, { repoPath, size });
   if (result.blocked) {
@@ -2851,9 +2791,6 @@ function governanceMutationContext(action) {
     });
   };
 }
-const requireRepoPath = normalizeRepoPath;
-const requireBranchName = normalizeBranchName;
-const R = (req) => `/repos/${req.params.owner}/${req.params.repo}`;
 
 /* ================= AUTH ================= */
 /* ================= GITHUB IDENTITY ================= */
@@ -4304,12 +4241,20 @@ registerWorkspacePostureRoutes(app, {
 /*
  * The workbench's services: the commit writer every content change goes
  * through, Corona's recoveries included; the repositories a session may see,
- * through the hosted alpha's list filter; and Git LFS storage.
+ * through the hosted alpha's list filter; Git LFS storage; the native Git
+ * push; and the intake every upload arrives through.
  */
 const commitWriter = createCommitWriter(gh);
 const { commitTree } = commitWriter;
 const listRepositories = createRepositoryList({ gh, account: req => req.gh, listAllowed: alphaRepositoryListAllowed });
-const lfsTransfer = createLfsTransfer({ fetch: fetchT, assertProviderBoundLfs, transferTimeoutMs: UPLOAD_TIMEOUT_MS });
+const assertProviderMutation = target => mutationGateway.assertProviderMutation(target);
+const lfsTransfer = createLfsTransfer({
+  fetch: fetchT, gh, commits: commitWriter, assertProviderBoundLfs, assertProviderMutation, transferTimeoutMs: UPLOAD_TIMEOUT_MS
+});
+const nativePush = createNativePush({
+  gh, fetch: fetchT, assertProviderMutation, assertGithubAccount, maxBytes: GIT_PUSH_MAX, maxMegabytes: NATIVE_PUSH_MAX_MB
+});
+const uploadIntake = createUploadIntake({ concurrency: UPLOAD_CONCURRENCY, timeoutMs: UPLOAD_TIMEOUT_MS });
 
 /* Workbench: who owns what in a repository, by its CODEOWNERS file (apps/api/src/modules/workbench/http/codeowners-route.ts). */
 registerCodeownersRoute(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
@@ -4375,622 +4320,23 @@ registerCommitRecoveryRoutes(app, {
   commitTree, enforceProtectedPaths, assertExpectedHead, branchChangedError, requireAggregateExpectedHead
 });
 
-/* ================= SEARCH ================= */
-app.get('/api/repo/:owner/:repo/search', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('search'), auth, async (req, res) => {
-  try {
-    /*
-     * The repository is the server's to name. The query used to be the
-     * reader's text with " repo:owner/name" appended, and GitHub ORs repeated
-     * repo qualifiers -- so "x repo:someone/else" searched a repository this
-     * route was never asked about, outside any invitation scope. The shared
-     * guard refuses qualifiers and boolean operators, and the results are held
-     * to the one repository as well, in case the provider's parser ever reads a
-     * query differently from ours.
-     */
-    const repository = `${req.params.owner}/${req.params.repo}`;
-    const query = scopedCodeQuery(req.query.q, repository);
-    const out = await gh(req.gh, `/search/code?q=${encodeURIComponent(query)}&per_page=30`);
-    res.json((out.items || [])
-      .filter(i => String(i.repository && i.repository.full_name || '').toLowerCase() === repository.toLowerCase())
-      .map(i => ({ name: i.name, path: i.path })));
-  } catch (e) { fail(res, e); }
+/* Workbench: code search, pull requests, issues, notifications and global search, stars, workflow runs and releases (apps/api/src/modules/workbench/http/collaboration-routes.ts). */
+registerCollaborationRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, githubSearchAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  alphaRepositories: req => (ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null),
+  protectedPatternsForReq, enforceProtectedPaths
 });
-
-async function enforceProtectedPullMerge(req, number) {
-  if (!protectedPatternsForReq(req).length) return;
-  const changedPaths = [];
-  const pr = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}`);
-  if (Number(pr.changed_files || 0) > 1000) {
-    throw Object.assign(new Error('This pull request has more than 1,000 changed files, so protected-path verification cannot be completed safely.'), { status: 423, code: 'PROTECTED_PATH_SCAN_INCOMPLETE' });
-  }
-  for (let page = 1; page <= 10; page++) {
-    const batch = await gh(req.gh, `${R(req)}/pulls/${encodeURIComponent(number)}/files?per_page=100&page=${page}`);
-    for (const item of Array.isArray(batch) ? batch : []) {
-      if (item && item.previous_filename) changedPaths.push(item.previous_filename);
-      if (item && item.filename) changedPaths.push(item.filename);
-    }
-    if (!Array.isArray(batch) || batch.length < 100) break;
-  }
-  enforceProtectedPaths(req, [...new Set(changedPaths)]);
-}
-
-/* ================= PULL REQUESTS ================= */
-app.get('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
-  try {
-    const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    const pulls = await gh(req.gh, `${R(req)}/pulls?state=${state}&per_page=30&sort=updated&direction=desc`);
-    res.json(pulls.map(pullListItem));
-  } catch (e) { fail(res, e); }
+/* Workbench: a blob for a batch commit, and one file uploaded by the transport its size allows (http/upload-routes.ts). */
+registerUploadRoutes(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, capabilityAccessWhen, auth, mutationContext, account: req => req.gh, fail, gh,
+  commits: commitWriter, intake: uploadIntake, nativePush, lfs: lfsTransfer,
+  limits: { blobMaxBytes: BLOB_MAX, uploadMaxBytes: UPLOAD_MAX, gitPushMaxBytes: GIT_PUSH_MAX, gitDataMaxBytes: CONTENTS_MAX },
+  scanUpload: scanUploadOrThrow, enforceProtectedPaths
 });
-app.get('/api/repo/:owner/:repo/pulls/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.read'), auth, async (req, res) => {
-  try {
-    const [p, files] = await Promise.all([
-      gh(req.gh, `${R(req)}/pulls/${req.params.num}`),
-      gh(req.gh, `${R(req)}/pulls/${req.params.num}/files?per_page=100`)
-    ]);
-    res.json({
-      number: p.number, title: p.title, body: p.body, state: p.state, draft: p.draft,
-      merged: p.merged, mergeable: p.mergeable, mergeable_state: p.mergeable_state,
-      user: p.user && p.user.login, head: p.head.ref, base: p.base.ref,
-      headSha: /^[0-9a-f]{40}$/i.test(String(p.head && p.head.sha || '')) ? String(p.head.sha).toLowerCase() : null,
-      additions: p.additions, deletions: p.deletions, changed_files: p.changed_files,
-      files: files.map(f => ({ filename: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch }))
-    });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/pulls', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.create'), async (req, res) => {
-  try {
-    const { title, head, base, body, draft } = req.body || {};
-    if (!title || !head || !base) return res.status(400).json({ error: 'title, head, base required' });
-    const p = await gh(req.gh, `${R(req)}/pulls`, {
-      method: 'POST', body: { title, head, base, body: body || '', draft: !!draft }
-    });
-    res.json({ ok: true, number: p.number });
-  } catch (e) { fail(res, e); }
-});
-app.put('/api/repo/:owner/:repo/pulls/:num/merge', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.merge'), async (req, res) => {
-  try {
-    const method = ['merge', 'squash', 'rebase'].includes(req.body && req.body.method) ? req.body.method : 'merge';
-    /*
-     * The head the reviewer looked at is the head that merges. Without it a
-     * merge confirmed against one set of commits would take whatever had been
-     * pushed to the branch since -- reviewed or not. Both providers take the
-     * head as a precondition and refuse the merge when it has moved.
-     */
-    const expected = String(req.body && req.body.expectedHeadSha || '').trim().toLowerCase();
-    if (expected && !/^[0-9a-f]{40}$/.test(expected)) {
-      return res.status(400).json({ error: 'expectedHeadSha must be a 40-character commit SHA', code: 'INVALID_EXPECTED_HEAD' });
-    }
-    const headMoved = () => Object.assign(new Error('The pull request gained commits since it was reviewed. Reload it and review the new head before merging.'), {
-      status: 409, code: 'PULL_HEAD_CHANGED'
-    });
-    await enforceProtectedPullMerge(req, req.params.num);
-    let out;
-    try {
-      out = await gh(req.gh, `${R(req)}/pulls/${req.params.num}/merge`, {
-        method: 'PUT', body: { merge_method: method, ...(expected ? { sha: expected } : {}) }
-      });
-    } catch (error) {
-      if (expected && error.status === 409) throw headMoved();
-      throw error;
-    }
-    res.json({ ok: true, sha: out.sha, message: out.message });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= ISSUES ================= */
-app.get('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
-  try {
-    const state = ['open', 'closed', 'all'].includes(req.query.state) ? req.query.state : 'open';
-    const issues = await gh(req.gh, `${R(req)}/issues?state=${state}&per_page=30&sort=updated`);
-    res.json(issues.filter(i => !i.pull_request).map(i => ({
-      number: i.number, title: i.title, state: i.state,
-      user: i.user && i.user.login, avatar: i.user && i.user.avatar_url,
-      comments: i.comments, updated_at: i.updated_at,
-      labels: (i.labels || []).map(l => ({ name: l.name, color: l.color }))
-    })));
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.read'), auth, async (req, res) => {
-  try {
-    const [i, comments] = await Promise.all([
-      gh(req.gh, `${R(req)}/issues/${req.params.num}`),
-      gh(req.gh, `${R(req)}/issues/${req.params.num}/comments?per_page=50`)
-    ]);
-    res.json({
-      number: i.number, title: i.title, body: i.body, state: i.state,
-      user: i.user && i.user.login, created_at: i.created_at,
-      labels: (i.labels || []).map(l => ({ name: l.name, color: l.color })),
-      comments: comments.map(c => ({ user: c.user && c.user.login, avatar: c.user && c.user.avatar_url, body: c.body, created_at: c.created_at }))
-    });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/issues', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.create'), async (req, res) => {
-  try {
-    const { title, body } = req.body || {};
-    if (!title) return res.status(400).json({ error: 'title required' });
-    const i = await gh(req.gh, `${R(req)}/issues`, { method: 'POST', body: { title, body: body || '' } });
-    res.json({ ok: true, number: i.number });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/issues/:num/comments', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.comment'), async (req, res) => {
-  try {
-    const { body } = req.body || {};
-    if (!body) return res.status(400).json({ error: 'body required' });
-    await gh(req.gh, `${R(req)}/issues/${req.params.num}/comments`, { method: 'POST', body: { body } });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-app.patch('/api/repo/:owner/:repo/issues/:num', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('issues.write'), auth, mutationContext('issue.update'), async (req, res) => {
-  try {
-    const state = req.body && req.body.state === 'closed' ? 'closed' : 'open';
-    await gh(req.gh, `${R(req)}/issues/${req.params.num}`, { method: 'PATCH', body: { state } });
-    res.json({ ok: true, state });
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= NOTIFICATIONS / STAR / REVIEWS / GLOBAL SEARCH ================= */
-app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth, async (req, res) => {
-  try {
-    const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.json(await listAccessibleNotifications(route => gh(req.gh, route), repositories));
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.read'), auth, async (req, res) => {
-  if (req.gh.authMethod === 'github-app') return res.json({ starred: false, unsupported: true });
-  try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`); res.json({ starred: true }); }
-  catch (e) { if (e.status === 404) return res.json({ starred: false }); fail(res, e); }
-});
-app.put('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.star'), async (req, res) => {
-  if (req.gh.authMethod === 'github-app') return res.status(403).json({
-    error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
-  });
-  try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'PUT' }); res.json({ ok: true, starred: true }); }
-  catch (e) { fail(res, e); }
-});
-app.delete('/api/repo/:owner/:repo/star', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('stars.write'), auth, mutationContext('repository.unstar'), async (req, res) => {
-  if (req.gh.authMethod === 'github-app') return res.status(403).json({
-    error: 'GitHub App installations cannot manage user stars', code: 'GITHUB_APP_CAPABILITY_UNAVAILABLE'
-  });
-  try { await gh(req.gh, `/user/starred/${req.params.owner}/${req.params.repo}`, { method: 'DELETE' }); res.json({ ok: true, starred: false }); }
-  catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/pulls/:num/reviews', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('pulls.write'), auth, mutationContext('pull.review'), async (req, res) => {
-  try {
-    const event = ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'].includes(req.body && req.body.event) ? req.body.event : 'COMMENT';
-    const text = String((req.body && req.body.body) || '');
-    if (!/^\d{1,10}$/.test(String(req.params.num))) return res.status(400).json({ error: 'Invalid pull request number', code: 'PULL_NUMBER_INVALID' });
-    await gh(req.gh, `${R(req)}/pulls/${req.params.num}/reviews`, {
-      method: 'POST', body: { event, body: text }
-    });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/repo/:owner/:repo/actions/:runId/jobs', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
-  try {
-    if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
-    const out = await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/jobs?per_page=20`);
-    res.json((out.jobs || []).map(jb => ({
-      name: jb.name, status: jb.status, conclusion: jb.conclusion,
-      steps: (jb.steps || []).map(st => ({ name: st.name, status: st.status, conclusion: st.conclusion }))
-    })));
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/actions/:runId/rerun', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.rerun'), auth, mutationContext('workflow.rerun'), async (req, res) => {
-  try {
-    /* A run id is a number; anything else would be a path segment. */
-    if (!/^\d{1,20}$/.test(String(req.params.runId))) return res.status(400).json({ error: 'Invalid workflow run id', code: 'WORKFLOW_RUN_INVALID' });
-    await gh(req.gh, `${R(req)}/actions/runs/${req.params.runId}/rerun`, { method: 'POST' });
-    res.json({ ok: true });
-  } catch (e) { fail(res, e); }
-});
-app.get('/api/search', providerSessionAccess, capabilityAccess('global-search'), githubSearchAccess, auth, async (req, res) => {
-  try {
-    const repositories = ALPHA_CONFIG.enabled ? githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes) : null;
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.json(await searchAccessibleCode(route => gh(req.gh, route), req.query.q, repositories));
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= ACTIONS (CI) ================= */
-app.get('/api/repo/:owner/:repo/actions', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('workflows.read'), auth, async (req, res) => {
-  try {
-    const branch = req.query.branch ? `&branch=${encodeURIComponent(req.query.branch)}` : '';
-    const out = await gh(req.gh, `${R(req)}/actions/runs?per_page=25${branch}`);
-    res.json((out.workflow_runs || []).map(r => ({
-      id: r.id, name: r.name, status: r.status, conclusion: r.conclusion,
-      branch: r.head_branch, event: r.event, sha: r.head_sha,
-      created_at: r.created_at, html_url: r.html_url,
-      attempt: r.run_attempt, number: r.run_number
-    })));
-  } catch (e) { fail(res, e); }
-});
-
-/* ================= RELEASES ================= */
-app.get('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.read'), auth, async (req, res) => {
-  try {
-    const rel = await gh(req.gh, `${R(req)}/releases?per_page=20`);
-    res.json(rel.map(r => ({
-      id: r.id, tag: r.tag_name, name: r.name, body: r.body, draft: r.draft,
-      prerelease: r.prerelease, created_at: r.created_at,
-      assets: (r.assets || []).map(a => ({ name: a.name, size: a.size, downloads: a.download_count }))
-    })));
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/repo/:owner/:repo/releases', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('releases.write'), auth, mutationContext('release.create'), async (req, res) => {
-  try {
-    const { tag, name, body, target, prerelease } = req.body || {};
-    if (!tag) return res.status(400).json({ error: 'tag required' });
-    const r = await gh(req.gh, `${R(req)}/releases`, {
-      method: 'POST',
-      body: { tag_name: tag, name: name || tag, body: body || '', target_commitish: target || undefined, prerelease: !!prerelease }
-    });
-    res.json({ ok: true, id: r.id, tag: r.tag_name });
-  } catch (e) { fail(res, e); }
-});
-
-/* GITCORE-START — native git push engine (objects, pack v2, receive-pack protocol) */
-function pktLine(sv) { const b = Buffer.isBuffer(sv) ? sv : Buffer.from(sv); return Buffer.concat([Buffer.from((b.length + 4).toString(16).padStart(4, '0')), b]); }
-function parsePkts(buf) {
-  const out = []; let i = 0;
-  while (i + 4 <= buf.length) {
-    const len = parseInt(buf.slice(i, i + 4).toString(), 16);
-    if (!len) { out.push(null); i += 4; continue; }
-    out.push(buf.slice(i + 4, i + len)); i += len;
-  }
-  return out;
-}
-function parseAdvert(buf, ref) {
-  let old = null;
-  for (const pk of parsePkts(buf)) {
-    if (!pk) continue;
-    const line = pk.toString('utf8').replace(/\n$/, '');
-    if (line.startsWith('#')) continue;
-    const noCaps = line.split('\0')[0];
-    if (noCaps.indexOf(' ') !== 40) continue;
-    if (noCaps.slice(41) === ref) old = noCaps.slice(0, 40);
-  }
-  return old;
-}
-function gitHashObj(type, buf) {
-  return crypto.createHash('sha1').update(Buffer.from(`${type} ${buf.length}\0`)).update(buf).digest('hex');
-}
-const PACK_TYPE = { commit: 1, tree: 2, blob: 3 };
-function packEncode(objs) {
-  const chunks = [Buffer.from([0x50, 0x41, 0x43, 0x4b, 0, 0, 0, 2])];
-  const n = Buffer.alloc(4); n.writeUInt32BE(objs.length); chunks.push(n);
-  for (const o of objs) {
-    let size = o.buf.length;
-    const head = [(PACK_TYPE[o.type] << 4) | (size & 15)]; size >>= 4;
-    while (size) { head[head.length - 1] |= 0x80; head.push(size & 127); size >>= 7; }
-    chunks.push(Buffer.from(head), zlib.deflateSync(o.buf));
-  }
-  const body = Buffer.concat(chunks);
-  return Buffer.concat([body, crypto.createHash('sha1').update(body).digest()]);
-}
-function treeEncode(entries) {
-  const key = e => e.mode === '40000' ? e.name + '/' : e.name;
-  return Buffer.concat([...entries]
-    .sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
-    .map(e => Buffer.concat([Buffer.from(`${e.mode} ${e.name}\0`), Buffer.from(e.sha, 'hex')])));
-}
-function commitEncode(tree, parent, message, name, email) {
-  const ts = Math.floor(Date.now() / 1000);
-  const id = `${name} <${email}> ${ts} +0000`;
-  return Buffer.from(`tree ${tree}\n${parent ? `parent ${parent}\n` : ''}author ${id}\ncommitter ${id}\n\n${message}\n`);
-}
-function buildPushObjects(fileBuf, filePath, levels, parentSha, message, name, email) {
-  const parts = filePath.split('/'); const fname = parts.pop();
-  const blobSha = gitHashObj('blob', fileBuf);
-  const objs = [{ type: 'blob', buf: fileBuf, sha: blobSha }];
-  const prior = (levels[levels.length - 1].entries || []).find(e => e.name === fname);
-  if (prior && (prior.mode === '120000' || prior.mode === '160000'))
-    throw new Error('Refusing to overwrite a symlink or submodule entry — remove it first');
-  let childSha = blobSha, childName = fname, childMode = (prior && prior.mode) || '100644';
-  for (let i = levels.length - 1; i >= 0; i--) {
-    const entries = levels[i].entries.filter(e => e.name !== childName);
-    entries.push({ mode: childMode, name: childName, sha: childSha });
-    const buf = treeEncode(entries);
-    childSha = gitHashObj('tree', buf);
-    objs.push({ type: 'tree', buf, sha: childSha });
-    childMode = '40000'; childName = parts[i - 1];
-  }
-  const cbuf = commitEncode(childSha, parentSha, message, name, email);
-  const commitSha = gitHashObj('commit', cbuf);
-  objs.push({ type: 'commit', buf: cbuf, sha: commitSha });
-  return { objs, commitSha, blobSha };
-}
-function buildReceiveBody(oldSha, newSha, branch, pack) {
-  return Buffer.concat([
-    pktLine(`${oldSha} ${newSha} refs/heads/${branch}\0report-status agent=nebulaverse/4.6.0`),
-    Buffer.from('0000'),
-    pack
-  ]);
-}
-function parseReport(buf, branch) {
-  const lines = parsePkts(buf).filter(Boolean).map(b => b.toString('utf8').replace(/\n$/, ''));
-  return {
-    unpackOk: lines.includes('unpack ok'),
-    okRef: lines.includes(`ok refs/heads/${branch}`),
-    err: (lines.find(l => l.startsWith('ng ')) || '').replace(/^ng \S+ ?/, '') || null,
-    lines
-  };
-}
-/* GITCORE-END */
-let _gitPushBusy = false;
-function gitRemoteBase(acct, owner, repo) {
-  assertGithubAccount(acct);
-  return { url: `https://github.com/${owner}/${repo}.git`, auth: 'Basic ' + Buffer.from(`x-access-token:${acct.token || acct}`).toString('base64') };
-}
-async function treeLevels(acct, owner, repo, oldSha, parts) {
-  const levels = [];
-  const cm = await gh(acct, `/repos/${owner}/${repo}/git/commits/${oldSha}`);
-  let treeSha = cm.tree.sha;
-  for (let i = 0; i <= parts.length; i++) {
-    if (treeSha) {
-      const t = await gh(acct, `/repos/${owner}/${repo}/git/trees/${treeSha}`);
-      const entries = (t.tree || []).map(e => ({ mode: e.mode === '040000' ? '40000' : e.mode, name: e.path, sha: e.sha }));
-      levels.push({ entries });
-      if (i < parts.length) { const d = (t.tree || []).find(e => e.path === parts[i] && e.type === 'tree'); treeSha = d ? d.sha : null; }
-    } else levels.push({ entries: [] });
-  }
-  return levels;
-}
-async function uploadViaGitPush(acct, owner, repo, branch, p, tmp, message, expectedHeadSha = '') {
-  mutationGateway.assertProviderMutation({ provider: acct.provider || 'github', baseUrl: acct.baseUrl, method: 'POST', owner, repo, transport: 'git-receive-pack' });
-  branch = requireBranchName(branch);
-  p = requireRepoPath(p);
-  if (_gitPushBusy) { const e = new Error('Another large native push is in flight — retry in a moment'); e.status = 429; throw e; }
-  _gitPushBusy = true;
-  try {
-    const remote = gitRemoteBase(acct, owner, repo);
-    const authH = remote.auth;
-    const gitBase = remote.url;
-    const ad = await fetchT(`${gitBase}/info/refs?service=git-receive-pack`, { headers: { Authorization: authH, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` }, redirect: 'error' }, 30000);
-    if (!ad.ok) throw Object.assign(new Error(`git advertisement failed (${ad.status})`), { status: ad.status });
-    const oldSha = parseAdvert(Buffer.from(await ad.arrayBuffer()), `refs/heads/${branch}`);
-    if (!oldSha) throw new Error(`Branch ${branch} not found on the remote`);
-    assertExpectedHead(expectedHeadSha, oldSha);
-    const parts = p.split('/'); parts.pop();
-    const levels = await treeLevels(acct, owner, repo, oldSha, parts);
-    const stat = await fsp.stat(tmp);
-    if (stat.size > GIT_PUSH_MAX) throw Object.assign(new Error(`Native Git push is limited to ${NATIVE_PUSH_MAX_MB} MB on this deployment; use Git LFS for larger GitHub files`), { status: 413 });
-    const fileBuf = await fsp.readFile(tmp);
-    const who = acct.login || 'nebulaverse';
-    const { objs, commitSha } = buildPushObjects(fileBuf, p, levels, oldSha, message, who, `${who}@users.noreply.github.com`);
-    const body = buildReceiveBody(oldSha, commitSha, branch, packEncode(objs));
-    const pr = await fetchT(`${gitBase}/git-receive-pack`, {
-      method: 'POST',
-      headers: { Authorization: authH, 'Content-Type': 'application/x-git-receive-pack-request', Accept: 'application/x-git-receive-pack-result', 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}` },
-      body, redirect: 'error'
-    }, 300000);
-    const rep2 = parseReport(Buffer.from(await pr.arrayBuffer()), branch);
-    if (!pr.ok || !rep2.unpackOk || !rep2.okRef) {
-      throw Object.assign(new Error('git push rejected: ' + (rep2.err || `HTTP ${pr.status}`)), { status: pr.status || 409 });
-    }
-    return { commit: commitSha };
-  } finally { _gitPushBusy = false; }
-}
-
-/* create a git blob from a raw stream (for batch commits) — returns its sha */
-app.post('/api/repo/:owner/:repo/blob', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), auth, mutationContext('git.blob.create'), async (req, res) => {
-  const tmp = path.join(os.tmpdir(), 'nv-' + crypto.randomBytes(8).toString('hex'));
-  let release = () => {};
-  try {
-    release = await acquireUploadSlot(req, BLOB_MAX);
-    const size = await receiveRawFile(req, tmp, BLOB_MAX);
-    const securityScan = await scanUploadOrThrow(req, tmp, String(req.query.path || 'batch-blob'), size);
-    const b64 = (await fsp.readFile(tmp)).toString('base64');
-    let blob;
-    try {
-      blob = await gh(req.gh, `${R(req)}/git/blobs`, { method: 'POST', body: { content: b64, encoding: 'base64' } });
-    } catch (e) {
-      if (/too large/i.test(e.message || ''))
-        return res.status(413).json({ error: 'GitHub rejected this blob as too large for its API — this file will be pushed individually via Git LFS instead' });
-      throw e;
-    }
-    res.json({ ok: true, sha: blob.sha, size, securityScan });
-  } catch (e) { fail(res, e); }
-  finally { release(); fsp.unlink(tmp).catch(() => {}); }
-});
-
-/* ============================================================
-   SMART UPLOAD ROUTER (raw stream body) — the headline feature
-   ============================================================ */
-app.post('/api/repo/:owner/:repo/upload', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('native-push'), capabilityAccess('upload-security'), capabilityAccessWhen('lfs', req => normalizeTransportChoice(req.query.lfs) === 'lfs'), auth, mutationContext('file.upload'), async (req, res) => {
-  const { owner, repo } = req.params;
-  let p = req.query.path, branch = req.query.branch;
-  const message = req.query.message || `Upload ${p} via ${PRODUCT_NAME}`;
-  /*
-   * auto | git | lfs. It was auto|force, which offered one direction only: a
-   * reader could insist on Git LFS and could never insist on ordinary Git,
-   * because the size rule settled that. An 80 MB video that pushes perfectly
-   * well through Git had no way to be pushed that way.
-   */
-  const transportChoice = normalizeTransportChoice(req.query.lfs);
-  const expectedHeadSha = String(req.query.expectedHeadSha || '');
-  if (!p || !branch) return res.status(400).json({ error: 'path and branch required' });
-  try { p = requireRepoPath(p); branch = requireBranchName(branch); }
-  catch (error) { return fail(res, error); }
-
-  const tmp = path.join(os.tmpdir(), 'nv-' + crypto.randomBytes(8).toString('hex'));
-  let release = () => {};
-  try {
-    release = await acquireUploadSlot(req, UPLOAD_MAX);
-    const hash = crypto.createHash('sha256');
-    const size = await receiveRawFile(req, tmp, UPLOAD_MAX, hash);
-    const oid = hash.digest('hex');
-    const securityScan = await scanUploadOrThrow(req, tmp, p, size);
-    /*
-     * One decision, made once, for every provider: what the reader asked for,
-     * what this deployment can carry, and -- when those differ -- which
-     * transport is used instead and why. The browser labels a queued file with
-     * this same function, so what is shown and what happens cannot drift.
-     */
-    const plan = planUploadTransport({
-      size,
-      requested: transportChoice,
-      lfsAvailable: (req.gh.provider || 'github') === 'github',
-      gitPushMaxBytes: GIT_PUSH_MAX,
-      gitDataMaxBytes: CONTENTS_MAX
-    });
-    if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });
-    /* Reported on every upload, so a transport swap is never silent. */
-    const transport = { requested: plan.requested, fallback: plan.fallback };
-    let result;
-    if (plan.route === 'lfs') { enforceProtectedPaths(req, [p, '.gitattributes']); result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha); result.strategy = 'lfs'; }
-    else if (plan.route === 'git-push') {
-      try {
-        result = await uploadViaGitPush(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
-        result.strategy = 'git-push';
-      } catch (ePush) {
-        if (ePush.code === 'BRANCH_CHANGED' || ePush.status === 400 || ePush.status === 401 || ePush.status === 409) throw ePush;
-        console.error(JSON.stringify({ t: new Date().toISOString(), warn: 'native push failed, laddering', status: ePush.status || 0, err: ePush.message }));
-        try {
-          result = await uploadViaBlob(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha);
-          result.strategy = 'git-data-blob';
-        } catch (e) {
-          if (/too large/i.test(e.message || '')) {
-            enforceProtectedPaths(req, [p, '.gitattributes']);
-            result = await uploadViaLFS(req.gh, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha);
-            result.strategy = 'lfs (auto-fallback)';
-            /* The plan said Git and the provider disagreed at run time. That is
-             * still a swap, so it is still reported. */
-            transport.fallback = transport.fallback || Object.freeze({
-              from: 'git', to: 'lfs',
-              reason: 'the provider refused the object as too large for an ordinary Git push'
-            });
-          } else throw e;
-        }
-      }
-    }
-    else { result = await uploadViaBlob(req.gh, owner, repo, branch, p, tmp, message, expectedHeadSha); result.strategy = 'git-data-api'; }
-    res.json({ ok: true, size, ...result, transport, securityScan });
-  } catch (e) { fail(res, e); }
-  finally { release(); fsp.unlink(tmp).catch(() => {}); }
-});
-
-async function uploadViaContents(token, owner, repo, branch, p, tmp, message, expectedHeadSha = '') {
-  return uploadViaBlob(token, owner, repo, branch, p, tmp, message, expectedHeadSha);
-}
-async function uploadViaBlob(token, owner, repo, branch, p, tmp, message, expectedHeadSha = '') {
-  const b64 = (await fsp.readFile(tmp)).toString('base64');
-  const blob = await gh(token, `/repos/${owner}/${repo}/git/blobs`, { method: 'POST', body: { content: b64, encoding: 'base64' } });
-  const commit = await commitTree(token, owner, repo, branch, message, [{ path: p, mode: '100644', type: 'blob', sha: blob.sha }], expectedHeadSha);
-  return { commit };
-}
-async function uploadViaLFS(sess, owner, repo, branch, p, tmp, oid, size, message, expectedHeadSha = '') {
-  assertProviderBoundLfs(sess);
-  mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'POST', owner, repo, transport: 'git-lfs.batch' });
-  const { token, login } = sess;
-  const basic = Buffer.from(`${login}:${token}`).toString('base64');
-  const batchRes = await fetchT(`https://github.com/${owner}/${repo}.git/info/lfs/objects/batch`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json',
-      Authorization: `Basic ${basic}`, 'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
-    },
-    body: JSON.stringify({ operation: 'upload', transfers: ['basic'], ref: { name: `refs/heads/${branch}` }, objects: [{ oid, size }] }),
-    redirect: 'error'
-  });
-  if (!batchRes.ok) {
-    const t = await batchRes.text();
-    throw Object.assign(new Error(`LFS batch failed (${batchRes.status}): ${t.slice(0, 300)}`), { status: 502 });
-  }
-  const batch = await batchRes.json();
-  const obj = batch.objects && batch.objects[0];
-  if (obj && obj.error) throw Object.assign(new Error(`LFS: ${obj.error.message}`), { status: 502 });
-  const uploadAction = obj && obj.actions && obj.actions.upload;
-  if (uploadAction) {
-    const uploadUrl = requireHttpsLfsActionUrl(uploadAction.href, 'upload');
-    mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'PUT', owner, repo, transport: 'git-lfs.upload' });
-    const up = await fetchT(uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size), ...(uploadAction.header || {}) },
-      body: fs.createReadStream(tmp), duplex: 'half', redirect: 'error'
-    }, UPLOAD_TIMEOUT_MS);
-    if (!up.ok) {
-      const t = await up.text();
-      throw Object.assign(new Error(`LFS upload failed (${up.status}): ${t.slice(0, 300)}`), { status: 502 });
-    }
-    const verify = obj.actions.verify;
-    if (verify) {
-      const verifyUrl = requireHttpsLfsActionUrl(verify.href, 'verification');
-      const verifyHeaders = {
-        Accept: 'application/vnd.git-lfs+json',
-        'Content-Type': 'application/vnd.git-lfs+json',
-        ...(verify.header || {})
-      };
-      if (verifyUrl.hostname === 'github.com' && !verifyHeaders.Authorization) {
-        verifyHeaders.Authorization = `Basic ${basic}`;
-      }
-      mutationGateway.assertProviderMutation({ provider: sess.provider || 'github', baseUrl: sess.baseUrl, method: 'POST', owner, repo, transport: 'git-lfs.verify' });
-      const verified = await fetchT(verifyUrl, {
-        method: 'POST', headers: verifyHeaders, body: JSON.stringify({ oid, size }), redirect: 'error'
-      });
-      if (!verified.ok) {
-        const text = await verified.text();
-        throw Object.assign(new Error(`LFS verification failed (${verified.status}): ${text.slice(0, 300)}`), { status: 502 });
-      }
-    }
-  }
-  const pointer = `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${size}\n`;
-  const pattern = lfsAttributePattern(p);
-  const attrLine = `${pattern} filter=lfs diff=lfs merge=lfs -text`;
-  let attrs = '';
-  try {
-    const meta = await gh(token, `/repos/${owner}/${repo}/contents/.gitattributes?ref=${encodeURIComponent(branch)}`);
-    if (meta.content) attrs = Buffer.from(meta.content, 'base64').toString('utf8');
-  } catch (e) { if (e.status !== 404) throw e; }
-  const entries = [{ path: p, mode: '100644', type: 'blob', content: pointer }];
-  if (!attrs.split('\n').some(l => l.trim().startsWith(pattern + ' '))) {
-    const newAttrs = attrs ? attrs.replace(/\n?$/, '\n') + attrLine + '\n' : attrLine + '\n';
-    entries.push({ path: '.gitattributes', mode: '100644', type: 'blob', content: newAttrs });
-  }
-  const commit = await commitTree(token, owner, repo, branch, message, entries, expectedHeadSha);
-  return { commit, oid };
-}
-app.post('/api/repo/:owner/:repo/move-dir', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('folder.move'), auth, mutationContext('directory.move'), async (req, res) => {
-  try {
-    const { owner, repo } = req.params;
-    let { from, to, branch, message, expectedHeadSha } = req.body || {};
-    if (!from || !to || !branch) return res.status(400).json({ error: 'from, to, branch required' });
-    from = requireRepoPath(from, 'source folder');
-    to = requireRepoPath(to, 'destination folder');
-    branch = requireBranchName(branch);
-    expectedHeadSha = requireAggregateExpectedHead(expectedHeadSha);
-    const src = from, dst = to;
-    if (!src || !dst) return res.status(400).json({ error: 'Invalid paths' });
-    if (dst === src) return res.status(400).json({ error: 'Destination equals source' });
-    if ((dst + '/').startsWith(src + '/')) return res.status(400).json({ error: 'Cannot move a folder inside itself' });
-    const ref = await gh(req.gh, `${R(req)}/git/ref/heads/${encodeURIComponent(branch)}`);
-    const full = await gh(req.gh, `${R(req)}/git/trees/${ref.object.sha}?recursive=1`);
-    if (full.truncated) return res.status(413).json({ error: 'Repository tree too large for folder move' });
-    const inside = (full.tree || []).filter(e => (e.type === 'blob' || e.type === 'commit') && (e.path === src || e.path.startsWith(src + '/')));
-    if (!inside.length) return res.status(404).json({ error: 'Folder is empty or not found' });
-    if (inside.length > 800) return res.status(413).json({ error: `Folder has ${inside.length} files — over the 800-file move limit` });
-    const entries = [];
-    const affectedPaths = [];
-    const destinations = [];
-    for (const e of inside) {
-      const rest = e.path.slice(src.length);
-      const destinationPath = dst + rest;
-      affectedPaths.push(e.path, destinationPath);
-      destinations.push(destinationPath);
-      entries.push({ path: destinationPath, mode: e.mode, type: e.type, sha: e.sha, forceMode: true });
-      entries.push({ path: e.path, mode: e.mode, type: e.type, sha: null, forceMode: true });
-    }
-    enforceProtectedPaths(req, affectedPaths);
-    /*
-     * Moving into a folder that already exists merges into it; moving onto a
-     * file that exists would replace it, and is refused. The head the files
-     * were listed from is the head the commit has to land on.
-     */
-    assertExpectedHead(expectedHeadSha, ref.object.sha);
-    const commit = await commitTree(req.gh, owner, repo, branch, message || `Move ${src} -> ${dst}`, entries, ref.object.sha, { mustNotExist: destinations });
-    res.json({ ok: true, commit, moved: inside.length });
-  } catch (e) { fail(res, e); }
+/* Workbench: a folder moved in one commit (http/folder-move-route.ts). */
+registerFolderMoveRoute(app, {
+  providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail, gh,
+  commits: commitWriter, enforceProtectedPaths
 });
 
 /* ================= SAFEGUARDS (v5.0.0) ================= */
@@ -5028,52 +4374,6 @@ registerActivityRoutes(app, {
   listRepositories: req => listRepositories(req), publicErrorBody
 });
 
-const MANIFESTS = ['package-lock.json', 'package.json', 'requirements.txt', 'go.mod', 'Cargo.lock', 'Gemfile.lock'];
-function cleanVer(v) { return String(v || '').replace(/^[\^~>=<v\s]+/, '').split(/[\s,]/)[0].trim(); }
-function parseManifest(name, text) {
-  const out = [];
-  const add = (n, v, eco) => { const ver = cleanVer(v); if (n && /^\d/.test(ver)) out.push({ name: n, version: ver, ecosystem: eco }); };
-  try {
-    if (name === 'package-lock.json') {
-      const j = JSON.parse(text);
-      if (j.packages) {
-        for (const [k, v] of Object.entries(j.packages)) {
-          if (!k.startsWith('node_modules/')) continue;
-          add(k.slice('node_modules/'.length), v.version, 'npm');
-        }
-      } else if (j.dependencies) {
-        for (const [k, v] of Object.entries(j.dependencies)) add(k, v.version, 'npm');
-      }
-    } else if (name === 'package.json') {
-      const j = JSON.parse(text);
-      for (const grp of [j.dependencies, j.devDependencies]) if (grp) for (const [k, v] of Object.entries(grp)) add(k, v, 'npm');
-    } else if (name === 'requirements.txt') {
-      for (const line of text.split('\n')) {
-        const m = line.match(/^\s*([A-Za-z0-9._-]+)\s*==\s*([0-9][^\s;#]*)/);
-        if (m) add(m[1], m[2], 'PyPI');
-      }
-    } else if (name === 'go.mod') {
-      for (const line of text.split('\n')) {
-        if (/^\s*module\s/.test(line)) continue;
-        const m = line.match(/^\s*([a-zA-Z0-9./_-]+)\s+v([0-9][^\s/]*)/);
-        if (m) add(m[1], m[2], 'Go');
-      }
-    } else if (name === 'Cargo.lock') {
-      for (const b of text.split('[[package]]')) {
-        const n = (b.match(/name\s*=\s*"([^"]+)"/) || [])[1];
-        const v = (b.match(/version\s*=\s*"([^"]+)"/) || [])[1];
-        if (n && v) add(n, v, 'crates.io');
-      }
-    } else if (name === 'Gemfile.lock') {
-      for (const line of text.split('\n')) {
-        const m = line.match(/^\s{4}([A-Za-z0-9._-]+)\s+\(([0-9][^)]*)\)/);
-        if (m) add(m[1], m[2], 'RubyGems');
-      }
-    }
-  } catch {}
-  return out;
-}
-
 /* Corona: who and what can reach a repository (apps/api/src/modules/corona/http/access-surface-routes.ts). */
 registerAccessSurfaceRoutes(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
 
@@ -5102,84 +4402,8 @@ const { site: siteJobs, rendered: renderedJobs } = registerParallaxRoutes(app, {
 /* Posture: a branch's provider rules beside the server's own safeguards. */
 registerBranchProtectionRoutes(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });
 
-app.get('/api/repo/:owner/:repo/audit-deps', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('dependency-audit'), auth, async (req, res) => {
-  try {
-    const branch = req.query.ref || '';
-    const found = [], sources = [];
-    for (const name of MANIFESTS) {
-      try {
-        const f = await gh(req.gh, `${R(req)}/contents/${encodeURIComponent(name)}${branch ? `?ref=${encodeURIComponent(branch)}` : ''}`);
-        const text = Buffer.from(f.content || '', 'base64').toString('utf8');
-        const pkgs = parseManifest(name, text);
-        if (pkgs.length) { sources.push({ file: name, packages: pkgs.length, approximate: name === 'package.json' }); found.push(...pkgs); }
-        if (name === 'package-lock.json' && pkgs.length) break;
-      } catch {}
-    }
-    const seen = new Set();
-    const pkgs = found.filter(p => {
-      const k = `${p.ecosystem}:${p.name}@${p.version}`;
-      if (seen.has(k)) return false; seen.add(k); return true;
-    }).slice(0, 400);
-    const vulnerable = [];
-    const osv = { available: pkgs.length === 0, queried: pkgs.length, error: '' };
-    if (pkgs.length) {
-      try {
-        const r = await fetchT('https://api.osv.dev/v1/querybatch', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queries: pkgs.map(p => ({ version: p.version, package: { name: p.name, ecosystem: p.ecosystem } })) })
-        }, 25000);
-        if (!r.ok) {
-          osv.error = `OSV service returned HTTP ${r.status}`;
-        } else {
-          const data = await r.json();
-          if (!Array.isArray(data.results)) osv.error = 'OSV returned an unexpected response';
-          else {
-            osv.available = true;
-            data.results.forEach((row, i) => {
-              if (row && row.vulns && row.vulns.length && pkgs[i]) vulnerable.push({ ...pkgs[i], ids: row.vulns.map(v => v.id).slice(0, 8) });
-            });
-          }
-        }
-      } catch (error) {
-        osv.error = cleanText(error && error.message || 'OSV request failed', 240);
-      }
-    }
-    const ids = [...new Set(vulnerable.flatMap(v => v.ids))].slice(0, 20);
-    const details = {};
-    await Promise.allSettled(ids.map(async id => {
-      const r2 = await fetchT(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`, {}, 12000);
-      if (r2.ok) {
-        const v = await r2.json();
-        details[id] = {
-          summary: v.summary || String(v.details || '').slice(0, 160),
-          severity: (v.severity || []).map(x => x.score).join(' ') || ((v.database_specific && v.database_specific.severity) || ''),
-          aliases: (v.aliases || []).slice(0, 3)
-        };
-      }
-    }));
-    let dependabot = { available: false, alerts: [] };
-    if ((req.gh.provider || 'github') === 'github') {
-      try {
-        const al = await gh(req.gh, `${R(req)}/dependabot/alerts?state=open&per_page=50`);
-        dependabot = {
-          available: true,
-          alerts: (al || []).map(a => ({
-            severity: a.security_advisory && a.security_advisory.severity,
-            package: a.dependency && a.dependency.package && a.dependency.package.name,
-            summary: a.security_advisory && a.security_advisory.summary
-          }))
-        };
-      } catch { dependabot = { available: false, alerts: [], note: 'Token lacks security_events scope, or alerts are off for this repo' }; }
-    }
-    res.json({
-      kind: 'nebulaverse-audit', generatedAt: new Date().toISOString(),
-      owner: req.params.owner, repo: req.params.repo,
-      scanned: pkgs.length, sources, vulnerable, details, dependabot, osv,
-      complete: pkgs.length === 0 || osv.available,
-      approximate: sources.some(s => s.approximate) && !sources.some(s => s.file === 'package-lock.json')
-    });
-  } catch (e) { fail(res, e); }
-});
+/* Workbench: a repository's dependencies against the OSV database and Dependabot (apps/api/src/modules/workbench/http/dependency-audit-route.ts). */
+registerDependencyAuditRoute(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh, fetch: fetchT });
 
 /* ================= LIVE INTELLIGENCE + EVIDENCE (v5.2) ================= */
 /* Pulsar: verified live events -- connection, stored events and the stream (apps/api/src/modules/pulsar/http/live-event-routes.ts). */

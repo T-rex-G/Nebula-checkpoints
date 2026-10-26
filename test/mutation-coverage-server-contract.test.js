@@ -38,19 +38,32 @@ for (const entry of policyRoutes.filter(route => ['POST', 'PUT', 'PATCH', 'DELET
     assert(covered.has(key) || explicitNonRepositoryWrites.has(key), `repository mutating-method route is unclassified: ${key}`);
   }
 }
-for (const helper of ['async function gh(', 'async function uploadViaGitPush(', 'async function uploadViaLFS(']) {
-  const start = server.indexOf(helper);
-  assert(start >= 0, `missing helper ${helper}`);
-  const end = server.indexOf('\n}', start);
-  const body = server.slice(start, end + 2);
-  assert(body.includes('mutationGateway.assertProviderMutation'), `${helper} must assert provider writes`);
-}
-assert(server.includes("transport: 'git-lfs.batch'"));
-assert(server.includes("transport: 'git-lfs.upload'"));
-assert(server.includes("transport: 'git-lfs.verify'"));
+/*
+ * Every provider write asks the gateway first: the API client in server.js,
+ * and the workbench's two transports that bypass it -- the native Git push and
+ * the LFS upload, with each LFS exchange named.
+ */
+const workbench = file => fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
+const bodyOf = (source, start, end, label) => {
+  const at = source.indexOf(start);
+  assert(at >= 0, `missing helper ${label}`);
+  return source.slice(at, source.indexOf(end, at) + end.length);
+};
+const providerWriters = [
+  ['gh', bodyOf(server, 'async function gh(', '\n}', 'gh'), 'mutationGateway.assertProviderMutation'],
+  ['the native push', bodyOf(workbench('application/native-push.ts'), '  async function push(', '\n  }', 'push'), 'deps.assertProviderMutation'],
+  ['the LFS upload', bodyOf(workbench('application/lfs.ts'), '  async function upload(', '\n  }', 'upload'), 'deps.assertProviderMutation']
+];
+for (const [label, body, assertion] of providerWriters) assert(body.includes(assertion), `${label} must assert provider writes`);
+const lfsUpload = providerWriters[2][1];
+assert(providerWriters[1][1].includes("transport: 'git-receive-pack'"));
+assert(lfsUpload.includes("transport: 'git-lfs.batch'"));
+assert(lfsUpload.includes("transport: 'git-lfs.upload'"));
+assert(lfsUpload.includes("transport: 'git-lfs.verify'"));
 assert(server.includes('recovery.inspectRestoreAuthorization({ account: req.gh, owner: req.params.owner, repo: req.params.repo }, body.authorization)'));
 assert(server.includes("case 'recovery.restore-refs':"));
-assert(server.includes('requireAggregateExpectedHead(expectedHeadSha)'));
+/* A folder move names the head its listing came from (the workbench's folder move). */
+assert(workbench('http/folder-move-route.ts').includes('requireAggregateExpectedHead(requestedHead)'));
 /* The reference restore reports each branch, a partial failure as one (Corona's recovery routes). */
 assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/corona/http/recovery-routes.ts'), 'utf8').includes('partialFailure: !ok && report.some(item => item.ok)'));
 assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench/http/content-routes.ts'), 'utf8').includes('providerOperationIds: execution ? execution.operationIds : []'));

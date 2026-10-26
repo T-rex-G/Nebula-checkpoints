@@ -255,8 +255,11 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 150 to 135: Corona's fifteen.
  * 135 to 85: Kepler's fifty.
  * 85 to 65: the workbench's repository, content and history routes, and CODEOWNERS.
+ * 65 to 40: the workbench's collaboration routes (pull requests, issues,
+ * notifications, search, stars, workflow runs, releases), its uploads, the
+ * folder move and the dependency audit.
  */
-const SERVER_ROUTE_CEILING = 65;
+const SERVER_ROUTE_CEILING = 40;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

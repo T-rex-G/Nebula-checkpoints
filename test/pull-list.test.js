@@ -74,9 +74,9 @@ const twins = pullListItem({ number: 3, labels: [{ name: `${'a'.repeat(MAX_LABEL
 assert.deepStrictEqual(twins.labels, ['a'.repeat(MAX_LABEL_LENGTH), 'b']);
 
 /* The route answers through this function, so the board and the workbench read one shape. */
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-const route = server.slice(server.indexOf("app.get('/api/repo/:owner/:repo/pulls',"), server.indexOf("app.get('/api/repo/:owner/:repo/pulls/:num',"));
-assert(route.includes('res.json(pulls.map(pullListItem))'), 'the list route maps through pullListItem');
+const collaboration = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
+const route = collaboration.slice(collaboration.indexOf("app.get('/api/repo/:owner/:repo/pulls',"), collaboration.indexOf("app.get('/api/repo/:owner/:repo/pulls/:num',"));
+assert(route.includes("res.json(listed(pulls, 'pulls.map').map(pullListItem))"), 'the list route maps through pullListItem');
 assert(/capabilityAccess\('pulls\.read'\)/.test(route), 'the list route stays behind pulls.read');
 assert(/alphaRepositoryAccess/.test(route), 'the list route stays inside the repository scope');
 /* The board reads a full page as "at least this many": its page size is the route's. */

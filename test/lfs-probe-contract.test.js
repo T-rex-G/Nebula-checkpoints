@@ -4,8 +4,9 @@
  * The LFS probe earns a Provider-verified claim for `lfs`, and that claim is
  * about the product's path, not about the protocol in general. A probe that
  * reached the store by some other route -- a different host, a different
- * scheme, a different batch body -- would prove GitHub works and leave
- * uploadViaLFS unproven, while the registry said otherwise.
+ * scheme, a different batch body -- would prove GitHub works and leave the
+ * product's LFS upload (the workbench's, in application/lfs.ts) unproven,
+ * while the registry said otherwise.
  *
  * So the two are held together here. This is a source contract rather than a
  * behavioural test because the behaviour is only observable against a live
@@ -18,21 +19,20 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-const server = read('server.js');
+const lfsModule = read('apps/api/src/modules/workbench/application/lfs.ts');
 const probe = read('ci/run-github-alpha17-validation.js');
 
-const productBody = server.slice(
-  server.indexOf('async function uploadViaLFS'),
-  server.indexOf('async function uploadViaLFS') + 3000
-);
-assert(productBody.includes('info/lfs/objects/batch'), 'uploadViaLFS no longer reaches an LFS batch endpoint');
+const uploadStart = lfsModule.indexOf('  async function upload(');
+assert(uploadStart >= 0, 'the workbench no longer has an LFS upload');
+const productBody = lfsModule.slice(uploadStart, lfsModule.indexOf('\n  return { downloadStream, upload };', uploadStart));
+assert(productBody.includes('info/lfs/objects/batch'), 'the LFS upload no longer reaches an LFS batch endpoint');
 
 /*
  * The endpoint. Both must address the batch route the same way -- the LFS
  * store lives on the web host, not the API host, and a probe pointed at
  * api.github.com would 404 in a way that looks like a permission problem.
  */
-for (const [name, source] of [['uploadViaLFS', productBody], ['the probe', probe]]) {
+for (const [name, source] of [['the LFS upload', productBody], ['the probe', probe]]) {
   assert(/\.git\/info\/lfs\/objects\/batch/.test(source),
     `${name} must address the LFS batch endpoint as <repo>.git/info/lfs/objects/batch`);
 }
@@ -42,7 +42,7 @@ for (const [name, source] of [['uploadViaLFS', productBody], ['the probe', probe
  * the password; every other call in this codebase is Bearer. A probe that sent
  * Bearer here would be testing a request the product never makes.
  */
-for (const [name, source] of [['uploadViaLFS', productBody], ['the probe', probe]]) {
+for (const [name, source] of [['the LFS upload', productBody], ['the probe', probe]]) {
   assert(/Basic \$\{/.test(source) || /Basic \$\{Buffer/.test(source),
     `${name} must authenticate the LFS batch with Basic`);
   assert(/application\/vnd\.git-lfs\+json/.test(source),
@@ -55,8 +55,8 @@ for (const [name, source] of [['uploadViaLFS', productBody], ['the probe', probe
  * list is what it answers about.
  */
 for (const field of ["operation: 'upload'", "transfers: ['basic']", 'ref:', 'objects:']) {
-  assert(productBody.includes(field), `uploadViaLFS no longer sends ${field}`);
-  assert(probe.includes(field), `the probe must send ${field} exactly as uploadViaLFS does`);
+  assert(productBody.includes(field), `the LFS upload no longer sends ${field}`);
+  assert(probe.includes(field), `the probe must send ${field} exactly as the LFS upload does`);
 }
 
 /*
@@ -64,20 +64,20 @@ for (const field of ["operation: 'upload'", "transfers: ['basic']", 'ref:', 'obj
  * response handed back; a probe that dropped those headers would be refused by
  * the storage endpoint for a reason unrelated to the capability.
  */
-assert(/Content-Type': 'application\/octet-stream'/.test(productBody), 'uploadViaLFS no longer PUTs octet-stream');
+assert(/Content-Type': 'application\/octet-stream'/.test(productBody), 'the LFS upload no longer PUTs octet-stream');
 assert(/Content-Type': 'application\/octet-stream'/.test(probe), 'the probe must PUT octet-stream as the product does');
-assert(/\.\.\.\(uploadAction\.header \|\| \{\}\)/.test(productBody), 'uploadViaLFS no longer forwards the upload headers');
+assert(/\.\.\.spread\(member\(uploadAction, 'header'\) \|\| \{\}\)/.test(productBody), 'the LFS upload no longer forwards the upload headers');
 assert(/\.\.\.\(action\.header \|\| \{\}\)/.test(probe), 'the probe must forward the upload headers the batch returned');
 
 /*
- * The behaviour the claim actually rests on. uploadViaLFS treats a missing
+ * The behaviour the claim actually rests on. The LFS upload treats a missing
  * upload action as success -- the object is already stored -- and that branch
  * has never been observed from a provider. The probe exists to observe it, so
  * if the product stops depending on it the probe is proving something the
  * product no longer does.
  */
 assert(/if \(uploadAction\) \{/.test(productBody),
-  'uploadViaLFS no longer treats a withheld upload action as an already-stored object; the deduplication proof no longer describes it');
+  'the LFS upload no longer treats a withheld upload action as an already-stored object; the deduplication proof no longer describes it');
 assert(/deduplicatedOnRepeat/.test(probe),
   'the probe must record whether the provider withheld the upload action on a repeat request');
 

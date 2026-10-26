@@ -1167,3 +1167,79 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the script was exercised against apt's real archive: an empty archive, a first set, an unchanged set (same name, no second save), a changed set (a new name) and bad usage;
   - the workflow contract now requires the restore, the install, the collection (`if: always()`) and the save in that order in every installing job, keyed for that job's browsers. A missing `always()` and a key for the wrong set each fail it;
   - both workflows parse, the local CI runner still reads every gate, and the full unit gate and every verify-job gate pass on Node 22.23.4.
+
+### D12i — the rest of the workbench's routes
+
+- **Routes.** The workbench's other twenty-five routes move into the module, in the order the route policy keeps them:
+  - `registerCollaborationRoutes`: code search held to the repository; pull requests listed, read, opened, merged on the head the reviewer saw, and reviewed; issues listed, read, opened, commented on, closed or reopened; the account's notifications and code search across what it may see; a repository's star; workflow runs, their jobs and a re-run; releases listed and created (21 routes);
+  - `registerUploadRoutes`: a blob for a batch commit, and the smart upload (2);
+  - `registerFolderMoveRoute`: a folder moved in one commit (1);
+  - `registerDependencyAuditRoute`: the dependency audit (1).
+- **Services.** The server builds these once and hands them to the routes:
+  - **The upload intake** (`application/upload-intake.ts`): the slot among this deployment's concurrent uploads, refused before anything is read when the declared size is over the route's limit or the temporary disk cannot hold it, and the bytes streamed to a private file, stopped the moment they pass the limit;
+  - **The native push** (`application/native-push.ts`): the branch's head read from the remote's advertisement and held to the head the view had, the trees on the file's path read through the API, and one push at a time;
+  - **LFS storage** (`application/lfs.ts`) now carries the upload too: the batch, the transfer and the verification, each asked of the mutation gateway, and the pointer committed with the path's attribute when `.gitattributes` does not already name it.
+- **Contracts.** The merge's head check names the commit-SHA contract (`isCommitSha` from `packages/contracts/src/ids.ts`) instead of carrying a copy of its pattern. `server.js`'s recorded copies fall from 9 to 8.
+- **Domain.** The Git objects a push builds (`domain/git-objects.ts`: pkt-lines, the advertisement, the blob, trees and commit, the pack and the push report), and the manifests the audit reads (`domain/manifests.ts`).
+- **Dead code.** `uploadViaContents`, the wrapper nothing called, is gone, as D12h said it would be. The server no longer imports what only these routes used: `zlib`, the upload planner, the notification and global search readers, the pull-list item, the LFS attribute pattern and URL validator, the path and branch normalisers, and the `requireRepoPath`, `requireBranchName` and `R` shorthands. `pipeline` goes too: D12h moved the last routes that streamed with it and missed the import.
+- **Behaviour unchanged.** The route code reads a provider's answer as the inline code did, failures included, with the helpers D12h introduced. `sliced` now takes an end as well, because an advisory's `aliases` was sliced to three whether it was a list or a text.
+
+  An oracle evaluated those regions of the previous `server.js` (the slot and intake, the twenty-five routes, the Git object encoder, the push, the three uploads, the folder move and the audit with its parsers) on one express app. It ran the module's registrations on another, against a scripted provider, Git remote, LFS store and OSV that answer both sides alike, on a clock held still.
+
+  The 20,000 scenarios varied:
+  - every route, with bodies and queries valid, missing, malformed or not objects, and pull, issue and run numbers that are not numbers;
+  - accounts on GitHub by OAuth or as an installation, on another provider, without a provider, and on a custom server; invitations with and without a valid repository scope;
+  - pull requests, issues, notifications, runs, releases and search results in every shape, a merge the provider refuses, and protected paths in a pull request's files;
+  - uploads of every size around each limit, sent whole or chunked, scanned clean or blocked, by each transport the plan can choose and each the ladder falls to;
+  - advertisements (the branch present, missing, upper-case, refused, garbage), trees with symlinks, submodules and sub-folders, and push reports that accept, refuse or fail;
+  - LFS batches that offer an upload and a verification, report the object stored, report an error, name plain HTTP or embedded credentials, refuse or answer garbage, and `.gitattributes` that does or does not already name the path;
+  - folders moved into themselves, onto files, past protected paths, over 800 files and from a head that moved;
+  - manifests of each kind (valid, approximate, malformed), OSV answering, failing, refusing or malformed, with more than eight advisories for a package, and Dependabot answering or refused.
+
+  The oracle compared each answer and every call to the provider, the transport, the commit writer, the scan, the protected-path checks, the mutation gateway, the account checks, the console and the failure answer, in order. After each upload it checked that the temporary directory held nothing the upload had left behind. All 40,000 comparisons were identical. They included 354 uploads that landed (87 by the Git Data API, 45 by native push, 171 laddered from a push to the Git Data API, and 51 by LFS, 7 of them as a run-time fallback), 310 blobs, 43 folder moves and 1,429 audits.
+
+  Three probes then held requests open, and each answered the same on both sides:
+  - with one upload holding the only slot, a second is refused with a 429; a declaration over the limit, for an upload or a blob, is refused for its size first; and the slot is free again once the first finishes;
+  - a second push while the first holds the remote ladders to the Git Data API;
+  - an upload whose bytes stop arriving is cut off at the deployment's limit, and leaves no file behind.
+  Fifty-three mutants each fail on a comparison or a probe:
+  - **collaboration:** search results not held to the repository; the protected merge check skipped; a merge scanned past 1,000 files; a renamed file's old path unchecked; a merge without the reviewed head; a moved head answered as a plain conflict; pull requests listed as issues; a GitHub App's stars read; a review on any number; a re-run of any id; notifications cacheable; global search outside the invitation; a release named nothing;
+  - **uploads:** a too-large blob not answered 413; an LFS upload past a protected path; an unsupported account laddered; a planned transport swap unreported; an upload scanned under the path asked for rather than the one written; an upload leaving its file; a blob held to the upload limit;
+  - **intake:** a slot never released; uploads unlimited; an upload that never times out; the streamed limit a byte late; an upload file others can read; a declared size over the limit taken;
+  - **native push and Git objects:** two pushes at once; a push past a moved head; a push following redirects; a push without its gateway check; a rejected push accepted; tree entries in the wrong order; a symlink overwritten; a pack of the wrong version; a refusal's reason lost;
+  - **LFS upload:** `.gitattributes` rewritten when it already names the path; GitHub's verification without credentials; plain-HTTP storage; an upload unqualified; the transfer checked as a batch; a storage error passed over;
+  - **folder move:** a folder moved into itself; more than 800 files moved; a move onto taken paths; a move past a protected path;
+  - **audit and manifests:** a lockfile not ending the search; an audit complete without OSV; packages counted twice; Dependabot asked of every provider; eight advisories become nine; a version's leading `v` kept; nested packages misnamed; devDependencies skipped.
+
+  The first run left ten alive. Nine were the oracle's gaps, and it now covers them: invitation scopes that parse, normalised paths, an attribute already present, a package listed twice, more than eight advisories, pushes that reach a symlink, a bounded wait on a stalled upload, and oversized declarations sent while the slot is held. The tenth, "a moved branch laddered", could not be told apart, because a moved head is a 409 and the status test already rethrows it. It was replaced by "an unsupported account laddered". All fifty-three were then run again on the final oracle.
+- **Two differences found and fixed before this landed.** Neither reached a commit:
+  - the pull request view read the head before the number, so a pull request the provider answered as `null` failed naming `head` rather than `number`;
+  - the audit refused an advisory whose `aliases` was a text, where the inline code sliced it.
+- **Tests.**
+  - `test/workbench-collaboration-routes.test.js` drives the routes over HTTP on the module's own intake, push and LFS transfer:
+    - search, notifications and global search held to the repositories the session may see;
+    - a merge pinned to the reviewed head, and refused over a protected path, including a renamed file's old path, before GitHub is asked;
+    - an installation never asked to star;
+    - an upload refused over its limit, scanned before anything is written, written for this process alone, and leaving no file behind;
+    - a native push whose pack is decoded and holds exactly the uploaded blob, the trees with their neighbours and modes kept, and the commit on the head it read; a moved head refused before anything is pushed; a symlink never overwritten;
+    - LFS storage reached over HTTPS only, the account's credentials sent to GitHub's verification and not to storage's own host, and the pointer and its attribute committed once;
+    - a folder move that will not nest, overflow, overwrite or pass a protected path;
+    - an audit that ends at a lockfile, caps a package's advisories at eight, checks a package listed twice once, and says when OSV could not answer.
+  - The source checks follow the code into the module:
+    - `capability-probes` finds the probed routes in the collaboration and folder-move registrations;
+    - `github-app-server-contract` reads the notifications chain from the route policy, and the installation refusals from the collaboration routes;
+    - `hardening-contract` reads the folder move's protected-path check;
+    - `lfs-probe-contract` holds the probe to the workbench's LFS upload;
+    - `mutation-coverage-server-contract` and `mutation-gateway-server-contract` require the native push and the LFS upload to ask the gateway, with the server handing both the gateway's check;
+    - `provider-disconnect-server-contract` reads both LFS negotiations, the validator, the download and the upload from the LFS transfer, and none from `server.js`;
+    - `pull-list` and `upload-transport-choice` read the list and upload routes, and the ceilings the server hands the upload route.
+  - `upload-transport-choice` matches the planner import as a pattern. As a quoted relative path, the candidate qualifier read it as a file the test loads, one outside the tree.
+  - The comments in the alpha.17 harness and the qualification evidence name the workbench's LFS upload.
+- **Ratchet:** the routes `server.js` registers itself fall from 65 to 40.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the eight new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - every converted contract and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4;
+  - the compiled-server tests.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the twenty-five routes, their helpers, the upload slot and intake, the Git object encoder, the manifests and the imports that went with them.

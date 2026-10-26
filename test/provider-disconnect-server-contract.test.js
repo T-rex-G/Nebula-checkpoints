@@ -188,35 +188,34 @@ const oauthCallbackBlock = server.slice(
   oauthCallbackEnd < 0 ? server.length : oauthCallbackEnd
 );
 assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
-const lfsDownload = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
+/* Both LFS exchanges, the URL validator, the download and the upload are the workbench's LFS transfer. */
+const lfsTransfer = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
+assert(!server.includes('info/lfs/objects/batch'), 'LFS negotiations belong to the workbench, not server.js');
 assert.strictEqual(
-  [server, lfsDownload].map(text => (text.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length).reduce((a, b) => a + b, 0),
+  (lfsTransfer.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
   2,
   'both authenticated LFS batch negotiations must reject redirects'
 );
-/* The validator and the download are the workbench's LFS transfer; the server's upload imports the validator. */
-const lfsUrlHelperStart = lfsDownload.indexOf('export function requireHttpsLfsActionUrl(');
-const lfsUrlHelperEnd = lfsDownload.indexOf('\n}', lfsUrlHelperStart) + 2;
+const lfsUrlHelperStart = lfsTransfer.indexOf('export function requireHttpsLfsActionUrl(');
+const lfsUrlHelperEnd = lfsTransfer.indexOf('\n}', lfsUrlHelperStart) + 2;
 assert(lfsUrlHelperStart >= 0, 'missing HTTPS-only LFS action URL validator');
-const lfsUrlHelper = lfsDownload.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
+const lfsUrlHelper = lfsTransfer.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
 assert(lfsUrlHelper.includes("target.protocol !== 'https:'"));
 assert(lfsUrlHelper.includes('target.username || target.password'));
-assert(/\brequireHttpsLfsActionUrl\b/.test(/const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/workbench\/index\.ts'\)/.exec(server)[1]), 'the server must take the validator from the workbench');
-const lfsDownloadStart = lfsDownload.indexOf('async function downloadStream(');
-assert(lfsDownloadStart >= 0, 'missing the LFS download');
-const lfsDownloadEnd = lfsDownload.indexOf('\n  }', lfsDownloadStart) + 4;
-const lfsDownloadBlock = lfsDownload.slice(lfsDownloadStart, lfsDownloadEnd);
+const lfsBlock = (start, label) => {
+  const at = lfsTransfer.indexOf(start);
+  assert(at >= 0, `missing the LFS ${label}`);
+  return lfsTransfer.slice(at, lfsTransfer.indexOf('\n  }', at) + 4);
+};
+const lfsDownloadBlock = lfsBlock('async function downloadStream(', 'download');
 assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(member(act, 'href'), 'download')"));
 assert(lfsDownloadBlock.includes('deps.fetch(downloadUrl,'));
-const lfsUploadStart = server.indexOf('async function uploadViaLFS(');
-assert(lfsUploadStart >= 0, 'missing uploadViaLFS');
-const lfsUploadEnd = server.indexOf('\n}', lfsUploadStart) + 2;
-const lfsUploadBlock = server.slice(lfsUploadStart, lfsUploadEnd);
+const lfsUploadBlock = lfsBlock('async function upload(', 'upload');
 for (const expected of [
-  "requireHttpsLfsActionUrl(uploadAction.href, 'upload')",
-  "requireHttpsLfsActionUrl(verify.href, 'verification')",
-  'fetchT(uploadUrl,',
-  'fetchT(verifyUrl,'
+  "requireHttpsLfsActionUrl(member(uploadAction, 'href'), 'upload')",
+  "requireHttpsLfsActionUrl(member(verify, 'href'), 'verification')",
+  'deps.fetch(uploadUrl,',
+  'deps.fetch(verifyUrl,'
 ]) assert(lfsUploadBlock.includes(expected), `LFS upload boundary missing ${expected}`);
 const refreshBlock = routeBlock('/api/github-app/refresh');
 assert(refreshBlock.includes('if (!ALPHA_CONFIG.enabled) githubAppBroker.invalidate(installationId);'),

@@ -270,8 +270,8 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
      *   objectStored          the bytes were accepted by the storage endpoint;
      *   deduplicatedOnRepeat  asked again for the same oid it offers no
      *                         upload, which is the provider stating it holds
-     *                         the object. This is the branch of uploadViaLFS
-     *                         that has never been observed and the behaviour
+     *                         the object. This is the branch of the LFS
+     *                         upload that has never been observed and the behaviour
      *                         the upload page relies on to avoid resending;
      *   pointerCommitted      false, measured by comparing the branch head
      *                         before and after. The store is what is under

@@ -456,7 +456,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
     /* A route where it is registered: in server.js, or in the workbench's own registrations. */
-    const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts']
+    const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts', 'collaboration-routes.ts', 'folder-move-route.ts']
       .map(file => fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', file), 'utf8'));
     const route = (method, routePath) => {
       for (const [source, end] of [[server, '\n});'], ...workbenchRoutes.map(text => [text, '\n  });'])]) {
@@ -477,8 +477,8 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
 
     /* Folder move: the recursive tree of the observed head, entries forced, source removed. */
     const move = route('post', '/api/repo/:owner/:repo/move-dir');
-    assert.match(move, /git\/trees\/\$\{ref\.object\.sha\}\?recursive=1/);
-    assert.match(move, /entries\.push\(\{ path: destinationPath, mode: e\.mode, type: e\.type, sha: e\.sha, forceMode: true \}\)/);
+    assert.match(move, /git\/trees\/\$\{String\(member\(member\(ref, 'object'\), 'sha'\)\)\}\?recursive=1/);
+    assert.match(move, /entries\.push\(\{ path: destinationPath, mode: member\(e, 'mode'\), type: member\(e, 'type'\), sha: member\(e, 'sha'\), forceMode: true \}\)/);
     assert.match(harness, /entries\.push\(\{ path: destinationPath, mode: entry\.mode, type: entry\.type, sha: entry\.sha, forceMode: true \}\)/);
     assert.match(move, /mustNotExist: destinations/);
 
@@ -490,7 +490,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     /* Pull requests: the merge carries the pinned head, and the review a comment event. */
     const merge = route('put', '/api/repo/:owner/:repo/pulls/:num/merge');
     assert.match(merge, /body: \{ merge_method: method, \.\.\.\(expected \? \{ sha: expected \} : \{\}\) \}/);
-    assert.match(merge, /error\.status === 409\) throw headMoved\(\)/);
+    assert.match(merge, /member\(error, 'status'\) === 409\) throw headMoved\(\)/);
     assert.match(harness, /merge_method: 'merge', sha: reportedHead/);
     assert.match(route('post', '/api/repo/:owner/:repo/pulls'), /body: \{ title, head, base, body: body \|\| '', draft: !!draft \}/);
 

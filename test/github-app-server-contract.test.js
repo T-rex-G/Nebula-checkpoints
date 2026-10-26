@@ -23,13 +23,19 @@ assert.match(server, /authMethod:\s*'github-app'/);
 assert.match(server, /installationId:/);
 assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(server), 'GitHub App session accounts must remain tokenless');
 assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'repository-list.ts'), 'utf8').includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
-assert(server.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
+/* The workbench's collaboration routes: notifications, stars and the rest of a person's GitHub. */
+const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
+assert(collaboration.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
 assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
 assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
-assert(server.includes("app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth"), 'notification connection support must be checked before credential resolution');
+/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+const { locations } = require('./oracles/route-policy');
+const notifications = locations(root).find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');
+assert.deepStrictEqual(notifications && notifications.guards, ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
+  'notification connection support must be checked before credential resolution');
 const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
 assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifications').code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
-assert(server.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
+assert(collaboration.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
 assert(server.includes('githubAppBroker.invalidate'), 'disconnect or provider rejection must invalidate broker state');
 assert(server.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
 assert(server.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');

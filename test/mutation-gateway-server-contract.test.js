@@ -55,11 +55,22 @@ for (const [route, action] of routes) {
   );
 }
 
-for (const helper of ['uploadViaGitPush', 'uploadViaLFS']) {
-  const index = server.indexOf(`async function ${helper}`);
-  assert(index >= 0, `missing ${helper}`);
-  const body = server.slice(index, server.indexOf('\n}', index) + 2);
-  assert(body.includes('mutationGateway.assertProviderMutation'), `${helper} must assert the active gateway context`);
+/*
+ * The native push and the LFS upload write to the provider outside the API
+ * client, so each asks the active gateway context itself: the server hands
+ * both the gateway's check, and each calls it before it writes.
+ */
+assert(server.includes('const assertProviderMutation = target => mutationGateway.assertProviderMutation(target);'),
+  'the workbench transports must be handed the active gateway context');
+for (const [factory, file, start] of [
+  ['createNativePush', 'application/native-push.ts', '  async function push('],
+  ['createLfsTransfer', 'application/lfs.ts', '  async function upload(']
+]) {
+  const wiring = server.slice(server.indexOf(`${factory}({`), server.indexOf('});', server.indexOf(`${factory}({`)));
+  assert(/\bassertProviderMutation\b/.test(wiring), `${factory} must be given the gateway's check`);
+  const source = fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
+  const body = source.slice(source.indexOf(start), source.indexOf('\n  }', source.indexOf(start)));
+  assert(body.includes('deps.assertProviderMutation('), `${file} must assert the active gateway context`);
 }
 
 console.log('mutation gateway server contract tests passed');

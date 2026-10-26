@@ -149,12 +149,18 @@ assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMa
 /* ---- 7. the server routes through the planner ---- */
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes("require('./packages/contracts/src/upload-planning.ts')"), 'the server must load the shared planner');
+/* The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts); the server hands it the ceilings. */
+const uploads = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'upload-routes.ts'), 'utf8');
+/* Matched as a pattern: a quoted relative path here would read, to the candidate qualifier, as a file this test loads. */
+assert(/import \{ normalizeTransportChoice, planUploadTransport \} from '(?:\.\.\/)+packages\/contracts\/src\/upload-planning\.ts';/.test(uploads),
+  'the upload route must load the shared planner');
+assert(server.includes('limits: { blobMaxBytes: BLOB_MAX, uploadMaxBytes: UPLOAD_MAX, gitPushMaxBytes: GIT_PUSH_MAX, gitDataMaxBytes: CONTENTS_MAX }'),
+  "the upload route must be given this deployment's real ceilings");
 
-const routeStart = server.indexOf("app.post('/api/repo/:owner/:repo/upload'");
-const routeEnd = server.indexOf('async function uploadViaContents');
+const routeStart = uploads.indexOf("app.post('/api/repo/:owner/:repo/upload'");
+const routeEnd = uploads.indexOf('\n  });', routeStart);
 assert(routeStart > 0 && routeEnd > routeStart, 'the upload route must be locatable');
-const route = server.slice(routeStart, routeEnd);
+const route = uploads.slice(routeStart, routeEnd);
 
 /* The choice arrives normalized, so an unknown value can never mean LFS. */
 assert(route.includes('const transportChoice = normalizeTransportChoice(req.query.lfs);'),
@@ -162,8 +168,8 @@ assert(route.includes('const transportChoice = normalizeTransportChoice(req.quer
 
 /* One plan, made once, from this deployment's real ceilings. */
 assert(route.includes('const plan = planUploadTransport({'), 'the route must plan the transport');
-assert(/gitPushMaxBytes:\s*GIT_PUSH_MAX/.test(route), 'the plan must be made against the real native push ceiling');
-assert(/gitDataMaxBytes:\s*CONTENTS_MAX/.test(route), 'the plan must be made against the real Git Data boundary');
+assert(/gitPushMaxBytes:\s*limits\.gitPushMaxBytes/.test(route), 'the plan must be made against the real native push ceiling');
+assert(/gitDataMaxBytes:\s*limits\.gitDataMaxBytes/.test(route), 'the plan must be made against the real Git Data boundary');
 assert(route.includes('if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });'),
   'a refusal the plan names must be the refusal the reader is given');
 
@@ -179,7 +185,7 @@ assert(route.includes('if (plan.refusal) throw Object.assign(new Error(plan.refu
 const planCall = route.slice(route.indexOf('const plan = planUploadTransport({'), route.indexOf('if (plan.refusal)'));
 assert(planCall.length > 0);
 const outsideThePlan = route.replace(planCall, '');
-for (const ceiling of ['GIT_PUSH_MAX', 'CONTENTS_MAX', 'NATIVE_PUSH_MAX_MB']) {
+for (const ceiling of ['gitPushMaxBytes', 'gitDataMaxBytes', 'maxMegabytes', 'GIT_PUSH_MAX', 'CONTENTS_MAX', 'NATIVE_PUSH_MAX_MB']) {
   assert(!outsideThePlan.includes(ceiling),
     `the upload route must consult ${ceiling} only through the shared planner, never a second time on its own`);
 }
@@ -187,7 +193,7 @@ for (const ceiling of ['GIT_PUSH_MAX', 'CONTENTS_MAX', 'NATIVE_PUSH_MAX_MB']) {
 /* Every transport the route can take is the one the plan chose. */
 for (const selection of [
   "if (plan.route === 'git-push') {",
-  "if (plan.route === 'lfs') { enforceProtectedPaths",
+  "if (plan.route === 'lfs') {\n        deps.enforceProtectedPaths",
   "else if (plan.route === 'git-push') {"
 ]) {
   assert(route.includes(selection), `the route must select its transport with: ${selection}`);

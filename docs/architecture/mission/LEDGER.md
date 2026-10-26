@@ -1376,3 +1376,58 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the converted contracts and the new route test;
   - the full unit gate and every verify-job gate on Node 22.23.4.
   - Comparing `server.js`'s top-level statements before and after the cut left only the boundary, its helpers and constants, the three routes and the import that went with them.
+
+### D12k — identity and access, step two: the accounts and the tester's own data
+
+- **Routes.** Eleven more routes move into identity and access, each group registered where the route policy records it:
+  - `registerAccountRoutes` (`identity-access/http/account-routes.ts`): sign-in with a token, the accounts listed, switched by index or by login, and one removed;
+  - `registerAlphaPrivacyRoutes` (`alpha-lifecycle-routes.ts`): the privacy notice and the feedback a tester sends;
+  - `registerSignOutRoute` (`account-routes.ts`): signing out;
+  - `registerAlphaDisconnectRoutes` (`alpha-lifecycle-routes.ts`): every provider disconnected at once, and deletion, with its confirmation and authentication guards and its blocked answer;
+  - `registerMeRoute` (`account-routes.ts`): who the selected account is, with the build a tester quotes.
+
+  `disconnect-answers.ts` holds what a disconnect answers wherever one is asked for: the 202 for a cleanup still in progress, and the revocation guidance, once per distinct step. The GitHub App disconnect, which moves in step three, takes the pending answer from there already.
+
+  The session store, the account writer, the provider disconnect and the cookie helpers stay in the server for D13, and are handed to the routes, as is the build's version: the module does not import the release module itself, because the root JavaScript type check reaches identity and access through the GitHub provider, and that project cannot read the release module's JSON import. The routes read the request's session again after each disconnect, as the inline code did, because the disconnect replaces it.
+- **Dead code.** The server no longer has the feedback fields, their check and failure answer, the two deletion guards, the blocked answer, the guidance helper or the pending answer, nor its imports of `alphaRetentionPolicy` and `sanitizeFeedback`, which the routes now take from the module's own domain.
+- **Behaviour unchanged.** An oracle evaluated those regions of the previous `server.js` on one express app, and the module's registrations on another. It ran four pairs: the alpha on with its privacy store (twice), off without one, and on without one, which the server never builds, so that each branch on the store is reached.
+
+  Each of the 20,000 scenarios scripted:
+  - the session the account guard attached, or its refusal: one account or several, token, OAuth and App connections, a retired GitLab account and a GitHub Enterprise one, a selection out of range or written as text, none left;
+  - what the store reads back after a removal, and what each disconnect leaves on the request, as the server's helper does: a new session without those accounts, reselected;
+  - the tester the boundary admitted, or a deletion recovery, frozen or with its flag as text;
+  - the body: tokens padded, empty or not text, other providers and custom servers, indexes negative, too large, text, `true` or `null`, feedback with unnamed fields, as an array, without a plain prototype, long or mistyped;
+  - every answer the server's functions and stores give: identities, refusals by status and code, cleanups complete, pending or with guidance to dedupe, failed writes, feedback recorded or refused by code, deletion requests recorded or blocked with bad, oversized and too many blocks, purges verified or not.
+
+  The oracle compared each answer (status, type, caching, every Set-Cookie) and every call, with its arguments, in order. All 40,000 comparisons were identical. They included 5,465 answers of 200 (42 completed deletions among them), 152 feedback records, 708 pending cleanups and 867 conflicts.
+
+  Fifty-three mutants each fail on a comparison:
+  - **disconnect answers:** the guidance not deduplicated or marked automatic; a pending cleanup answered 200, or without its results;
+  - **sign-in:** another provider or a custom server accepted; the token not trimmed; an alpha refusal answered as a bad token; a token account added as OAuth;
+  - **the list and the switches:** an App connection listed by its installation in the alpha; a retired account listed as current; the host listed with its path; the selection not clamped; a retired account chosen by index or by login; a switch keeping the step-up; a negative index accepted;
+  - **removal:** not waiting for its cleanup; the retired accounts left behind by the last one; an alpha session destroyed; the guidance dropped; the alpha session not read again; a retired account selected after it;
+  - **signing out:** an alpha session destroyed; the retired accounts not disconnected;
+  - **the account:** a retired selection answered; an App connection shown by its installation in the alpha; cacheable; without its release;
+  - **privacy and feedback:** the notice with the alpha off; source content said to feed analytics; unnamed fields, a body without a plain prototype or an absent one accepted or answered wrongly; a leaving tester's feedback or invalid feedback answered 500; feedback recorded under another release or unsanitized; always reported recorded;
+  - **disconnecting every provider:** with the alpha off; keeping the cookie;
+  - **deletion:** without the exact confirmation; recovery on a truthy flag; without the account guard; with providers still connected; a blocked request ignored; an unverified purge accepted; the blocks unbounded, their counts unclamped, malformed codes kept; either cookie kept; the recovery path and the full one swapped.
+
+  The first run left one alive: "feedback as an array accepted". It cannot be told apart from the original, because an array's prototype is not `Object.prototype` and the next check refuses it. It was replaced by "an absent body answered as invalid fields", which is caught. The new HTTP test, run as the judge in the oracle's place, also catches all fifty-three. Its first draft let five through; it now covers bodies only code before the route can leave (null, absent, without a prototype), a correlation id the sanitizer changes, a store that does not say it recorded, and an alpha selection read back from the store.
+- **Tests.**
+  - `test/identity-account-routes.test.js` drives the registrations over HTTP. It covers:
+    - each route's chain, as the baseline inventory recorded it, registered by identity and access;
+    - sign-in: GitHub only, no custom server, the token trimmed, a bad token told apart from an alpha refusal;
+    - the list, with retired accounts, hosts and App connections, locally and in the alpha;
+    - the switches, refusing a retired account and clearing the step-up;
+    - removal: waiting for the cleanup, a GitHub account selected after it, the last one taking the retired ones with it, the guidance once per step, and the alpha reading its session back from the store;
+    - signing out, every account included; the account, a retired selection refused, an App connection described from the session;
+    - the privacy notice and feedback, refused rather than stripped, recorded as sanitized, each failure by code;
+    - disconnecting every provider; deletion's confirmation, its waits and blocks, both cookies cleared, and a recovery going straight to the purge.
+  - The source checks follow the code: `alpha-privacy-server-contract` reads the notice, feedback, the disconnect and deletion from the module, and checks the server hands them the privacy store and the central disconnect; `provider-disconnect-server-contract` finds the central disconnect in the module's routes as well as the server's, and counts its uses across both; `hardening-contract` reads the account routes' failure handling from the module.
+- **Ratchet:** the routes `server.js` registers itself fall from 24 to 13.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the four new files);
+  - the architecture oracles, the route policy (208 entries, every guard in order), route surface, module boundaries and contracts;
+  - the converted contracts and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the eleven routes, the eight helpers and the imports that went with them.

@@ -9,32 +9,39 @@ const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules',
 /* The access session and its boundary, and the alpha's front-door routes, live in identity and access. */
 const alphaSessions = fs.readFileSync(path.join(identityHttp, 'alpha-sessions.ts'), 'utf8');
 const alphaAccessRoutes = fs.readFileSync(path.join(identityHttp, 'alpha-access-routes.ts'), 'utf8');
+/* A tester's own data -- the notice, feedback, disconnecting every provider and deletion -- is identity and access's too. */
+const lifecycle = fs.readFileSync(path.join(identityHttp, 'alpha-lifecycle-routes.ts'), 'utf8');
+/* A function's text: a nested one ends at its own indentation, a top-level one at the margin. */
 const functionBlock = (text, marker) => {
   const start = text.indexOf(marker);
   assert(start >= 0, `missing ${marker}`);
-  return text.slice(start, text.indexOf('\n  }\n', start) + 4);
+  const indent = /[ ]*$/.exec(text.slice(text.lastIndexOf('\n', start) + 1, start))[0];
+  return text.slice(start, text.indexOf(`\n${indent}}\n`, start) + indent.length + 3);
 };
 
 function routeBlock(method, routePath) {
   const marker = `app.${method}('${routePath}'`;
-  const start = server.indexOf(marker);
+  const start = lifecycle.indexOf(marker);
   assert(start >= 0, `missing ${marker}`);
-  const end = server.indexOf('\napp.', start + marker.length);
-  return server.slice(start, end < 0 ? server.length : end);
+  const next = lifecycle.slice(start + marker.length).search(/\n\s*app\./);
+  return next < 0 ? lifecycle.slice(start) : lifecycle.slice(start, start + marker.length + next);
 }
 
 {
-  /* The server reaches identity and access through the module's index only. */
+  /* The server reaches identity and access through the module's index only; the routes take the privacy policy from its domain. */
   const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
   assert(identityAccess, 'the server must load identity and access through its index');
-  for (const name of ['alphaActorLabel', 'alphaRetentionPolicy', 'sanitizeFeedback', 'providerRevocationGuidance']) {
+  for (const name of ['alphaActorLabel', 'providerRevocationGuidance', 'registerAlphaPrivacyRoutes', 'registerAlphaDisconnectRoutes']) {
     assert.match(identityAccess[1], new RegExp(`\\b${name}\\b`), `the server must take ${name} from identity and access`);
   }
+  assert(lifecycle.includes("import { alphaRetentionPolicy, sanitizeFeedback } from '../domain/alpha-privacy.ts';"));
+  assert.match(server, /registerAlphaPrivacyRoutes\(app, \{ config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, releaseVersion: APP_VERSION \}\);/);
+  assert.match(server, /registerAlphaDisconnectRoutes\(app, \{\s+config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, accountAuth, fail, sessions: alphaSessions,\s+disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie\s+\}\);/);
 }
 
 const privacy = routeBlock('get', '/api/alpha/privacy');
 assert(privacy.includes("res.setHeader('Cache-Control', 'no-store')"));
-assert(privacy.includes('termsVersion: ALPHA_CONFIG.termsVersion'));
+assert(privacy.includes('termsVersion: deps.config.termsVersion'));
 assert(privacy.includes('retention: alphaRetentionPolicy()'));
 assert(privacy.includes('retainedIntegrityMetadata: true'));
 assert(privacy.includes('sourceContentUsedForAnalytics: false'));
@@ -42,16 +49,17 @@ assert(privacy.includes('sourceContentUsedForAnalytics: false'));
 const feedback = routeBlock('post', '/api/alpha/feedback');
 assert(feedback.includes('alphaFeedbackInput'));
 assert(feedback.includes('sanitizeFeedback'));
-assert(feedback.includes('alphaPrivacyStore.recordFeedback'));
+assert(feedback.includes('deps.privacyStore.recordFeedback'));
 assert(feedback.indexOf('alphaFeedbackInput') < feedback.indexOf('sanitizeFeedback'));
 assert(feedback.indexOf('sanitizeFeedback') < feedback.indexOf('recordFeedback'));
 assert(!feedback.includes('description:'));
-assert(feedback.includes('testerId: req.alpha.testerId'));
-assert(feedback.includes('releaseVersion: APP_VERSION'));
+assert(feedback.includes('testerId: testerOf(req)'));
+assert(lifecycle.includes("const testerOf = (req: Request): unknown => member(Reflect.get(req, 'alpha'), 'testerId');"));
+assert(feedback.includes('releaseVersion: deps.releaseVersion'));
 assert(feedback.includes('occurredAt: sanitized.timestamp'));
 
 const disconnectAll = routeBlock('post', '/api/alpha/providers/disconnect-all');
-assert(disconnectAll.includes('disconnectAlphaProviderAccount'));
+assert(disconnectAll.includes('deps.disconnectProviderAccounts'));
 assert(disconnectAll.includes('revocationGuidance'));
 assert(!disconnectAll.includes('installationId'));
 assert(!disconnectAll.includes('providerHookId'));
@@ -62,36 +70,30 @@ assert.match(
   deletion,
   /^app\.post\('\/api\/alpha\/delete', alphaDeletionConfirmation, alphaDeletionAuthentication,/
 );
-assert(deletion.includes('disconnectAlphaProviderAccount'));
-assert(deletion.includes('alphaPrivacyStore.createDeletionRequest'));
-assert(deletion.includes('alphaPrivacyStore.purgeTester'));
+assert(deletion.includes('deps.disconnectProviderAccounts'));
+assert(deletion.includes('privacyStore().createDeletionRequest'));
+assert(deletion.includes('deps.privacyStore.purgeTester'));
 assert(deletion.includes('alphaDeletionBlocked'));
 assert(deletion.includes('clearProviderSessionCookie'));
-assert(deletion.includes("alphaSessions.setCookie(res, '', 0)"));
-assert(deletion.includes('...purge'));
+assert(deletion.includes("deps.sessions.setCookie(res, '', 0)"));
+assert(deletion.includes('...Object(purge)'));
 assert(!deletion.includes('providerCleanupVerified: true'));
 assert(!deletion.includes('tokenBearingStateRemoved: true'));
-assert(deletion.includes('req.alpha.deletionRecovery === true'));
+assert(deletion.includes("member(Reflect.get(req, 'alpha'), 'deletionRecovery') === true"));
 assert(deletion.includes('if (!recovery)'));
-assert(deletion.indexOf('if (!recovery)') < deletion.indexOf('alphaPrivacyStore.purgeTester'),
+assert(deletion.indexOf('if (!recovery)') < deletion.indexOf('deps.privacyStore.purgeTester'),
   'terminal recovery must still enter the store purge/scrub path');
-assert(deletion.indexOf('alphaPrivacyStore.purgeTester') < deletion.indexOf('clearProviderSessionCookie'),
+assert(deletion.indexOf('deps.privacyStore.purgeTester') < deletion.indexOf('clearProviderSessionCookie'),
   'owned token-bearing state must be scrubbed before the provider cookie is cleared');
-assert(deletion.indexOf('clearProviderSessionCookie') < deletion.indexOf("alphaSessions.setCookie(res, '', 0)"),
+assert(deletion.indexOf('clearProviderSessionCookie') < deletion.indexOf("deps.sessions.setCookie(res, '', 0)"),
   'terminal recovery must clear both provider and alpha cookies after the store succeeds');
-assert(deletion.includes("res.setHeader('Set-Cookie', [providerCookie, alphaCookie])"));
+assert(deletion.includes("res.setHeader('Set-Cookie', [providerCookie, alphaCookie] as string[])"));
 
-const confirmation = server.slice(
-  server.indexOf('function alphaDeletionConfirmation'),
-  server.indexOf('\n}', server.indexOf('function alphaDeletionConfirmation')) + 2
-);
-assert(confirmation.includes("req.body.confirm !== 'DELETE ALPHA DATA'"));
+const confirmation = functionBlock(lifecycle, 'function alphaDeletionConfirmation(');
+assert(confirmation.includes("member(req.body, 'confirm') !== 'DELETE ALPHA DATA'"));
 assert(confirmation.includes("code: 'ALPHA_DELETION_CONFIRMATION_REQUIRED'"));
 
-const blocked = server.slice(
-  server.indexOf('function alphaDeletionBlocked'),
-  server.indexOf('\n}', server.indexOf('function alphaDeletionBlocked')) + 2
-);
+const blocked = functionBlock(lifecycle, 'function alphaDeletionBlocked(');
 assert(blocked.includes('.status(409)'));
 assert(blocked.includes("code: 'ALPHA_DELETION_BLOCKED'"));
 assert(!blocked.includes('blockedCleanupIds'));
@@ -113,11 +115,8 @@ assert(redemptionStart >= 0, 'missing the redemption route');
 const redemption = alphaAccessRoutes.slice(redemptionStart, alphaAccessRoutes.indexOf("app.post('/api/alpha/end'", redemptionStart));
 assert(redemption.includes('deps.seal({ alphaSid: sessionId, testerId })'));
 
-const deletionAuth = server.slice(
-  server.indexOf('function alphaDeletionAuthentication'),
-  server.indexOf('\n}', server.indexOf('function alphaDeletionAuthentication')) + 2
-);
-assert(deletionAuth.includes('req.alpha.deletionRecovery === true'));
+const deletionAuth = functionBlock(lifecycle, 'function alphaDeletionAuthentication(');
+assert(deletionAuth.includes("member(alpha, 'deletionRecovery') === true"));
 assert(deletionAuth.indexOf('deletionRecovery') < deletionAuth.indexOf('accountAuth'));
 
 console.log('alpha privacy server contract tests passed');

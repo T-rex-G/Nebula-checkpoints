@@ -96,8 +96,6 @@ const {
   AlphaAccessStore,
   AlphaPrivacyStore,
   alphaActorLabel,
-  alphaRetentionPolicy,
-  sanitizeFeedback,
   providerRevocationGuidance,
   disconnectProviderAccount,
   providerResourceKeyHash,
@@ -106,7 +104,13 @@ const {
   repositoryAllowed,
   inviteUnbound,
   createAlphaSessions,
-  registerAlphaAccessRoutes
+  registerAlphaAccessRoutes,
+  registerAccountRoutes,
+  registerSignOutRoute,
+  registerMeRoute,
+  registerAlphaPrivacyRoutes,
+  registerAlphaDisconnectRoutes,
+  providerDisconnectPending
 } = require('./apps/api/src/modules/identity-access/index.ts');
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
@@ -2694,12 +2698,6 @@ async function providerIdentity(acct) {
   return gh(acct, '/user');
 }
 const RETIRED_CLEANUP = 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED';
-/* One instruction per distinct step, in the same {label, url} shape with or without alpha. */
-function uniqueGuidance(items) {
-  const seen = new Map();
-  for (const item of items) if (item && item.label) seen.set(`${item.label}\0${item.url || ''}`, { label: item.label, url: item.url || null, automatic: false });
-  return [...seen.values()];
-}
 async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   const accounts = (Array.isArray(accountOrAccounts) ? accountOrAccounts : [accountOrAccounts])
     .filter(account => account && typeof account === 'object');
@@ -2867,92 +2865,6 @@ async function disconnectAlphaProviderAccount(req, accountOrAccounts) {
   });
 }
 
-function providerDisconnectPending(res, cleanup) {
-  return res.status(202).json({
-    ok: false,
-    status: 'pending',
-    results: cleanup.results
-  });
-}
-
-const ALPHA_FEEDBACK_FIELDS = new Set([
-  'feature', 'correlationId', 'provider', 'capabilityStatus', 'errorCode', 'runtime'
-]);
-
-function alphaFeedbackInput(value) {
-  if (
-    !value
-    || typeof value !== 'object'
-    || Array.isArray(value)
-    || Object.getPrototypeOf(value) !== Object.prototype
-    || Object.keys(value).some(key => !ALPHA_FEEDBACK_FIELDS.has(key))
-  ) {
-    throw Object.assign(new Error('Feedback contains unsupported fields'), {
-      status: 400,
-      code: 'ALPHA_FEEDBACK_FIELDS_REJECTED'
-    });
-  }
-  return value;
-}
-
-function alphaFeedbackFailure(res, error) {
-  const code = String(error && error.code || '');
-  if (code === 'ALPHA_FEEDBACK_FIELDS_REJECTED') {
-    return res.status(400).json({
-      error: 'Feedback contains unsupported fields',
-      code
-    });
-  }
-  if (['ALPHA_TESTER_DELETING', 'ALPHA_TESTER_REVOKED', 'ALPHA_TESTER_UNAVAILABLE'].includes(code)) {
-    return res.status(409).json({
-      error: 'Feedback is unavailable for this alpha session',
-      code: 'ALPHA_FEEDBACK_UNAVAILABLE'
-    });
-  }
-  if (error instanceof TypeError) {
-    return res.status(400).json({
-      error: 'Feedback fields are invalid',
-      code: 'ALPHA_FEEDBACK_INVALID'
-    });
-  }
-  return res.status(500).json({ error: 'Feedback could not be recorded' });
-}
-
-function alphaDeletionConfirmation(req, res, next) {
-  if (!ALPHA_CONFIG.enabled) return next();
-  if (!req.body || req.body.confirm !== 'DELETE ALPHA DATA') {
-    return res.status(400).json({
-      error: 'Exact deletion confirmation is required',
-      code: 'ALPHA_DELETION_CONFIRMATION_REQUIRED'
-    });
-  }
-  return next();
-}
-
-function alphaDeletionAuthentication(req, res, next) {
-  if (!ALPHA_CONFIG.enabled || (req.alpha && req.alpha.deletionRecovery === true)) {
-    return next();
-  }
-  return accountAuth(req, res, next);
-}
-
-function alphaDeletionBlocked(res, result) {
-  const cleanupBlocks = (Array.isArray(result && result.cleanupBlocks)
-    ? result.cleanupBlocks
-    : [])
-    .filter(item => item && /^[A-Z][A-Z0-9_]{1,79}$/.test(String(item.code || '')))
-    .slice(0, 20)
-    .map(item => Object.freeze({
-      code: String(item.code),
-      count: Math.max(0, Math.min(Number(item.count) || 0, 1000))
-    }));
-  return res.status(409).json({
-    error: 'Alpha deletion is blocked until provider cleanup is verified',
-    code: 'ALPHA_DELETION_BLOCKED',
-    cleanupBlocks
-  });
-}
-
 function clearProviderSessionCookie(req, res) {
   const sid = sessionSidFromRequest(req);
   if (sid) closeLiveSessions([sid], 'session-ended');
@@ -3063,114 +2975,13 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   }
   await setSession(req, res, s, { createNew: !existingSession });
 }
-app.post('/api/login', async (req, res) => {
-  try {
-    const provider = req.body && req.body.provider;
-    if (provider !== undefined && provider !== 'github') {
-      return res.status(400).json({ error: 'Only GitHub accounts are supported', code: 'PROVIDER_UNSUPPORTED' });
-    }
-    if (req.body && req.body.baseUrl) {
-      return res.status(400).json({ error: 'Custom Git server URLs are not supported', code: 'PROVIDER_AUTHORITY_UNSUPPORTED' });
-    }
-    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
-    if (!token) return res.status(400).json({ error: 'Token required' });
-    const acct = { provider: 'github', token };
-    const user = await providerIdentity(acct);
-    await addAccount(req, res, token, user, 'github', '', { authMethod: 'token' });
-    res.json({ login: user.login, name: user.name, avatar: user.avatar_url, provider: 'github', authMethod: 'token' });
-  } catch (e) {
-    if (e.status === 401 && e.code !== 'ALPHA_ACCESS_REQUIRED') return res.status(401).json({ error: 'Invalid token for that provider.' });
-    fail(res, e);
-  }
-});
-app.get('/api/accounts', accountAuth, (req, res) => {
-  if (signedOutWithoutGithub(req, res)) return;
-  const activeIdx = Math.min(req.session.active || 0, req.session.accounts.length - 1);
-  res.json({
-    active: activeIdx,
-    accounts: req.session.accounts.map((a, index) => {
-      if (ALPHA_CONFIG.enabled && a.authMethod === 'github-app') {
-        return {
-          login: retainedActor(req),
-          avatar: '',
-          provider: 'github',
-          authMethod: 'github-app',
-          ...githubAppConnectionView(a, index === activeIdx)
-        };
-      }
-      return {
-        login: a.login, avatar: a.avatar,
-        provider: a.provider || 'github',
-        retired: !isGithubAccount(a),
-        authMethod: a.authMethod || 'token',
-        host: a.baseUrl ? String(a.baseUrl).replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null,
-        ...(a.authMethod === 'github-app' ? {
-          installationId: Number(a.installationId),
-          repositorySelection: a.repositorySelection === 'all' ? 'all' : 'selected',
-          authorizedByLogin: String(a.authorizedByLogin || ''),
-          status: String(a.installationStatus || 'connected')
-        } : {})
-      };
-    })
-  });
-});
-app.post('/api/accounts/switch-idx', accountAuth, async (req, res) => {
-  try {
-    const i = req.body && req.body.idx;
-    if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
-    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
-    req.session.active = i;
-    clearStepUpAuthorization(req.session);
-    await setSession(req, res, req.session);
-    res.json({ ok: true, login: req.session.accounts[i].login });
-  } catch (e) { fail(res, e); }
-});
-/* remove ONE account, keep the rest signed in */
-app.post('/api/accounts/remove', accountAuth, async (req, res) => {
-  try {
-    const i = req.body && req.body.idx;
-    if (!(i >= 0 && i < req.session.accounts.length)) return res.status(400).json({ error: 'Bad index' });
-    const removed = req.session.accounts[i];
-    const removedActive = i === (Number(req.session.active) || 0);
-    const cleanup = await disconnectAlphaProviderAccount(req, removed);
-    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
-    const guidance = [...cleanup.manualCleanup];
-    const remaining = ALPHA_CONFIG.enabled
-      ? ((await sessionOf(req, { retainRetiredAccounts: true })) || { accounts: [] }).accounts
-      : req.session.accounts;
-    if (!remaining.some(isGithubAccount)) {
-      /* No GitHub account is left to act: retired accounts go too, and the session ends. */
-      if (remaining.length) {
-        const rest = await disconnectAlphaProviderAccount(req, remaining);
-        if (!rest.supportedComplete) return providerDisconnectPending(res, rest);
-        guidance.push(...rest.manualCleanup);
-      }
-      if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
-      else await destroySession(req, res);
-      return res.json({ ok: true, removed: removed.login, empty: true, ...(guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {}) });
-    }
-    const revocation = guidance.length ? { revocationGuidance: uniqueGuidance(guidance) } : {};
-    if (ALPHA_CONFIG.enabled) {
-      req.session = await sessionOf(req, { retainRetiredAccounts: true });
-      return res.json({ ok: true, removed: removed.login, active: Number(req.session.active) || 0, ...revocation });
-    }
-    /* The selected identity left: a GitHub account is chosen, never a retired one. */
-    if (removedActive) req.session.active = req.session.accounts.findIndex(isGithubAccount);
-    await setSession(req, res, req.session);
-    res.json({ ok: true, removed: removed.login, active: req.session.accounts[req.session.active].login, ...revocation });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/accounts/switch', accountAuth, async (req, res) => {
-  try {
-    const i = req.session.accounts.findIndex(a => a.login === (req.body && req.body.login));
-    if (i < 0) return res.status(404).json({ error: 'Account not in session' });
-    if (!isGithubAccount(req.session.accounts[i])) return res.status(409).json({ error: 'That account is no longer supported. Remove it or choose a GitHub account.', code: 'PROVIDER_UNSUPPORTED' });
-    req.session.active = i;
-    clearStepUpAuthorization(req.session);
-    await setSession(req, res, req.session);
-    res.json({ ok: true, login: req.session.accounts[i].login });
-  } catch (e) { fail(res, e); }
-});
+/* Accounts: sign-in with a token, the list, switching and removing one (apps/api/src/modules/identity-access/http/account-routes.ts). */
+const accountDeps = {
+  accountAuth, config: ALPHA_CONFIG, fail, providerIdentity, addAccount, signedOutWithoutGithub, retainedActor,
+  githubAppConnectionView, isGithubAccount, clearStepUpAuthorization, setSession, sessionOf, destroySession,
+  disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie
+};
+registerAccountRoutes(app, accountDeps);
 /* ---- OAuth (activates when GITHUB_CLIENT_ID/SECRET env vars are set) ---- */
 const OAUTH_ID = (process.env.GITHUB_CLIENT_ID || '').trim();
 const OAUTH_SECRET = (process.env.GITHUB_CLIENT_SECRET || '').trim();
@@ -3662,134 +3473,16 @@ app.get('/api/oauth/callback', async (req, res) => {
     res.redirect('/?entered=1');
   } catch (e) { return abandon('unexpected'); }
 });
-app.get('/api/alpha/privacy', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
-  return res.json({
-    termsVersion: ALPHA_CONFIG.termsVersion,
-    retention: alphaRetentionPolicy(),
-    retainedIntegrityMetadata: true,
-    sourceContentUsedForAnalytics: false
-  });
+/* A tester's own data, signing out and who the account is (apps/api/src/modules/identity-access/http). */
+registerAlphaPrivacyRoutes(app, { config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, releaseVersion: APP_VERSION });
+registerSignOutRoute(app, accountDeps);
+registerAlphaDisconnectRoutes(app, {
+  config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, accountAuth, fail, sessions: alphaSessions,
+  disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie
 });
-app.post('/api/alpha/feedback', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
-  try {
-    const input = alphaFeedbackInput(req.body);
-    const sanitized = sanitizeFeedback(
-      { feature: input.feature },
-      {
-        releaseVersion: APP_VERSION,
-        correlationId: input.correlationId,
-        provider: input.provider,
-        capabilityStatus: input.capabilityStatus,
-        errorCode: input.errorCode,
-        runtime: input.runtime,
-        timestamp: new Date()
-      }
-    );
-    const recorded = await alphaPrivacyStore.recordFeedback({
-      testerId: req.alpha.testerId,
-      releaseVersion: APP_VERSION,
-      correlationId: sanitized.correlationId,
-      provider: sanitized.provider,
-      feature: sanitized.feature,
-      capabilityStatus: sanitized.capabilityStatus,
-      errorCode: sanitized.errorCode,
-      runtime: sanitized.runtime,
-      occurredAt: sanitized.timestamp
-    });
-    return res.status(201).json({
-      ok: recorded.recorded === true,
-      createdAt: recorded.createdAt
-    });
-  } catch (error) {
-    return alphaFeedbackFailure(res, error);
-  }
-});
-app.post('/api/logout', accountAuth, async (req, res) => {
-  try {
-    /* Every account in the session, retired ones included, so their cleanup evidence is recorded. */
-    const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
-    if (ALPHA_CONFIG.enabled) clearProviderSessionCookie(req, res);
-    else await destroySession(req, res);
-    res.json({ ok: true, ...(cleanup.manualCleanup.length ? { revocationGuidance: uniqueGuidance(cleanup.manualCleanup) } : {}) });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/alpha/providers/disconnect-all', accountAuth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
-    const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-    if (!cleanup.supportedComplete) return providerDisconnectPending(res, cleanup);
-    const revocationGuidance = cleanup.results.map(result => result.revocationGuidance);
-    clearProviderSessionCookie(req, res);
-    return res.json({ ok: true, revocationGuidance });
-  } catch (error) { fail(res, error); }
-});
-app.post('/api/alpha/delete', alphaDeletionConfirmation, alphaDeletionAuthentication, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    if (!ALPHA_CONFIG.enabled) return res.status(404).json({ error: 'Not found' });
-    const recovery = req.alpha.deletionRecovery === true;
-    if (!recovery) {
-      const cleanup = await disconnectAlphaProviderAccount(req, req.session.accounts);
-      if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
-      const deletion = await alphaPrivacyStore.createDeletionRequest({
-        testerId: req.alpha.testerId
-      });
-      if (deletion.status === 'blocked') return alphaDeletionBlocked(res, deletion);
-    }
-    const purge = await alphaPrivacyStore.purgeTester({ testerId: req.alpha.testerId });
-    if (purge.status !== 'complete' || !purge.providerCleanupVerified) {
-      return alphaDeletionBlocked(res, purge);
-    }
-    clearProviderSessionCookie(req, res);
-    const providerCookie = res.getHeader('Set-Cookie');
-    alphaSessions.setCookie(res, '', 0);
-    const alphaCookie = res.getHeader('Set-Cookie');
-    res.setHeader('Set-Cookie', [providerCookie, alphaCookie]);
-    return res.json({
-      ok: true,
-      ...purge
-    });
-  } catch (error) { fail(res, error); }
-});
-app.get('/api/me', accountAuth, async (req, res) => {
-  try {
-    if (signedOutWithoutGithub(req, res)) return;
-    if (!isGithubAccount(req.sessionAccount)) {
-      return res.status(409).json({ error: 'The selected account is no longer supported. Choose a GitHub account.', code: 'ACCOUNT_SELECTION_REQUIRED' });
-    }
-    const provider = req.gh.provider || 'github';
-    let out;
-    if (req.gh.authMethod === 'github-app') {
-      out = ALPHA_CONFIG.enabled
-        ? {
-            login: retainedActor(req),
-            name: retainedActor(req),
-            avatar: '',
-            ...githubAppConnectionView(req.sessionAccount, true)
-          }
-        : {
-            login: req.sessionAccount.login,
-            name: req.sessionAccount.login,
-            avatar: req.sessionAccount.avatar,
-            installationId: Number(req.sessionAccount.installationId),
-            authorizedByLogin: String(req.sessionAccount.authorizedByLogin || ''),
-            repositorySelection: req.sessionAccount.repositorySelection === 'all' ? 'all' : 'selected'
-          };
-    } else {
-      const u = await gh(req.gh, '/user');
-      out = { login: u.login, name: u.name, avatar: u.avatar_url };
-    }
-    res.setHeader('Cache-Control', 'no-store');
-    /* The build a tester quotes in a fault report. It rides an authenticated
-       response so the landing page no longer has to publish it to everyone. */
-    res.json({ ...out, provider, authMethod: req.gh.authMethod || 'token', caps: providerCapabilities(req.gh), offlineCacheScope: offlineCacheScope(req), release: APP_VERSION });
-  } catch (e) { fail(res, e); }
+registerMeRoute(app, {
+  accountAuth, config: ALPHA_CONFIG, fail, signedOutWithoutGithub, isGithubAccount, retainedActor,
+  githubAppConnectionView, gh, providerCapabilities, offlineCacheScope, releaseVersion: APP_VERSION
 });
 /* The account's GitHub API budget (apps/api/src/http/routes/provider-rate.ts). */
 registerProviderRateRoute(app, { auth, capabilityAccess, account: req => req.gh, fail, gh });

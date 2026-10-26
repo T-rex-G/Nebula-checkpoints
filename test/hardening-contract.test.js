@@ -27,15 +27,17 @@ assert(/async function setSession\(req, res, data\b[\s\S]+if \(DB_URL\)[\s\S]+Se
 assert(server.includes('if (DB_URL && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
 assert(/async function destroySession[\s\S]+if \(sid && DB_URL\)[\s\S]+sign-out was not completed/.test(server), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
 assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(server) && /catch \(e\) \{\s*res\.status\(e\.status \|\| 500\)/.test(server), 'Authenticated requests must report a configured session-store outage as 503');
+/* The account routes are identity and access's. */
+const accountRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'account-routes.ts'), 'utf8');
 for (const [route, nextRoute] of [
   ["/api/accounts/switch-idx", "/api/accounts/remove"],
   ["/api/accounts/remove", "/api/accounts/switch"],
-  ["/api/accounts/switch", "/* ---- OAuth"]
+  ["/api/accounts/switch", "/* Signing out"]
 ]) {
-  const start = server.indexOf(`app.post('${route}'`);
-  const end = server.indexOf(nextRoute, start + 1);
-  const block = server.slice(start, end);
-  assert(start >= 0 && end > start && block.includes('try {') && block.includes('catch (e) { fail(res, e); }'), `Async account route ${route} must handle database failures`);
+  const start = accountRoutes.indexOf(`app.post('${route}'`);
+  const end = accountRoutes.indexOf(nextRoute, start + 1);
+  const block = accountRoutes.slice(start, end);
+  assert(start >= 0 && end > start && block.includes('try {') && block.includes('catch (e) { return fail(res, e); }'), `Async account route ${route} must handle database failures`);
 }
 assert(corona.includes('tagsAvailable') && corona.includes('tagsError'), 'Snapshots must disclose an unavailable tag inventory');
 assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_identity_keys_idx'), 'Session containment must index identity ownership instead of scanning an arbitrary global window');

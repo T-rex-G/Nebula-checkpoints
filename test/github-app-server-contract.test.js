@@ -9,13 +9,19 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 assert(server.includes('loadGithubAppConfig'), 'server must load optional GitHub App configuration');
 assert(server.includes('new GithubAppBroker'), 'server must construct the server-side installation credential broker');
 assert(server.includes('resolveProviderAccount'), 'authenticated provider operations must resolve credentials through one boundary');
-assert.match(server, /app\.post\('\/api\/github-app\/connect'/);
-assert.match(server, /app\.get\('\/api\/github-app\/oauth\/callback'/);
-assert.match(server, /app\.get\('\/api\/github-app\/setup'/);
-assert.match(server, /app\.get\('\/api\/github-app\/status'/);
-assert.match(server, /app\.get\('\/api\/me', accountAuth/);
-assert.match(server, /app\.post\('\/api\/github-app\/refresh'/);
-assert.match(server, /app\.post\('\/api\/github-app\/disconnect'/);
+/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+const { locations } = require('./oracles/route-policy');
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
+const guardsOf = (method, routePath) => {
+  const entry = policyRoutes.find(item => item.method === method && item.path === routePath);
+  assert(entry, `missing ${method} ${routePath}`);
+  return entry.guards;
+};
+for (const [method, routePath] of [
+  ['POST', '/api/github-app/connect'], ['GET', '/api/github-app/oauth/callback'], ['GET', '/api/github-app/setup'],
+  ['GET', '/api/github-app/status'], ['POST', '/api/github-app/refresh'], ['POST', '/api/github-app/disconnect']
+]) guardsOf(method, routePath);
+assert.deepStrictEqual(guardsOf('GET', '/api/me'), ['accountAuth']);
 assert(server.includes('findUserInstallation'), 'setup callback must verify installation ownership with the GitHub App user token');
 assert(server.includes('verifyGithubAppState'), 'callbacks must verify signed session and identity-bound state');
 assert(server.includes('consumeGithubAppPending'), 'callback state must be consumed once before provider side effects');
@@ -28,9 +34,7 @@ const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'mod
 assert(collaboration.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
 assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
 assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
-/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
-const { locations } = require('./oracles/route-policy');
-const notifications = locations(root).find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');
+const notifications = policyRoutes.find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');
 assert.deepStrictEqual(notifications && notifications.guards, ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
   'notification connection support must be checked before credential resolution');
 const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');

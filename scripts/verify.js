@@ -180,6 +180,8 @@ for (const file of [
   'apps/api/src/http/routes/provider-rate.ts', 'apps/api/src/http/routes/release.ts',
   'apps/api/src/modules/identity-access/http/alpha-sessions.ts', 'apps/api/src/modules/identity-access/http/alpha-access-routes.ts',
   'test/alpha-access-routes.test.js',
+  'apps/api/src/modules/identity-access/http/disconnect-answers.ts', 'apps/api/src/modules/identity-access/http/account-routes.ts',
+  'apps/api/src/modules/identity-access/http/alpha-lifecycle-routes.ts', 'test/identity-account-routes.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',

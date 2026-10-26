@@ -263,8 +263,12 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * capabilities, the API budget, the build's identity and the shell fallback.
  * 27 to 24: identity and access's alpha front door -- the status, the
  * redemption and the end of a session -- with the access boundary before them.
+ * 24 to 13: identity and access's accounts (sign-in with a token, the list,
+ * the switches and the removal), signing out, who the account is, and the
+ * tester's own data (the privacy notice, feedback, every provider
+ * disconnected, deletion).
  */
-const SERVER_ROUTE_CEILING = 24;
+const SERVER_ROUTE_CEILING = 13;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

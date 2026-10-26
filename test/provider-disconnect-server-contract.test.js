@@ -44,10 +44,15 @@ const removalRoutes = [
   '/api/alpha/providers/disconnect-all',
   '/api/alpha/delete'
 ];
+/* The central disconnect, as the server calls it and as identity and access's routes are handed it. */
+const disconnectCall = /await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/;
+assert.strictEqual((server.match(/disconnectProviderAccounts: disconnectAlphaProviderAccount\b/g) || []).length, 2,
+  'identity and access\'s account and alpha disconnect routes must be handed the central disconnect helper');
 for (const routePath of removalRoutes) {
   const block = routeBlock(routePath);
-  assert(block.includes('await disconnectAlphaProviderAccount('), `${routePath} must use the central disconnect boundary`);
-  assert(block.indexOf('await disconnectAlphaProviderAccount(') < block.indexOf('providerDisconnectPending('),
+  const call = disconnectCall.exec(block);
+  assert(call, `${routePath} must use the central disconnect boundary`);
+  assert(call.index < block.indexOf('providerDisconnectPending('),
     `${routePath} must return pending cleanup before local completion`);
   assert(!block.includes('.splice('), `${routePath} must not remove local account state before verified provider cleanup`);
   assert(!block.includes('removeGithubAppInstallation('), `${routePath} must not reorder installation deletion outside finalization`);
@@ -55,9 +60,10 @@ for (const routePath of removalRoutes) {
 }
 {
   /* The remove route may call it twice (the account, then retired leftovers); no other route may call it at all. */
-  let outside = server;
+  const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
+  let outside = [server, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
   for (const routePath of removalRoutes) outside = outside.replace(routeBlock(routePath), '');
-  assert.strictEqual((outside.match(/await disconnectAlphaProviderAccount\(/g) || []).length, 0,
+  assert.strictEqual((outside.match(/await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/g) || []).length, 0,
     'only the five approved routes may invoke the central account disconnect helper');
 }
 

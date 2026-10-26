@@ -31,7 +31,12 @@ assert(server.includes("app.get('/api/security/csrf'"), 'authenticated clients n
 assert(server.includes("app.post('/api/security/step-up'"), 'sensitive actions need a step-up grant endpoint');
 assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(server), 'auth must centrally enforce CSRF and single-use step-up grants');
 assert(server.includes("authMethod: 'token'") && server.includes("authMethod: 'oauth'"), 'session accounts must preserve the authentication method');
-assert(/app\.post\('\/api\/logout', (?:auth|accountAuth)/.test(server), 'logout must be an authenticated CSRF-protected mutation');
+{
+  /* Wherever the route is registered, as the route policy reads its chain. */
+  const { currentRoutePolicy } = require('./oracles/current-route-policy');
+  const logout = currentRoutePolicy(root).sequence.find(entry => entry.kind === 'route' && entry.method === 'POST' && entry.path === '/api/logout');
+  assert(logout && ['auth', 'accountAuth'].includes(logout.guards[0]), 'logout must be an authenticated CSRF-protected mutation');
+}
 
 assert(app.includes("'x-nv-csrf': csrfToken"), 'JSON mutations must carry the CSRF token');
 assert(app.includes("opts.headers"), 'API helper must support action-specific authorization headers');

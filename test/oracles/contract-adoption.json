@@ -1,6 +1,6 @@
 {
   "copies": {
-    "server.js": 8,
+    "server.js": 5,
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,
     "src/work-continuity.js": 2,

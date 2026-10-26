@@ -5,6 +5,15 @@ const fs = require('fs');
 const path = require('path');
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
+/* The access session and its boundary, and the alpha's front-door routes, live in identity and access. */
+const alphaSessions = fs.readFileSync(path.join(identityHttp, 'alpha-sessions.ts'), 'utf8');
+const alphaAccessRoutes = fs.readFileSync(path.join(identityHttp, 'alpha-access-routes.ts'), 'utf8');
+const functionBlock = (text, marker) => {
+  const start = text.indexOf(marker);
+  assert(start >= 0, `missing ${marker}`);
+  return text.slice(start, text.indexOf('\n  }\n', start) + 4);
+};
 
 function routeBlock(method, routePath) {
   const marker = `app.${method}('${routePath}'`;
@@ -58,7 +67,7 @@ assert(deletion.includes('alphaPrivacyStore.createDeletionRequest'));
 assert(deletion.includes('alphaPrivacyStore.purgeTester'));
 assert(deletion.includes('alphaDeletionBlocked'));
 assert(deletion.includes('clearProviderSessionCookie'));
-assert(deletion.includes("setAlphaCookie(res, '', 0)"));
+assert(deletion.includes("alphaSessions.setCookie(res, '', 0)"));
 assert(deletion.includes('...purge'));
 assert(!deletion.includes('providerCleanupVerified: true'));
 assert(!deletion.includes('tokenBearingStateRemoved: true'));
@@ -68,7 +77,7 @@ assert(deletion.indexOf('if (!recovery)') < deletion.indexOf('alphaPrivacyStore.
   'terminal recovery must still enter the store purge/scrub path');
 assert(deletion.indexOf('alphaPrivacyStore.purgeTester') < deletion.indexOf('clearProviderSessionCookie'),
   'owned token-bearing state must be scrubbed before the provider cookie is cleared');
-assert(deletion.indexOf('clearProviderSessionCookie') < deletion.indexOf("setAlphaCookie(res, '', 0)"),
+assert(deletion.indexOf('clearProviderSessionCookie') < deletion.indexOf("alphaSessions.setCookie(res, '', 0)"),
   'terminal recovery must clear both provider and alpha cookies after the store succeeds');
 assert(deletion.includes("res.setHeader('Set-Cookie', [providerCookie, alphaCookie])"));
 
@@ -88,23 +97,21 @@ assert(blocked.includes("code: 'ALPHA_DELETION_BLOCKED'"));
 assert(!blocked.includes('blockedCleanupIds'));
 assert(!blocked.includes('cleanupId'));
 
-const recoveryStart = server.indexOf('function readAlphaDeletionRecovery');
-assert(recoveryStart >= 0, 'missing encrypted deletion-recovery boundary');
-const recovery = server.slice(recoveryStart, server.indexOf('\n}', recoveryStart) + 2);
-assert(recovery.includes("alphaRequestKey(req) !== 'POST /api/alpha/delete'"));
-assert(recovery.includes("req.body.confirm !== 'DELETE ALPHA DATA'"));
-assert(recovery.includes("getCookie(req, ALPHA_COOKIE)"));
+const recovery = functionBlock(alphaSessions, 'function readDeletionRecovery(req: Request)');
+assert(recovery.includes("requestKey(req) !== 'POST /api/alpha/delete'"), 'missing encrypted deletion-recovery boundary');
+assert(recovery.includes("member(req.body, 'confirm') !== 'DELETE ALPHA DATA'"));
+assert(recovery.includes('deps.getCookie(req, ALPHA_COOKIE)'));
 assert(recovery.includes('deletionRecovery: true'));
 
-const accessBoundary = server.slice(
-  server.indexOf('async function alphaAccessBoundary'),
-  server.indexOf('\n}', server.indexOf('async function alphaAccessBoundary')) + 2
-);
-assert(accessBoundary.includes('readAlphaDeletionRecovery(req)'));
-assert(accessBoundary.includes('req.alpha = recovery'));
+const accessBoundary = functionBlock(alphaSessions, 'async function alphaAccessBoundary(');
+assert(accessBoundary.includes('readDeletionRecovery(req)'));
+assert(accessBoundary.includes("Reflect.set(req, 'alpha', recovery)"));
+assert.match(server, /registerAlphaAccessRoutes\(app, \{ sessions: alphaSessions,/, 'the server must register the alpha boundary from identity and access');
 
-const redemption = routeBlock('post', '/api/alpha/redeem');
-assert(redemption.includes('seal({ alphaSid: redeemed.sessionId, testerId })'));
+const redemptionStart = alphaAccessRoutes.indexOf("app.post('/api/alpha/redeem'");
+assert(redemptionStart >= 0, 'missing the redemption route');
+const redemption = alphaAccessRoutes.slice(redemptionStart, alphaAccessRoutes.indexOf("app.post('/api/alpha/end'", redemptionStart));
+assert(redemption.includes('deps.seal({ alphaSid: sessionId, testerId })'));
 
 const deletionAuth = server.slice(
   server.indexOf('function alphaDeletionAuthentication'),

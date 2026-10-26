@@ -261,8 +261,10 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * 40 to 27: the platform's own routes -- the probes, the public files and the
  * page, the vendor libraries, the webhook intake, the configuration and
  * capabilities, the API budget, the build's identity and the shell fallback.
+ * 27 to 24: identity and access's alpha front door -- the status, the
+ * redemption and the end of a session -- with the access boundary before them.
  */
-const SERVER_ROUTE_CEILING = 27;
+const SERVER_ROUTE_CEILING = 24;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

@@ -1325,3 +1325,54 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
   - Comparing `server.js`'s top-level statements before and after the cut left only the seventeen routes, the vendor helpers and the imports that went with them.
+
+### D12k — identity and access, step one: the alpha's front door
+
+- **Routes.** identity-access's twenty-seven routes move in three steps. This first one takes the alpha access boundary and the three routes behind it that a visitor meets first:
+  - `createAlphaSessions` (`identity-access/http/alpha-sessions.ts`) holds the access cookie, the session read from the store, the refusal answers, the deletion recovery and the boundary itself;
+  - `registerAlphaAccessRoutes` (`identity-access/http/alpha-access-routes.ts`) registers the boundary on `/api`, then the status, the redemption of an invitation and the end of a session.
+
+  The server builds the sessions once, from the alpha's configuration, its store, the sealed-cookie codec and the cookie reader, and registers them where the boundary always was. The alpha deletion route, which moves in step two, clears the cookie through `alphaSessions.setCookie`. The comments that explained the boundary moved with it.
+- **One contract named, three copies gone.** The tester id is the ids contract's `MUTATION_ID` format (an RFC 9562 UUID, versions 1 to 5). The server held three copies of its pattern, in the session reader, the deletion recovery and the redemption. The module names the contract once, and `server.js`'s copies fall from 8 to 5 in the adoption record.
+- **Dead code.** The server no longer has the cookie's name and lifetime, the public-route list, the refusal tables, the fourteen helpers or the boundary, nor its import of `AlphaAccessOperationalError`.
+- **Behaviour unchanged.** An oracle evaluated that region of the previous `server.js` on one express app, and the module's registration on another. It ran five pairs, for the settings fixed at startup: the alpha on with its store (twice), off without one, and the two combinations the server never builds, on without a store and off with one, so that each branch on either is reached.
+
+  The 20,000 scenarios varied:
+  - the cookie: absent, unsealable, sealed around null, a number, text or an array, a session id empty or not text, a tester id upper-cased, another tester's, empty or null, a version-6 or malformed one, and a tester alone for deletion;
+  - the cookie header around it, other cookies first, a name sharing its prefix, padding;
+  - what the store answered: a valid session, upper-cased or another tester's, fields missing or mistyped, null, each refusal by code, an unknown code, `constructor` as a code, the store unreachable and a plain error;
+  - each redemption outcome: a valid session, the session id missing, empty or a number, the tester invalid, missing or with a bad scope list, null or text, a rejected or locked invitation, a refusal from the wrong family, the store unreachable;
+  - the body the boundary saw (parsed, absent, null, text, zero, an array, the deletion confirmation in either case, a redemption with and without its fields);
+  - production or not, and twenty-five requests: the public ones with and without a query, the alpha's own, HEAD, wrong methods, a different case, a trailing slash, the deletion route with a query, other API routes, `/api` itself, `/apix` and a page.
+
+  The oracle compared each answer (status, type, caching, Retry-After, every Set-Cookie byte), every call to the cookie reader, the codec and the store, in order, and what the boundary left on the request: the session, whether it was frozen and the session id. All 40,000 comparisons were identical. They included 146 cookies issued and 7,877 cleared, and answers of 200, 401, 403, 404, 429, 500 and 503.
+
+  Thirty-six mutants each fail on a comparison:
+  - **the cookie:** readable by scripts; never Secure; sent cross-site; kept for thirty days;
+  - **the answers:** an unreachable store taken for a refusal; no Retry-After; a revoked session answered 401; a locked redemption answered 403; any redemption error answered as a rejected invitation; a store failing a redemption answered 500;
+  - **the session:** non-text terms accepted; the query string kept in the route's name; the configuration made private; a stored tester id not lower-cased; a cookie naming another tester accepted; an empty session id accepted;
+  - **deletion recovery:** without the confirmation; on any route; for a looser tester id; left unfrozen;
+  - **the boundary:** the cookie kept on a refusal; cleared when the store is down; the session id not left on the request; enforced with the alpha off;
+  - **the status:** always authenticated; clearing the cookie when the store is down; any failure answered as signed out; cacheable;
+  - **the redemption:** with the alpha off; the accepted terms not passed on; the caller's address not passed on; an empty session id or an invalid tester id accepted; the cookie without its tester; the answer without its expiry;
+  - **the end:** keeping the cookie.
+
+  The new HTTP test, run as the judge in the oracle's place, catches all thirty-six too. Its first draft let one through, a redemption with the alpha off, because its "off" server had no store; it now also runs off with a store to hand.
+- **Tests.**
+  - `test/alpha-access-routes.test.js` drives the registration over HTTP. It covers:
+    - the three routes and the boundary registered by identity and access, and every route in the baseline inventory still on the side of the boundary it recorded;
+    - the alpha off: nothing gated, nothing to redeem, even with a store to hand;
+    - the public routes open, the rest refused with the cookie cleared, and the boundary on the API only;
+    - the issued cookie's attributes and sealed contents, Secure in production, and each redemption failure answered without a cookie;
+    - a valid session reaching the route behind with its tester and session id; each refusal, a tester mismatch and a malformed store answer;
+    - the store down answered 503 with Retry-After and the cookie kept, by the boundary and the status alike;
+    - deletion recovery on the sealed tester alone, confirmed, on that one route, frozen;
+    - the end clearing the cookie.
+  - The source checks follow the code: `alpha-privacy-server-contract` reads the deletion recovery, the boundary and the redemption from the module; `provider-disconnect-server-contract` reads the session reader from it.
+- **Ratchet:** the routes `server.js` registers itself fall from 27 to 24.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the three new files);
+  - the architecture oracles, the route policy (208 entries, every guard in order, the boundary where it was), route surface, module boundaries and contracts;
+  - the converted contracts and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the boundary, its helpers and constants, the three routes and the import that went with them.

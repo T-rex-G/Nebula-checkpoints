@@ -94,7 +94,6 @@ const {
 const { databaseReadiness } = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
 const {
   AlphaAccessStore,
-  AlphaAccessOperationalError,
   AlphaPrivacyStore,
   alphaActorLabel,
   alphaRetentionPolicy,
@@ -105,7 +104,9 @@ const {
   AlphaAccessError,
   canonicalRepositoryScope,
   repositoryAllowed,
-  inviteUnbound
+  inviteUnbound,
+  createAlphaSessions,
+  registerAlphaAccessRoutes
 } = require('./apps/api/src/modules/identity-access/index.ts');
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
@@ -519,27 +520,9 @@ const ALPHA_CONFIG = loadAlphaAccessConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   databaseUrl: DB_URL
 });
-const ALPHA_COOKIE = 'nv_alpha_access';
 const ALPHA_SESSION_ID = Symbol('alpha session id');
 const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
 const HOSTED_SESSION_REVISION = Symbol('hosted provider session revision');
-const ALPHA_COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
-const ALPHA_PUBLIC_API = new Set([
-  'GET /api/version',
-  'GET /api/config',
-  'GET /api/capabilities',
-  'GET /api/alpha/status',
-  'POST /api/alpha/redeem'
-]);
-const ALPHA_SESSION_HTTP_CODES = new Set([
-  'ALPHA_ACCESS_REQUIRED',
-  'ALPHA_SESSION_EXPIRED',
-  'ALPHA_ACCESS_REVOKED'
-]);
-const ALPHA_REDEMPTION_HTTP_CODES = new Set([
-  'ALPHA_INVITE_REJECTED',
-  'ALPHA_REDEMPTION_LOCKED'
-]);
 const alphaStore = ALPHA_CONFIG.enabled ? new AlphaAccessStore({
   pool: {
     connect: () => pool().connect(),
@@ -562,226 +545,17 @@ const alphaPrivacyStore = ALPHA_CONFIG.enabled ? new AlphaPrivacyStore({
   }
 }) : null;
 
-function setAlphaCookie(res, value, maxAge = ALPHA_COOKIE_MAX_AGE) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader(
-    'Set-Cookie',
-    `${ALPHA_COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`
-  );
-}
-
-function alphaOperationalFailure(res) {
-  return res.status(500).json({
-    error: 'Alpha access operation could not be completed'
-  });
-}
-
-/*
- * The access store could not be read or written. That is the database, not
- * the tester: it answers 503 and leaves the access cookie alone. It used to
- * answer 500 and clear the cookie, and an invitation is redeemed once, so a
- * scale-to-zero wake that failed or a minute of database maintenance signed
- * every tester out for good.
- */
-function alphaStoreUnavailable(error) {
-  return error instanceof AlphaAccessOperationalError;
-}
-function alphaUnavailableFailure(res) {
-  res.setHeader('Retry-After', '5');
-  return res.status(503).json({
-    error: 'Alpha access is temporarily unavailable. Try again in a few seconds.',
-    code: 'ALPHA_ACCESS_UNAVAILABLE'
-  });
-}
-
-function alphaSessionFailure(res, error) {
-  const code = String(error && error.code || '');
-  if (!ALPHA_SESSION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
-  const response = {
-    ALPHA_ACCESS_REQUIRED: {
-      status: 401,
-      error: 'Alpha access is required'
-    },
-    ALPHA_SESSION_EXPIRED: {
-      status: 401,
-      error: 'Alpha session expired'
-    },
-    ALPHA_ACCESS_REVOKED: {
-      status: 403,
-      error: 'Alpha access was revoked'
-    }
-  }[code];
-  return res.status(response.status).json({ error: response.error, code });
-}
-
-function alphaRedemptionFailure(res, error) {
-  /* Nothing was spent: the redemption is one transaction, and it did not commit. */
-  if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
-  const code = String(error && error.code || '');
-  if (!ALPHA_REDEMPTION_HTTP_CODES.has(code)) return alphaOperationalFailure(res);
-  return res.status(code === 'ALPHA_REDEMPTION_LOCKED' ? 429 : 403).json({
-    error: 'Invitation could not be redeemed',
-    code
-  });
-}
-
-function alphaSessionView(session) {
-  if (
-    !session
-    || typeof session !== 'object'
-    || typeof session.testerLabel !== 'string'
-    || !Array.isArray(session.repositoryScopes)
-    || typeof session.termsVersion !== 'string'
-    || typeof session.expiresAt !== 'string'
-  ) {
-    throw new TypeError('alpha access store returned an invalid session');
-  }
-  return {
-    testerLabel: session.testerLabel,
-    repositoryScopes: [...session.repositoryScopes],
-    termsVersion: session.termsVersion,
-    expiresAt: session.expiresAt
-  };
-}
-
-function alphaRequestPath(req) {
-  return String(req.originalUrl || req.url || '').split('?', 1)[0];
-}
-
-function alphaRequestKey(req) {
-  return `${String(req.method || '').toUpperCase()} ${alphaRequestPath(req)}`;
-}
-
-async function readAlphaRequestSession(req) {
-  const payload = unseal(getCookie(req, ALPHA_COOKIE) || '');
-  if (!payload || typeof payload.alphaSid !== 'string' || !payload.alphaSid) {
-    throw Object.assign(new Error('Alpha access is required'), {
-      status: 401,
-      code: 'ALPHA_ACCESS_REQUIRED'
-    });
-  }
-  const stored = await alphaStore.readSession(payload.alphaSid);
-  const testerId = String(stored && stored.testerId || '').toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(testerId)) {
-    throw new TypeError('alpha access store returned an invalid tester id');
-  }
-  if (
-    payload.testerId !== undefined
-    && String(payload.testerId || '').toLowerCase() !== testerId
-  ) {
-    throw new TypeError('alpha access cookie tester does not match its session');
-  }
-  return {
-    sessionId: payload.alphaSid,
-    session: { ...alphaSessionView(stored), testerId }
-  };
-}
-
-function readAlphaDeletionRecovery(req) {
-  if (
-    alphaRequestKey(req) !== 'POST /api/alpha/delete'
-    || !req.body
-    || req.body.confirm !== 'DELETE ALPHA DATA'
-  ) return null;
-  const payload = unseal(getCookie(req, ALPHA_COOKIE) || '');
-  const testerId = String(payload && payload.testerId || '').toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(testerId)) {
-    return null;
-  }
-  return Object.freeze({ testerId, deletionRecovery: true });
-}
-
-async function alphaAccessBoundary(req, res, next) {
-  if (!ALPHA_CONFIG.enabled || ALPHA_PUBLIC_API.has(alphaRequestKey(req))) {
-    return next();
-  }
-  try {
-    const access = await readAlphaRequestSession(req);
-    req.alpha = access.session;
-    req[ALPHA_SESSION_ID] = access.sessionId;
-    return next();
-  } catch (error) {
-    const recovery = readAlphaDeletionRecovery(req);
-    if (recovery) {
-      req.alpha = recovery;
-      return next();
-    }
-    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
-    setAlphaCookie(res, '', 0);
-    return alphaSessionFailure(res, error);
-  }
-}
-
-function alphaStatusBody(session = null) {
-  return {
-    mode: ALPHA_CONFIG.mode,
-    authenticated: !!session,
-    termsVersion: ALPHA_CONFIG.termsVersion,
-    testerLabel: session ? session.testerLabel : null,
-    repositoryScopes: session ? [...session.repositoryScopes] : [],
-    expiresAt: session ? session.expiresAt : null
-  };
-}
-
-app.use('/api', alphaAccessBoundary);
-
-app.get('/api/alpha/status', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  if (!ALPHA_CONFIG.enabled || !getCookie(req, ALPHA_COOKIE)) {
-    return res.json(alphaStatusBody());
-  }
-  try {
-    const access = await readAlphaRequestSession(req);
-    return res.json(alphaStatusBody(access.session));
-  } catch (error) {
-    if (alphaStoreUnavailable(error)) return alphaUnavailableFailure(res);
-    setAlphaCookie(res, '', 0);
-    if (!ALPHA_SESSION_HTTP_CODES.has(String(error && error.code || ''))) {
-      return alphaOperationalFailure(res);
-    }
-    return res.json(alphaStatusBody());
-  }
+const alphaSessions = createAlphaSessions({
+  config: ALPHA_CONFIG,
+  store: alphaStore,
+  seal,
+  unseal,
+  getCookie,
+  sessionIdKey: ALPHA_SESSION_ID,
+  production: () => process.env.NODE_ENV === 'production'
 });
 
-app.post('/api/alpha/redeem', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  if (!ALPHA_CONFIG.enabled || !alphaStore) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  try {
-    const redeemed = await alphaStore.redeemInvite({
-      code: req.body && req.body.code,
-      termsVersion: req.body && req.body.acceptedTermsVersion,
-      ip: req.ip
-    });
-    const session = alphaSessionView({
-      ...redeemed.tester,
-      expiresAt: redeemed.expiresAt
-    });
-    if (typeof redeemed.sessionId !== 'string' || !redeemed.sessionId) {
-      throw new TypeError('alpha access store returned an invalid session id');
-    }
-    const testerId = String(redeemed.tester && redeemed.tester.testerId || '').toLowerCase();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(testerId)) {
-      throw new TypeError('alpha access store returned an invalid tester id');
-    }
-    setAlphaCookie(res, seal({ alphaSid: redeemed.sessionId, testerId }));
-    return res.json({
-      ok: true,
-      testerLabel: session.testerLabel,
-      repositoryScopes: session.repositoryScopes,
-      expiresAt: session.expiresAt
-    });
-  } catch (error) {
-    return alphaRedemptionFailure(res, error);
-  }
-});
-
-app.post('/api/alpha/end', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  setAlphaCookie(res, '', 0);
-  res.json({ ok: true });
-});
+registerAlphaAccessRoutes(app, { sessions: alphaSessions, config: ALPHA_CONFIG, store: alphaStore, seal, getCookie });
 
 let _dbReady = null;
 let _dbRetryAfter = 0;
@@ -3974,7 +3748,7 @@ app.post('/api/alpha/delete', alphaDeletionConfirmation, alphaDeletionAuthentica
     }
     clearProviderSessionCookie(req, res);
     const providerCookie = res.getHeader('Set-Cookie');
-    setAlphaCookie(res, '', 0);
+    alphaSessions.setCookie(res, '', 0);
     const alphaCookie = res.getHeader('Set-Cookie');
     res.setHeader('Set-Cookie', [providerCookie, alphaCookie]);
     return res.json({

@@ -28,11 +28,13 @@ assert.match(identityAccess[1], /\bAlphaPrivacyStore\b/);
 assert.match(identityAccess[1], /\bdisconnectProviderAccount\b/);
 assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
 assert.match(server, /async function disconnectAlphaProviderAccount\(/);
-const alphaRequestSessionStart = server.indexOf('async function readAlphaRequestSession(req)');
-const alphaRequestSessionEnd = server.indexOf('\n}', alphaRequestSessionStart) + 2;
-const alphaRequestSessionBlock = server.slice(alphaRequestSessionStart, alphaRequestSessionEnd);
+const alphaSessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'alpha-sessions.ts'), 'utf8');
+const alphaRequestSessionStart = alphaSessions.indexOf('async function readRequestSession(req: Request)');
+assert(alphaRequestSessionStart >= 0, 'missing the access session reader');
+const alphaRequestSessionEnd = alphaSessions.indexOf('\n  }\n', alphaRequestSessionStart) + 4;
+const alphaRequestSessionBlock = alphaSessions.slice(alphaRequestSessionStart, alphaRequestSessionEnd);
 assert(alphaRequestSessionBlock.includes('testerId'));
-assert(alphaRequestSessionBlock.includes('session: { ...alphaSessionView(stored), testerId }'),
+assert(alphaRequestSessionBlock.includes('session: { ...sessionView(stored), testerId }'),
   'the private request context must retain tester ownership while public alpha projections stay redacted');
 
 const removalRoutes = [

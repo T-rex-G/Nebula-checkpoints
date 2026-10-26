@@ -28,3 +28,7 @@ export { AlphaAccessOperationalError, AlphaAccessStore, GENERIC_REDEMPTION_ERROR
 export type { AlphaSession, AlphaTester, IssuedInvite, Redemption } from './persistence/alpha-access-store.ts';
 export { AlphaPrivacyStore, AlphaPrivacyStoreError } from './persistence/alpha-privacy-store.ts';
 export type { PurgeReport, SessionCodec } from './persistence/alpha-privacy-store.ts';
+export { ALPHA_COOKIE, createAlphaSessions } from './http/alpha-sessions.ts';
+export type { AlphaSessionDeps, AlphaSessions, AlphaSessionView } from './http/alpha-sessions.ts';
+export { registerAlphaAccessRoutes } from './http/alpha-access-routes.ts';
+export type { AlphaAccessRouteDeps } from './http/alpha-access-routes.ts';

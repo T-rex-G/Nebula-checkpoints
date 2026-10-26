@@ -152,10 +152,16 @@ function discoverReleaseManifest() {
   });
 }
 
+/*
+ * Where the archive may go and whether the generated documents are current
+ * are settled before the foundation gate, so a release refused for either is
+ * refused at once rather than after every check has run. The manifest is read
+ * after the gate, which reports a missing foundation artifact by name.
+ */
 async function main() {
-  runFoundationGate();
-  assertGeneratedDocumentationCurrent();
   assertExternalOutputDirectory();
+  assertGeneratedDocumentationCurrent();
+  await runFoundationGate();
   const files = discoverReleaseManifest();
   fs.mkdirSync(outputDir, { recursive: true });
   fs.rmSync(zipPath, { force: true });

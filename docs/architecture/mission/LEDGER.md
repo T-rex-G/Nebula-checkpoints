@@ -969,3 +969,22 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the full unit gate and every verify-job gate on Node 22.23.4;
   - the compiled-server tests.
   - A cut of `server.js` is also checked by comparing its top-level statements before and after. That check caught a first cut that had taken the Uranus and Parallax registrations with the access surface, before anything ran.
+
+### Qualifier fix — the release test inside its time
+
+- **What failed.** The qualification's runtime matrix on D12f (`5f9ba1b`) failed two programs. `package-release` was stopped at the matrix's 45-second limit. `public-alpha-provenance` then failed 32 ms in, because the release test had moved `PUBLIC_ALPHA_PROVENANCE.json` aside for its missing-artifact case when it was stopped. The second failure follows from the first.
+- **Why.** The release test cuts a release twelve times, and every cut runs the foundation gate's six checks one after another. Over the mission those checks grew:
+  - `verify` now parses each TypeScript module;
+  - the route checks read the route policy through the TypeScript parser;
+  - the server boots TypeScript modules.
+
+  Measured on this container, the test took 60 s on D12f against 29 s on `main`, and a gate took about 6.2 s against 3.4 s. This was not a flake: the test was over the limit wherever it ran slower than CI's runner.
+- **The fix**, with no check removed, weakened or skipped:
+  - **Concurrent checks.** The gate runs its checks at once. They share no port, file or state: the one that starts a server picks a random port and logs to a file named by its own process. Each check's output is held and printed in the checks' order, up to and including the first that fails, and that check is the failure the gate reports. This is what running them in turn showed.
+  - **Cheap checks first.** The packager settles where the archive may go, and whether the generated documents are current, before the gate. A release refused for either is refused at once. The manifest is still read after the gate, which reports a missing foundation artifact by name.
+  - **The server boots in parallel.** `capability-registry-server-contract` starts its server before it loads its modules and runs its source and route-policy checks, so the boot overlaps them. The server is stopped, and its provider log removed, however the program ends. A static check made to fail leaves no server behind.
+- **Result.** On a clean checkout of D12f with the fix:
+  - the release test takes 37–39 s, where it took 60 s (`main` takes 29 s);
+  - a gate takes about 3 s;
+  - the contract check takes 1.9 s, where it took 2.3–2.6 s.
+- **Checks:** the release test, the contract (whole and focused), lint, and the full unit gate and every verify-job gate on Node 22.23.4, on a clean checkout with the fix.

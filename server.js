@@ -110,7 +110,11 @@ const {
   registerMeRoute,
   registerAlphaPrivacyRoutes,
   registerAlphaDisconnectRoutes,
-  providerDisconnectPending
+  createGithubAppConnectionView,
+  registerGithubAppRoutes,
+  registerSecurityRoutes,
+  registerSessionContainmentRoutes,
+  registerOAuthRoutes
 } = require('./apps/api/src/modules/identity-access/index.ts');
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
@@ -147,15 +151,15 @@ const {
 const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
 const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
 const {
-  createCsrfToken, verifyCsrfToken, createStepUpGrant, verifyStepUpGrant,
-  normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp, scopeHash
+  verifyCsrfToken, verifyStepUpGrant,
+  normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp
 } = require('./apps/api/src/platform/authorization/security-foundation.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('./apps/api/src/platform/crypto/key-derivation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
 const localSessionPolicy = createLocalSessionPolicy();
-const { SingleUseStore, memorySingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
+const { SingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
 const { createAuthorizationResolver, createUnavailableAuthorizationSnapshot, isPublicReaderAccess } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const {
@@ -498,11 +502,6 @@ function getCookie(req, name) {
     if (i > -1 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }
   return null;
-}
-function secureTextEqual(left, right) {
-  const a = Buffer.from(String(left || ''), 'utf8');
-  const b = Buffer.from(String(right || ''), 'utf8');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 /* ===== session store: Postgres (Neon/any) when DATABASE_URL is set, sealed cookie otherwise ===== */
 const DB_URL = normalizeDatabaseUrl(process.env.DATABASE_URL || '', {
@@ -2975,6 +2974,8 @@ async function addAccount(req, res, token, user, provider = 'github', baseUrl = 
   }
   await setSession(req, res, s, { createNew: !existingSession });
 }
+/* An App connection as the browser sees it (apps/api/src/modules/identity-access/http/github-app-routes.ts). */
+const githubAppConnectionView = createGithubAppConnectionView({ config: ALPHA_CONFIG, identityKey });
 /* Accounts: sign-in with a token, the list, switching and removing one (apps/api/src/modules/identity-access/http/account-routes.ts). */
 const accountDeps = {
   accountAuth, config: ALPHA_CONFIG, fail, providerIdentity, addAccount, signedOutWithoutGithub, retainedActor,
@@ -2985,113 +2986,6 @@ registerAccountRoutes(app, accountDeps);
 /* ---- OAuth (activates when GITHUB_CLIENT_ID/SECRET env vars are set) ---- */
 const OAUTH_ID = (process.env.GITHUB_CLIENT_ID || '').trim();
 const OAUTH_SECRET = (process.env.GITHUB_CLIENT_SECRET || '').trim();
-const GITHUB_APP_FLOW_TTL_MS = 10 * 60 * 1000;
-const MAX_USED_GITHUB_APP_STATES = 10000;
-const USED_GITHUB_APP_STATES = new Map();
-/*
- * The same guard the step-up grant uses, under its own kind. Without a
- * database this stays the bounded in-process Map it has always been; with one,
- * an OAuth state consumed on any instance is consumed on all of them.
- */
-function githubAppStateStore() {
-  if (!DB_URL) {
-    return memorySingleUseStore(USED_GITHUB_APP_STATES, { maxEntries: MAX_USED_GITHUB_APP_STATES });
-  }
-  return durableSingleUseStore();
-}
-function githubAppStateReplayKey(slot, nonce, identity) {
-  return crypto.createHmac('sha256', GITHUB_APP_STATE_REPLAY_KEY)
-    .update(`${String(slot)}|${String(nonce)}|${String(identity)}`)
-    .digest('base64url');
-}
-function requireGithubAppFeature(req, res, next) {
-  if (!GITHUB_APP_CONFIG.enabled || !githubAppBroker) {
-    return res.status(404).json({ error: 'GitHub App authentication is not configured', code: 'GITHUB_APP_DISABLED' });
-  }
-  next();
-}
-function githubAppPending(session) {
-  const security = sessionSecurityState(session);
-  if (!security.githubApp || typeof security.githubApp !== 'object') security.githubApp = {};
-  return security.githubApp;
-}
-async function consumeGithubAppPending(session, slot, nonce, identity, now = Date.now()) {
-  const store = githubAppPending(session);
-  const pending = store[slot];
-  /*
-   * The pending state is spent before it is checked, and stays that way even
-   * when the check fails. That is deliberate and older than this change: an
-   * attempt against a state is the state's one use, so a wrong nonce cannot be
-   * retried until it is guessed.
-   */
-  delete store[slot];
-  if (!pending || !secureTextEqual(pending.nonce, nonce) || !secureTextEqual(pending.identityKey, identity) || Number(pending.expiresAt) < Number(now)) {
-    throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
-  }
-  const replayKey = githubAppStateReplayKey(slot, nonce, identity);
-  let claimed;
-  try {
-    claimed = await githubAppStateStore().consumeOnce({
-      kind: 'github-app-state',
-      key: replayKey,
-      expiresAt: Number(pending.expiresAt),
-      now: Number(now)
-    });
-  } catch (error) {
-    /* Unverifiable is not the same as replayed: this one is worth retrying and
-       a replay never is, so they must not share a code or a status. */
-    throw new GithubAppError(
-      'GitHub App authorization state cannot be verified right now', 'GITHUB_APP_STATE_UNAVAILABLE', 503
-    );
-  }
-  if (!claimed) {
-    throw new GithubAppError('GitHub App authorization state is missing, expired, or already used', 'GITHUB_APP_STATE_REPLAY', 403);
-  }
-  return pending;
-}
-async function githubAppCallbackContext(req, res) {
-  const session = await sessionOf(req);
-  if (!session) throw new GithubAppError('Sign in before connecting a GitHub App', 'AUTH_REQUIRED', 401);
-  if (session.retiredSelection) {
-    throw new GithubAppError('The selected account is no longer supported. Choose a GitHub account.', 'ACCOUNT_SELECTION_REQUIRED', 409);
-  }
-  req.session = session;
-  req.sessionAccount = session.accounts[Math.min(session.active || 0, session.accounts.length - 1)];
-  req.gh = { ...req.sessionAccount };
-  await ensureSessionSecurity(req, res);
-  return requestSecurityContext(req);
-}
-function githubAppRedirect(res, result, code = '') {
-  const target = new URL('/', 'https://nebulaverse.invalid');
-  target.searchParams.set('githubApp', result);
-  if (code) target.searchParams.set('code', cleanText(code, 100));
-  res.redirect(`${target.pathname}${target.search}`);
-}
-function githubAppConnectionView(account, active) {
-  if (ALPHA_CONFIG.enabled) {
-    return {
-      connectionKey: identityKey(account),
-      accountType: String(account.installationAccountType || 'User'),
-      repositorySelection: account.repositorySelection === 'all' ? 'all' : 'selected',
-      status: String(account.installationStatus || 'connected'),
-      lastVerifiedAt: String(account.lastVerifiedAt || ''),
-      active: !!active
-    };
-  }
-  return {
-    installationId: Number(account.installationId),
-    accountLogin: String(account.login || ''),
-    accountType: String(account.installationAccountType || 'User'),
-    avatar: String(account.avatar || ''),
-    repositorySelection: account.repositorySelection === 'all' ? 'all' : 'selected',
-    permissions: account.permissions && typeof account.permissions === 'object' ? { ...account.permissions } : {},
-    authorizedByLogin: String(account.authorizedByLogin || ''),
-    status: String(account.installationStatus || 'connected'),
-    lastVerifiedAt: String(account.lastVerifiedAt || ''),
-    installationUrl: String(account.installationHtmlUrl || ''),
-    active: !!active
-  };
-}
 /* The deployment's configuration and capabilities, and the account's (apps/api/src/http/routes/config.ts). */
 registerConfigRoutes(app, {
   providerSessionAccess,
@@ -3109,369 +3003,25 @@ registerConfigRoutes(app, {
   deployment: DEPLOYMENT_PROFILE,
   accountCapabilityContext: providerCapabilityContext, account: req => req.gh
 });
-app.post('/api/github-app/connect', requireGithubAppFeature, auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    if ((req.gh.provider || 'github') !== 'github' || req.gh.authMethod === 'github-app') {
-      return res.status(400).json({
-        error: 'Switch to a GitHub PAT or GitHub OAuth account before connecting the GitHub App',
-        code: 'GITHUB_APP_USER_ACCOUNT_REQUIRED'
-      });
-    }
-    const user = await providerIdentity(req.gh);
-    const userId = Number(user && user.id);
-    if (!Number.isSafeInteger(userId) || userId <= 0 || !user.login) {
-      throw new GithubAppError('GitHub returned incomplete user identity data', 'GITHUB_APP_USER_INVALID', 502);
-    }
-    const context = requestSecurityContext(req);
-    const nonce = crypto.randomBytes(18).toString('base64url');
-    const now = Date.now();
-    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'user-auth' }, {
-      now, ttlMs: GITHUB_APP_FLOW_TTL_MS, nonce
-    });
-    githubAppPending(req.session).userAuth = {
-      nonce,
-      expiresAt: now + GITHUB_APP_FLOW_TTL_MS,
-      identityKey: context.identityKey,
-      userId,
-      login: String(user.login)
-    };
-    await setSession(req, res, req.session);
-    res.json({ url: githubAppBroker.authorizationUrl(state) });
-  } catch (error) {
-    recordGithubAppAudit(identityKey(req.sessionAccount), 'authorization.rejected', null, {
-      actor: retainedActor(req), reasonCode: error.code || 'CONNECT_FAILED'
-    }).catch(() => {});
-    fail(res, error);
-  }
+/* A GitHub App connection, the session's own security and OAuth sign-in (apps/api/src/modules/identity-access/http). */
+registerGithubAppRoutes(app, {
+  auth, accountAuth, fail, config: ALPHA_CONFIG, identityKey, githubApp: GITHUB_APP_CONFIG, broker: () => githubAppBroker,
+  client: { AppError: GithubAppError, createState: createGithubAppState, verifyState: verifyGithubAppState },
+  stateSecret: GITHUB_APP_STATE_SECRET, replayKey: GITHUB_APP_STATE_REPLAY_KEY,
+  databaseConfigured: () => Boolean(DB_URL), durableSingleUseStore, connectionView: githubAppConnectionView,
+  providerIdentity, requestSecurityContext, sessionSecurityState, ensureSessionSecurity, sessionOf, setSession, destroySession,
+  addAccount, clearStepUpAuthorization, disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie,
+  persistGithubAppInstallation, recordGithubAppAudit, retainedActor
 });
-app.get('/api/github-app/oauth/callback', requireGithubAppFeature, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'user-auth' });
-    const pending = await consumeGithubAppPending(req.session, 'userAuth', claims.nonce, context.identityKey);
-    await setSession(req, res, req.session);
-    const exchange = await githubAppBroker.exchangeUserCode(req.query && req.query.code);
-    const user = await githubAppBroker.getAuthorizedUser(exchange.token);
-    if (Number(user.id) !== Number(pending.userId) || String(user.login).toLowerCase() !== String(pending.login).toLowerCase()) {
-      throw new GithubAppError('GitHub App authorization belongs to a different user', 'GITHUB_APP_USER_MISMATCH', 403);
-    }
-    const nonce = crypto.randomBytes(18).toString('base64url');
-    const now = Date.now();
-    const tokenLifetime = exchange.expiresIn > 0 ? Math.min(GITHUB_APP_FLOW_TTL_MS, exchange.expiresIn * 1000) : GITHUB_APP_FLOW_TTL_MS;
-    const state = createGithubAppState(GITHUB_APP_STATE_SECRET, { ...context, purpose: 'installation-claim' }, {
-      now, ttlMs: tokenLifetime, nonce
-    });
-    githubAppPending(req.session).installation = {
-      nonce,
-      expiresAt: now + tokenLifetime,
-      identityKey: context.identityKey,
-      userToken: exchange.token,
-      userId: user.id,
-      login: user.login
-    };
-    await setSession(req, res, req.session);
-    res.redirect(githubAppBroker.installationUrl(state));
-  } catch (error) {
-    recordGithubAppAudit('github-app-callback', 'authorization.rejected', null, {
-      actor: retainedActor(req), reasonCode: error.code || 'CALLBACK_FAILED'
-    }).catch(() => {});
-    githubAppRedirect(res, 'error', error.code || 'GITHUB_APP_CALLBACK_FAILED');
-  }
+registerSecurityRoutes(app, {
+  auth, accountAuth, providerSessionAccess, capabilityAccess, alphaStepUpRepositoryAccess, fail,
+  csrf: { secret: CSRF_SECRET, ttlMs: CSRF_TTL_MS }, stepUp: { secret: STEP_UP_SECRET, ttlMs: STEP_UP_TTL_MS },
+  requestSecurityContext, sessionSecurityState, setSession, providerIdentity,
+  getInstallation: installationId => githubAppBroker.getInstallation(installationId), identityKey, scannerStatus
 });
-app.get('/api/github-app/setup', requireGithubAppFeature, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const context = await githubAppCallbackContext(req, res);
-    const claims = verifyGithubAppState(GITHUB_APP_STATE_SECRET, req.query && req.query.state, { ...context, purpose: 'installation-claim' });
-    const pending = await consumeGithubAppPending(req.session, 'installation', claims.nonce, context.identityKey);
-    await setSession(req, res, req.session);
-    const installationId = Number(req.query && req.query.installation_id);
-    if (!Number.isSafeInteger(installationId) || installationId <= 0) {
-      throw new GithubAppError('GitHub App installation ID is invalid', 'GITHUB_APP_INSTALLATION_INVALID', 400);
-    }
-    const userVisibleInstallation = await githubAppBroker.findUserInstallation(pending.userToken, installationId);
-    const installation = await githubAppBroker.getInstallation(installationId);
-    if (userVisibleInstallation.account.id !== installation.account.id ||
-        String(userVisibleInstallation.account.login).toLowerCase() !== String(installation.account.login).toLowerCase()) {
-      throw new GithubAppError('GitHub App installation ownership verification failed', 'GITHUB_APP_INSTALLATION_OWNERSHIP', 403);
-    }
-    const authorizedUser = { id: Number(pending.userId), login: String(pending.login) };
-    await addAccount(req, res, '', {
-      login: installation.account.login,
-      avatar_url: installation.account.avatarUrl
-    }, 'github', '', {
-      authMethod: 'github-app',
-      account: {
-        installationId: installation.id,
-        installationAccountId: installation.account.id,
-        installationAccountType: installation.account.type,
-        repositorySelection: installation.repositorySelection,
-        permissions: installation.permissions,
-        authorizedByLogin: authorizedUser.login,
-        authorizedById: authorizedUser.id,
-        authorizedByIdentityKey: context.identityKey,
-        installationHtmlUrl: installation.htmlUrl,
-        installationStatus: 'connected',
-        lastVerifiedAt: new Date().toISOString()
-      }
-    });
-    const connectedAccount = req.session.accounts.find(item => (
-      item.authMethod === 'github-app' && Number(item.installationId) === installation.id
-    ));
-    if (!connectedAccount || !/^[0-9a-f]{64}$/.test(String(connectedAccount.identityKey || ''))) {
-      throw new GithubAppError(
-        'GitHub App connection identity is unavailable',
-        'GITHUB_APP_ACCOUNT_INVALID',
-        500
-      );
-    }
-    const installationIdentity = ALPHA_CONFIG.enabled
-      ? connectedAccount.identityKey
-      : context.identityKey;
-    await Promise.allSettled([
-      persistGithubAppInstallation(installationIdentity, installation, authorizedUser, 'connected'),
-      recordGithubAppAudit(installationIdentity, 'installation.connected', installation.id, {
-        actor: retainedActor(req),
-        accountType: installation.account.type,
-        repositorySelection: installation.repositorySelection,
-        permissions: installation.permissions,
-        status: 'connected'
-      })
-    ]);
-    githubAppRedirect(res, 'connected');
-  } catch (error) {
-    recordGithubAppAudit('github-app-setup', 'authorization.rejected', req.query && req.query.installation_id, {
-      actor: retainedActor(req), reasonCode: error.code || 'SETUP_FAILED'
-    }).catch(() => {});
-    githubAppRedirect(res, 'error', error.code || 'GITHUB_APP_SETUP_FAILED');
-  }
-});
-app.get('/api/github-app/status', accountAuth, (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const active = Math.min(req.session.active || 0, req.session.accounts.length - 1);
-  const connections = req.session.accounts
-    .map((account, index) => account.authMethod === 'github-app' ? githubAppConnectionView(account, index === active) : null)
-    .filter(Boolean);
-  res.json({
-    enabled: !!GITHUB_APP_CONFIG.enabled,
-    webhookConfigured: !!GITHUB_APP_CONFIG.webhookConfigured,
-    connections
-  });
-});
-app.post('/api/github-app/refresh', requireGithubAppFeature, accountAuth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const requestedConnectionKey = String(req.body && req.body.connectionKey || '');
-  const requestedInstallationId = Number(req.body && req.body.installationId);
-  const account = req.session.accounts.find(item => item.authMethod === 'github-app' && (
-    ALPHA_CONFIG.enabled
-      ? identityKey(item) === requestedConnectionKey
-      : Number(item.installationId) === requestedInstallationId
-  ));
-  if (!account) return res.status(404).json({ error: 'GitHub App installation is not connected in this session', code: 'GITHUB_APP_CONNECTION_NOT_FOUND' });
-  const installationId = Number(account.installationId);
-  try {
-    const installation = await githubAppBroker.getInstallation(installationId);
-    Object.assign(account, {
-      login: installation.account.login,
-      avatar: installation.account.avatarUrl,
-      installationAccountId: installation.account.id,
-      installationAccountType: installation.account.type,
-      repositorySelection: installation.repositorySelection,
-      permissions: { ...installation.permissions },
-      installationHtmlUrl: installation.htmlUrl,
-      installationStatus: 'connected',
-      lastVerifiedAt: new Date().toISOString()
-    });
-    if (!ALPHA_CONFIG.enabled) githubAppBroker.invalidate(installationId);
-    clearStepUpAuthorization(req.session);
-    await setSession(req, res, req.session);
-    const authorizedUser = { id: Number(account.authorizedById), login: String(account.authorizedByLogin || '') };
-    const installationIdentity = ALPHA_CONFIG.enabled
-      ? account.identityKey
-      : account.authorizedByIdentityKey;
-    await Promise.allSettled([
-      persistGithubAppInstallation(installationIdentity, installation, authorizedUser, 'connected'),
-      recordGithubAppAudit(installationIdentity, 'installation.refreshed', installation.id, {
-        actor: retainedActor(req),
-        repositorySelection: installation.repositorySelection,
-        permissions: installation.permissions,
-        status: 'connected'
-      })
-    ]);
-    res.json({ connection: githubAppConnectionView(account, req.sessionAccount === account) });
-  } catch (error) {
-    if (error.code === 'GITHUB_APP_INSTALLATION_SUSPENDED') account.installationStatus = 'suspended';
-    recordGithubAppAudit(
-      ALPHA_CONFIG.enabled ? account.identityKey : account.authorizedByIdentityKey,
-      error.code === 'GITHUB_APP_INSTALLATION_SUSPENDED' ? 'installation.suspended' : 'authorization.rejected', installationId, {
-      actor: retainedActor(req), status: account.installationStatus || 'unavailable', reasonCode: error.code || 'REFRESH_FAILED'
-    }).catch(() => {});
-    fail(res, error);
-  }
-});
-app.post('/api/github-app/disconnect', accountAuth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const requestedConnectionKey = String(req.body && req.body.connectionKey || '');
-    const requestedInstallationId = Number(req.body && req.body.installationId);
-    if (ALPHA_CONFIG.enabled && !/^[0-9a-f]{64}$/.test(requestedConnectionKey)) {
-      return res.status(400).json({ error: 'GitHub App connection key is invalid', code: 'GITHUB_APP_CONNECTION_INVALID' });
-    }
-    if (!ALPHA_CONFIG.enabled && (!Number.isSafeInteger(requestedInstallationId) || requestedInstallationId <= 0)) {
-      return res.status(400).json({ error: 'GitHub App installation ID is invalid', code: 'GITHUB_APP_INSTALLATION_INVALID' });
-    }
-    const index = req.session.accounts.findIndex(item => item.authMethod === 'github-app' && (
-      ALPHA_CONFIG.enabled
-        ? identityKey(item) === requestedConnectionKey
-        : Number(item.installationId) === requestedInstallationId
-    ));
-    if (index < 0) return res.status(404).json({ error: 'GitHub App installation is not connected in this session', code: 'GITHUB_APP_CONNECTION_NOT_FOUND' });
-    const removed = req.session.accounts[index];
-    const installationId = Number(removed.installationId);
-    const previousCount = req.session.accounts.length;
-    const cleanup = await disconnectAlphaProviderAccount(req, removed);
-    if (!cleanup.complete) return providerDisconnectPending(res, cleanup);
-    if (ALPHA_CONFIG.enabled) {
-      if (previousCount === 1) {
-        clearProviderSessionCookie(req, res);
-        return res.json({ ok: true, empty: true });
-      }
-      req.session = await sessionOf(req);
-      return res.json({ ok: true, active: Number(req.session.active) || 0 });
-    }
-    if (!req.session.accounts.length) {
-      await destroySession(req, res);
-      return res.json({ ok: true, empty: true, installationId });
-    }
-    await setSession(req, res, req.session);
-    res.json({ ok: true, installationId, active: req.session.accounts[req.session.active].login });
-  } catch (error) { fail(res, error); }
-});
-app.get('/api/security/scanner-status', auth, capabilityAccess('upload-security'), (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const status = scannerStatus();
-  res.json({ ...status, note: status.yara.configured ? 'Configured YARA rules are applied to raw uploads before provider writes.' : 'Built-in bounded signatures are active. Configure NV_YARA_RULES_PATH and a trusted YARA binary to enable optional YARA rules.' });
-});
-app.get('/api/security/csrf', accountAuth, (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const now = Date.now();
-  const token = createCsrfToken(CSRF_SECRET, requestSecurityContext(req), { now, ttlMs: CSRF_TTL_MS });
-  res.json({ token, expiresAt: new Date(now + CSRF_TTL_MS).toISOString() });
-});
-app.post('/api/security/step-up', providerSessionAccess, alphaStepUpRepositoryAccess, auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const { action, scope, confirm, credential } = req.body || {};
-    if (String(confirm || '').trim() !== String(req.gh.login || '')) {
-      return res.status(400).json({ error: 'Type the active account login exactly to continue', code: 'STEP_UP_CONFIRMATION_REQUIRED' });
-    }
-    const authMethod = req.gh.authMethod || 'token';
-    let assurance;
-    if (authMethod === 'token') {
-      const freshCredential = String(credential || '').trim();
-      if (!freshCredential || freshCredential.length > 1024) {
-        return res.status(400).json({ error: 'Re-enter the active provider token', code: 'STEP_UP_CREDENTIAL_REQUIRED' });
-      }
-      let verified;
-      try { verified = await providerIdentity({ ...req.gh, token: freshCredential }); }
-      catch (error) {
-        if (error && error.status === 401) return res.status(401).json({ error: 'The provider token could not re-authenticate this account', code: 'STEP_UP_CREDENTIAL_INVALID' });
-        throw error;
-      }
-      if (String(verified.login || '').toLowerCase() !== String(req.gh.login || '').toLowerCase()) {
-        return res.status(403).json({ error: 'The credential belongs to a different provider identity', code: 'STEP_UP_IDENTITY_MISMATCH' });
-      }
-      assurance = 'credential';
-    } else if (authMethod === 'github-app') {
-      const installation = await githubAppBroker.getInstallation(req.gh.installationId);
-      if (String(installation.account.login || '').toLowerCase() !== String(req.gh.login || '').toLowerCase()) {
-        return res.status(403).json({ error: 'The GitHub App installation no longer matches this identity', code: 'STEP_UP_IDENTITY_MISMATCH' });
-      }
-      assurance = 'github-app';
-    } else {
-      const verified = await providerIdentity(req.gh);
-      if (String(verified.login || '').toLowerCase() !== String(req.gh.login || '').toLowerCase()) {
-        return res.status(403).json({ error: 'The active provider authorization no longer matches this identity', code: 'STEP_UP_IDENTITY_MISMATCH' });
-      }
-      assurance = 'oauth-session';
-    }
-    const operation = req.alphaStepUpOperation || normalizeStepUpRequest(action, scope, {
-      provider: req.gh.provider || 'github', identityKey: identityKey(req.gh)
-    });
-    const now = Date.now();
-    const expiresAt = now + STEP_UP_TTL_MS;
-    const jti = crypto.randomUUID();
-    const grant = createStepUpGrant(STEP_UP_SECRET, {
-      ...requestSecurityContext(req), action: operation.action, scope: operation.scope, assurance
-    }, { now, ttlMs: STEP_UP_TTL_MS, jti });
-    sessionSecurityState(req.session).stepUp = {
-      jti, action: operation.action, scopeHash: scopeHash(operation.scope), expiresAt, assurance
-    };
-    await setSession(req, res, req.session);
-    res.json({ grant, action: operation.action, assurance, expiresAt: new Date(expiresAt).toISOString() });
-  } catch (error) { fail(res, error); }
-});
-app.get('/api/oauth/login', (req, res) => {
-  if (!OAUTH_ID) return res.status(404).json({ error: 'OAuth not configured' });
-  const stateVal = crypto.randomBytes(16).toString('hex');
-  res.setHeader('Set-Cookie', `nv_oauth=${stateVal}; HttpOnly; SameSite=Lax; Path=/; Max-Age=600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
-  const scope = req.query.permission === 'repository-delete' ? 'repo delete_repo' : 'repo';
-  res.redirect(`https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(OAUTH_ID)}&scope=${encodeURIComponent(scope)}&state=${stateVal}`);
-});
-app.get('/api/oauth/callback', async (req, res) => {
-  /*
-   * Every failure here used to end on a bare page: a sentence of unstyled text
-   * on white, no navigation, nothing to press. The only way back into the
-   * application was to edit the address bar by hand, which is not a recovery
-   * a reader on a phone should be asked to perform.
-   *
-   * So a failed sign-in returns to the application and says what happened. The
-   * state cookie is cleared on the way out, because a second attempt must start
-   * a fresh exchange: an authorization code is single-use, and retrying with a
-   * spent one is itself one of the failures being reported.
-   */
-  const abandon = reason => {
-    res.append('Set-Cookie', `nv_oauth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
-    return res.redirect(`/?oauth=${encodeURIComponent(String(reason || 'failed').slice(0, 64))}`);
-  };
-  try {
-    const state = getCookie(req, 'nv_oauth');
-    if (!req.query.code || !state || req.query.state !== state) return abandon('state_mismatch');
-    const tr = await fetchT('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ client_id: OAUTH_ID, client_secret: OAUTH_SECRET, code: req.query.code }),
-      redirect: 'error'
-    });
-    /*
-     * Read the body once, as text, and parse it here. The provider answers this
-     * endpoint with an HTML page when it refuses the request outright rather
-     * than the exchange -- a rate limit, an unrecognised client, an outage --
-     * and handing that to a JSON parser throws "Unexpected token '<'", which
-     * then surfaced as the literal text of the failure page.
-     */
-    const raw = await tr.text();
-    let td;
-    try { td = JSON.parse(raw); }
-    catch { return abandon('provider_unreadable'); }
-    /* The provider names its own refusal; an expired or already-spent code
-       arrives here as bad_verification_code rather than as a bare failure. */
-    if (!td.access_token) return abandon(td.error || 'exchange_failed');
-    const user = await gh(td.access_token, '/user');
-    await addAccount(req, res, td.access_token, user, 'github', '', { authMethod: 'oauth' });
-    /*
-     * Marked as entered. Signing in with the provider is a full page trip --
-     * away to GitHub and back to a fresh load -- and the front door is where a
-     * fresh load begins. With entry open the door stays put by design, so a
-     * reader who had just finished signing in was returned to it and asked to
-     * continue to sign in. The marker says this load is the far side of a
-     * completed sign-in, not a new arrival, and carries no identity of its
-     * own: the session cookie is what admits anyone.
-     */
-    res.redirect('/?entered=1');
-  } catch (e) { return abandon('unexpected'); }
+registerOAuthRoutes(app, {
+  oauth: { clientId: OAUTH_ID, clientSecret: OAUTH_SECRET }, production: () => process.env.NODE_ENV === 'production',
+  getCookie, fetch: fetchT, gh, addAccount
 });
 /* A tester's own data, signing out and who the account is (apps/api/src/modules/identity-access/http). */
 registerAlphaPrivacyRoutes(app, { config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, releaseVersion: APP_VERSION });
@@ -3728,31 +3278,8 @@ async function sessionsForIdentity(req) {
   }
   return { available: true, currentSid, login, provider, rows };
 }
-app.get('/api/security/sessions', auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const inv = await sessionsForIdentity(req);
-    if (!inv.available) return res.json({ available: false, login: req.gh.login, sessions: [{ current: true, updated: new Date().toISOString(), provider: req.gh.provider || 'github' }] });
-    res.json({
-      available: true, login: inv.login,
-      sessions: inv.rows.map(r => ({ current: r.current, updated: r.updated, provider: r.provider }))
-    });
-  } catch (e) { fail(res, e); }
-});
-app.post('/api/security/revoke-others', auth, async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    if (!(req.body && req.body.confirm)) return res.status(400).json({ error: 'Confirmation required' });
-    const inv = await sessionsForIdentity(req);
-    if (!inv.available) return res.json({ available: false, login: req.gh.login, revoked: 0 });
-    const ids = await revokeContainedSessions(
-      req,
-      inv.rows.filter(r => !r.current).map(r => r.sid)
-    );
-    const streamsClosed = closeLiveSessions(ids, 'session-revoked');
-    res.json({ available: true, login: inv.login, revoked: ids.length, streamsClosed });
-  } catch (e) { fail(res, e); }
-});
+/* The sessions an identity holds elsewhere, and ending them (apps/api/src/modules/identity-access/http/security-routes.ts). */
+registerSessionContainmentRoutes(app, { auth, fail, sessionsForIdentity, revokeContainedSessions, closeLiveSessions });
 
 /* The build's identity, by digest (apps/api/src/http/routes/release.ts). */
 registerVersionRoute(app, {

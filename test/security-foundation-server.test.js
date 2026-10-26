@@ -61,14 +61,16 @@ assert.strictEqual(
 /*
  * The GitHub App OAuth state is the same guard under another kind, and carries
  * the same hazard: an un-awaited claim is a truthy Promise, so the callback
- * would go on to exchange the code with GitHub having verified nothing.
+ * would go on to exchange the code with GitHub having verified nothing. The
+ * App's flow is identity and access's.
  */
+const githubAppSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 assert.match(
-  serverSource, /async function consumeGithubAppPending\(/,
+  githubAppSource, /async function consumeGithubAppPending\(/,
   'consuming an OAuth state must be asynchronous: the guard may not be in this process'
 );
 let consumeGithubAppPendingCalls = 0;
-for (const line of serverSource.split('\n')) {
+for (const line of githubAppSource.split('\n')) {
   if (!line.includes('consumeGithubAppPending(')) continue;
   if (line.includes('async function')) continue;
   assert.match(
@@ -79,7 +81,7 @@ for (const line of serverSource.split('\n')) {
 }
 assert(consumeGithubAppPendingCalls > 0, 'no consumeGithubAppPending call was found to check: this guard has gone vacuous');
 assert.strictEqual(
-  /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(serverSource), false,
+  /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(githubAppSource), false,
   'no failure path may fall back to the in-process OAuth state guard'
 );
 

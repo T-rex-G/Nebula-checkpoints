@@ -272,11 +272,13 @@ try {
     'apps/api/src/platform/persistence/queryable.ts',
     /* GitHub's answers about references are read with the platform's field helpers. */
     'apps/api/src/platform/values/fields.ts',
-    /* The capability document's guard is a shared contract, in its own module scope. */
+    /* Identity and access's index also carries its HTTP routes, which read text, the single-use guard and the security foundation. */
+    'apps/api/src/platform/values/text.ts',
+    'apps/api/src/platform/rate-limit/single-use-store.ts',
+    'apps/api/src/platform/authorization/security-foundation.ts',
+    /* The capability document's guard and the security foundation's assurance levels are shared contracts, one package in its own module scope. */
     'packages/package.json',
-    'packages/contracts/src/capability.ts',
-    'packages/contracts/src/guards.ts',
-    'packages/contracts/src/ids.ts',
+    'packages/contracts/src',
     'config/public-alpha-capabilities.json',
     'scripts/generate-continuity-docs.js',
     'docs/current/PROJECT_STATE.md',

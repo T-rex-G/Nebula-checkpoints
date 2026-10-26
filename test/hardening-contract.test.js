@@ -57,7 +57,7 @@ assert(corona.includes('/restore-preview'), 'Restore preview endpoint is missing
 assert(/const canRestore = [^;]+!deps\.protectedPatternsForReq\(req\)\.length[^;]+!deps\.safetyOf\(req\)\.readOnly/.test(corona), 'Restore preview must fail closed while protected paths or read-only mode are active');
 assert(corona.includes('/emergency-manifest'), 'Signed emergency manifest endpoint is missing');
 assert(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware signature gate is not enforced');
-assert(server.includes('/api/security/scanner-status'), 'Scanner status endpoint is missing');
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts'), 'utf8').includes("app.get('/api/security/scanner-status'"), 'Scanner status endpoint is missing');
 /*
  * FONT_ASSET_RX bounded the font-file proxy's path. That proxy is gone --
  * typefaces are served from this origin -- so the surviving outbound path is

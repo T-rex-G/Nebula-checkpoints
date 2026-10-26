@@ -76,7 +76,7 @@ const EXPECTATIONS = [
  * searched wherever these routes live, so moving them out of server.js does
  * not quietly turn this half of the test into a check of an empty string.
  */
-const ROUTE_SOURCES = ['server.js', path.join('src', 'routes', 'security.js')]
+const ROUTE_SOURCES = ['server.js', path.join('apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts')]
   .map(relative => path.join(root, relative))
   .filter(file => fs.existsSync(file))
   .map(file => fs.readFileSync(file, 'utf8'))
@@ -267,8 +267,12 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * the switches and the removal), signing out, who the account is, and the
  * tester's own data (the privacy notice, feedback, every provider
  * disconnected, deletion).
+ * 13 to 0: the GitHub App connection, the session's own security (the
+ * scanner's state, the CSRF token, the step-up grant), OAuth sign-in and the
+ * sessions an identity holds elsewhere. server.js registers no route itself;
+ * every route is a module's or the platform's.
  */
-const SERVER_ROUTE_CEILING = 13;
+const SERVER_ROUTE_CEILING = 0;
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const registeredInServer = serverSource
   .split('\n')

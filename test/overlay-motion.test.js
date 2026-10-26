@@ -32,6 +32,8 @@ const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css
 const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 const { shellImports, builtShell } = require('./helpers/web-shell');
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+/* OAuth sign-in is identity and access's. */
+const oauthSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');
 
 let failures = 0;
 function check(label, fn) {
@@ -1369,8 +1371,7 @@ check('every focus taken on an opening layer declines the scroll', () => {
 /* ---------------- a sign-in that did not finish ---------------- */
 
 check('a failed OAuth exchange returns to the application', () => {
-  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
-  const body = route.slice(0, route.indexOf('\napp.get('));
+  const body = oauthSource.slice(oauthSource.indexOf("app.get('/api/oauth/callback'"));
   /*
    * Every failure used to end on a bare page with no navigation: the only way
    * back was to retype the address. A reader on a phone should never be asked
@@ -1385,8 +1386,7 @@ check('a failed OAuth exchange returns to the application', () => {
 });
 
 check('the token response is parsed defensively', () => {
-  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
-  const body = route.slice(0, route.indexOf('\napp.get('));
+  const body = oauthSource.slice(oauthSource.indexOf("app.get('/api/oauth/callback'"));
   /*
    * The provider answers with an HTML page when it refuses the request itself
    * rather than the exchange. Handing that straight to a JSON parser throws
@@ -1396,7 +1396,7 @@ check('the token response is parsed defensively', () => {
     'the token response is parsed as JSON unguarded, so an HTML error page throws a parser message at the reader');
   assert.ok(/tr\.text\(\)/.test(body) && /JSON\.parse/.test(body),
     'the response is not read as text and parsed under a guard');
-  assert.ok(/td\.error/.test(body),
+  assert.ok(/member\(td, 'error'\)/.test(body),
     "the provider's own refusal is discarded, so an expired code reports nothing useful");
 });
 

@@ -46,8 +46,8 @@ const removalRoutes = [
 ];
 /* The central disconnect, as the server calls it and as identity and access's routes are handed it. */
 const disconnectCall = /await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/;
-assert.strictEqual((server.match(/disconnectProviderAccounts: disconnectAlphaProviderAccount\b/g) || []).length, 2,
-  'identity and access\'s account and alpha disconnect routes must be handed the central disconnect helper');
+assert.strictEqual((server.match(/disconnectProviderAccounts: disconnectAlphaProviderAccount\b/g) || []).length, 3,
+  'identity and access\'s account, alpha and GitHub App disconnect routes must be handed the central disconnect helper');
 for (const routePath of removalRoutes) {
   const block = routeBlock(routePath);
   const call = disconnectCall.exec(block);
@@ -164,21 +164,27 @@ const installationPersistenceEnd = server.indexOf('\n}', installationPersistence
 const installationPersistenceBlock = server.slice(installationPersistenceStart, installationPersistenceEnd);
 assert(installationPersistenceBlock.includes('if (ALPHA_CONFIG.enabled) return false;'),
   'invite mode must not copy raw GitHub installation metadata into the legacy table');
-assert(server.includes('? connectedAccount.identityKey'));
-assert(server.includes('? account.identityKey'));
+/* The App connection's routes and its view are identity and access's. */
+const appRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
+assert(appRoutes.includes('? connectedAccount.identityKey'));
+assert(appRoutes.includes('? account.identityKey'));
 
-const connectionViewStart = server.indexOf('function githubAppConnectionView(');
-const connectionViewEnd = server.indexOf('\n}', connectionViewStart) + 2;
-const connectionViewBlock = server.slice(connectionViewStart, connectionViewEnd);
-assert(connectionViewBlock.includes('if (ALPHA_CONFIG.enabled)'));
-assert(connectionViewBlock.indexOf('connectionKey: identityKey(account)')
+const connectionViewStart = appRoutes.indexOf('return function githubAppConnectionView(');
+const connectionViewEnd = appRoutes.indexOf('\n  };\n', connectionViewStart) + 5;
+assert(connectionViewStart >= 0, 'missing the App connection view');
+const connectionViewBlock = appRoutes.slice(connectionViewStart, connectionViewEnd);
+assert(connectionViewBlock.includes('if (deps.config.enabled)'));
+assert(connectionViewBlock.indexOf('connectionKey: deps.identityKey(account)')
   < connectionViewBlock.indexOf('installationId: Number(account.installationId)'),
   'invite-mode App responses must return the stable connection key before the legacy raw provider view');
+assert(server.includes('const githubAppConnectionView = createGithubAppConnectionView({ config: ALPHA_CONFIG, identityKey });'),
+  'the server must show App connections through identity and access\'s view');
+const addressing = appRoutes.slice(appRoutes.indexOf('const addressed = (req: Request) => {'), appRoutes.indexOf("app.post('/api/github-app/connect'"));
+assert(addressing.includes('deps.identityKey(item) === requestedConnectionKey'),
+  'invite-mode App state must be addressed by the stable hashed connection key');
 for (const routePath of ['/api/github-app/refresh', '/api/github-app/disconnect']) {
   const block = routeBlock(routePath);
-  assert(block.includes('requestedConnectionKey'));
-  assert(block.includes('identityKey(item) === requestedConnectionKey'),
-    `${routePath} must address invite-mode App state by the stable hashed connection key`);
+  assert(block.includes('addressed(req)'), `${routePath} must address invite-mode App state by the stable hashed connection key`);
 }
 
 const ghStart = server.indexOf('async function gh(');
@@ -188,13 +194,11 @@ assert(ghBlock.includes("!ALPHA_CONFIG.enabled && acct.authMethod === 'github-ap
   'invite-mode provider fallback must not invalidate shared broker state');
 assert(ghBlock.includes("opts.redirect === 'manual' ? 'manual' : 'error'"));
 assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
-const oauthCallbackStart = server.indexOf("app.get('/api/oauth/callback'");
+/* OAuth sign-in is identity and access's; its callback is the last route in its file. */
+const oauthRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');
+const oauthCallbackStart = oauthRoutes.indexOf("app.get('/api/oauth/callback'");
 assert(oauthCallbackStart >= 0, 'missing GET /api/oauth/callback');
-const oauthCallbackEnd = server.indexOf('\napp.', oauthCallbackStart + 1);
-const oauthCallbackBlock = server.slice(
-  oauthCallbackStart,
-  oauthCallbackEnd < 0 ? server.length : oauthCallbackEnd
-);
+const oauthCallbackBlock = oauthRoutes.slice(oauthCallbackStart);
 assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
 /* Both LFS exchanges, the URL validator, the download and the upload are the workbench's LFS transfer. */
 const lfsTransfer = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
@@ -226,7 +230,7 @@ for (const expected of [
   'deps.fetch(verifyUrl,'
 ]) assert(lfsUploadBlock.includes(expected), `LFS upload boundary missing ${expected}`);
 const refreshBlock = routeBlock('/api/github-app/refresh');
-assert(refreshBlock.includes('if (!ALPHA_CONFIG.enabled) githubAppBroker.invalidate(installationId);'),
+assert(refreshBlock.includes('if (!deps.config.enabled) broker().invalidate(installationId);'),
   'invite-mode refresh must not invalidate shared broker state');
 
 assert.match(

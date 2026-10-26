@@ -38,3 +38,9 @@ export { registerAccountRoutes, registerMeRoute, registerSignOutRoute } from './
 export type { AccountRouteDeps, MeRouteDeps } from './http/account-routes.ts';
 export { registerAlphaDisconnectRoutes, registerAlphaPrivacyRoutes } from './http/alpha-lifecycle-routes.ts';
 export type { AlphaDisconnectRouteDeps, AlphaFeedbackRouteDeps, AlphaPrivacyOperations, AlphaPrivacyRouteDeps } from './http/alpha-lifecycle-routes.ts';
+export { createGithubAppConnectionView, registerGithubAppRoutes } from './http/github-app-routes.ts';
+export type { GithubAppBrokerOperations, GithubAppClient, GithubAppConnectionViewDeps, GithubAppRouteDeps } from './http/github-app-routes.ts';
+export { registerSecurityRoutes, registerSessionContainmentRoutes } from './http/security-routes.ts';
+export type { SecurityRouteDeps, SessionContainmentRouteDeps } from './http/security-routes.ts';
+export { registerOAuthRoutes } from './http/oauth-routes.ts';
+export type { OAuthRouteDeps } from './http/oauth-routes.ts';

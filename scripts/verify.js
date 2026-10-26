@@ -182,6 +182,8 @@ for (const file of [
   'test/alpha-access-routes.test.js',
   'apps/api/src/modules/identity-access/http/disconnect-answers.ts', 'apps/api/src/modules/identity-access/http/account-routes.ts',
   'apps/api/src/modules/identity-access/http/alpha-lifecycle-routes.ts', 'test/identity-account-routes.test.js',
+  'apps/api/src/modules/identity-access/http/github-app-routes.ts', 'apps/api/src/modules/identity-access/http/security-routes.ts',
+  'apps/api/src/modules/identity-access/http/oauth-routes.ts', 'test/identity-security-routes.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -292,10 +294,13 @@ for (const destination of ['Neural', 'Governance', 'Pull requests', 'Issues', 'R
 }
 
 const server = read('server.js');
-must(server.includes("/api/security/sessions"), 'Session inventory endpoint missing');
-must(server.includes("/api/security/revoke-others"), 'Session revocation endpoint missing');
-must(server.includes("/api/security/csrf"), 'CSRF security-context endpoint missing');
-must(server.includes("/api/security/step-up"), 'Step-up authorization endpoint missing');
+/* A session's own security routes are identity and access's (apps/api/src/modules/identity-access/http/security-routes.ts). */
+const securityRoutes = read('apps/api/src/modules/identity-access/http/security-routes.ts');
+must(securityRoutes.includes("app.get('/api/security/sessions'"), 'Session inventory endpoint missing');
+must(securityRoutes.includes("app.post('/api/security/revoke-others'"), 'Session revocation endpoint missing');
+must(securityRoutes.includes("app.get('/api/security/csrf'"), 'CSRF security-context endpoint missing');
+must(securityRoutes.includes("app.post('/api/security/step-up'"), 'Step-up authorization endpoint missing');
+must(server.includes('registerSecurityRoutes(app, {') && server.includes('registerSessionContainmentRoutes(app, {'), 'the server must register the security routes');
 must(server.includes('consumePendingStepUp') && server.includes('USED_STEP_UP_GRANTS'), 'Single-use step-up replay prevention missing');
 must(server.includes("require('./apps/api/src/platform/release/version.ts')"), 'server must import the package-backed version module');
 

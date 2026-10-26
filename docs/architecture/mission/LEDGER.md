@@ -1431,3 +1431,66 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the converted contracts and the new route test;
   - the full unit gate and every verify-job gate on Node 22.23.4.
   - Comparing `server.js`'s top-level statements before and after the cut left only the eleven routes, the eight helpers and the imports that went with them.
+
+### D12k — identity and access, step three: the GitHub App, the session's own security and OAuth
+
+- **Routes.** The last thirteen routes `server.js` registered move into identity and access, each group where the route policy records it:
+  - `registerGithubAppRoutes` (`identity-access/http/github-app-routes.ts`): connecting an App, GitHub's two returns (the user authorization, then the installation), the status, a refresh and a disconnect;
+  - `registerSecurityRoutes` (`security-routes.ts`): the upload scanner's state, the CSRF token and a step-up grant;
+  - `registerOAuthRoutes` (`oauth-routes.ts`): sign-in with GitHub's OAuth app, out and back;
+  - `registerSessionContainmentRoutes` (`security-routes.ts`): the sessions an identity holds elsewhere, and ending them.
+
+  With the App's routes went the flow's helpers: the guard that needs the App configured, the pending states and their single spend, the callback's session binding, the redirect home, and the constant-time text comparison only they used. `createGithubAppConnectionView` is the one view of an App connection; the account list, the account and the App routes all use it.
+- **What is handed in, and why.** The GitHub provider's App client (its signed states, its error and the broker) is handed in, not imported. The provider already depends on identity and access, and a dependency back would make a cycle the module rules refuse. The upload scanner's state is handed in for a different reason. The scanner reads the file system, and domain code in two other modules (the GitHub provider's account operations and Quasar's exposure session) reaches identity and access's index, which carries its HTTP routes; the module rules refuse I/O in domain code, and caught the draft's import. The secrets, the session store, the account writer, the provider disconnect, the audit and the installation record stay in the server for D13.
+- **One contract named, two copies gone.** A connection key is an identity key, the ids contract's 64-hex format. The disconnect's check and the setup's check of the new account name `IDENTITY_KEY`, and `server.js`'s copies fall from 5 to 3.
+- **Dead code.** The server no longer has the App flow's constants, its replay map and the eight helpers, `secureTextEqual`, nor its imports of the CSRF and step-up signers, the scope hash and the in-process single-use guard.
+- **Behaviour unchanged.** An oracle evaluated those regions of the previous `server.js` on one express app, and the module's registrations on another. It ran six pairs, for the settings fixed at startup: the App configured with a broker, without one, and switched off with one still built; the alpha on or off; a database, which shares a spent state across instances, or none; and an OAuth client or none.
+
+  Randomness came from a counter both sides restarted for each scenario, and the clock was held, so the states, grants, tokens and nonces each side signed were the same bytes. The real App state signer, the security foundation's CSRF tokens and step-up grants, the in-process single-use guard and the text cleaner ran on both sides.
+
+  Each of the 20,000 scenarios scripted:
+  - the session the guards attached, or each guard's refusal: token, OAuth, App and retired accounts, selections out of range or as text, a session binding valid, malformed or missing;
+  - the App flow's pending state and the signed state GitHub returns: valid, for another purpose, tampered, expired, for another nonce or identity, a pending state for another identity or expired, missing, garbage or none;
+  - the broker's answers: user codes exchanged with lifetimes long, short, zero or none, or refused; authorized users matching or not by id and login case; installations the user can see or not, owned by the same account in another case, suspended, gone or malformed;
+  - what the session store reads back (the session, another, a retired selection, none), what the account writer leaves (a valid identity, an invalid one, another installation), each disconnect's cleanup and the session it leaves;
+  - step-up bodies (each action, scopes valid and not, the login typed padded or wrong, a fresh credential present, missing or oversized) and the provider's answers to it, including a 401; an alpha operation already on the request;
+  - OAuth: the state cookie present, absent or different, a code or none, and token exchanges answering a token, a refusal, an HTML page, `null`, a number, or failing;
+  - the session inventory available, single, unavailable or failing.
+
+  The oracle compared each answer (status, Location, type, caching, every Set-Cookie, the bytes, with the stack in Express's own error page reduced to its message) and every call, with its arguments, in order: the audits, the installation records, the spends, the session writes and the broker's calls. All 40,000 comparisons were identical. They included 83 installations connected, 91 user authorizations sent on to the installation, 96 refreshes and 76 disconnects completed, 181 step-up grants, 652 CSRF tokens, 100 OAuth sign-ins and 261 revocations; and 544 replays and 75 unverifiable spends refused, 149 users and 67 installation owners that did not match.
+
+  Seventy mutants each fail on a comparison:
+  - **the App's states:** the routes open with the App switched off; a pending state kept after its check; one for another nonce or identity, or expired, accepted; an unverifiable spend answered as a replay; a refused spend accepted; every spend kept in this process; the spent key without the identity;
+  - **the callbacks:** a retired selection let through; no session binding made first; the error redirect without its code; another user, or a login in another case, refused or accepted wrongly; the installation state outliving the user token; the user token not kept for it;
+  - **connecting and setup:** from an App connection; with an incomplete identity; the user authorization signed for another purpose; its pending state outliving the state; a refusal audited as something else; an invalid installation id looked up; an installation the user cannot see, or owners compared by case; the App account added with a token or without its authorizer; a connection without a valid identity accepted; the installation recorded under the wrong identity, or not recorded;
+  - **status, refresh and disconnect:** every account listed; webhooks claimed; an alpha connection addressed by its installation; the local credential not invalidated; the step-up kept; a suspended installation not marked; every refreshed connection shown as active; a malformed key or a fractional id accepted; not waiting for the cleanup; the last alpha connection leaving the cookie; an emptied local session kept;
+  - **security:** the scanner's state cacheable; a CSRF token said to last longer; the confirmation untrimmed; a token step-up without a fresh credential, or with an oversized one; a refused credential answered as a fault; a credential, an installation or an OAuth session for another identity accepted; the alpha's operation ignored; the grant outliving its window, not bound to its scope, or not written to the session;
+  - **sessions:** the current one listed as another; revoking without confirmation, or the current session too; the revoked sessions' streams left open;
+  - **OAuth:** offered unconfigured; its state cookie never Secure or readable by scripts; deletion asked for by default; a callback for another state or without a code accepted; the exchange following redirects; the state cookie kept after a failure; the provider's refusal hidden; an unreadable answer reported as unexpected; the account added as a token; no entered marker.
+
+  The first run left two alive, because the 6,000 scenarios a mutant runs rarely addressed a connection in the session: "a suspended installation not marked" and "an emptied local session kept". Requests that address one are now common, and both are caught. The new HTTP test, run as the judge in the oracle's place, also catches all seventy. Its first draft let six through. It now covers the App switched off with a broker built, the same nonce for another identity, a session that needs its binding made, webhooks not configured, a refreshed connection that is not the selected one, and the CSRF token's exact lifetime.
+- **Tests.**
+  - `test/identity-security-routes.test.js` drives the registrations over HTTP with the real states and grants. It covers:
+    - each route's chain, as the baseline inventory recorded it, registered by identity and access, and no route registered by `server.js`;
+    - the App needing its configuration and its broker;
+    - connecting: the state's purpose and bindings and the pending state written with it;
+    - both returns: each state spent once, before anything else, and refused for another nonce, identity, purpose, an expired pending state or a tampered state; the same nonce accepted for another identity; the session bound first; another user refused;
+    - setup: the installation accepted only for an owner the user can see, the account added without a token, recorded locally under the user who connected it and in the alpha under its own identity; the database's spend shared, refused or unverifiable;
+    - status, refresh and disconnect, locally by installation and in the alpha by hashed key, with the shared broker left alone there;
+    - the scanner, the CSRF token, and step-up: a credential entered now, an App checked against its installation, an OAuth session checked against the provider, the grant bound to its scope, and the alpha's operation used;
+    - the session inventory and revoking only the others, their streams closed;
+    - OAuth: the scopes, the state cookie, each failure's reason with the cookie cleared, and the exchange refusing redirects.
+  - The source checks follow the code:
+    - `github-app-server-contract` reads the App flow from the module and checks the state is spent before GitHub is asked;
+    - `provider-disconnect-server-contract` reads the connection view, the hashed-key addressing, the broker invalidation and the OAuth exchange from the module, and counts three routes handed the central disconnect;
+    - `security-foundation-contract` finds the CSRF and step-up routes through the route policy;
+    - `security-foundation-server` checks every spend of an App state is awaited where the flow now lives; the gates caught that it still read the server for it;
+    - `hardening-contract`, `route-surface` and `scripts/verify.js` read the security routes from the module; `overlay-motion` reads the OAuth callback there.
+  - `continuity-generation` builds its minimal archive with the platform files the index's HTTP layer reads, and the shared contracts as one package.
+- **Ratchet:** the routes `server.js` registers itself fall from 13 to 0. D12 is complete: every route is a module's or the platform's, registered where the baseline recorded it, with every guard in order.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the four new files);
+  - the architecture oracles, the route policy (208 entries, every guard in order), route surface, module boundaries and contracts;
+  - the converted contracts and the new route test;
+  - the full unit gate and every verify-job gate on Node 22.23.4.
+  - Comparing `server.js`'s top-level statements before and after the cut left only the thirteen routes, the App flow's helpers and constants, `secureTextEqual` and the imports that went with them.

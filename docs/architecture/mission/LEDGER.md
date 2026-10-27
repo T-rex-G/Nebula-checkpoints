@@ -1555,3 +1555,10 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - the architecture oracles, route surface, module boundaries and contracts;
   - the database resilience gate, which starts the server against PostgreSQL and takes it away;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### The scan history's day names at midnight
+
+- **What failed.** The qualification's first browser shard on `cf1e574` failed `scan history is grouped by day, newest first, and each scan opens into its report`: the newest group was headed "Yesterday" where the test expected "Today". The run reached that test a moment before midnight UTC.
+- **Root cause.** The test dated its scans from the runner's clock, and the page names a day by its own clock when it draws the history. The run crossed midnight between the two, so today's scans were drawn as yesterday's. Pinning the page's clock just past midnight under the old test reproduced it exactly, "Yesterday" eighteen times in the retry log. The page was right: a scan from before midnight is yesterday's once midnight has passed. The test was not, and no other browser test names a day.
+- **The fix.** The test takes one instant, dates the scans from it, and holds the page's clock there (`page.clock.setFixedTime`). The morning scan falls halfway between that day's midnight and the instant, so it is earlier the same day at any hour; before, it was 00:30, which was later than "now" for a run in the first half hour.
+- **Checks:** the failure reproduced, then the fixed test with the instant pinned at 23:59:59.900 and at exactly midnight; the whole exposure suite on desktop, and the history test on desktop and mobile; lint.

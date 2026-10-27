@@ -963,10 +963,18 @@ test('a finding says its whole path and line, even on a phone', async ({ page })
 /* ---- History: every scan, by time, each opening into its report --------- */
 
 test('scan history is grouped by day, newest first, and each scan opens into its report', async ({ page }) => {
-  const now = Date.now();
-  const today = new Date(now);
-  const earlierToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 30);
-  const threeDaysAgo = new Date(now - 3 * 86_400_000);
+  /*
+   * The page names a day by its own clock, so it is given the instant the
+   * scans are dated from, and held there. Dated by the runner's clock alone, a
+   * run that crossed midnight between building the scans and drawing them read
+   * today's scans as "Yesterday". The morning scan falls halfway between
+   * midnight and that instant, so it is earlier the same day at any hour.
+   */
+  const today = new Date();
+  await page.clock.setFixedTime(today);
+  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const earlierToday = new Date(midnight + Math.floor((today.getTime() - midnight) / 2));
+  const threeDaysAgo = new Date(today.getTime() - 3 * 86_400_000);
   const latest = historyScan({
     scanId: '90000000-0000-4000-8000-00000000000a', createdAt: today.toISOString(),
     state: 'complete', coverage: 'complete', findingCount: 2, severityCounts: { critical: 2, serious: 0, warning: 0 }

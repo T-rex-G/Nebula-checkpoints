@@ -1,5 +1,6 @@
 'use strict';
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -20,7 +21,7 @@ const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 21000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const secret = 'rate-limit-server-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const LIMIT = 300;

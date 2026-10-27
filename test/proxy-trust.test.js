@@ -1,12 +1,13 @@
 'use strict';
 
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 const express = require('express');
 const { loadTrustedProxies } = require('../apps/api/src/platform/config/config.ts');
-const port = 29000 + Math.floor(Math.random() * 900);
+const port = freePort();
 const child = spawn(process.execPath, [serverEntry()], {
   cwd: path.join(__dirname, '..'),
   env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '',

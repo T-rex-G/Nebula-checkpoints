@@ -1,5 +1,6 @@
 'use strict';
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -11,7 +12,7 @@ const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
 const fixture = path.join(__dirname, 'fixtures', 'capability-provider-fetch.js');
-const port = 31000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const secret = 'capability-server-test-secret-0123456789abcdef-0123456789abcdef';
 const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 /*

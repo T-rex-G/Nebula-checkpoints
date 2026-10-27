@@ -20,12 +20,13 @@
  */
 
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const port = 27000 + Math.floor(Math.random() * 2000);
+const port = freePort();
 const secret = ['maintenance-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 /* Distinct from the session secret: the server refuses to reuse one for both. */
 const snapshotSecret = ['maintenance-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');

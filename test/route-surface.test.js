@@ -1,5 +1,6 @@
 'use strict';
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -31,7 +32,7 @@ const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key
 const root = path.resolve(__dirname, '..');
 const secret = 'route-surface-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 19000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 
 function seal(value) {
   const iv = crypto.randomBytes(12);

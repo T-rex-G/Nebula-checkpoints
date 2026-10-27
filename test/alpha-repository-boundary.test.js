@@ -1,6 +1,7 @@
 'use strict';
 
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -18,7 +19,7 @@ const {
 } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 31800 + Math.floor(Math.random() * 800);
+const port = freePort();
 const secret = 'alpha-boundary-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = 'alpha-boundary-snapshot-secret-fedcba9876543210-fedcba9876543210';
 /* The server derives a purpose-specific key per construction; mirror those

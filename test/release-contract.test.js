@@ -1,6 +1,7 @@
 'use strict';
 
 const { serverEntry, serverIdentity } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +24,7 @@ assert.strictEqual(PRODUCT_NAME, 'Nebulaverse-X');
 assert.deepStrictEqual(Object.keys(require('../apps/api/src/platform/release/version.ts')).sort(), ['APP_VERSION', 'PRODUCT_NAME'],
   'no asset stamp is derived from the version any more: the build names files by their content');
 
-const port = 27000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const sessionSecret = ['release-contract', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['release-contract-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 const child = spawn(process.execPath, [serverEntry()], {

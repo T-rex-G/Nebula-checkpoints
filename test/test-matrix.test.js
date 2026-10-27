@@ -2,6 +2,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -82,24 +83,40 @@ fs.rmSync(cliTemp, { recursive: true, force: true });
 fs.rmSync(temp, { recursive: true, force: true });
 
 /*
- * A server test listens on a port drawn from a fixed range. One drawn from the
- * kernel's ephemeral range (32768 and up on Linux) can already be the local end
- * of an outbound connection -- the tests' own PostgreSQL clients among them --
- * and the server then exits on EADDRINUSE half a second in, as a bare "exit 1".
+ * A server test listens on a port from test/helpers/free-port.js. Below the
+ * kernel's ephemeral range (32768 and up on Linux), because a port there can
+ * already be the local end of an outbound connection -- the tests' own
+ * PostgreSQL clients among them -- and the server then exits on EADDRINUSE
+ * half a second in, as a bare "exit 1". And bound before it is handed out,
+ * because a port drawn at random from ranges that overlap was sometimes still
+ * held by a server another test had not finished stopping, which then answered
+ * the test's requests in place of its own.
  */
-{
+(async () => {
   const EPHEMERAL_FLOOR = 32768;
-  const testDir = path.join(__dirname);
-  let ranges = 0;
-  for (const name of fs.readdirSync(testDir).filter(file => file.endsWith('.test.js'))) {
-    const source = fs.readFileSync(path.join(testDir, name), 'utf8');
-    for (const match of source.matchAll(/\bport\s*=\s*(\d+)\s*\+\s*Math\.floor\(Math\.random\(\)\s*\*\s*(\d+)\)/g)) {
-      ranges += 1;
-      const top = Number(match[1]) + Number(match[2]);
-      assert(top <= EPHEMERAL_FLOOR, `${name} draws a port up to ${top}, inside the ephemeral range`);
-    }
+  const { freePort, findFreePort, PORT_RANGE } = require('./helpers/free-port');
+  assert(PORT_RANGE.low >= 1024 && PORT_RANGE.high < EPHEMERAL_FLOOR, 'test ports stay below the ephemeral range and above the privileged one');
+  for (let i = 0; i < 5; i += 1) {
+    const port = freePort();
+    assert(port >= PORT_RANGE.low && port <= PORT_RANGE.high, `${port} is outside the test range`);
   }
-  assert(ranges >= 10, `the port scan must find the server tests: ${ranges}`);
-}
+  const held = net.createServer();
+  const heldPort = freePort();
+  await new Promise(resolve => held.listen(heldPort, resolve));
+  assert.throws(() => findFreePort(heldPort, heldPort), /no free port was found/, 'a port a listener holds is never handed out');
+  await new Promise(resolve => held.close(resolve));
+  assert.strictEqual(findFreePort(heldPort, heldPort), heldPort, 'the same port is handed out once it is free');
 
-console.log('test matrix tests passed');
+  const sources = [
+    ...fs.readdirSync(__dirname).filter(file => file.endsWith('.test.js')).map(file => path.join(__dirname, file)),
+    ...fs.readdirSync(path.join(__dirname, 'integration')).filter(file => file.endsWith('.js')).map(file => path.join(__dirname, 'integration', file))
+  ];
+  let users = 0;
+  for (const file of sources) {
+    const source = fs.readFileSync(file, 'utf8');
+    assert(!/\bport\s*=\s*\d+\s*\+\s*Math\.floor\(Math\.random\(\)/.test(source), `${path.relative(__dirname, file)} draws its own port; take one from freePort()`);
+    if (/\bconst port = freePort\(\);/.test(source)) users += 1;
+  }
+  assert(users >= 19, `the server tests must take their ports from freePort(): ${users}`);
+  console.log('test matrix tests passed');
+})().catch(error => { console.error(error); process.exit(1); });

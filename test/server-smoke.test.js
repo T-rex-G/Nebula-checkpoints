@@ -1,11 +1,12 @@
 'use strict';
 
 const { serverEntry, serverIdentity } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const port = 22000 + Math.floor(Math.random() * 5000);
+const port = freePort();
 const root = path.resolve(__dirname, '..');
 const { APP_VERSION } = require('../apps/api/src/platform/release/version.ts');
 const { servedAssetsDigest } = require('../apps/api/src/platform/release/web-build.ts');

@@ -1,6 +1,7 @@
 'use strict';
 
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
@@ -9,7 +10,7 @@ const { deriveKey, KEY_PURPOSES } = require('../apps/api/src/platform/crypto/key
 const root = path.join(__dirname, '..');
 const secret = 'local-session-regression-0123456789abcdef-0123456789';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 28000 + Math.floor(Math.random() * 900);
+const port = freePort();
 const base = `http://127.0.0.1:${port}`;
 let child, logs = '';
 

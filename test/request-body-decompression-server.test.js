@@ -15,6 +15,7 @@
  * each, the same process must still answer.
  */
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 
 const assert = require('assert');
 const crypto = require('crypto');
@@ -24,7 +25,7 @@ const zlib = require('zlib');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const port = 16000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {

@@ -1,5 +1,6 @@
 'use strict';
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -155,7 +156,7 @@ const snapKey = ['security', 'server', 'snapshot', 'secret',
 /* The server derives a purpose-specific session key; mirror that derivation
    rather than the raw digest it replaced. */
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 28500 + Math.floor(Math.random() * 1000);
+const port = freePort();
 
 function seal(value) {
   const iv = crypto.randomBytes(12);

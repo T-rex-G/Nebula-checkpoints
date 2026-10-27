@@ -1,5 +1,6 @@
 'use strict';
 const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -25,7 +26,7 @@ const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platf
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 18000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const secret = 'workbench-route-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);

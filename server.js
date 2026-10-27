@@ -108,7 +108,17 @@ const {
   registerGithubAppRoutes,
   registerSecurityRoutes,
   registerSessionContainmentRoutes,
-  registerOAuthRoutes
+  registerOAuthRoutes,
+  identityKey,
+  stableProviderIdentityKey,
+  providerAuthority,
+  assertGithubAccount,
+  isGithubAccount,
+  createProviderSessions,
+  alphaConnectionRefusal,
+  hostedAccountKey,
+  HOSTED_SESSION_BASE,
+  HOSTED_SESSION_REVISION
 } = require('./apps/api/src/modules/identity-access/index.ts');
 const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
@@ -151,6 +161,7 @@ const {
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
+const { createSessionSeal, readCookie: getCookie, createSessionCookieWriter } = require('./apps/api/src/platform/authorization/session-cookie.ts');
 const { createDatabaseLifecycle } = require('./apps/api/src/platform/persistence/database-lifecycle.ts');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
@@ -429,34 +440,10 @@ registerWebShellRoutes(app, { webBuild: WEB_BUILD });
 app.use('/api', apiMaintenance(MAINTENANCE_MODE));
 app.use(staticFiles(WEB_ROOT));
 
-/* ---------------- encrypted cookie session ---------------- */
-function seal(obj) {
-  const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', SESSION_CONTENT_KEY, iv);
-  const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
-  return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64url');
-}
-function unseal(str) {
-  try {
-    const raw = Buffer.from(str, 'base64url');
-    const d = crypto.createDecipheriv('aes-256-gcm', SESSION_CONTENT_KEY, raw.subarray(0, 12));
-    d.setAuthTag(raw.subarray(12, 28));
-    return JSON.parse(Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8'));
-  } catch { return null; }
-}
-function getCookie(req, name) {
-  const h = req.headers.cookie;
-  if (!h) return null;
-  for (const part of h.split(';')) {
-    const i = part.indexOf('=');
-    if (i > -1 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
-  }
-  return null;
-}
+/* The session cookie, sealed under the session's own key (apps/api/src/platform/authorization/session-cookie.ts). */
+const { seal, unseal } = createSessionSeal(SESSION_CONTENT_KEY);
 /* ===== session store: Postgres (Neon/any) when DATABASE_URL is set, sealed cookie otherwise ===== */
 const ALPHA_SESSION_ID = Symbol('alpha session id');
-const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
-const HOSTED_SESSION_REVISION = Symbol('hosted provider session revision');
 const alphaStore = ALPHA_CONFIG.enabled ? new AlphaAccessStore({
   pool: {
     connect: () => pool().connect(),
@@ -697,238 +684,12 @@ async function removeGithubAppInstallation(identity, installationId) {
   return true;
 }
 const ACCOUNT_CAP = () => (DB_URL ? 10 : 3);
-function setCookieRaw(res, value, maxAge = 2592000) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `nv_session=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`);
-}
-function mergeHostedSessionValue(base, desired, current) {
-  if (stableJson(base) === stableJson(desired)) return structuredClone(current);
-  if (
-    base && desired && current
-    && typeof base === 'object' && !Array.isArray(base)
-    && typeof desired === 'object' && !Array.isArray(desired)
-    && typeof current === 'object' && !Array.isArray(current)
-  ) {
-    const merged = {};
-    for (const key of new Set([...Object.keys(current), ...Object.keys(base), ...Object.keys(desired)])) {
-      if (!(key in desired) && key in base) continue;
-      if (!(key in desired)) {
-        merged[key] = structuredClone(current[key]);
-        continue;
-      }
-      merged[key] = mergeHostedSessionValue(base[key], desired[key], current[key]);
-    }
-    return merged;
-  }
-  return structuredClone(desired);
-}
-function hostedAccountKey(account) {
-  return `${String(account && account.provider || 'github')}\0${identityKey(account)}`;
-}
-function recomputeHostedSessionMutation(base, desired, current) {
-  if (!base || !Array.isArray(base.accounts)) return structuredClone(desired);
-  const next = mergeHostedSessionValue(
-    { ...base, accounts: undefined, active: undefined },
-    { ...desired, accounts: undefined, active: undefined },
-    { ...current, accounts: undefined, active: undefined }
-  );
-  const currentAccounts = new Map((current.accounts || []).map(account => [hostedAccountKey(account), account]));
-  const baseAccounts = new Map((base.accounts || []).map(account => [hostedAccountKey(account), account]));
-  const desiredAccounts = new Map((desired.accounts || []).map(account => [hostedAccountKey(account), account]));
-  for (const key of baseAccounts.keys()) if (!desiredAccounts.has(key)) currentAccounts.delete(key);
-  for (const [key, account] of desiredAccounts) {
-    if (!baseAccounts.has(key) || stableJson(baseAccounts.get(key)) !== stableJson(account)) {
-      currentAccounts.set(key, structuredClone(account));
-    }
-  }
-  const desiredOrder = [...desiredAccounts.keys()];
-  const mergedOrder = [
-    ...desiredOrder.filter(key => currentAccounts.has(key)),
-    ...[...currentAccounts.keys()].filter(key => !desiredAccounts.has(key))
-  ];
-  next.accounts = mergedOrder.map(key => currentAccounts.get(key));
-  const desiredActive = desired.accounts && desired.accounts[desired.active];
-  const desiredActiveKey = desiredActive ? hostedAccountKey(desiredActive) : '';
-  next.active = Math.max(0, mergedOrder.indexOf(desiredActiveKey));
-  return next;
-}
-/*
- * retiredSelection is computed by githubSession() on each read, from the
- * accounts the session holds. Stored, it would outlive the choice that cleared
- * it, and every provider route would keep asking for an account.
- */
-function persistedSession(data) {
-  if (!data || typeof data !== 'object' || !('retiredSelection' in data)) return data;
-  const { retiredSelection, ...stored } = data;
-  return stored;
-}
-async function setSession(req, res, data, { createNew = false } = {}) {
-  data = persistedSession(data);
-  if (DB_URL) {
-    if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
-    let sid = null;
-    const cur = unseal(getCookie(req, 'nv_session') || '');
-    if (!createNew && cur && cur.sid) sid = cur.sid;
-    const existingSid = Boolean(sid);
-    if (!sid) sid = crypto.randomBytes(24).toString('hex');
-    if (ALPHA_CONFIG.enabled) {
-      if (!req.alpha || !req.alpha.testerId || !cur || !cur.sid) {
-        throw Object.assign(new Error('Owned provider session is unavailable'), {
-          status: 401, code: 'ALPHA_PROVIDER_SESSION_UNAVAILABLE'
-        });
-      }
-      const base = req[HOSTED_SESSION_BASE] || structuredClone(data);
-      const result = await alphaPrivacyStore.mutateHostedProviderSession({
-        testerId: req.alpha.testerId,
-        sessionId: sid,
-        mutate(current) {
-          return recomputeHostedSessionMutation(base, data, current);
-        }
-      }).catch(error => {
-        /* Ended between the read and this write: signed out, as on the read. */
-        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') throw Object.assign(error, { status: 401 });
-        throw ownedSessionRefusal(error);
-      });
-      req.session = result.session;
-      req[HOSTED_SESSION_BASE] = structuredClone(result.session);
-      req[HOSTED_SESSION_REVISION] = result.revision;
-      setCookieRaw(res, seal({ sid }));
-      return;
-    }
-    const identityKeys = [...new Set((Array.isArray(data.accounts) ? data.accounts : []).map(identityKey))];
-    if (existingSid) {
-      const saved = await pool().query(
-        `UPDATE nv_sessions SET data=$2,identity_keys=$3::text[],revision=revision+1,updated=now() WHERE sid=$1`,
-        [sid, seal(data), identityKeys]
-      );
-      if (!saved.rowCount) throw Object.assign(new Error('This session ended. Sign in again.'), { status: 401, code: 'SESSION_REVOKED' });
-    } else {
-      await pool().query('INSERT INTO nv_sessions (sid,data,identity_keys,updated) VALUES ($1,$2,$3::text[],now())', [sid, seal(data), identityKeys]);
-    }
-    setCookieRaw(res, seal({ sid }));
-    return;
-  }
-  const bounded = localSessionPolicy.prepare(data);
-  // Retain the original lifetime through security/account session writes.
-  req.session = bounded;
-  setCookieRaw(res, seal(bounded), Math.max(0, Math.ceil((bounded.lifetime.expiresAt - Date.now()) / 1000)));
-}
-function sessionSidFromRequest(req) {
-  const current = unseal(getCookie(req, 'nv_session') || '');
-  return current && typeof current.sid === 'string' ? current.sid : '';
-}
-async function destroySession(req, res) {
-  const sid = sessionSidFromRequest(req);
-  if (sid && DB_URL) {
-    if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable; sign-out was not completed'), { status: 503 });
-    await pool().query('DELETE FROM nv_sessions WHERE sid=$1', [sid]);
-  }
-  if (!DB_URL) localSessionPolicy.revoke(unseal(getCookie(req, 'nv_session') || ''));
-  if (sid) closeLiveSessions([sid], 'session-ended');
-  setCookieRaw(res, '', 0);
-}
-function githubSession(session) {
-  if (!session || !Array.isArray(session.accounts)) return null;
-  const selected = session.accounts[Math.min(Math.max(Number(session.active) || 0, 0), session.accounts.length - 1)];
-  const accounts = session.accounts.filter(account => {
-    try { assertGithubAccount(account); return true; } catch { return false; }
-  });
-  if (!accounts.length) return null;
-  if (accounts.length === session.accounts.length) return session;
-  const index = accounts.indexOf(selected);
-  // Keep historical bindings for retention/privacy cleanup. Session writes
-  // persist only the supported accounts; an old cookie cannot dispatch them.
-  // A retired account that is still the selected one is not quietly replaced
-  // by a GitHub account: the person chooses which identity acts.
-  return { ...session, accounts, active: Math.max(0, index), retiredSelection: index < 0, security: { ...session.security, stepUp: null } };
-}
-function isGithubAccount(account) {
-  try { assertGithubAccount(account); return true; } catch { return false; }
-}
-/*
- * The store's refusals of an owned provider session, as answers rather than
- * server faults. An ended session is handled by the caller (it is no session);
- * these are the rest: a session another tester holds, and a tester whose
- * access is gone or whose data is being deleted.
- */
-function ownedSessionRefusal(error) {
-  const code = error && error.code;
-  if (code === 'ALPHA_PROVIDER_SESSION_OWNERSHIP_CONFLICT') {
-    return Object.assign(new Error('This sign-in belongs to another alpha session'), { status: 403, code });
-  }
-  if (code === 'ALPHA_TESTER_REVOKED' || code === 'ALPHA_TESTER_UNAVAILABLE') {
-    return Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
-  }
-  if (code === 'ALPHA_TESTER_DELETING') {
-    return Object.assign(new Error('Alpha data deletion is in progress'), { status: 409, code });
-  }
-  return error;
-}
-/*
- * An account this alpha access disconnected keeps its cleanup evidence, and is
- * not bound to the access again. That is a refusal with a way forward, made
- * before anything was connected -- not a fault to retry.
- */
-function alphaConnectionRefusal(error) {
-  const code = error && error.code;
-  if (code === 'ALPHA_PROVIDER_LIFECYCLE_STARTED' || code === 'ALPHA_PROVIDER_BINDING_CONFLICT') {
-    return Object.assign(new Error('This GitHub account was disconnected from this alpha access and cannot be connected to it again.'), {
-      status: 409,
-      code: 'ALPHA_PROVIDER_IDENTITY_RETIRED',
-      providerChanged: false,
-      safeState: 'Nothing was connected. The disconnected account stays disconnected.',
-      nextAction: 'Sign in with another GitHub account, or end the alpha session and ask the operator for a new invitation to use this one.'
-    });
-  }
-  if (code === 'ALPHA_PROVIDER_ACCOUNT_CAPACITY') {
-    return Object.assign(new Error('This session already holds the most accounts it can. Remove one first.'), {
-      status: 409, code, providerChanged: false, safeState: 'Nothing was connected.'
-    });
-  }
-  return ownedSessionRefusal(error);
-}
-async function sessionOf(req, { retainRetiredAccounts = false } = {}) {
-  const supported = session => (retainRetiredAccounts && session && Array.isArray(session.accounts) && session.accounts.length
-    ? session
-    : githubSession(session));
-  const s = unseal(getCookie(req, 'nv_session') || '');
-  if (!s) return null;
-  if (DB_URL && !s.sid) return null;
-  if (s.sid) {
-    if (!(await dbReady())) throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
-    if (ALPHA_CONFIG.enabled) {
-      if (!req.alpha || !req.alpha.testerId) {
-        throw Object.assign(new Error('Alpha access is required'), { status: 401, code: 'ALPHA_ACCESS_REQUIRED' });
-      }
-      let owned;
-      try {
-        owned = await alphaPrivacyStore.readHostedProviderSession({
-          testerId: req.alpha.testerId,
-          sessionId: s.sid
-        });
-      } catch (error) {
-        if (error && error.code === 'ALPHA_PROVIDER_SESSION_UNAVAILABLE') return null;
-        throw ownedSessionRefusal(error);
-      }
-      req[HOSTED_SESSION_BASE] = structuredClone(owned.session);
-      req[HOSTED_SESSION_REVISION] = owned.revision;
-      return supported(owned.session);
-    }
-    /*
-     * A store that cannot answer is unavailable, not empty. Read as "no
-     * session", a fault here let a sign-in delete the row it could not read.
-     */
-    const r = await pool().query('SELECT data FROM nv_sessions WHERE sid=$1', [s.sid]).catch(() => {
-      throw Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
-    });
-    if (!r.rows.length) return null;
-    const d = unseal(r.rows[0].data);
-    return (d && Array.isArray(d.accounts) && d.accounts.length) ? supported(d) : null;
-  }
-  if (!localSessionPolicy.valid(s)) return null;
-  if (Array.isArray(s.accounts) && s.accounts.length) return supported(s);
-  return null;
-}
+const setCookieRaw = createSessionCookieWriter(() => process.env.NODE_ENV === 'production');
+/* Where the provider session is kept: a row, the alpha's privacy store, or the cookie (identity-access/application/provider-sessions.ts). */
+const { setSession, sessionOf, destroySession, sessionIdFromRequest: sessionSidFromRequest } = createProviderSessions({
+  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore,
+  seal, unseal, readCookie: getCookie, writeCookie: setCookieRaw, localSessionPolicy, closeLiveSessions
+});
 
 /* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
 const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
@@ -990,45 +751,6 @@ async function allowWebhookRequest(req, hookId) {
 }
 function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
 function scopedEvidenceKey(provider, owner, repo, identity) { return `${repoKey(provider, owner, repo)}:${String(identity || 'anonymous').slice(0, 80)}`; }
-function identityKey(acct) {
-  if (acct && /^[0-9a-f]{64}$/.test(String(acct.identityKey || ''))) {
-    return String(acct.identityKey);
-  }
-  const base = { provider: acct && acct.provider || 'github', baseUrl: acct && acct.baseUrl || '', login: acct && acct.login || '' };
-  if (acct && acct.authMethod === 'github-app') {
-    return hashJson({
-      ...base,
-      authMethod: 'github-app',
-      installationId: Number(acct.installationId || 0),
-      authorizedByLogin: String(acct.authorizedByLogin || '').toLowerCase()
-    });
-  }
-  return hashJson(base);
-}
-function stableProviderIdentityKey(acct) {
-  const provider = String(acct && acct.provider || 'github');
-  const authority = providerAuthority(acct);
-  if (acct && acct.authMethod === 'github-app') {
-    return hashJson({
-      domain: 'nv-alpha-provider-identity/github-app/v1',
-      provider,
-      authority,
-      authMethod: 'github-app',
-      installationId: Number(acct.installationId || 0),
-      installationAccountId: Number(acct.installationAccountId || 0)
-    });
-  }
-  const providerAccountId = Number(acct && acct.providerAccountId || 0);
-  if (Number.isSafeInteger(providerAccountId) && providerAccountId > 0) {
-    return hashJson({
-      domain: 'nv-alpha-provider-identity/account/v1',
-      provider,
-      authority,
-      providerAccountId
-    });
-  }
-  return identityKey(acct);
-}
 const CSRF_TTL_MS = 30 * 60 * 1000;
 const STEP_UP_TTL_MS = 5 * 60 * 1000;
 /*
@@ -2162,27 +1884,6 @@ function governanceMutationContext(action) {
 }
 
 /* ================= AUTH ================= */
-/* ================= GITHUB IDENTITY ================= */
-function assertGithubAccount(account) {
-  if (!account || typeof account !== 'object' || Array.isArray(account) ||
-      (account.provider !== undefined && account.provider !== 'github')) {
-    throw Object.assign(new Error('Only GitHub accounts are supported. Sign in with GitHub.'), {
-      status: 401, code: 'PROVIDER_UNSUPPORTED'
-    });
-  }
-  if (account.baseUrl && account.baseUrl !== 'https://github.com') {
-    throw Object.assign(new Error('Custom Git server URLs are not supported'), {
-      status: 401, code: 'PROVIDER_AUTHORITY_UNSUPPORTED'
-    });
-  }
-}
-
-function providerAuthority(account) {
-  if ((account && account.provider || 'github') === 'github') return 'github.com';
-  try { return new URL(account && account.baseUrl || '').host.toLowerCase(); }
-  catch { return ''; }
-}
-
 function retainedActor(req) {
   return ALPHA_CONFIG.enabled && req.alpha
     ? alphaActorLabel(req.alpha)

@@ -303,8 +303,11 @@ assert(
  * 3,248 to 3,103: the database's pool, readiness and upkeep
  * (apps/api/src/platform/persistence/database-lifecycle.ts), and the alpha's
  * privacy retention (identity-access/application/alpha-privacy-retention.ts).
+ * 3,103 to 2,804: the session cookie (platform/authorization/session-cookie.ts),
+ * the accounts' identity and the hosted session merge (identity-access/domain),
+ * and where the provider session is kept (identity-access/application/provider-sessions.ts).
  */
-const SERVER_LINE_CEILING = 3103;
+const SERVER_LINE_CEILING = 2804;
 const serverLines = (serverSource.match(/\n/g) || []).length;
 assert(serverLines <= SERVER_LINE_CEILING,
   `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);

@@ -98,20 +98,23 @@ assert(helper.includes('return { verifiedAbsent: false };'),
  * proving it gone -- is held by test/pulsar-live-event-routes.test.js.
  */
 
-const sessionOfStart = server.indexOf('async function sessionOf(req,');
-const sessionOfEnd = server.indexOf('\n}', sessionOfStart) + 2;
-const sessionOfBlock = server.slice(sessionOfStart, sessionOfEnd);
+/* The provider session store is identity and access's (application/provider-sessions.ts). */
+const sessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
+const nested = (text, start) => {
+  const at = text.indexOf(start);
+  assert(at >= 0, start);
+  return text.slice(at, text.indexOf('\n  }\n', at) + 5);
+};
+const sessionOfBlock = nested(sessions, 'async function sessionOf(req: SessionRequest,');
 assert(sessionOfBlock.includes('readHostedProviderSession({'));
 assert(sessionOfBlock.includes('testerId: req.alpha.testerId'));
 assert(
   sessionOfBlock.indexOf('readHostedProviderSession({')
-    < sessionOfBlock.indexOf("pool().query('SELECT data FROM nv_sessions WHERE sid=$1'"),
+    < sessionOfBlock.indexOf("deps.pool().query('SELECT data FROM nv_sessions WHERE sid=$1'"),
   'invite-mode cookie authentication must prove tester ownership and return before the legacy raw SID lookup'
 );
 
-const setSessionStart = server.indexOf('async function setSession(req, res, data');
-const setSessionEnd = server.indexOf('\n}', setSessionStart) + 2;
-const setSessionBlock = server.slice(setSessionStart, setSessionEnd);
+const setSessionBlock = nested(sessions, 'async function setSession(req: SessionRequest, res: unknown, input');
 assert(setSessionBlock.includes('mutateHostedProviderSession({'));
 assert(setSessionBlock.includes('recomputeHostedSessionMutation('));
 assert(setSessionBlock.includes('testerId: req.alpha.testerId'));
@@ -124,9 +127,11 @@ assert(addBlock.includes('? stableProviderIdentityKey(account)'));
 assert(addBlock.indexOf('capacity: ACCOUNT_CAP()') < addBlock.indexOf('connectHostedProviderAccount({') + 500,
   'capacity must be part of the atomic connection transaction');
 
-const stableIdentityStart = server.indexOf('function stableProviderIdentityKey(');
-const stableIdentityEnd = server.indexOf('\n}', stableIdentityStart) + 2;
-const stableIdentityBlock = server.slice(stableIdentityStart, stableIdentityEnd);
+const accountIdentity = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'account-identity.ts'), 'utf8');
+const stableIdentityStart = accountIdentity.indexOf('export function stableProviderIdentityKey(');
+const stableIdentityEnd = accountIdentity.indexOf('\n}', stableIdentityStart) + 2;
+assert(stableIdentityStart >= 0);
+const stableIdentityBlock = accountIdentity.slice(stableIdentityStart, stableIdentityEnd);
 assert(stableIdentityBlock.includes('installationId'));
 assert(stableIdentityBlock.includes('installationAccountId'));
 assert(stableIdentityBlock.includes("domain: 'nv-alpha-provider-identity/github-app/v1'"));

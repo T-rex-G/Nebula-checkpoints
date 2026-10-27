@@ -23,10 +23,13 @@ assert(server.includes('SNAPSHOT_RETENTION_COUNT'), 'Snapshot retention cap is m
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(corona), 'Old snapshot pruning query is missing');
 /* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
 
-assert(/async function setSession\(req, res, data\b[\s\S]+if \(DB_URL\)[\s\S]+Session database is temporarily unavailable/.test(server), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
-assert(server.includes('if (DB_URL && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
-assert(/async function destroySession[\s\S]+if \(sid && DB_URL\)[\s\S]+sign-out was not completed/.test(server), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
-assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(server) && /catch \(e\) \{\s*res\.status\(e\.status \|\| 500\)/.test(server), 'Authenticated requests must report a configured session-store outage as 503');
+/* Where the provider session is kept is identity and access's; the server says whether a database is configured. */
+const sessions = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
+assert(server.includes('databaseConfigured: Boolean(DB_URL), ready: dbReady, pool,'), 'The provider sessions must know a database is configured, not whether it is reachable');
+assert(/async function setSession\(req: SessionRequest, res: unknown, input: unknown\b[\s\S]+if \(databaseConfigured\)[\s\S]+Session database is temporarily unavailable/.test(sessions), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
+assert(sessions.includes('if (databaseConfigured && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
+assert(/async function destroySession[\s\S]+if \(sid && databaseConfigured\)[\s\S]+sign-out was not completed/.test(sessions), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
+assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(sessions) && /catch \(e\) \{\s*res\.status\(e\.status \|\| 500\)/.test(server), 'Authenticated requests must report a configured session-store outage as 503');
 /* The account routes are identity and access's. */
 const accountRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'account-routes.ts'), 'utf8');
 for (const [route, nextRoute] of [

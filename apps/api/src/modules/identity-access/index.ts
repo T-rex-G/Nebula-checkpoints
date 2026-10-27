@@ -28,6 +28,16 @@ export { AlphaAccessOperationalError, AlphaAccessStore, GENERIC_REDEMPTION_ERROR
 export type { AlphaSession, AlphaTester, IssuedInvite, Redemption } from './persistence/alpha-access-store.ts';
 export { AlphaPrivacyStore, AlphaPrivacyStoreError } from './persistence/alpha-privacy-store.ts';
 export type { PurgeReport, SessionCodec } from './persistence/alpha-privacy-store.ts';
+export {
+  assertGithubAccount, githubSession, identityKey, isGithubAccount, persistedSession, providerAuthority, stableProviderIdentityKey
+} from './domain/account-identity.ts';
+export type { AccountLike, SessionAccounts } from './domain/account-identity.ts';
+export { hostedAccountKey, mergeHostedSessionValue, recomputeHostedSessionMutation } from './domain/hosted-session-merge.ts';
+export type { HostedSession } from './domain/hosted-session-merge.ts';
+export {
+  alphaConnectionRefusal, createProviderSessions, HOSTED_SESSION_BASE, HOSTED_SESSION_REVISION, ownedSessionRefusal
+} from './application/provider-sessions.ts';
+export type { ProviderSessionDeps, ProviderSessions } from './application/provider-sessions.ts';
 export { createAlphaPrivacyRetention } from './application/alpha-privacy-retention.ts';
 export type { AlphaPrivacyRetention, AlphaPrivacyRetentionDeps } from './application/alpha-privacy-retention.ts';
 export { ALPHA_COOKIE, createAlphaSessions } from './http/alpha-sessions.ts';

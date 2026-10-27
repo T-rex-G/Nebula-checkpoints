@@ -274,6 +274,9 @@ try {
     'apps/api/src/platform/values/fields.ts',
     /* Identity and access's index also carries its HTTP routes, which read text, the single-use guard and the security foundation. */
     'apps/api/src/platform/values/text.ts',
+    /* Its accounts' identity keys are digests of their canonical JSON. */
+    'apps/api/src/platform/values/stable-hash.ts',
+    'apps/api/src/platform/crypto/hmac.ts',
     'apps/api/src/platform/rate-limit/single-use-store.ts',
     'apps/api/src/platform/authorization/security-foundation.ts',
     /* The capability document's guard and the security foundation's assurance levels are shared contracts, one package in its own module scope. */

@@ -306,8 +306,10 @@ assert(
  * 3,103 to 2,804: the session cookie (platform/authorization/session-cookie.ts),
  * the accounts' identity and the hosted session merge (identity-access/domain),
  * and where the provider session is kept (identity-access/application/provider-sessions.ts).
+ * 2,804 to 2,720: the session's own security, CSRF, step-up and the offline
+ * cache's scope (identity-access/application/session-security.ts).
  */
-const SERVER_LINE_CEILING = 2804;
+const SERVER_LINE_CEILING = 2720;
 const serverLines = (serverSource.match(/\n/g) || []).length;
 assert(serverLines <= SERVER_LINE_CEILING,
   `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);

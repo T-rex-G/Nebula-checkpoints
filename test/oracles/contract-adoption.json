@@ -1,6 +1,5 @@
 {
   "copies": {
-    "server.js": 2,
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,
     "src/work-continuity.js": 2,
@@ -11,10 +10,8 @@
   "unconsumed": [
     "actor.ts AUTHORIZATION_EVIDENCE_STATUSES",
     "actor.ts BASE_ROLES",
-    "api-envelope.ts CSRF_HEADER",
     "api-envelope.ts ERROR_CODE_FORMAT",
     "api-envelope.ts SECRET_SIGNAL",
-    "api-envelope.ts STEP_UP_HEADER",
     "capability.ts CAPABILITY_EVIDENCE_STATES",
     "capability.ts CAPABILITY_RELEASE",
     "capability.ts CAPABILITY_SCHEMA_VERSION",

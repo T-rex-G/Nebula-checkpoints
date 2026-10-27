@@ -117,6 +117,9 @@ const {
   createProviderSessions,
   alphaConnectionRefusal,
   hostedAccountKey,
+  createSessionSecurity,
+  CSRF_TTL_MS,
+  STEP_UP_TTL_MS,
   HOSTED_SESSION_BASE,
   HOSTED_SESSION_REVISION
 } = require('./apps/api/src/modules/identity-access/index.ts');
@@ -124,7 +127,6 @@ const { PRODUCT_NAME, APP_VERSION } = require('./apps/api/src/platform/release/v
 const { computeReleaseFingerprint } = require('./apps/api/src/platform/release/release-fingerprint.ts');
 const { describeServerRuntime } = require('./apps/api/src/platform/release/server-runtime.ts');
 const { loadWebBuild } = require('./apps/api/src/platform/release/web-build.ts');
-const OFFLINE_CACHE_POLICY = require('./packages/contracts/src/offline-cache-policy.ts');
 // ADR-067/ADR-072 deliberately bind /api/version to bytes observed at startup.
 // An embedded build-time digest would be circular and could attest different bytes.
 // The compiled fallback (apps/api/src/platform/release/server-runtime.ts, ADR-088) still names the source it
@@ -155,8 +157,7 @@ const {
 const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
 const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
 const {
-  verifyCsrfToken, verifyStepUpGrant,
-  normalizeStepUpRequest, sensitiveOperationFor, consumePendingStepUp
+  normalizeStepUpRequest, sensitiveOperationFor
 } = require('./apps/api/src/platform/authorization/security-foundation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
@@ -263,6 +264,44 @@ const database = createDatabaseLifecycle({
   onReady: () => alphaPrivacyRetention.start()
 });
 const { pool, ready: dbReady, invalidate: invalidateDatabaseReady } = database;
+/* The session cookie, sealed under the session's own key (apps/api/src/platform/authorization/session-cookie.ts). */
+const { seal, unseal } = createSessionSeal(SESSION_CONTENT_KEY);
+/* The alpha's access and privacy stores (identity-access/persistence). */
+const alphaStore = ALPHA_CONFIG.enabled ? new AlphaAccessStore({
+  pool: {
+    connect: () => pool().connect(),
+    query: (...args) => pool().query(...args)
+  },
+  pepper: ALPHA_CONFIG.pepper,
+  inviteTtlMs: ALPHA_CONFIG.inviteTtlMs,
+  sessionTtlMs: ALPHA_CONFIG.sessionAbsoluteTtlMs,
+  idleTtlMs: ALPHA_CONFIG.sessionIdleTtlMs
+}) : null;
+const alphaPrivacyStore = ALPHA_CONFIG.enabled ? new AlphaPrivacyStore({
+  pool: {
+    connect: () => pool().connect(),
+    query: (...args) => pool().query(...args)
+  },
+  sessionCodec: {
+    encode: seal,
+    decode: unseal,
+    identityKey
+  }
+}) : null;
+const setCookieRaw = createSessionCookieWriter(() => process.env.NODE_ENV === 'production');
+/* Where the provider session is kept: a row, the alpha's privacy store, or the cookie (identity-access/application/provider-sessions.ts). */
+const { setSession, sessionOf, destroySession, sessionIdFromRequest: sessionSidFromRequest } = createProviderSessions({
+  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore,
+  seal, unseal, readCookie: getCookie, writeCookie: setCookieRaw, localSessionPolicy, closeLiveSessions
+});
+/* The session's own security: CSRF, step-up and the offline cache's scope (identity-access/application/session-security.ts). */
+const {
+  sessionSecurityState, clearStepUpAuthorization, ensureSessionSecurity, requestSecurityContext,
+  verifyRequestCsrf, consumeStepUpAuthorization, offlineCacheScope, offlineCacheResponseBinding
+} = createSessionSecurity({
+  databaseConfigured: Boolean(DB_URL), durableSingleUseStore, setSession, csrfSecret: CSRF_SECRET, stepUpSecret: STEP_UP_SECRET,
+  safeMethods: SAFE_API_METHODS, offlineCacheScopeKey: OFFLINE_CACHE_SCOPE_KEY, readCookie: getCookie, sessionIdFromRequest: sessionSidFromRequest
+});
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
     return recordGithubAppAudit(
@@ -440,31 +479,7 @@ registerWebShellRoutes(app, { webBuild: WEB_BUILD });
 app.use('/api', apiMaintenance(MAINTENANCE_MODE));
 app.use(staticFiles(WEB_ROOT));
 
-/* The session cookie, sealed under the session's own key (apps/api/src/platform/authorization/session-cookie.ts). */
-const { seal, unseal } = createSessionSeal(SESSION_CONTENT_KEY);
-/* ===== session store: Postgres (Neon/any) when DATABASE_URL is set, sealed cookie otherwise ===== */
 const ALPHA_SESSION_ID = Symbol('alpha session id');
-const alphaStore = ALPHA_CONFIG.enabled ? new AlphaAccessStore({
-  pool: {
-    connect: () => pool().connect(),
-    query: (...args) => pool().query(...args)
-  },
-  pepper: ALPHA_CONFIG.pepper,
-  inviteTtlMs: ALPHA_CONFIG.inviteTtlMs,
-  sessionTtlMs: ALPHA_CONFIG.sessionAbsoluteTtlMs,
-  idleTtlMs: ALPHA_CONFIG.sessionIdleTtlMs
-}) : null;
-const alphaPrivacyStore = ALPHA_CONFIG.enabled ? new AlphaPrivacyStore({
-  pool: {
-    connect: () => pool().connect(),
-    query: (...args) => pool().query(...args)
-  },
-  sessionCodec: {
-    encode: seal,
-    decode: unseal,
-    identityKey
-  }
-}) : null;
 
 const alphaSessions = createAlphaSessions({
   config: ALPHA_CONFIG,
@@ -684,12 +699,6 @@ async function removeGithubAppInstallation(identity, installationId) {
   return true;
 }
 const ACCOUNT_CAP = () => (DB_URL ? 10 : 3);
-const setCookieRaw = createSessionCookieWriter(() => process.env.NODE_ENV === 'production');
-/* Where the provider session is kept: a row, the alpha's privacy store, or the cookie (identity-access/application/provider-sessions.ts). */
-const { setSession, sessionOf, destroySession, sessionIdFromRequest: sessionSidFromRequest } = createProviderSessions({
-  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore,
-  seal, unseal, readCookie: getCookie, writeCookie: setCookieRaw, localSessionPolicy, closeLiveSessions
-});
 
 /* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
 const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
@@ -751,110 +760,17 @@ async function allowWebhookRequest(req, hookId) {
 }
 function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
 function scopedEvidenceKey(provider, owner, repo, identity) { return `${repoKey(provider, owner, repo)}:${String(identity || 'anonymous').slice(0, 80)}`; }
-const CSRF_TTL_MS = 30 * 60 * 1000;
-const STEP_UP_TTL_MS = 5 * 60 * 1000;
-/*
- * The in-process guard, kept for the profile that is allowed to run without a
- * database. There it is honest: one process, and the guard covers everything
- * that process can be replayed against.
- */
-const USED_STEP_UP_GRANTS = new Map();
 let _singleUseStore = null;
 let _rateLimitStore = null;
 /*
- * Which guard answers is decided by configuration, never by whether the
- * database happens to be reachable. A deployment that has a database has one
- * shared guard; if it cannot be reached, the claim fails and the sensitive
- * action is refused. Falling back to the Map at that moment would be the worst
- * of both: every instance would answer "unspent" for a grant another instance
- * had already spent, and a replay would go through precisely during an outage.
+ * The shared single-use guard: the step-up grants' where a database is
+ * configured, and the GitHub App's and the recovery's OAuth and authorization
+ * claims (identity-access/application/session-security.ts says why the guard
+ * is chosen by configuration).
  */
 function durableSingleUseStore() {
   if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
   return _singleUseStore;
-}
-function stepUpReplayStore() {
-  if (!DB_URL) return USED_STEP_UP_GRANTS;
-  return durableSingleUseStore();
-}
-function sessionSecurityState(session) {
-  if (!session.security || typeof session.security !== 'object') session.security = {};
-  return session.security;
-}
-function clearStepUpAuthorization(session) {
-  sessionSecurityState(session).stepUp = null;
-}
-async function ensureSessionSecurity(req, res) {
-  const state = sessionSecurityState(req.session);
-  if (/^[0-9a-f]{48}$/i.test(String(state.sessionNonce || ''))) return state;
-  state.sessionNonce = crypto.randomBytes(24).toString('hex');
-  state.stepUp = null;
-  await setSession(req, res, req.session);
-  return state;
-}
-function requestSecurityContext(req) {
-  const state = sessionSecurityState(req.session || {});
-  const sessionBinding = String(state.sessionNonce || '');
-  const activeIdentityKey = req.gh ? identityKey(req.gh) : '';
-  if (!sessionBinding || !activeIdentityKey) {
-    throw Object.assign(new Error('Security context is unavailable for this session'), { status: 401, code: 'SECURITY_CONTEXT_REQUIRED' });
-  }
-  return { sessionBinding, identityKey: activeIdentityKey };
-}
-function verifyRequestCsrf(req) {
-  if (SAFE_API_METHODS.has(req.method)) return null;
-  const token = String(req.headers['x-nv-csrf'] || '');
-  if (!token) throw Object.assign(new Error('A fresh CSRF token is required'), { status: 403, code: 'CSRF_REQUIRED' });
-  return verifyCsrfToken(CSRF_SECRET, token, requestSecurityContext(req));
-}
-async function consumeStepUpAuthorization(req, res, operation) {
-  const token = String(req.headers['x-nv-step-up'] || '');
-  if (!token) throw Object.assign(new Error('This sensitive action requires step-up authorization'), { status: 403, code: 'STEP_UP_REQUIRED' });
-  const context = requestSecurityContext(req);
-  const claims = verifyStepUpGrant(STEP_UP_SECRET, token, { ...context, action: operation.action, scope: operation.scope });
-  const state = sessionSecurityState(req.session);
-  /*
-   * Awaited, because the guard behind this may not be in this process. An
-   * un-awaited call assigns a Promise, and a Promise is truthy: the audit
-   * record at the end of a sensitive action would read it as an authorization
-   * and write undefined for every field it carries.
-   */
-  req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: stepUpReplayStore() });
-  await setSession(req, res, req.session);
-  return req.stepUp;
-}
-function offlineCacheScope(req) {
-  const sid = sessionSidFromRequest(req);
-  const cookie = getCookie(req, 'nv_session') || '';
-  const sessionBinding = sid || crypto.createHash('sha256').update(cookie).digest('hex');
-  if (!sessionBinding || !req.gh) return '';
-  return crypto.createHmac('sha256', OFFLINE_CACHE_SCOPE_KEY)
-    .update(`${sessionBinding}|${identityKey(req.gh)}`)
-    .digest('base64url')
-    .slice(0, 32);
-}
-function offlineCacheResponseBinding(req) {
-  if (req.method !== 'GET' || !req.gh) return null;
-  let url;
-  try { url = new URL(req.originalUrl || req.url, 'https://nebulaverse.invalid'); }
-  catch { return null; }
-  const decision = OFFLINE_CACHE_POLICY.classifyApiRequest(url, req.method, {
-    get(name) { return String(req.headers[String(name).toLowerCase()] || ''); }
-  });
-  if (decision.mode !== 'private-cache') return null;
-  let expectedRepoKey = '';
-  if (/^\/api\/repos(?:\/|$)/.test(url.pathname)) {
-    expectedRepoKey = 'account';
-  } else {
-    const match = /^\/api\/repo\/([^/]+)\/([^/]+)(?:\/|$)/.exec(url.pathname);
-    if (!match) return null;
-    try {
-      expectedRepoKey = `${req.gh.provider || 'github'}:${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`.toLowerCase();
-    } catch { return null; }
-  }
-  const expectedScope = offlineCacheScope(req);
-  if (!expectedScope || decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey) return null;
-  return { scope: expectedScope, repoKey: expectedRepoKey };
 }
 function defaultSafety(value) {
   const sf = value && typeof value === 'object' ? value : {};

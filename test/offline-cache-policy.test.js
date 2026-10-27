@@ -100,5 +100,7 @@ const serverSource = require('fs').readFileSync(require('path').join(__dirname, 
   assert(serverSource.includes("app.use('/api', apiNoStore(offlineCacheResponseBinding));"),
     'server must retain the bounded private offline response middleware');
 }
-assert(serverSource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
+/* The binding is the session's own security's to decide (identity-access/application/session-security.ts). */
+const sessionSecuritySource = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'session-security.ts'), 'utf8');
+assert(sessionSecuritySource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
 console.log('offline cache policy tests passed');

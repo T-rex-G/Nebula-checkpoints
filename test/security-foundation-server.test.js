@@ -20,10 +20,12 @@ const root = path.resolve(__dirname, '..');
  * mistake leaves no trace at runtime, so it is pinned here at the source.
  */
 const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+/* The step-up's consumption and its replay guard are the session's own security's. */
+const sessionSecuritySource = fs.readFileSync(path.join(root, 'apps/api/src/modules/identity-access/application/session-security.ts'), 'utf8');
 let consumePendingStepUpCalls = 0;
-for (const line of serverSource.split('\n')) {
+for (const line of sessionSecuritySource.split('\n')) {
   if (!line.includes('consumePendingStepUp(')) continue;
-  if (line.trimStart().startsWith('*') || line.includes('require(')) continue;
+  if (line.trimStart().startsWith('*') || line.includes('require(') || line.startsWith('import ')) continue;
   assert.match(
     line, /await consumePendingStepUp\(/,
     `every consumePendingStepUp call must be awaited: ${line.trim()}`
@@ -34,11 +36,12 @@ for (const line of serverSource.split('\n')) {
  * A loop that finds nothing passes. If these calls ever move out of
  * server.js -- which an extraction would do -- this file would keep
  * reporting success while checking an empty string, which is the failure
- * mode worth guarding above all the others here.
+ * mode worth guarding above all the others here. They have moved, to
+ * identity-access/application/session-security.ts, and the checks with them.
  */
 assert(consumePendingStepUpCalls > 0, 'no consumePendingStepUp call was found to check: this guard has gone vacuous');
 assert.match(
-  serverSource, /async function consumeStepUpAuthorization\(/,
+  sessionSecuritySource, /async function consumeStepUpAuthorization\(/,
   'consumeStepUpAuthorization must stay asynchronous so its callers keep awaiting it'
 );
 
@@ -51,11 +54,13 @@ assert.match(
  * had already spent -- a replay let through precisely during an outage.
  */
 assert.match(
-  serverSource, /function stepUpReplayStore\(\)\s*\{\s*\n\s*if \(!DB_URL\) return USED_STEP_UP_GRANTS;/,
+  sessionSecuritySource, /function stepUpReplayStore\(\): unknown \{\s*\n\s*if \(!deps\.databaseConfigured\) return usedStepUpGrants;/,
   'the replay guard must be chosen by configuration, not by database availability'
 );
+assert(serverSource.includes('databaseConfigured: Boolean(DB_URL), durableSingleUseStore, setSession,'),
+  'the server must say whether a database is configured, not whether it is reachable');
 assert.strictEqual(
-  /catch[\s\S]{0,200}USED_STEP_UP_GRANTS/.test(serverSource), false,
+  /catch[\s\S]{0,200}usedStepUpGrants/.test(sessionSecuritySource), false,
   'no failure path may fall back to the in-process replay guard'
 );
 

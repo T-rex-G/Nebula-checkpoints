@@ -190,6 +190,7 @@ for (const file of [
   'apps/api/src/platform/authorization/session-cookie.ts', 'test/session-cookie.test.js',
   'apps/api/src/modules/identity-access/domain/account-identity.ts', 'apps/api/src/modules/identity-access/domain/hosted-session-merge.ts',
   'test/account-identity.test.js', 'apps/api/src/modules/identity-access/application/provider-sessions.ts', 'test/provider-sessions.test.js',
+  'apps/api/src/modules/identity-access/application/session-security.ts', 'test/session-security.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -307,7 +308,9 @@ must(securityRoutes.includes("app.post('/api/security/revoke-others'"), 'Session
 must(securityRoutes.includes("app.get('/api/security/csrf'"), 'CSRF security-context endpoint missing');
 must(securityRoutes.includes("app.post('/api/security/step-up'"), 'Step-up authorization endpoint missing');
 must(server.includes('registerSecurityRoutes(app, {') && server.includes('registerSessionContainmentRoutes(app, {'), 'the server must register the security routes');
-must(server.includes('consumePendingStepUp') && server.includes('USED_STEP_UP_GRANTS'), 'Single-use step-up replay prevention missing');
+must(read('apps/api/src/modules/identity-access/application/session-security.ts').includes('await consumePendingStepUp(')
+  && read('apps/api/src/modules/identity-access/application/session-security.ts').includes('if (!deps.databaseConfigured) return usedStepUpGrants;')
+  && server.includes('createSessionSecurity({'), 'Single-use step-up replay prevention missing');
 must(server.includes("require('./apps/api/src/platform/release/version.ts')"), 'server must import the package-backed version module');
 
 const render = read('render.yaml');

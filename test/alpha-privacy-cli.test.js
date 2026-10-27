@@ -27,12 +27,15 @@ assert.throws(() => parseArgs(['cleanup-status', '--extra', 'x']), /unsupported/
 assert.match(hashTaskReference(CLEANUP_ID), /^[0-9a-f]{64}$/);
 assert(!hashTaskReference(CLEANUP_ID).includes(CLEANUP_ID));
 
+/* The daily retention is identity and access's; the server starts it once the store is ready. */
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes('function startAlphaPrivacyRetention()'));
-assert(server.includes('if (!ALPHA_CONFIG.enabled || !alphaPrivacyStore) return;'));
-assert(server.includes('await alphaPrivacyStore.runRetention()'));
-assert(server.includes('24 * 60 * 60 * 1000'));
-assert(server.includes("typeof timer.unref === 'function'"));
+const retention = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'alpha-privacy-retention.ts'), 'utf8');
+assert(server.includes('createAlphaPrivacyRetention({ config: ALPHA_CONFIG, store: alphaPrivacyStore })'));
+assert(server.includes('onReady: () => alphaPrivacyRetention.start()'));
+assert(retention.includes('if (!config.enabled || !store) return;'));
+assert(retention.includes('await store.runRetention()'));
+assert(retention.includes('24 * 60 * 60 * 1000'));
+assert(retention.includes("typeof timer.unref === 'function'"));
 
 (async () => {
   // Retired cleanup records remain pending; no credential or external adapter

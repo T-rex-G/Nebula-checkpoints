@@ -185,6 +185,8 @@ for (const file of [
   'apps/api/src/modules/identity-access/http/github-app-routes.ts', 'apps/api/src/modules/identity-access/http/security-routes.ts',
   'apps/api/src/modules/identity-access/http/oauth-routes.ts', 'test/identity-security-routes.test.js',
   'apps/api/src/platform/config/server-settings.ts', 'test/server-settings.test.js',
+  'apps/api/src/platform/persistence/database-lifecycle.ts', 'test/database-lifecycle.test.js',
+  'apps/api/src/modules/identity-access/application/alpha-privacy-retention.ts', 'test/alpha-privacy-retention.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -358,7 +360,8 @@ must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hos
 must(server.includes("vendorRoot: path.join(__dirname, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
 must(platformRoute('probes.ts').includes("app.get('/readyz'") && server.includes('registerProbeRoutes(app, {'), 'Readiness endpoint is missing');
-must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: DB_URL') && server.includes('createDatabasePool(DB_URL,')
+must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: DB_URL') && server.includes('openPool: createDatabasePool')
+  && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')
   && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
 must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');

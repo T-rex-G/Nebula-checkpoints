@@ -300,8 +300,11 @@ assert(
  * fall, and each move lowers this ceiling to match.
  * 3,332 to 3,248: the startup settings and the keys derived from the secret
  * (apps/api/src/platform/config/server-settings.ts).
+ * 3,248 to 3,103: the database's pool, readiness and upkeep
+ * (apps/api/src/platform/persistence/database-lifecycle.ts), and the alpha's
+ * privacy retention (identity-access/application/alpha-privacy-retention.ts).
  */
-const SERVER_LINE_CEILING = 3248;
+const SERVER_LINE_CEILING = 3103;
 const serverLines = (serverSource.match(/\n/g) || []).length;
 assert(serverLines <= SERVER_LINE_CEILING,
   `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);

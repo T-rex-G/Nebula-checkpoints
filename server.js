@@ -85,10 +85,10 @@ const {
 } = require('./apps/api/src/modules/pulsar/index.ts');
 const { loadTrustedProxies } = require('./apps/api/src/platform/config/config.ts');
 const { loadServerSecrets, loadServerSettings } = require('./apps/api/src/platform/config/server-settings.ts');
-const { databaseReadiness } = require('./apps/api/src/platform/persistence/hosted-readiness.ts');
 const {
   AlphaAccessStore,
   AlphaPrivacyStore,
+  createAlphaPrivacyRetention,
   alphaActorLabel,
   providerRevocationGuidance,
   disconnectProviderAccount,
@@ -151,6 +151,7 @@ const {
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
+const { createDatabaseLifecycle } = require('./apps/api/src/platform/persistence/database-lifecycle.ts');
 const localSessionPolicy = createLocalSessionPolicy();
 const { SingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
 const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
@@ -243,6 +244,14 @@ const {
   governanceAuditSecret: GOVERNANCE_AUDIT_SECRET, liveClientsPerRepo: MAX_LIVE_CLIENTS_PER_KEY, liveClientsTotal: MAX_LIVE_CLIENTS_TOTAL,
   oauth: { clientId: OAUTH_ID, clientSecret: OAUTH_SECRET }, snapshotManifestMax: SNAPSHOT_MANIFEST_MAX, snapshotRetentionCount: SNAPSHOT_RETENTION_COUNT
 } = loadServerSettings(process.env, { secret: SECRET, hostingProfile: HOSTING_PROFILE });
+/* The one pool, the store's readiness and its upkeep (apps/api/src/platform/persistence/database-lifecycle.ts). */
+const database = createDatabaseLifecycle({
+  databaseUrl: DB_URL, migrationMode: DATABASE_MIGRATION_MODE, migrationsDirectory: path.join(__dirname, 'db', 'migrations'),
+  productName: PRODUCT_NAME, eventRetentionDays: EVENT_RETENTION_DAYS, sessionRetentionDays: SESSION_RETENTION_DAYS,
+  openPool: createDatabasePool, migrations: { load: loadMigrations, run: runMigrations, verify: verifyMigrations },
+  onReady: () => alphaPrivacyRetention.start()
+});
+const { pool, ready: dbReady, invalidate: invalidateDatabaseReady } = database;
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
     return recordGithubAppAudit(
@@ -401,7 +410,7 @@ const BOOT_ID = crypto.randomUUID();
 registerProbeRoutes(app, {
   maintenance: MAINTENANCE_MODE, bootId: BOOT_ID, hostedAlpha: HOSTING_PROFILE === 'hosted-alpha',
   databaseConfigured: () => Boolean(DB_URL), databaseReady: () => dbReady(), selectOne: () => pool().query('SELECT 1'),
-  readiness: () => _databaseReadiness, migration: () => _databaseMigration, invalidateDatabaseReady
+  readiness: database.readiness, migration: database.migration, invalidateDatabaseReady
 });
 /* The public files: security.txt, robots.txt and the home-screen icon (apps/api/src/http/routes/public-files.ts). */
 registerPublicFileRoutes(app, {
@@ -445,17 +454,6 @@ function getCookie(req, name) {
   return null;
 }
 /* ===== session store: Postgres (Neon/any) when DATABASE_URL is set, sealed cookie otherwise ===== */
-let _pool = null;
-function pool() {
-  if (!_pool) {
-    _pool = createDatabasePool(DB_URL, error => {
-      invalidateDatabaseReady('unavailable');
-      console.error(JSON.stringify({ t: new Date().toISOString(), event: 'database-idle-disconnect',
-        code: /^[A-Z0-9]{5}$/.test(String(error && error.code || '')) ? error.code : 'DB_CONNECTION_FAILED' }));
-    });
-  }
-  return _pool;
-}
 const ALPHA_SESSION_ID = Symbol('alpha session id');
 const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
 const HOSTED_SESSION_REVISION = Symbol('hosted provider session revision');
@@ -493,150 +491,7 @@ const alphaSessions = createAlphaSessions({
 
 registerAlphaAccessRoutes(app, { sessions: alphaSessions, config: ALPHA_CONFIG, store: alphaStore, seal, getCookie });
 
-let _dbReady = null;
-let _dbRetryAfter = 0;
-let _databaseGeneration = 0;
-let _databaseReadiness = databaseReadiness({
-  required: !!DB_URL,
-  connected: !DB_URL,
-  waking: !!DB_URL,
-  migrationMatch: true,
-  quotaWarning: false
-});
-let _databaseMigration = loadMigrations(path.join(__dirname, 'db', 'migrations')).at(-1)?.id || '';
-async function initializeDatabase() {
-  const client = await pool().connect();
-  try {
-    if (DATABASE_MIGRATION_MODE === 'verify') {
-      const verification = await verifyMigrations(client, {
-        directory: path.join(__dirname, 'db', 'migrations')
-      });
-      _databaseMigration = verification.expectedLatest;
-      _databaseReadiness = databaseReadiness({
-        required: true,
-        connected: true,
-        waking: false,
-        migrationMatch: verification.ok,
-        quotaWarning: false
-      });
-      console.log(JSON.stringify({
-        t: new Date().toISOString(),
-        db: `${PRODUCT_NAME} migration verification complete`,
-        migration: verification.expectedLatest,
-        missingCount: verification.missing.length,
-        changedCount: verification.changed.length,
-        unknownCount: verification.unknown.length
-      }));
-      return verification.ok;
-    }
-    const result = await runMigrations(client, {
-      directory: path.join(__dirname, 'db', 'migrations'),
-      logger: { info(message) { console.log(JSON.stringify({ t: new Date().toISOString(), db: message })); } }
-    });
-    console.log(JSON.stringify({
-      t: new Date().toISOString(),
-      db: `${PRODUCT_NAME} intelligence store ready`,
-      migrationsApplied: result.applied.length,
-      migrationsTotal: result.total
-    }));
-    _databaseReadiness = databaseReadiness({
-      required: true,
-      connected: true,
-      waking: false,
-      migrationMatch: true,
-      quotaWarning: false
-    });
-    return true;
-  } finally { client.release(); }
-}
-let _maintenanceStarted = false;
-let _alphaPrivacyRetentionStarted = false;
-async function cleanupDatabase() {
-  if (!_pool) return;
-  await Promise.all([
-    pool().query(`DELETE FROM nv_intelligence_events WHERE created_at < now() - ($1::int * interval '1 day')`, [EVENT_RETENTION_DAYS]),
-    pool().query(`DELETE FROM nv_sessions WHERE updated < now() - ($1::int * interval '1 day')`, [SESSION_RETENTION_DAYS]),
-    pool().query(`DELETE FROM nv_governance_idempotency WHERE created_at < now() - interval '24 hours'`)
-  ]).catch(error => console.error('Database retention cleanup failed:', error.message));
-}
-function startDatabaseMaintenance() {
-  if (_maintenanceStarted) return;
-  _maintenanceStarted = true;
-  cleanupDatabase().catch(() => {});
-  const timer = setInterval(() => cleanupDatabase().catch(() => {}), 12 * 60 * 60 * 1000);
-  if (typeof timer.unref === 'function') timer.unref();
-}
-async function runAlphaPrivacyRetention() {
-  if (!ALPHA_CONFIG.enabled || !alphaPrivacyStore) return;
-  try {
-    const result = await alphaPrivacyStore.runRetention();
-    const counts = Object.fromEntries(Object.entries(result)
-      .filter(([, value]) => Number.isSafeInteger(value)));
-    console.log(JSON.stringify({
-      t: new Date().toISOString(),
-      alphaRetention: counts
-    }));
-  } catch (error) {
-    console.error(JSON.stringify({
-      t: new Date().toISOString(),
-      warn: 'alpha privacy retention failed',
-      code: /^[A-Z][A-Z0-9_]{1,79}$/.test(String(error && error.code || ''))
-        ? error.code
-        : 'ALPHA_RETENTION_FAILED'
-    }));
-  }
-}
-function startAlphaPrivacyRetention() {
-  if (!ALPHA_CONFIG.enabled || !alphaPrivacyStore) return;
-  if (_alphaPrivacyRetentionStarted) return;
-  _alphaPrivacyRetentionStarted = true;
-  void runAlphaPrivacyRetention();
-  const timer = setInterval(() => { void runAlphaPrivacyRetention(); }, 24 * 60 * 60 * 1000);
-  if (typeof timer.unref === 'function') timer.unref();
-}
-function invalidateDatabaseReady(state = 'unavailable') {
-  _databaseGeneration += 1;
-  _dbReady = null;
-  _dbRetryAfter = Date.now() + 15000;
-  _databaseReadiness = databaseReadiness({
-    required: true,
-    connected: false,
-    waking: state === 'waking',
-    migrationMatch: state !== 'migration-mismatch',
-    quotaWarning: false
-  });
-}
-function dbReady() {
-  if (!DB_URL) return Promise.resolve(false);
-  if (_dbReady) return _dbReady;
-  if (Date.now() < _dbRetryAfter) return Promise.resolve(false);
-  _databaseReadiness = databaseReadiness({
-    required: true,
-    connected: false,
-    waking: true,
-    migrationMatch: true,
-    quotaWarning: false
-  });
-  const generation = _databaseGeneration;
-  _dbReady = initializeDatabase()
-    .then(ok => {
-      if (generation !== _databaseGeneration) {
-        invalidateDatabaseReady('unavailable');
-        return false;
-      }
-      if (ok) {
-        startDatabaseMaintenance();
-        startAlphaPrivacyRetention();
-      }
-      return ok;
-    })
-    .catch(e => {
-      console.error('DB unavailable; retrying after a short backoff:', e.message);
-      invalidateDatabaseReady('unavailable');
-      return false;
-    });
-  return _dbReady;
-}
+const alphaPrivacyRetention = createAlphaPrivacyRetention({ config: ALPHA_CONFIG, store: alphaPrivacyStore });
 
 let _governanceStore = null;
 let _governanceApiService = null;
@@ -2909,7 +2764,7 @@ registerConfigRoutes(app, {
   providerSessionAccess,
   hostedConfig: () => ({
     profile: HOSTING_PROFILE, alphaMode: ALPHA_CONFIG.mode, termsVersion: ALPHA_CONFIG.termsVersion,
-    limits: PUBLIC_ALPHA_LIMITS, database: _databaseReadiness
+    limits: PUBLIC_ALPHA_LIMITS, database: database.readiness()
   }),
   oauth: !!(OAUTH_ID && OAUTH_SECRET),
   githubApp: { enabled: !!GITHUB_APP_CONFIG.enabled, webhookConfigured: !!GITHUB_APP_CONFIG.webhookConfigured },
@@ -3239,7 +3094,7 @@ async function shutdown(signal) {
   httpServer.close(async () => {
     try { await drainedWebhookWorker; } catch {}
     try { await drainedExposureWorker; } catch {}
-    try { if (_pool) await _pool.end(); } catch {}
+    try { await database.close(); } catch {}
     clearTimeout(force);
     process.exit(0);
   });

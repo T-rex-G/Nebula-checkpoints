@@ -2013,3 +2013,14 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - The provider disconnect contract reads a route's file as it is.
 - **Behaviour unchanged.** While `server.js` is the root, each helper reads exactly what the check read before. The files that name `server.js` rather than read it -- the route-policy oracle, the server-entry helper, the compiled-tree checks, the runtime and release-fingerprint tests and the module graph -- change with the root itself, in D13o.
 - **Checks:** every converted test passes, with lint and verify; the full unit gate and every verify-job gate on Node 22.23.4.
+
+### Reading a canvas without changing it
+
+- **What failed.** The pull request's fifth browser shard on 0d998cf failed `turning the phone re-lays the graph and keeps it moving` on mobile Chromium. The effects canvas, read twice 400 ms apart once the graph had settled, gave the same pixels both times. The same commit passed the test in its push run and in the qualification.
+- **What the trace showed.** The page was right. Its DOM snapshots have the effects layer visible, on its own, through both readings. Its screen capture has the signals moving along their strands every 40 ms between them, with nothing left behind where they had been. Chromium's warning about repeated readbacks was logged during the second reading.
+- **Root cause.** Reading a page's canvas with `getImageData` changes it. On the second readback Chromium moves a GPU canvas to the CPU, rebuilding its backing from a snapshot inside that call. The readback made in that switch came back with the first one's pixels while the canvas went on drawing on screen. A local Chromium 141 switches the same way, and read correctly in all 18 runs of a bare animated page and all 20 runs of the unchanged test. CI's newer Chromium got it wrong once.
+- **The fix.** `test/e2e/canvas-ink.js` reads a page's canvas through a copy. It draws the canvas into one of its own, made to be read often, and reads that, so the page's canvas stays on the GPU as the reader has it.
+  - The rotation test reads the effects layer through it. It also checks the layer is visible before and after the wait, and that the loop drew during it: its last draw moved on. That keeps the 400 ms bound, and the pixels are polled until they move.
+  - The field's light test read the field canvas twice the same way, and now reads it through the copy.
+  - The landing showcase's effects check polled its canvas the same way, and does too.
+- **Checks:** lint; the three specs on desktop and mobile Chromium; the rotation and field-light tests ten times each.

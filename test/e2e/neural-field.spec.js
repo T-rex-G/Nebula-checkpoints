@@ -15,6 +15,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { canvasInk } = require('./canvas-ink');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -55,19 +56,19 @@ function landmarks(page) {
 }
 
 /* Summed alpha of the field canvas in a square around a page point. */
-function inkAround(page, point, half = 40) {
-  return page.evaluate(({ point, half }) => {
+async function inkAround(page, point, half = 40) {
+  const square = await page.evaluate(({ point, half }) => {
     const canvas = document.getElementById('neuralField');
     const box = canvas.getBoundingClientRect();
     const scale = canvas.width / box.width;
-    const x = Math.max(0, Math.round((point.x - box.left - half) * scale));
-    const y = Math.max(0, Math.round((point.y - box.top - half) * scale));
     const size = Math.round(half * 2 * scale);
-    const data = canvas.getContext('2d').getImageData(x, y, size, size).data;
-    let sum = 0;
-    for (let i = 3; i < data.length; i += 4) sum += data[i];
-    return sum;
+    return {
+      x: Math.max(0, Math.round((point.x - box.left - half) * scale)),
+      y: Math.max(0, Math.round((point.y - box.top - half) * scale)),
+      w: size, h: size
+    };
   }, { point, half });
+  return canvasInk(page, '#neuralField', square);
 }
 
 test('the ground is drawn under the graph, clear of the panels', async ({ page }) => {

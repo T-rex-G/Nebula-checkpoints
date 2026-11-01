@@ -15,6 +15,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { canvasInk } = require('./canvas-ink');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -115,18 +116,19 @@ test('turning the phone re-lays the graph and keeps it moving', async ({ page })
   /* While the graph re-lays itself the effects ride on the main canvas; once
    * it settles they are back on their own layer, and still being drawn. */
   await expect.poll(() => page.evaluate(() => !window.NebulaNeural.state.interacting && !window.NebulaNeural.state.camTarget)).toBe(true);
-  const sample = () => page.evaluate(() => {
-    const fx = document.getElementById('neuralFx');
-    const data = fx.getContext('2d').getImageData(0, 0, fx.width, fx.height).data;
-    let sum = 0;
-    for (let i = 3; i < data.length; i += 4 * 13) sum += data[i];
-    return sum;
-  });
-  const first = await sample();
+  const effects = () => page.evaluate(() => ({
+    layer: getComputedStyle(document.getElementById('neuralFx')).visibility,
+    drawn: window.NebulaNeural.state.lastDraw
+  }));
+  const ink = () => canvasInk(page, '#neuralFx', { stride: 13 });
+  const before = await effects();
+  const first = await ink();
   await page.waitForTimeout(400);
-  const second = await sample();
+  const after = await effects();
+  expect([before.layer, after.layer], 'the effects are on their own layer, and stay there').toEqual(['visible', 'visible']);
+  expect(after.drawn, 'and are drawn on through the wait').toBeGreaterThan(before.drawn);
   expect(first).toBeGreaterThan(0);
-  expect(second).not.toBe(first);
+  await expect.poll(ink, { message: 'what they draw moves' }).not.toBe(first);
   expect(await page.evaluate(() => window.NebulaNeural.state.raf)).not.toBe(0);
   /* And back upright, the tall layout returns. */
   await page.setViewportSize({ width: 393, height: 727 });

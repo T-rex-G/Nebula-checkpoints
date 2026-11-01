@@ -15,6 +15,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { canvasInk } = require('./canvas-ink');
 const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
 const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
 const audit = require('../../apps/api/src/modules/uranus/index.ts');
@@ -259,12 +260,7 @@ test('the map moves while it is read, and stops when it is not', async ({ page }
   await expect(layer).toHaveCount(1);
   await expect(layer).toHaveAttribute('aria-hidden', 'true');
   /* It is drawing, and the SVG is not drawing the same motion under it. */
-  await expect.poll(() => layer.evaluate(canvas => {
-    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-    let lit = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i]) lit++;
-    return lit;
-  })).toBeGreaterThan(0);
+  await expect.poll(() => canvasInk(page, '.lp-show .lp-frame-view canvas.lp-map-fx')).toBeGreaterThan(0);
   expect(await view.evaluate(el => [...el.querySelectorAll('.lp-map-flows, .lp-map-arcs')]
     .every(group => getComputedStyle(group).display === 'none'))).toBe(true);
   /* Nothing on it takes a tap or a scroll from the page. */

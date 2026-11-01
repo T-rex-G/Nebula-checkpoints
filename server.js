@@ -52,8 +52,6 @@ const {
   providerRevocationGuidance,
   disconnectProviderAccount,
   providerResourceKeyHash,
-  AlphaAccessError,
-  canonicalRepositoryScope,
   repositoryAllowed,
   inviteUnbound,
   createAlphaSessions,
@@ -78,6 +76,7 @@ const {
   hostedAccountKey,
   createSessionSecurity,
   createRequestGuards,
+  createRepositoryAccess,
   CSRF_TTL_MS,
   STEP_UP_TTL_MS,
   HOSTED_SESSION_BASE,
@@ -116,7 +115,7 @@ const {
 } = require('./apps/api/src/http/pipeline/index.ts');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
 const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
-const { normalizeStepUpRequest } = require('./apps/api/src/platform/authorization/security-foundation.ts');
+const { createCapabilityAccess } = require('./apps/api/src/platform/authorization/capability-access.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
@@ -700,6 +699,21 @@ const { gh, githubArchiveResponse } = createGithubRestClient({
 });
 /* A failed request's answer (apps/api/src/http/errors.ts). */
 const fail = sendFailure;
+/* Which repositories a request may reach, and the guards around a repository's own lifecycle (identity-access/application/repository-access.ts). */
+const {
+  retainedActor, alphaRepositoryAccess, alphaRepositoryListAllowed, alphaRepositoryListAccess, repositoryCreationAccess,
+  repositoryDeletionConfirmation, githubSearchAccess, alphaStepUpRepositoryAccess, alphaSafetyView, alphaSafetyMutationAccess
+} = createRepositoryAccess({
+  alphaEnabled: ALPHA_CONFIG.enabled, fail, defaultSafety,
+  validateRepositoryCreation, validateCodeQuery, githubRepositoryScopes, scopedCodeQuery
+});
+/* What the account can do here, by the capability document (platform/authorization/capability-access.ts). */
+const {
+  providerCapabilities, providerCapabilityContext, capabilityAccess, capabilityAccessWhen, requestSupportsCapability, assertProviderBoundLfs
+} = createCapabilityAccess({
+  document: CAPABILITY_DOCUMENT, qualification: QUALIFICATION_CAPABILITIES, deployment: DEPLOYMENT_PROFILE,
+  registry: { resolveCapability, assertCapabilityAvailable, legacyCapsFor, CapabilityError }, providerAuthority, githubTokenKind
+});
 
 /* The context a repository change runs in (platform/mutation-gateway/mutation-context.ts). */
 const { mutationContext } = createRepositoryMutationContext({
@@ -714,289 +728,6 @@ const { mutationContext } = createRepositoryMutationContext({
 const { governanceAccess, governanceMutationContext } = createGovernanceContext({
   gateway: mutationGateway, governanceService, resolveAuthorization: input => authorizationResolver.resolve(input), identityKey, retainedActor
 });
-
-/* ================= AUTH ================= */
-function retainedActor(req) {
-  return ALPHA_CONFIG.enabled && req.alpha
-    ? alphaActorLabel(req.alpha)
-    : String(req.gh && req.gh.login || 'unknown');
-}
-
-function alphaRepositoryTarget(account, owner, repo) {
-  const provider = account && account.provider || 'github';
-  return {
-    provider,
-    authority: provider === 'github'
-      ? 'github.com'
-      : account && account.baseUrl,
-    owner,
-    repo
-  };
-}
-
-function alphaRepositoryDecision(alpha, account, owner, repo) {
-  const target = alphaRepositoryTarget(account, owner, repo);
-  const canonical = canonicalRepositoryScope(target);
-  return {
-    allowed: !ALPHA_CONFIG.enabled
-      || inviteUnbound(alpha && alpha.repositoryScopes)
-      || repositoryAllowed(alpha && alpha.repositoryScopes, target),
-    canonical
-  };
-}
-
-function alphaRepositoryDenied() {
-  return Object.assign(
-    new Error('This repository is not allowed for this alpha invitation'),
-    { status: 403, code: 'ALPHA_REPOSITORY_NOT_ALLOWED' }
-  );
-}
-
-function assertAlphaRepositoryAllowed(alpha, account, owner, repo) {
-  try {
-    const decision = alphaRepositoryDecision(alpha, account, owner, repo);
-    if (!decision.allowed) throw alphaRepositoryDenied();
-    return decision;
-  } catch (error) {
-    if (error && error.code === 'ALPHA_REPOSITORY_NOT_ALLOWED') throw error;
-    if (error instanceof AlphaAccessError || error instanceof TypeError) {
-      throw alphaRepositoryDenied();
-    }
-    throw error;
-  }
-}
-
-function alphaRepositoryAccess(req, res, next) {
-  if (!ALPHA_CONFIG.enabled) return next();
-  try {
-    req.alphaRepository = assertAlphaRepositoryAllowed(
-      req.alpha,
-      req.gh,
-      req.params.owner,
-      req.params.repo
-    );
-    return next();
-  } catch {
-    const error = alphaRepositoryDenied();
-    return res.status(error.status).json({
-      error: error.message,
-      code: error.code
-    });
-  }
-}
-
-function alphaRepositoryListAllowed(req, owner, repo) {
-  if (!ALPHA_CONFIG.enabled) return true;
-  try {
-    return alphaRepositoryDecision(
-      req.alpha,
-      req.gh,
-      owner,
-      repo
-    ).allowed;
-  } catch {
-    return false;
-  }
-}
-
-function alphaRepositoryListAccess(req, res, next) {
-  if (!ALPHA_CONFIG.enabled) return next();
-  try {
-    canonicalRepositoryScope(
-      alphaRepositoryTarget(req.gh, 'alpha-authority', 'root-validation')
-    );
-    return next();
-  } catch {
-    const error = alphaRepositoryDenied();
-    return res.status(error.status).json({
-      error: error.message,
-      code: error.code
-    });
-  }
-}
-
-function repositoryCreationAccess(req, res, next) {
-  try {
-    validateRepositoryCreation(req.body);
-    // Pre-authorized exact names work even before the repository exists.
-    // Existing invitations never acquire a broader grant as a side effect.
-    if (ALPHA_CONFIG.enabled) assertAlphaRepositoryAllowed(req.alpha, req.gh, req.gh.login, req.body.name);
-    next();
-  } catch (error) { fail(res, error); }
-}
-
-function repositoryDeletionConfirmation(req, res, next) {
-  const expected = `${req.params.owner}/${req.params.repo}`;
-  if (!req.body || req.body.confirmation !== expected) {
-    return fail(res, Object.assign(new Error('Type the full owner/repository name to confirm deletion.'), {
-      status: 400, code: 'REPOSITORY_DELETE_CONFIRMATION_REQUIRED', providerChanged: false
-    }));
-  }
-  next();
-}
-
-function githubSearchAccess(req, res, next) {
-  try {
-    validateCodeQuery(req.query.q);
-    if (ALPHA_CONFIG.enabled) {
-      for (const repository of githubRepositoryScopes(req.alpha && req.alpha.repositoryScopes)) {
-        scopedCodeQuery(req.query.q, repository);
-      }
-    }
-    next();
-  } catch (error) { fail(res, error); }
-}
-
-function alphaStepUpRepositoryAccess(req, res, next) {
-  try {
-    const body = req.body || {};
-    const operation = normalizeStepUpRequest(body.action, body.scope, {
-      provider: req.gh.provider || 'github',
-      identityKey: identityKey(req.gh)
-    });
-    if (ALPHA_CONFIG.enabled && operation.scope.owner && operation.scope.repo) {
-      req.alphaRepository = assertAlphaRepositoryAllowed(
-        req.alpha,
-        req.gh,
-        operation.scope.owner,
-        operation.scope.repo
-      );
-    }
-    req.alphaStepUpOperation = operation;
-    next();
-  } catch (error) {
-    fail(res, error);
-  }
-}
-
-/*
- * The safety state a reader may see. `globalControls` says whether read-only
- * and the sync freeze can be changed from here: a hosted alpha scopes every
- * change to a repository and refuses the global switches, so the Safeguards
- * panel shows them as the deployment's rather than as switches that bounce.
- */
-function alphaSafetyView(req, state) {
-  const view = defaultSafety(state);
-  if (!ALPHA_CONFIG.enabled) return { ...view, globalControls: true };
-  const protectedRepositories = {};
-  for (const [repository, patterns] of Object.entries(view.protected)) {
-    const match = String(repository).match(/^([^/\s]+)\/([^/\s]+)$/);
-    if (!match) continue;
-    try {
-      if (alphaRepositoryDecision(req.alpha, req.gh, match[1], match[2]).allowed) {
-        protectedRepositories[repository] = patterns;
-      }
-    } catch {}
-  }
-  return { ...view, protected: protectedRepositories, globalControls: false };
-}
-
-function alphaSafetyMutationAccess(req, res, next) {
-  if (!ALPHA_CONFIG.enabled) return next();
-  const body = req.body || {};
-  if (typeof body.readOnly === 'boolean' || typeof body.freezeSync === 'boolean') {
-    return res.status(403).json({
-      error: 'Global safety changes require an unscoped deployment',
-      code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED'
-    });
-  }
-  const repository = body.protect && body.protect.repo;
-  const match = String(repository || '').trim().match(/^([^/\s]+)\/([^/\s]+)$/);
-  if (!match) {
-    return res.status(repository ? 400 : 403).json(repository
-      ? { error: 'Invalid repository key' }
-      : {
-          error: 'A repository scope is required for hosted-alpha safety changes',
-          code: 'ALPHA_REPOSITORY_SCOPE_REQUIRED'
-        });
-  }
-  try {
-    req.alphaRepository = assertAlphaRepositoryAllowed(
-      req.alpha,
-      req.gh,
-      match[1],
-      match[2]
-    );
-    next();
-  } catch (error) {
-    fail(res, error);
-  }
-}
-
-function providerCapabilities(account) {
-  const context = {
-    provider: String(account && account.provider || 'github'),
-    authority: providerAuthority(account),
-    deployment: DEPLOYMENT_PROFILE,
-    authMethod: account && account.authMethod,
-    tokenKind: githubTokenKind(account || {})
-  };
-  const legacy = legacyCapsFor(CAPABILITY_DOCUMENT, context);
-  if (context.provider === 'github' && account && account.authMethod === 'github-app') {
-    return { ...legacy, notif: false };
-  }
-  return { ...legacy, notif: resolveCapability(CAPABILITY_DOCUMENT, { ...context, feature: 'notifications' }).status !== 'Unavailable' };
-}
-
-function capabilityAccess(feature) {
-  return function enforceCapability(req, res, next) {
-    try {
-      req.capability = assertProviderCapability(req.gh, feature);
-      next();
-    } catch (error) {
-      res.status(error.status || 409).json({
-        error: error.message,
-        code: error.code || 'PROVIDER_CAPABILITY_UNAVAILABLE',
-        feature
-      });
-    }
-  };
-}
-/*
- * A capability only some of a route's requests use, checked before the body
- * is read whenever the request asks for it; the handler still asserts it at
- * the point of use for the requests that come to need it on their own.
- */
-function capabilityAccessWhen(feature, applies) {
-  const check = capabilityAccess(feature);
-  return function enforceCapabilityWhen(req, res, next) {
-    if (!applies(req)) return next();
-    return check(req, res, next);
-  };
-}
-function providerCapabilityContext(account, feature) {
-  return {
-    provider: account && account.provider || 'github',
-    authority: providerAuthority(account),
-    deployment: DEPLOYMENT_PROFILE,
-    feature,
-    authMethod: account && account.authMethod,
-    tokenKind: githubTokenKind(account || {})
-  };
-}
-function assertProviderCapability(account, feature) {
-  return assertCapabilityAvailable(
-    CAPABILITY_DOCUMENT,
-    providerCapabilityContext(account, feature),
-    { qualification: QUALIFICATION_CAPABILITIES }
-  );
-}
-function requestSupportsCapability(req, feature) {
-  return resolveCapability(
-    CAPABILITY_DOCUMENT,
-    providerCapabilityContext(req.gh, feature)
-  ).status === 'Supported';
-}
-function assertProviderBoundLfs(account) {
-  const context = providerCapabilityContext(account, 'lfs');
-  if (context.provider !== 'github' || context.authority !== 'github.com') {
-    throw new CapabilityError(
-      'LFS is not qualified for this provider and deployment.',
-      'PROVIDER_CAPABILITY_UNAVAILABLE'
-    );
-  }
-  return assertCapabilityAvailable(CAPABILITY_DOCUMENT, context);
-}
 
 async function providerIdentity(acct) {
   if (acct && acct.authMethod === 'github-app') {

@@ -8,7 +8,11 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
-assert(server.includes("require('./apps/api/src/platform/authorization/security-foundation.ts')"), 'server must use the centralized security foundation module');
+/* The guards that enforce it are identity and access's, composed by the server; each takes the platform's one security foundation. */
+for (const guard of ['request-guards.ts', 'session-security.ts', 'repository-access.ts']) {
+  assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', guard), 'utf8').includes("/platform/authorization/security-foundation.ts';"), `${guard} must use the centralized security foundation module`);
+}
+assert(server.includes('createRequestGuards({') && server.includes('createSessionSecurity({') && server.includes('createRepositoryAccess({'), 'the server composes the guards');
 {
   /* The same-origin step itself, on the requests it exists to refuse, and its place in front of every API route. */
   const { apiSameOrigin } = require('../apps/api/src/http/pipeline/index.ts');

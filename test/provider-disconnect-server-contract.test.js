@@ -241,10 +241,12 @@ const refreshBlock = routeBlock('/api/github-app/refresh');
 assert(refreshBlock.includes('if (!deps.config.enabled) broker().invalidate(installationId);'),
   'invite-mode refresh must not invalidate shared broker state');
 
+/* The ledger's actor is identity and access's repository access, composed by the server with the alpha's flag. */
 assert.match(
-  server,
-  /function retainedActor\(req\) \{[\s\S]+ALPHA_CONFIG\.enabled && req\.alpha[\s\S]+alphaActorLabel\(req\.alpha\)[\s\S]+req\.gh && req\.gh\.login/
+  fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'repository-access.ts'), 'utf8'),
+  /function retainedActor\(req[^)]*\)[^{]*\{[\s\S]+deps\.alphaEnabled && req\.alpha[\s\S]+alphaActorLabel\(req\.alpha\)[\s\S]+req\.gh && req\.gh\.login/
 );
+assert(server.includes('createRepositoryAccess({\n  alphaEnabled: ALPHA_CONFIG.enabled,'), 'the server gives the guards the alpha\'s flag');
 for (const forbidden of [
   'actor: req.gh.login',
   'actorLogin: req.gh.login',

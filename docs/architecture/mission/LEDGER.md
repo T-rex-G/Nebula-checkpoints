@@ -1816,3 +1816,53 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13j — repository and capability access
+
+- **What moved.**
+  - Which repositories a request may reach, and the guards around a repository's own lifecycle, go to identity and access's application, `application/repository-access.ts`, as `createRepositoryAccess`:
+    - **the alpha's scope:** for a route, a list, a new repository (by its exact pre-authorized name), a step-up grant and a safety change;
+    - **the guards:** the deletion confirmation and the code search held to the invitation;
+    - **the safety view:** the controls a tester sees;
+    - **the actor:** the one the ledger keeps.
+
+    A repository the invitation does not name is refused alike whatever does not fit. GitHub's own rules for a name and a search, and Corona's reading of the safety record, come in as dependencies.
+  - What the account can do here goes to the platform, `platform/authorization/capability-access.ts`, as `createCapabilityAccess`: the context a feature is resolved in, the capability map the page reads, the route guards and their refusals, and LFS's rule (GitHub on github.com only). The capability document and its registry (`src/capability-registry.js`), the account's authority and its token kind come in as dependencies.
+- **The server.** It composes both right after the failure answer, before the mutation contexts, since those take the ledger's actor. It no longer has the 269 lines, or its imports of the scope rules, the actor label's error type and the step-up normalizer.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the two files, composed as the server composes them, over 20,000 scripted runs through every guard:
+  - inside and outside the alpha;
+  - with invitations that name repositories, name none, are malformed or are missing;
+  - for accounts of GitHub (with tokens or an App, with or without a provider, on an enterprise address), of retired providers, with a name whose text cannot be read, or none;
+  - with new repositories, deletions, searches, step-up requests and safety changes of every shape;
+  - for every capability the document lists.
+
+  Half the runs asked a scripted registry and authority, given alike to both sides, for answers the real document never gives: planned, experimental and unavailable features, refusals with their own status, and an error with none. All 20,000 were identical: 132,224 requests passed, 57,743 refused, 70,033 failures answered, 7,562 alpha grants and 2,688 step-up operations kept on the request, 35,279 capability refusals, and 13,711 safety views filtered for a tester.
+
+  Fifty-six mutants each fail on a comparison:
+  - **the actor:** the tester's label outside the alpha; an unknown actor not named;
+  - **the alpha's scope:** another default provider; GitHub's authority from the account; every repository allowed; an unbound invitation refused; the scope not canonical; a refusal as a 404 or not raised; a malformed scope passed on;
+  - **the guards:** checked outside the alpha (a route, a list, a safety change); the grant not kept on the request; a refusal without its code; a malformed list entry kept; a list for any account;
+  - **a new repository:** unvalidated, unscoped in the alpha, or scoped outside it;
+  - **a deletion:** confirmed by case or not at all; its refusal said to change the provider;
+  - **a search:** unvalidated, unscoped in the alpha, or scoped outside it;
+  - **a step-up:** for another provider; its repository unscoped, or scoped outside the alpha; without its operation;
+  - **the safety view and changes:** the global switches in the alpha or said to be here; every repository's protection or a malformed key shown; a global switch accepted; a global refusal as a 400; a padded key refused; a missing scope as a 400; a protection unscoped;
+  - **the capabilities:** for another provider or deployment; notifications for an installation or when only planned; a context for another provider or without its token kind; qualification ignored; the capability not on the request; an unavailable capability as a 403; a refusal's own status ignored; a refusal without its feature; every request checked; a planned capability supported; LFS for any authority or any provider, or unchecked by the document.
+
+  `test/repository-access.test.js` and `test/capability-access.test.js` catch all fifty-six too.
+  - **The first pass** let ten past the oracle. It had never sent a valid new repository's body, a GitHub App or retired provider whose capabilities differ, a qualification that matters, a refusal with its own status or none, or an account on github.com that is not GitHub's. The scripted registry and authority closed those.
+  - **The tests** let three past at first: a retired provider creating a repository inside and outside the alpha, and an empty search outside it.
+  - **The final judge** ran over the oracle as it now stands.
+
+  One mutant first listed, a type error passed on rather than refused as not allowed, was equivalent and was dropped. The scope rules raise their own error for every malformed input, so no type error reaches that arm on these paths.
+- **Tests.**
+  - `test/repository-access.test.js` covers every guard inside and outside the alpha, with each way a request fits or does not, and what each keeps on the request. `test/capability-access.test.js` covers the context, the capability map, the guards and their refusals, and LFS against a scripted registry, and once against the real document.
+  - The source checks follow the code:
+    - `github-app-server-contract` reads the installation's notifications in the platform.
+    - `provider-disconnect-server-contract` reads the ledger's actor in identity and access, with the server's alpha flag.
+    - `security-foundation-contract` checks that the guards which enforce the security foundation import it, and that the server composes them. It names the module's path without the `from` before it: the candidate archive's check reads `from '…'` in any program as an import, and this one would lead out of the tree.
+- **Ratchet:** `server.js` falls from 1,636 lines to 1,367.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

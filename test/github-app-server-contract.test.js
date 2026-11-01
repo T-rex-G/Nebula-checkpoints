@@ -38,7 +38,8 @@ assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workben
 const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
 assert(collaboration.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
 assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
-assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
+/* The capability map is the platform's capability access, composed by the server. */
+assert.match(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'authorization', 'capability-access.ts'), 'utf8'), /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
 const notifications = policyRoutes.find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');
 assert.deepStrictEqual(notifications && notifications.guards, ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
   'notification connection support must be checked before credential resolution');

@@ -42,6 +42,8 @@ export { createSessionSecurity, CSRF_TTL_MS, STEP_UP_TTL_MS } from './applicatio
 export type { SessionSecurity, SessionSecurityDeps } from './application/session-security.ts';
 export { createRequestGuards } from './application/request-guards.ts';
 export type { RequestGuardDeps, RequestGuards } from './application/request-guards.ts';
+export { createRepositoryAccess } from './application/repository-access.ts';
+export type { RepositoryAccess, RepositoryAccessDeps } from './application/repository-access.ts';
 export { createAlphaPrivacyRetention } from './application/alpha-privacy-retention.ts';
 export type { AlphaPrivacyRetention, AlphaPrivacyRetentionDeps } from './application/alpha-privacy-retention.ts';
 export { ALPHA_COOKIE, createAlphaSessions } from './http/alpha-sessions.ts';

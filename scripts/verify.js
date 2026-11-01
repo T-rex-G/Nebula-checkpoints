@@ -200,6 +200,8 @@ for (const file of [
   'apps/api/src/modules/identity-access/application/request-guards.ts', 'test/request-guards.test.js',
   'apps/api/src/platform/mutation-gateway/mutation-context.ts', 'apps/api/src/modules/uranus/application/merge-facts.ts', 'test/mutation-context.test.js',
   'apps/api/src/modules/kepler/http/governance-context.ts', 'apps/api/src/modules/kepler/domain/governance-mutation-metadata.ts', 'test/governance-context.test.js',
+  'apps/api/src/modules/identity-access/application/repository-access.ts', 'test/repository-access.test.js',
+  'apps/api/src/platform/authorization/capability-access.ts', 'test/capability-access.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',

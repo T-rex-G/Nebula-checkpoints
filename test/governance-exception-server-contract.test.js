@@ -2,7 +2,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const { serverSource } = require('./helpers/server-source');
+const server = serverSource();
 /* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');

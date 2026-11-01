@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('assert');
+const { serverSource: readServerSource } = require('./helpers/server-source');
 const policy = require('../packages/contracts/src/offline-cache-policy.ts');
 
 assert.strictEqual(policy.TTL_MS, 24 * 60 * 60 * 1000);
@@ -77,7 +78,7 @@ assert(swSource.includes("key === 'nv-api-perm'"), 'service worker must delete t
 assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the earlier unscoped API cache during activation');
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
   'service worker must require a server-verified response binding before caching');
-const serverSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+const serverSource = readServerSource();
 {
   /* The server's no-store step, which decides the binding once the status line is known. */
   const { apiNoStore } = require('../apps/api/src/http/pipeline/index.ts');

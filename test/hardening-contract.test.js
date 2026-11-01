@@ -2,13 +2,14 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
 for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-api.ts']) {
   const bytes = fs.readFileSync(path.join(root, sourceFile));
   const forbidden = [...bytes].filter(byte => (byte < 32 && ![9, 10, 13].includes(byte)) || byte === 127);
   assert.strictEqual(forbidden.length, 0, `${sourceFile} must not contain literal control bytes`);
 }
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 /* Corona's recovery service and routes, which hold the snapshot, restore, access-surface and evidence code (D12f). */
 const corona = ['application/recovery.ts', 'application/evidence-chain.ts', 'application/safety-state.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
   .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', file), 'utf8')).join('\n');

@@ -4,6 +4,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverSource: readServerSource } = require('./helpers/server-source');
 
 const root = path.resolve(__dirname, '..');
 const {
@@ -100,7 +101,7 @@ assert.throws(() => deriveKey(SECRET, KEY_PURPOSES.CSRF_TOKEN, 32.5), /between 1
  * the source text: each construction names a purpose-specific constant, and no
  * keyed construction still reaches for the old shared KEY.
  */
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const serverSource = readServerSource();
 assert.doesNotMatch(serverSource, /crypto\.create(?:Hmac|Cipheriv|Decipheriv)\(\s*'[^']+',\s*KEY\b/,
   'no keyed construction may use the former shared KEY');
 assert.doesNotMatch(serverSource, /const KEY = crypto\.createHash/,

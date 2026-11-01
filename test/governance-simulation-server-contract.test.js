@@ -2,8 +2,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const kepler = path.join(root, 'apps', 'api', 'src', 'modules', 'kepler');
 assert(fs.existsSync(path.join(kepler, 'domain', 'governance-simulation.ts')), 'simulation module must exist');

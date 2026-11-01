@@ -21,6 +21,7 @@ const assert = require('assert/strict');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles } = require('./helpers/server-source');
 const ts = require('typescript');
 
 const root = path.resolve(__dirname, '..');
@@ -270,7 +271,7 @@ assert.equal(require('../apps/api/src/http/errors.ts').publicErrorBody({}, {}).c
 const ownedPatterns = new Map(Object.entries(ids.ID_FORMATS).map(([name, pattern]) => [`/${pattern.source}/${pattern.flags}`, name]));
 const ownedHeaders = new Set([envelope.APP_HEADER, envelope.CSRF_HEADER, envelope.STEP_UP_HEADER, envelope.CORRELATION_HEADER,
   load('offline-cache-policy.ts').OFFLINE_SCOPE_HEADER, load('offline-cache-policy.ts').OFFLINE_REPO_HEADER]);
-const consumers = [path.join(root, 'server.js'), ...walk(path.join(root, 'src')), ...walk(path.join(root, 'apps'))];
+const consumers = [...new Set([...serverFiles(root).map(file => path.join(root, file)), ...walk(path.join(root, 'src')), ...walk(path.join(root, 'apps'))])];
 const copies = {};
 for (const file of consumers) {
   let count = 0;

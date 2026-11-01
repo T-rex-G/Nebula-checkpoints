@@ -29,6 +29,7 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles } = require('./helpers/server-source');
 const ts = require('typescript');
 const { ERROR_CODE_FORMAT } = require('../packages/contracts/src/api-envelope.ts');
 
@@ -189,8 +190,8 @@ function gather(files) {
   return { produced, consumed, composed };
 }
 
-const sources = [path.join(root, 'server.js'), ...walk(path.join(root, 'src')), ...walk(path.join(root, 'apps')),
-  ...walk(path.join(root, 'packages', 'contracts', 'src')).filter(file => file !== CATALOGUE)];
+const sources = [...new Set([...serverFiles(root).map(file => path.join(root, file)), ...walk(path.join(root, 'src')), ...walk(path.join(root, 'apps')),
+  ...walk(path.join(root, 'packages', 'contracts', 'src')).filter(file => file !== CATALOGUE)])];
 const system = gather(sources);
 
 /* Composed codes are declared, and declared ones still exist. */

@@ -3,12 +3,13 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles, serverSource, serverLoads } = require('./helpers/server-source');
 const { locations } = require('./oracles/route-policy');
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 
-assert(server.includes("require('./apps/api/src/platform/authorization/authorization-resolver.ts')"), 'server must load the authorization resolver');
+assert(serverLoads('apps/api/src/platform/authorization/authorization-resolver.ts'), 'server must load the authorization resolver');
 assert(server.includes('createAuthorizationResolver({'), 'server must create one authorization resolver');
 /* The mutation contexts are the platform's (mutation-context.ts) and Kepler's (governance-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
@@ -40,7 +41,7 @@ assert(descriptorContract.includes('security: normalizeMutationSecurity(input.se
  */
 assert(/if \(isPublicReaderAccess\(context\.authorization\) && options\.publicRepositories !== true\)/.test(governanceContextSource), 'governance access must refuse public readers unless the route opts in');
 assert(governanceContextSource.includes("code: 'GOVERNANCE_COLLABORATORS_ONLY'"), 'the refusal must say why');
-/* Read from the route policy, so a route counts wherever it is registered: server.js or a module's routes. */
+/* Read from the route policy, so a route counts wherever it is registered: the composition root or a module's routes. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const ownWork = policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => `${entry.method} ${entry.path}`).sort();
 assert.deepStrictEqual(ownWork, [
@@ -60,14 +61,15 @@ assert.deepStrictEqual(ownWork, [
   'POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel'
 ], 'exactly the identity-scoped routes accept a public reader');
 /*
- * OWN_WORK is used nowhere else. In server.js: its definition, the routes
- * still registered there, and one hand-over to each module whose routes take
- * it. In each such module's routes: the field that receives it, the binding
- * that names it, and its routes.
+ * OWN_WORK is used nowhere else. In the server's composition root: its
+ * definition, the routes still registered there, and one hand-over to each
+ * module whose routes take it. In each such module's routes: the field that
+ * receives it, the binding that names it, and its routes.
  */
 const ownWorkIn = file => policyRoutes.filter(entry => entry.at.startsWith(`${file}:`) && entry.guards.includes("governanceAccess('reader', OWN_WORK)")).length;
 const ownWorkFiles = [...new Set(policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => entry.at.split(':')[0]))];
-const moduleFiles = ownWorkFiles.filter(file => file !== 'server.js');
+const rootFiles = serverFiles();
+const moduleFiles = ownWorkFiles.filter(file => !rootFiles.includes(file));
 assert.deepStrictEqual(moduleFiles.sort(), ['apps/api/src/modules/quasar/http/exposure-routes.ts', 'apps/api/src/modules/uranus/http/code-audit-routes.ts']);
 for (const file of moduleFiles) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
@@ -75,7 +77,8 @@ for (const file of moduleFiles) {
 }
 const handOvers = (server.match(/register[A-Za-z]+Routes\(app, \{[^}]*\bOWN_WORK\b/g) || []).length;
 assert.strictEqual(handOvers, moduleFiles.length, 'one hand-over to each module whose routes take it');
-assert.strictEqual((server.match(/OWN_WORK/g) || []).length, ownWorkIn('server.js') + 1 + handOvers, 'OWN_WORK is used nowhere else in server.js');
+assert.strictEqual((server.match(/OWN_WORK/g) || []).length, rootFiles.reduce((sum, file) => sum + ownWorkIn(file), 0) + 1 + handOvers,
+  'OWN_WORK is used nowhere else in the composition root');
 assert.strictEqual(ownWorkFiles.reduce((sum, file) => sum + ownWorkIn(file), 0), ownWork.length, 'and no other file registers a route with it');
 for (const entry of policyRoutes.filter(item => item.path.startsWith('/api/repo/:owner/:repo/governance'))) {
   assert(!entry.guards.some(guard => guard.includes('OWN_WORK')), `governance is collaborators' business: ${entry.method} ${entry.path}`);

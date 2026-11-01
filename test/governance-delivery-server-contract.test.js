@@ -2,7 +2,8 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const server = fs.readFileSync('server.js', 'utf8');
+const { serverSource, serverImports } = require('./helpers/server-source');
+const server = serverSource();
 const governanceRoutes = fs.readFileSync('apps/api/src/modules/kepler/http/governance-routes.ts', 'utf8');
 /* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
@@ -12,10 +13,10 @@ const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutatio
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
-const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
+const kepler = serverImports('modules/kepler/index.ts');
 /* Delivery's worker is started by Kepler's governance host, which the server composes through the Kepler index. */
 const host = fs.readFileSync('apps/api/src/modules/kepler/application/governance-host.ts', 'utf8');
-assert(kepler && /\bcreateGovernanceHost\b/.test(kepler[1]), 'server must load the webhook worker through the Kepler index');
+assert(kepler && /\bcreateGovernanceHost\b/.test(kepler), 'server must load the webhook worker through the Kepler index');
 assert(host.includes('worker = startWebhookWorker({'));
 const route = (method, routePath) => {
   const entry = policyRoutes.find(candidate => candidate.method === method && candidate.path === routePath);

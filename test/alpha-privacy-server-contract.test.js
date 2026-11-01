@@ -3,8 +3,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverImports } = require('./helpers/server-source');
 
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const server = serverSource();
 const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
 /* The access session and its boundary, and the alpha's front-door routes, live in identity and access. */
 const alphaSessions = fs.readFileSync(path.join(identityHttp, 'alpha-sessions.ts'), 'utf8');
@@ -29,10 +30,10 @@ function routeBlock(method, routePath) {
 
 {
   /* The server reaches identity and access through the module's index only; the routes take the privacy policy from its domain. */
-  const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
+  const identityAccess = serverImports('modules/identity-access/index.ts');
   assert(identityAccess, 'the server must load identity and access through its index');
   for (const name of ['alphaActorLabel', 'createAccountLifecycle', 'registerAlphaPrivacyRoutes', 'registerAlphaDisconnectRoutes']) {
-    assert.match(identityAccess[1], new RegExp(`\\b${name}\\b`), `the server must take ${name} from identity and access`);
+    assert.match(identityAccess, new RegExp(`\\b${name}\\b`), `the server must take ${name} from identity and access`);
   }
   /* What to revoke by hand is the lifecycle's to say, from the privacy policy. */
   const accountLifecycle = fs.readFileSync(path.join(identityHttp, '..', 'application', 'account-lifecycle.ts'), 'utf8');

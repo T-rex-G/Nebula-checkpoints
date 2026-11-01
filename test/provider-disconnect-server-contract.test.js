@@ -3,9 +3,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverImports } = require('./helpers/server-source');
 
 const { locations } = require('./oracles/route-policy');
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const server = serverSource();
 /* An account's life in a session -- signing in, disconnecting, sessions elsewhere -- is identity and access's, composed by the server. */
 const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
 
@@ -15,7 +16,7 @@ function routeBlock(routePath) {
   const entry = policyRoutes.find(item => item.method === 'POST' && item.path === routePath);
   assert(entry, `missing POST ${routePath}`);
   const file = entry.at.split(':')[0];
-  const text = file === 'server.js' ? server : fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const text = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   const marker = `app.post('${routePath}'`;
   const start = text.indexOf(marker);
   assert(start >= 0, `missing POST ${routePath} in ${file}`);
@@ -24,10 +25,10 @@ function routeBlock(routePath) {
 }
 
 /* The server reaches identity and access through the module's index only. */
-const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
+const identityAccess = serverImports('modules/identity-access/index.ts');
 assert(identityAccess, 'the server must load identity and access through its index');
-assert.match(identityAccess[1], /\bAlphaPrivacyStore\b/);
-assert.match(identityAccess[1], /\bcreateAccountLifecycle\b/);
+assert.match(identityAccess, /\bAlphaPrivacyStore\b/);
+assert.match(identityAccess, /\bcreateAccountLifecycle\b/);
 assert(lifecycle.includes("import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';"));
 assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
 assert(server.includes('privacyStore: alphaPrivacyStore\n});'), 'the lifecycle is handed the central privacy lifecycle store');

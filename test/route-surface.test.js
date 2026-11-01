@@ -26,6 +26,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles } = require('./helpers/server-source');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
@@ -74,10 +75,11 @@ const EXPECTATIONS = [
  *
  * So the chain is also read as text. Structural where behaviour is blind,
  * behavioural everywhere else; neither on its own is enough. The source is
- * searched wherever these routes live, so moving them out of server.js does
- * not quietly turn this half of the test into a check of an empty string.
+ * searched wherever these routes live, so moving them out of the composition
+ * root does not quietly turn this half of the test into a check of an empty
+ * string.
  */
-const ROUTE_SOURCES = ['server.js', path.join('apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts')]
+const ROUTE_SOURCES = [...serverFiles(root), path.join('apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts')]
   .map(relative => path.join(root, relative))
   .filter(file => fs.existsSync(file))
   .map(file => fs.readFileSync(file, 'utf8'))

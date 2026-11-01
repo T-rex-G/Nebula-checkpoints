@@ -10,9 +10,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 const coverage = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-coverage.ts'), 'utf8');
 
 const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');

@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 const {
   parseArgs,
   hashTaskReference,
@@ -28,7 +29,7 @@ assert.match(hashTaskReference(CLEANUP_ID), /^[0-9a-f]{64}$/);
 assert(!hashTaskReference(CLEANUP_ID).includes(CLEANUP_ID));
 
 /* The daily retention is identity and access's; the server starts it once the store is ready. */
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const server = serverSource();
 const retention = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'alpha-privacy-retention.ts'), 'utf8');
 assert(server.includes('createAlphaPrivacyRetention({ config: ALPHA_CONFIG, store: alphaPrivacyStore })'));
 assert(server.includes('onReady: () => alphaPrivacyRetention.start()'));

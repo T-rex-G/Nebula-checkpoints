@@ -3,13 +3,14 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverLoads } = require('./helpers/server-source');
 const { EventEmitter } = require('events');
 const { correlationId, structuredLogging } = require('../apps/api/src/http/pipeline/index.ts');
 const { currentRoutePolicy } = require('./oracles/current-route-policy');
 
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-assert(server.includes("require('./apps/api/src/http/errors.ts')"));
+const server = serverSource();
+assert(serverLoads('apps/api/src/http/errors.ts'));
 /* The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts). */
 const httpErrors = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'errors.ts'), 'utf8');
 assert(server.includes('const fail = sendFailure;'));

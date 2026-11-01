@@ -7,6 +7,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverSource: readServerSource } = require('./helpers/server-source');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
@@ -19,7 +20,7 @@ const root = path.resolve(__dirname, '..');
  * that reads req.stepUp.action would write undefined for every field. The
  * mistake leaves no trace at runtime, so it is pinned here at the source.
  */
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const serverSource = readServerSource();
 /* The step-up's consumption and its replay guard are the session's own security's. */
 const sessionSecuritySource = fs.readFileSync(path.join(root, 'apps/api/src/modules/identity-access/application/session-security.ts'), 'utf8');
 let consumePendingStepUpCalls = 0;

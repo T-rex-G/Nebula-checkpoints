@@ -2,9 +2,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
 const { locations } = require('./oracles/route-policy');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 /* Every route with its guard chain, as the route policy reads it from server.js and the modules' registration functions. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');

@@ -26,6 +26,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 
 const planning = require('../packages/contracts/src/upload-planning.ts');
 for (const name of ['TRANSPORT_CHOICES', 'normalizeTransportChoice', 'planUploadTransport']) {
@@ -148,7 +149,7 @@ assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMa
 
 /* ---- 7. the server routes through the planner ---- */
 
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const server = serverSource();
 /* The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts); the server hands it the ceilings. */
 const uploads = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'upload-routes.ts'), 'utf8');
 /* Matched as a pattern: a quoted relative path here would read, to the candidate qualifier, as a file this test loads. */

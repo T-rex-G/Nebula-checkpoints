@@ -3,18 +3,20 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles } = require('./helpers/server-source');
 const { locations } = require('./oracles/route-policy');
 
 const root = path.resolve(__dirname, '..');
 /*
- * The routes as the route policy reads them: server.js, and every module
- * registration function it calls, in place (test/oracles/route-policy.js).
+ * The routes as the route policy reads them: the server's composition root,
+ * and every module registration function it calls, in place
+ * (test/oracles/route-policy.js).
  * Each carries its guard chain as written, so the inventory follows a route
  * into whichever module now registers it.
  */
 const registered = locations(root).filter(entry => entry.kind === 'route');
 /* The source the routes are written in, for what is named inside a handler rather than in its guard chain. */
-const routeSources = [...new Set([path.join(root, 'server.js'), ...registered.map(entry => path.join(root, entry.at.replace(/:\d+$/, '')))])]
+const routeSources = [...new Set([...serverFiles(root).map(file => path.join(root, file)), ...registered.map(entry => path.join(root, entry.at.replace(/:\d+$/, '')))])]
   .map(file => [path.relative(root, file), fs.readFileSync(file, 'utf8')]);
 const capabilityDocument = JSON.parse(
   fs.readFileSync(path.join(root, 'config', 'public-alpha-capabilities.json'), 'utf8')

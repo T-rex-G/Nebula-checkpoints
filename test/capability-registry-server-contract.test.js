@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { serverSource: readServerSource, serverLoads } = require('./helpers/server-source');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
@@ -48,7 +49,7 @@ const { createCsrfToken } = require('../apps/api/src/platform/authorization/secu
 
 const { locations } = require('./oracles/route-policy');
 
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const serverSource = readServerSource();
 /* The server derives a purpose-specific key per construction; mirror those
    derivations rather than the single raw secret they replaced. */
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
@@ -407,7 +408,7 @@ async function expectRetiredSessionRejection(entry, cookie = sessionCookie()) {
       );
     }
 
-    assert(serverSource.includes("require('./src/capability-registry')"));
+    assert(serverLoads('src/capability-registry'));
     assert(!/const CAPS\s*=/.test(serverSource), 'legacy CAPS table must not remain an independent truth source');
     console.log('capability registry server contract tests passed');
   } finally {

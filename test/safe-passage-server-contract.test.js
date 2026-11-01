@@ -11,9 +11,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource } = require('./helpers/server-source');
 
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 const store = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'persistence', 'governance-store.ts'), 'utf8');
 const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 

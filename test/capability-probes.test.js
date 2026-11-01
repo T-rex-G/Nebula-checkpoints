@@ -11,6 +11,7 @@
  */
 
 const assert = require('assert');
+const { serverSource } = require('./helpers/server-source');
 const crypto = require('crypto');
 const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
@@ -453,7 +454,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     const fs = require('fs');
     const path = require('path');
     const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
-    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    const server = serverSource();
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
     /* A route where it is registered: in server.js, or in the workbench's own registrations. */
     const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts', 'collaboration-routes.ts', 'folder-move-route.ts']

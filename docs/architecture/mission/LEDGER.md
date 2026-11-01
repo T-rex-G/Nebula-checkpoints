@@ -1997,3 +1997,19 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13n — one reading of the server's composition root
+
+- **What changed.** Forty files read or name `server.js`: thirty-six test programs, the route-policy oracle's two files, the server-entry helper and `scripts/verify.js`. Most read it as text, to see how the server wires the platform and the modules together. The composition root is about to become `apps/api/src/main.ts` and the composition it calls, so the source checks now read it through one helper, `test/helpers/server-source.js`:
+  - `serverFiles()` names the root's files: `server.js` while it is the root; then `apps/api/src/main.ts` and `apps/api/src/composition/`, in that order.
+  - `serverSource()` reads them as one text, so a check holds wherever in the root the wiring it reads lives.
+  - `serverLoads()` and `serverImports()` read what the root loads from its module syntax, not its text. `const { a, b: c } = require('…')` and `import { a, b as c } from '…'` both take `a` and `b`, the names the module exports, whatever the root calls them. A type-only import loads nothing and is not counted.
+- **The checks.**
+  - Twenty-nine that read the text, `scripts/verify.js` among them, read `serverSource()`.
+  - Five that parsed `server.js`'s `require` of a module's index now read `serverImports()`.
+  - Five that looked for a `require('…')` string now ask `serverLoads()`.
+  - The code and contract inventories, the provider route inventory, the security route sources and `scripts/verify.js`'s lists of required and parsed files take the root's files from `serverFiles()`.
+  - The `OWN_WORK` check counts the routes of every root file.
+  - The provider disconnect contract reads a route's file as it is.
+- **Behaviour unchanged.** While `server.js` is the root, each helper reads exactly what the check read before. The files that name `server.js` rather than read it -- the route-policy oracle, the server-entry helper, the compiled-tree checks, the runtime and release-fingerprint tests and the module graph -- change with the root itself, in D13o.
+- **Checks:** every converted test passes, with lint and verify; the full unit gate and every verify-job gate on Node 22.23.4.

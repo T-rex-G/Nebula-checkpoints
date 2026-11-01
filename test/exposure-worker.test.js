@@ -29,6 +29,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverImports } = require('./helpers/server-source');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { SKIP_REASONS } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
@@ -788,11 +789,11 @@ function runnerFor(store, reader, options = {}) {
  * prove a background worker did not start would prove very little either way.
  */
 {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const server = serverSource();
   const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
 
-  const quasar = server.match(/const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/quasar\/index\.ts'\)/);
-  assert(quasar && /\bcreateExposureHost\b/.test(quasar[1]) && host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
+  const quasar = serverImports('modules/quasar/index.ts');
+  assert(quasar && /\bcreateExposureHost\b/.test(quasar) && host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
   assert(host.includes('      reader: exposureReader,'), 'with the reader it reads through');
 
   const gate = host.match(/function exposureScanningAvailable\(\)[\s\S]*?\n  }/);
@@ -872,7 +873,7 @@ function runnerFor(store, reader, options = {}) {
  * here is how the server hands them what they use.
  */
 {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const server = serverSource();
   assert(server.includes('registerExposureRoutes(app, {'), 'the server mounts the exposure routes');
   /*
    * Each grant has its own key, derived for its own purpose rather than

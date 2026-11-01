@@ -3,12 +3,13 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverLoads } = require('./helpers/server-source');
 const { locations } = require('./oracles/route-policy');
 
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 
-assert(server.includes("require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts')"), 'server must load the central mutation gateway');
+assert(serverLoads('apps/api/src/platform/mutation-gateway/mutation-gateway.ts'), 'server must load the central mutation gateway');
 assert(server.includes('mutationGateway.assertProviderMutation'), 'provider writes must be checked by the gateway');
 /* The repository mutation context is the platform's (mutation-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');

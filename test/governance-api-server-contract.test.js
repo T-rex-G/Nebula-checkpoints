@@ -2,8 +2,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { serverSource, serverImports } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const server = serverSource();
 /* Kepler's governance routes, and every route with its guard chain as the route policy reads them. */
 const governanceRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-routes.ts'), 'utf8');
 const { locations } = require('./oracles/route-policy');
@@ -20,13 +21,13 @@ const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 /* The server reaches governance through the Kepler module's index only. */
-const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
+const kepler = serverImports('modules/kepler/index.ts');
 assert(kepler, 'the server must load governance through the Kepler index');
 /* Governance's life in the process -- its store and API service -- is Kepler's governance host, composed by the server. */
 const host = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'application', 'governance-host.ts'), 'utf8');
-assert(/\bcreateGovernanceHost\b/.test(kepler[1]) && host.includes('service = createGovernanceApiService({ store });'), 'server must load the governance API boundary');
+assert(/\bcreateGovernanceHost\b/.test(kepler) && host.includes('service = createGovernanceApiService({ store });'), 'server must load the governance API boundary');
 assert(host.includes('store = new GovernanceStore(deps.pool(), { secret: deps.auditSecret });'), 'server must load the durable governance store');
-assert(/\bregisterGovernanceRoutes\b/.test(kepler[1]) && /\bregisterGovernanceLifecycleRoutes\b/.test(kepler[1]), 'server must register the governance routes through Kepler');
+assert(/\bregisterGovernanceRoutes\b/.test(kepler) && /\bregisterGovernanceLifecycleRoutes\b/.test(kepler), 'server must register the governance routes through Kepler');
 assert(server.includes('governance: req => req.governance'), 'the routes must read the governance context the server guard attached');
 /* The governance guard and its mutation context are Kepler's (http/governance-context.ts), composed by the server. */
 const governanceContext = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');

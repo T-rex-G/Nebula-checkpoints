@@ -47,6 +47,15 @@ export function identityKey(account: Account): string {
   return hashJson(base);
 }
 
+/*
+ * How many accounts a session may hold: ten where sessions are kept in the
+ * database, three where the whole session is sealed into its cookie, which a
+ * browser keeps only up to a few kilobytes.
+ */
+export function sessionAccountCapacity(databaseConfigured: boolean): number {
+  return databaseConfigured ? 10 : 3;
+}
+
 /* The host an account's provider answers on: github.com for GitHub, the base URL's host otherwise, or nothing. */
 export function providerAuthority(account: Account): string {
   if ((account && account.provider || 'github') === 'github') return 'github.com';

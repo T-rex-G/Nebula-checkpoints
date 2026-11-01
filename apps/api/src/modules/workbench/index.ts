@@ -3,12 +3,13 @@
  * content change goes through, on the head the change was made against; the
  * repositories a session may see; what the account may do in one; how a
  * file's bytes are served, and Git LFS storage behind a pointer; the Git
- * objects a native push builds and sends, and the intake every upload arrives
- * through; the manifests a dependency audit reads. http/ holds the routes:
- * who owns what (CODEOWNERS), repositories, branches and comparisons,
- * folders, files and their writes, uploads and a folder move, commits with a
- * revert, pull requests, issues, notifications, search, stars, workflow runs
- * and releases, and the dependency audit.
+ * objects a native push builds and sends, the intake every upload arrives
+ * through, the scan every uploaded file passes and the upkeep of the files an
+ * upload leaves behind; the manifests a dependency audit reads. http/ holds
+ * the routes: who owns what (CODEOWNERS), repositories, branches and
+ * comparisons, folders, files and their writes, uploads and a folder move,
+ * commits with a revert, pull requests, issues, notifications, search, stars,
+ * workflow runs and releases, and the dependency audit.
  * The rest of the server reaches this module through this file only.
  */
 export { assertExpectedHead, branchChangedError, destinationExistsError, requireAggregateExpectedHead } from './domain/head-checks.ts';
@@ -31,6 +32,10 @@ export { createNativePush } from './application/native-push.ts';
 export type { NativePush, NativePushDeps } from './application/native-push.ts';
 export { createUploadIntake } from './application/upload-intake.ts';
 export type { UploadIntake, UploadIntakeDeps } from './application/upload-intake.ts';
+export { createUploadScan } from './application/upload-scan.ts';
+export type { ScanRequest, UploadScan, UploadScanDeps, UploadScanResult } from './application/upload-scan.ts';
+export { createUploadUpkeep } from './application/upload-upkeep.ts';
+export type { UploadUpkeep, UploadUpkeepDeps } from './application/upload-upkeep.ts';
 export { registerCodeownersRoute } from './http/codeowners-route.ts';
 export type { CodeownersRouteDeps } from './http/codeowners-route.ts';
 export { registerRepositoryRoutes } from './http/repository-routes.ts';

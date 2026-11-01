@@ -162,10 +162,11 @@ assert(containmentBlock.indexOf('deps.alphaEnabled') >= 0 && containmentBlock.in
   < containmentBlock.indexOf("deps.pool().query('DELETE FROM nv_sessions"),
   'invite-mode containment must return through the ownership-aware store before legacy deletion');
 
-const installationPersistenceStart = server.indexOf('async function persistGithubAppInstallation(');
-const installationPersistenceEnd = server.indexOf('\n}', installationPersistenceStart) + 2;
-const installationPersistenceBlock = server.slice(installationPersistenceStart, installationPersistenceEnd);
-assert(installationPersistenceBlock.includes('if (ALPHA_CONFIG.enabled) return false;'),
+/* An installation's record and its audit trail are identity and access's GitHub App records, composed with the alpha's flag. */
+const appRecords = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
+const installationPersistenceBlock = nested(appRecords, 'async function persistGithubAppInstallation(');
+assert(installationPersistenceBlock.includes('if (deps.alphaEnabled) return false;')
+  && server.includes('createGithubAppRecords({\n  alphaEnabled: ALPHA_CONFIG.enabled,'),
   'invite mode must not copy raw GitHub installation metadata into the legacy table');
 /* The App connection's routes and its view are identity and access's. */
 const appRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
@@ -251,19 +252,20 @@ for (const forbidden of [
   'created_by_login: req.gh.login'
 ]) assert(!server.includes(forbidden), `hosted-alpha persistence retains forbidden pattern: ${forbidden}`);
 
-const githubAuditFields = server.slice(
-  server.indexOf('function safeGithubAppAuditDetails'),
-  server.indexOf('async function persistGithubAppInstallation')
-);
+/* What an audit detail may keep is identity and access's domain rule. */
+const githubAuditFields = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'github-app-audit.ts'), 'utf8');
 assert(!githubAuditFields.includes("'accountLogin'"), 'GitHub App audits must not persist provider login');
 assert(githubAuditFields.includes("'actor'"), 'GitHub App audits must retain only a pseudonymous actor when available');
 for (const forbidden of [
   'accountLogin: installation.account.login',
   'accountLogin: removed.login',
   'accountLogin: account.login'
-]) assert(!server.includes(forbidden), `GitHub App lifecycle audit retains provider login: ${forbidden}`);
+]) assert(!(server + appRecords).includes(forbidden), `GitHub App lifecycle audit retains provider login: ${forbidden}`);
 
-assert(server.includes('actor: retainedActor(req)'), 'retained evidence must use the invite actor label');
-assert(server.includes('retainedProviderActor('), 'background GitHub App audits need an identity-to-alpha-actor boundary');
+/* Evidence a request leaves -- a disconnected installation, a blocked upload -- names the invite actor label. */
+const uploadScan = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'upload-scan.ts'), 'utf8');
+assert(lifecycle.includes('actor: call.retainedActor(req)') && uploadScan.includes('actor: actorOf(req)')
+  && server.includes('scan: scanUploadFile, appendEvidence, retainedActor,'), 'retained evidence must use the invite actor label');
+assert(appRecords.includes('retainedProviderActor('), 'background GitHub App audits need an identity-to-alpha-actor boundary');
 
 console.log('provider disconnect server contract tests passed');

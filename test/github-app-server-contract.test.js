@@ -50,7 +50,10 @@ assert(collaboration.includes('GitHub App installations cannot manage user stars
 const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
 assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)') && server.includes('appBroker: githubAppBroker,')
   && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
-assert(server.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
-assert(server.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
+/* An installation's record and its audit trail are identity and access's GitHub App records, composed by the server. */
+const appRecords = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
+assert(server.includes('createGithubAppRecords({'), 'the server keeps installations and their audit through identity and access');
+assert(appRecords.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
+assert(appRecords.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
 assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken|userToken)/.test(server + appRoutes), 'server JSON must not expose GitHub App secrets');
 console.log('github app server contract tests passed');

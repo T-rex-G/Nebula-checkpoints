@@ -29,8 +29,10 @@ export type { AlphaSession, AlphaTester, IssuedInvite, Redemption } from './pers
 export { AlphaPrivacyStore, AlphaPrivacyStoreError } from './persistence/alpha-privacy-store.ts';
 export type { PurgeReport, SessionCodec } from './persistence/alpha-privacy-store.ts';
 export {
-  assertGithubAccount, githubSession, identityKey, isGithubAccount, persistedSession, providerAuthority, stableProviderIdentityKey
+  assertGithubAccount, githubSession, identityKey, isGithubAccount, persistedSession, providerAuthority, sessionAccountCapacity,
+  stableProviderIdentityKey
 } from './domain/account-identity.ts';
+export { safeGithubAppAuditDetails } from './domain/github-app-audit.ts';
 export type { AccountLike, SessionAccounts } from './domain/account-identity.ts';
 export { hostedAccountKey, mergeHostedSessionValue, recomputeHostedSessionMutation } from './domain/hosted-session-merge.ts';
 export type { HostedSession } from './domain/hosted-session-merge.ts';
@@ -46,6 +48,8 @@ export { createRepositoryAccess } from './application/repository-access.ts';
 export type { RepositoryAccess, RepositoryAccessDeps } from './application/repository-access.ts';
 export { RETIRED_CLEANUP, createAccountLifecycle } from './application/account-lifecycle.ts';
 export type { AccountLifecycle, AccountLifecycleDeps, LifecyclePrivacyStore } from './application/account-lifecycle.ts';
+export { createGithubAppRecords } from './application/github-app-records.ts';
+export type { AuthorizingUser, GithubAppRecords, GithubAppRecordsDeps, InstallationRecord } from './application/github-app-records.ts';
 export { createAlphaPrivacyRetention } from './application/alpha-privacy-retention.ts';
 export type { AlphaPrivacyRetention, AlphaPrivacyRetentionDeps } from './application/alpha-privacy-retention.ts';
 export { ALPHA_COOKIE, createAlphaSessions } from './http/alpha-sessions.ts';

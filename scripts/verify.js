@@ -203,6 +203,9 @@ for (const file of [
   'apps/api/src/modules/identity-access/application/repository-access.ts', 'test/repository-access.test.js',
   'apps/api/src/platform/authorization/capability-access.ts', 'test/capability-access.test.js',
   'apps/api/src/modules/identity-access/application/account-lifecycle.ts', 'test/account-lifecycle.test.js',
+  'apps/api/src/modules/identity-access/domain/github-app-audit.ts', 'apps/api/src/modules/identity-access/application/github-app-records.ts', 'test/github-app-records.test.js',
+  'apps/api/src/modules/workbench/application/upload-scan.ts', 'apps/api/src/modules/workbench/application/upload-upkeep.ts', 'test/upload-scan.test.js',
+  'apps/api/src/platform/rate-limit/durable-stores.ts', 'test/durable-stores.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -416,7 +419,7 @@ must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeUR
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');
 must(coronaRoutes.includes("app.get('/api/repo/:owner/:repo/access-surface'") && coronaRoutes.includes('riskForAccessSurface') && server.includes('registerAccessSurfaceRoutes(app,'), 'Shadow Access Radar is missing');
 must(coronaRoutes.includes("app.post('/api/repo/:owner/:repo/snapshot-compare'") && coronaRoutes.includes("app.post('/api/repo/:owner/:repo/restore-preview'") && server.includes('registerSnapshotRoutes(app,'), 'Snapshot comparison or restore preview is missing');
-must(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware gate is missing');
+must(server.includes('scan: scanUploadFile') && server.includes('scanUpload: scanUploadOrThrow') && read('apps/api/src/modules/workbench/application/upload-scan.ts').includes("code: 'MALWARE_DETECTED'"), 'Upload malware gate is missing');
 must(read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes('normalizeFileBatch(body.ops)') && read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes("summarizeBatchItems('recovery.restore-refs', inspected.actions)") && server.includes('createRepositoryMutationContext({'), 'Task 18 aggregate mutation evidence is not wired');
 const mutationCoverage = read('apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 must(mutationCoverage.includes('MUTATION_ROUTE_INVENTORY') && mutationCoverage.includes('ACTION_EXECUTION_CONTRACTS'), 'Task 18 mutation coverage inventory is missing');

@@ -13,8 +13,6 @@ const express = require('express');
 const crypto = require('crypto');
 /* The timed fetch every provider call goes through (apps/api/src/platform/network/timed-fetch.ts). */
 const { fetchWithDeadline: fetchT } = require('./apps/api/src/platform/network/timed-fetch.ts');
-const fsp = require('fs/promises');
-const os = require('os');
 const path = require('path');
 const {
   CapabilityError, loadCapabilityDocument, projectCapabilities,
@@ -73,6 +71,8 @@ const {
   createRequestGuards,
   createAccountLifecycle,
   createRepositoryAccess,
+  createGithubAppRecords,
+  sessionAccountCapacity,
   CSRF_TTL_MS,
   STEP_UP_TTL_MS
 } = require('./apps/api/src/modules/identity-access/index.ts');
@@ -116,8 +116,7 @@ const { createDatabasePool } = require('./apps/api/src/platform/persistence/data
 const { createSessionSeal, readCookie: getCookie, createSessionCookieWriter } = require('./apps/api/src/platform/authorization/session-cookie.ts');
 const { createDatabaseLifecycle } = require('./apps/api/src/platform/persistence/database-lifecycle.ts');
 const localSessionPolicy = createLocalSessionPolicy();
-const { SingleUseStore } = require('./apps/api/src/platform/rate-limit/single-use-store.ts');
-const { RateLimitStore } = require('./apps/api/src/platform/rate-limit/rate-limit-store.ts');
+const { createDurableStores } = require('./apps/api/src/platform/rate-limit/durable-stores.ts');
 const { createAuthorizationResolver } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const {
   activePolicySetStepEvaluator,
@@ -149,7 +148,7 @@ const {
   registerWorkspacePostureRoutes, registerBranchProtectionRoutes
 } = require('./apps/api/src/modules/posture/index.ts');
 const {
-  createCommitWriter, createRepositoryList, createLfsTransfer, createNativePush, createUploadIntake,
+  createCommitWriter, createRepositoryList, createLfsTransfer, createNativePush, createUploadIntake, createUploadScan, createUploadUpkeep,
   assertExpectedHead, branchChangedError, requireAggregateExpectedHead,
   registerCodeownersRoute, registerRepositoryRoutes, registerContentRoutes, registerHistoryRoutes,
   registerCollaborationRoutes, registerUploadRoutes, registerFolderMoveRoute, registerDependencyAuditRoute
@@ -211,6 +210,12 @@ const database = createDatabaseLifecycle({
   onReady: () => alphaPrivacyRetention.start()
 });
 const { pool, ready: dbReady, invalidate: invalidateDatabaseReady } = database;
+/* The stores a request's admission and its single-use grants are kept in, where a database is configured (apps/api/src/platform/rate-limit/durable-stores.ts). */
+const { apiRateLimitStore, durableSingleUseStore } = createDurableStores({ databaseConfigured: Boolean(DB_URL), pool });
+/* A GitHub App installation's record and its audit trail (identity-access/application/github-app-records.ts). */
+const { recordGithubAppAudit, persistGithubAppInstallation, removeGithubAppInstallation } = createGithubAppRecords({
+  alphaEnabled: ALPHA_CONFIG.enabled, ready: dbReady, pool
+});
 /* The session cookie, sealed under the session's own key (apps/api/src/platform/authorization/session-cookie.ts). */
 const { seal, unseal } = createSessionSeal(SESSION_CONTENT_KEY);
 /* The alpha's access and privacy stores (identity-access/persistence). */
@@ -317,58 +322,6 @@ const BLOB_MAX = GIT_DATA_MAX_MB * MB;
 const GIT_PUSH_MAX = NATIVE_PUSH_MAX_MB * MB; /* Memory-safe ceiling; GitHub's absolute non-LFS object ceiling is 100 MB. */
 const UPLOAD_MAX = UPLOAD_MAX_MB * MB;
 const UPLOAD_TIMEOUT_MS = UPLOAD_TIMEOUT_MINUTES * 60 * 1000;
-async function scanUploadOrThrow(req, tmp, repoPath, size) {
-  const result = await scanUploadFile(tmp, { repoPath, size });
-  if (result.blocked) {
-    const matches = (result.matches || []).map(match => ({
-      engine: cleanText(match.engine || 'signature', 40),
-      rule: cleanText(match.rule || 'MATCH', 128),
-      severity: cleanText(match.severity || 'critical', 20)
-    }));
-    if (req.params && req.params.owner && req.params.repo) {
-      appendEvidence(scopedEvidenceKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh)), 'malware-blocked', crypto.randomUUID(), {
-        actor: retainedActor(req),
-        path: cleanText(repoPath || 'batch blob', 500),
-        size: Number(size || 0),
-        matches,
-        blockedAt: new Date().toISOString()
-      }).catch(() => {});
-    }
-    const error = new Error(`Upload blocked by malware signature rule: ${matches.map(match => match.rule).join(', ')}`);
-    error.status = 422;
-    error.code = 'MALWARE_DETECTED';
-    throw error;
-  }
-  return {
-    builtin: { available: true, matches: (result.builtin && result.builtin.matches || []).length },
-    yara: {
-      configured: !!(result.yara && result.yara.configured),
-      available: !!(result.yara && result.yara.available),
-      matches: (result.yara && result.yara.matches || []).length,
-      ...(result.yara && result.yara.error ? { error: cleanText(result.yara.error, 240) } : {})
-    }
-  };
-}
-
-const STALE_UPLOAD_AGE_MS = STALE_UPLOAD_HOURS * 60 * 60 * 1000;
-async function cleanupStaleUploads() {
-  const tempRoot = os.tmpdir();
-  let names = [];
-  try { names = await fsp.readdir(tempRoot); } catch { return; }
-  const cutoff = Date.now() - STALE_UPLOAD_AGE_MS;
-  await Promise.allSettled(names
-    .filter(name => /^nv-[0-9a-f]{16}$/.test(name))
-    .map(async name => {
-      const file = path.join(tempRoot, name);
-      const stat = await fsp.lstat(file);
-      if (stat.isFile() && stat.mtimeMs < cutoff) await fsp.unlink(file);
-    }));
-}
-function startTempMaintenance() {
-  cleanupStaleUploads().catch(() => {});
-  const timer = setInterval(() => cleanupStaleUploads().catch(() => {}), Math.max(STALE_UPLOAD_AGE_MS, 60 * 60 * 1000));
-  if (typeof timer.unref === 'function') timer.unref();
-}
 
 app.disable('x-powered-by');
 /*
@@ -392,11 +345,6 @@ app.use('/api', apiSameOrigin(process.env));
  * returns it to zero. apps/api/src/platform/rate-limit/rate-limit-identity.ts records what the previous
  * key did instead.
  */
-function apiRateLimitStore() {
-  if (!DB_URL) return null;
-  if (!_rateLimitStore) _rateLimitStore = new RateLimitStore({ pool: pool() });
-  return _rateLimitStore;
-}
 app.use('/api', apiRateAdmission({
   identify: req => rateLimitIdentity({
     session: unseal(getCookie(req, 'nv_session') || ''),
@@ -583,102 +531,8 @@ async function governanceService() {
   return _governanceApiService;
 }
 
-function safeGithubAppAuditDetails(value) {
-  const source = value && typeof value === 'object' ? value : {};
-  const clean = {};
-  for (const field of ['actor', 'accountType', 'repositorySelection', 'status', 'expiresAt', 'reasonCode']) {
-    if (source[field] != null) clean[field] = cleanText(String(source[field]), field === 'expiresAt' ? 80 : 120);
-  }
-  if (source.permissions && typeof source.permissions === 'object' && !Array.isArray(source.permissions)) {
-    clean.permissions = Object.fromEntries(Object.entries(source.permissions)
-      .filter(([key, permission]) => /^[a-z_]{1,80}$/.test(key) && ['read', 'write', 'admin'].includes(String(permission)))
-      .slice(0, 100));
-  }
-  return clean;
-}
-async function retainedProviderActor(identity) {
-  if (!ALPHA_CONFIG.enabled || !(await dbReady())) return '';
-  const result = await pool().query(
-    `SELECT DISTINCT tester_id FROM nv_alpha_provider_bindings
-      WHERE identity_key=$1 AND disconnected_at IS NULL
-      ORDER BY tester_id LIMIT 2`,
-    [identity]
-  );
-  return result.rows.length === 1
-    ? alphaActorLabel({ testerId: result.rows[0].tester_id })
-    : '';
-}
-async function recordGithubAppAudit(identity, eventType, installationId, details = {}) {
-  const identityKeyValue = cleanText(String(identity || 'system:github-app'), 128);
-  const type = cleanText(String(eventType || 'github-app.event'), 100);
-  const id = Number(installationId);
-  const safeId = !ALPHA_CONFIG.enabled && Number.isSafeInteger(id) && id > 0 ? id : null;
-  const safeDetails = safeGithubAppAuditDetails(details);
-  if (ALPHA_CONFIG.enabled) {
-    const supplied = /^alpha:[0-9a-f]{12}$/.test(String(safeDetails.actor || ''))
-      ? safeDetails.actor
-      : '';
-    const actor = supplied || await retainedProviderActor(identityKeyValue);
-    if (actor) safeDetails.actor = actor;
-    else delete safeDetails.actor;
-  }
-  console.log(JSON.stringify({
-    t: new Date().toISOString(), event: 'github-app-lifecycle', type,
-    identityKey: identityKeyValue, installationId: safeId, details: safeDetails
-  }));
-  if (!(await dbReady())) return false;
-  await pool().query(
-    `INSERT INTO nv_github_app_audit(event_id,identity_key,event_type,installation_id,details,created_at)
-     VALUES($1,$2,$3,$4,$5::jsonb,now())`,
-    [crypto.randomUUID(), identityKeyValue, type, safeId, JSON.stringify(safeDetails)]
-  );
-  return true;
-}
-async function persistGithubAppInstallation(identity, installation, authorizedUser, status = 'connected') {
-  if (ALPHA_CONFIG.enabled) return false;
-  if (!(await dbReady())) return false;
-  await pool().query(
-    `INSERT INTO nv_github_app_installations(
-       identity_key,installation_id,account_login,account_id,account_type,authorized_by_login,authorized_by_id,
-       repository_selection,permissions,status,suspended_at,connected_at,updated_at
-     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,now(),now())
-     ON CONFLICT(identity_key,installation_id) DO UPDATE SET
-       account_login=EXCLUDED.account_login,account_id=EXCLUDED.account_id,account_type=EXCLUDED.account_type,
-       authorized_by_login=EXCLUDED.authorized_by_login,authorized_by_id=EXCLUDED.authorized_by_id,
-       repository_selection=EXCLUDED.repository_selection,permissions=EXCLUDED.permissions,status=EXCLUDED.status,
-       suspended_at=EXCLUDED.suspended_at,updated_at=now()`,
-    [
-      identity, installation.id, installation.account.login, installation.account.id, installation.account.type,
-      authorizedUser.login, authorizedUser.id, installation.repositorySelection,
-      JSON.stringify(installation.permissions || {}), status, installation.suspendedAt || null
-    ]
-  );
-  return true;
-}
-async function removeGithubAppInstallation(identity, installationId) {
-  if (!(await dbReady())) return false;
-  await pool().query(
-    'DELETE FROM nv_github_app_installations WHERE identity_key=$1 AND installation_id=$2',
-    [identity, installationId]
-  );
-  return true;
-}
-const ACCOUNT_CAP = () => (DB_URL ? 10 : 3);
-
 function closeLiveSessions(sessionIds, reason = 'session-revoked') {
   return liveHub.closeSessions(sessionIds, reason);
-}
-let _singleUseStore = null;
-let _rateLimitStore = null;
-/*
- * The shared single-use guard: the step-up grants' where a database is
- * configured, and the GitHub App's and the recovery's OAuth and authorization
- * claims (identity-access/application/session-security.ts says why the guard
- * is chosen by configuration).
- */
-function durableSingleUseStore() {
-  if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
-  return _singleUseStore;
 }
 /* The guards a request passes before a route reads or changes anything (identity-access/application/request-guards.ts). */
 const { providerSessionAccess, auth, signedOutWithoutGithub, accountAuth } = createRequestGuards({
@@ -727,7 +581,7 @@ const { governanceAccess, governanceMutationContext } = createGovernanceContext(
 const {
   providerIdentity, disconnectAlphaProviderAccount, clearProviderSessionCookie, revokeContainedSessions, addAccount, sessionsForIdentity
 } = createAccountLifecycle({
-  alphaEnabled: ALPHA_CONFIG.enabled, databaseConfigured: Boolean(DB_URL), accountCap: ACCOUNT_CAP, ready: dbReady, pool, gh,
+  alphaEnabled: ALPHA_CONFIG.enabled, databaseConfigured: Boolean(DB_URL), accountCap: () => sessionAccountCapacity(Boolean(DB_URL)), ready: dbReady, pool, gh,
   resolveAccount: account => resolveProviderAccount(account, { githubAppBroker }), appBroker: githubAppBroker,
   removeGithubAppInstallation, recordGithubAppAudit, retainedActor,
   forgetJobs: account => { codeAudit.jobs.forget(identityKey(account)); siteJobs.forget(identityKey(account)); renderedJobs.forget(identityKey(account)); },
@@ -821,6 +675,12 @@ const nativePush = createNativePush({
   gh, fetch: fetchT, assertProviderMutation, assertGithubAccount, maxBytes: GIT_PUSH_MAX, maxMegabytes: NATIVE_PUSH_MAX_MB
 });
 const uploadIntake = createUploadIntake({ concurrency: UPLOAD_CONCURRENCY, timeoutMs: UPLOAD_TIMEOUT_MS });
+/* The scan every uploaded file passes, a blocked one recorded on the repository's evidence chain, and the upkeep of the files an upload leaves behind. */
+const scanUploadOrThrow = createUploadScan({
+  scan: scanUploadFile, appendEvidence, retainedActor,
+  evidenceKey: req => scopedEvidenceKey(req.gh.provider || 'github', req.params.owner, req.params.repo, identityKey(req.gh))
+});
+const { startTempMaintenance } = createUploadUpkeep({ staleHours: STALE_UPLOAD_HOURS });
 
 /* Workbench: who owns what in a repository, by its CODEOWNERS file (apps/api/src/modules/workbench/http/codeowners-route.ts). */
 registerCodeownersRoute(app, { providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, account: req => req.gh, fail, gh });

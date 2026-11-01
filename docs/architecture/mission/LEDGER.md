@@ -1915,3 +1915,44 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13l — the GitHub App records, the upload scan and the durable stores
+
+- **What moved.**
+  - A GitHub App installation's record and its audit trail go to identity and access, as `createGithubAppRecords` (`application/github-app-records.ts`): the audit's log line and row, the tester the alpha names as its actor, and an installation's metadata kept and removed outside the alpha. What an audit detail may keep is its domain rule, `safeGithubAppAuditDetails` (`domain/github-app-audit.ts`).
+  - How many accounts a session may hold goes to identity and access's account identity, as `sessionAccountCapacity`: ten where sessions are kept in the database, three where the whole session is sealed into its cookie.
+  - The scan every uploaded file passes goes to the workbench, as `createUploadScan` (`application/upload-scan.ts`): a blocked file refused with 422 and recorded on the repository's evidence chain, a clean one's answer. The platform's scanner, Corona's evidence chain and its key come in as dependencies.
+  - The upkeep of the files an upload leaves behind goes beside it, as `createUploadUpkeep` (`application/upload-upkeep.ts`): only the upload routes' own names, only regular files older than the stale-upload age, at startup and then at most hourly.
+  - The stores a request's admission and its single-use grants are kept in go to the platform, as `createDurableStores` (`platform/rate-limit/durable-stores.ts`), each built on first use over the one pool.
+- **The server.** It composes the stores and the App records right after the database, since the session security, the rate admission and the App broker take them; and the scan and the upkeep with the workbench's other services. It no longer has the 140 lines, or its imports of the file system, the operating system and the two store classes.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the five files, composed as the server composes them, over 20,000 scripted runs:
+  - scan results blocked and clean, of every shape, for requests with and without a repository, with an evidence chain that answers, rejects or throws;
+  - temporary directories of every kind of name, age and file, that fail to be read, stat or unlinked, run directly and as the timer runs them;
+  - the stores with and without a database;
+  - App lifecycle events, installations and removals inside and outside the alpha, with a database that is ready or not, answers, or fails.
+
+  Randomness, time and the timers were fixed alike, and a promise either side left rejected was recorded. Every call each side made, with what it passed, every log line, answer and failure, was identical: 14,072 uploads refused and 18,187 passed, 6,378 evidence records, 20,034 stale files removed, 44,490 audit events logged and 33,549 written, 5,627 installations kept and 22,285 removed.
+
+  Sixty-seven mutants each fail on a comparison:
+  - **what an audit keeps:** a provider login; the reason dropped; a null detail kept; a detail unbounded, or an expiry bounded like the rest; a list of permissions kept; a permission of any name or any level; every permission kept;
+  - **the audit:** a tester looked up outside the alpha; disconnected bindings counted; a shared identity labelled; an identity or event type unbounded; a nameless identity unnamed; an installation id kept in the alpha, or an unsafe one kept; details unfiltered; a supplied actor of any shape; the bound tester ignored; an unknown actor kept; the event unlogged; a row written without a database, with its raw details, or reusing its id;
+  - **an installation:** kept in the alpha or without a database; a suspension never cleared; permissions written as given; a status or the authorizer's id lost; an absent suspension written as given; removed without a database, or for every identity;
+  - **the scan:** a blocked file allowed; an engine unnamed; a rule unbounded; a severity lowered; evidence without a repository, without its actor, or not recorded; a path unbounded; a size as given; a failed record refusing differently; a refusal as a 400 or without its rules; the built-in matches uncounted; YARA said to be configured or available; YARA's error unbounded or dropped;
+  - **the upkeep:** any file in the temporary directory, or an upload's name by any case; the stale age in minutes; an unreadable directory, or one failure, stopping upkeep; a fresh file, a directory or a file at the cutoff removed; no upkeep at startup; upkeep more often than hourly; the timer keeping the process alive;
+  - **the stores and the capacity:** a rate store without a database; a new store each time; a cookie session's capacity raised, or a database session's lowered.
+
+  `test/github-app-records.test.js`, `test/upload-scan.test.js` and `test/durable-stores.test.js` catch all sixty-seven too.
+  - **The first pass** let two past the oracle and crashed it on three. It had never passed a provider login among the details, or asked for the tester outside the alpha directly; and a rejected promise nobody answered stopped the oracle rather than counting as a difference. The oracle now passes both, and records an unanswered rejection.
+  - **The tests** let one past at first: the tester asked for outside the alpha.
+  - **The final judge** ran over the oracle as it now stands.
+- **Tests.**
+  - `test/github-app-records.test.js` covers what an audit detail may keep, the audit inside and outside the alpha (the tester named, the log line, the row, without a database), and an installation kept and removed. `test/upload-scan.test.js` covers a clean file's answer, a blocked file's refusal and record, and which temporary files the upkeep removes, when. `test/durable-stores.test.js` covers both stores and the session's account capacity.
+  - The source checks follow the code:
+    - `github-app-server-contract` reads the installation and audit tables in the App records.
+    - `provider-disconnect-server-contract` reads the alpha's refusal to keep installation metadata, the audit's fields and the tester lookup in identity and access, and checks that the evidence a disconnect or a blocked upload leaves names the retained actor.
+    - `hardening-contract` and `scripts/verify.js` read the malware refusal in the upload scan, composed over the platform's scanner and handed to the upload routes.
+- **Ratchet:** `server.js` falls from 1,040 lines to 900.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

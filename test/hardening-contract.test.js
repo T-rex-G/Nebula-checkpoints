@@ -10,7 +10,7 @@ for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-ap
 }
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 /* Corona's recovery service and routes, which hold the snapshot, restore, access-surface and evidence code (D12f). */
-const corona = ['application/recovery.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
+const corona = ['application/recovery.ts', 'application/evidence-chain.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
   .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', file), 'utf8')).join('\n');
 const schema = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => fs.readFileSync(path.join(root, 'db', 'migrations', name), 'utf8')).join('\n');
 
@@ -46,7 +46,8 @@ assert(corona.includes('tagsAvailable') && corona.includes('tagsError'), 'Snapsh
 assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_identity_keys_idx'), 'Session containment must index identity ownership instead of scanning an arbitrary global window');
 assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(server), 'Session inventory must query the active identity directly');
 assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
-assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(server), 'Evidence append must be idempotent across webhook retries');
+assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(corona), 'Evidence append must be idempotent across webhook retries');
+assert(server.includes('const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');
 const webhookStart = server.indexOf('async function receiveGithubWebhook');
 const webhookEnd = server.indexOf('const SAFETY_EXEMPT', webhookStart);
 const webhookBlock = server.slice(webhookStart, webhookEnd);

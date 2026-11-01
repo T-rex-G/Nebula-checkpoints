@@ -192,6 +192,8 @@ for (const file of [
   'test/account-identity.test.js', 'apps/api/src/modules/identity-access/application/provider-sessions.ts', 'test/provider-sessions.test.js',
   'apps/api/src/modules/identity-access/application/session-security.ts', 'test/session-security.test.js',
   'apps/api/src/platform/network/timed-fetch.ts', 'apps/api/src/modules/github-provider/client/github-rest.ts', 'test/github-rest.test.js',
+  'apps/api/src/modules/corona/domain/safety-controls.ts', 'apps/api/src/modules/corona/application/safety-state.ts', 'test/corona-safety-state.test.js',
+  'apps/api/src/modules/corona/application/evidence-chain.ts', 'test/corona-evidence-chain.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',

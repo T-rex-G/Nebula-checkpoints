@@ -9,9 +9,9 @@ const path = require('path');
 const net = require('net');
 const { spawn } = require('child_process');
 const { Client, Pool } = require('pg');
-const vm = require('vm');
 const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { createSafetyState } = require('../apps/api/src/modules/corona/index.ts');
 const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
@@ -95,15 +95,19 @@ async function main() {
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
     await runMigrations(client, { directory: path.join(root, 'db/migrations') });
-    // Execute the production persistence functions against independent pool
-    // connections. Both requests carry stale middleware/session snapshots.
+    // Execute Corona's safety store, as the server composes it, against
+    // independent pool connections. Both requests carry stale
+    // middleware/session snapshots.
     const safetyPool = new Pool({ connectionString: databaseUrl.toString() });
     try {
-      const source = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-      const functions = source.slice(source.indexOf('function defaultSafety('), source.indexOf('async function appendEvidence('));
-      const context = { DB_URL: databaseUrl.toString(), dbReady: async () => true, pool: () => safetyPool, identityKey: () => identityKey };
-      vm.createContext(context);
-      vm.runInContext(functions + ';this.save = savePersistentSafety;', context);
+      let currentPool = safetyPool;
+      const stores = databaseConfigured => createSafetyState({
+        databaseConfigured, ready: async () => true, pool: () => currentPool, identityKey: () => identityKey,
+        setSession: async () => assert.fail('a safety change does not write the session itself')
+      });
+      const durable = stores(true);
+      const cookieStore = stores(false);
+      const context = { save: (req, patch) => durable.savePersistentSafety(req, patch) };
       const staleRequest = () => ({ gh: account, session: { safety: { readOnly: false, freezeSync: false, protected: {} } } });
       const readState = async () => (await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey])).rows[0].state;
       // Also exercises the initially absent row: row locks alone cannot serialize it.
@@ -127,15 +131,14 @@ async function main() {
         { connect: async () => ({ query: async sql => { if (sql === 'ROLLBACK') return null; throw Object.assign(new Error('terminating connection'), { code: '57P01' }); }, release() {} }) }
       ];
       for (const broken of brokenPools) {
-        context.pool = () => broken;
+        currentPool = broken;
         await assert.rejects(context.save(staleRequest(), { readOnly: true }), error => error.status === 503 && error.code === 'SAFETY_STATE_UNAVAILABLE');
       }
-      context.pool = () => safetyPool;
+      currentPool = safetyPool;
       await assert.rejects(context.save(staleRequest(), { protect: { repo: 'not a repository', path: 'x' } }), error => error.status === 400 && error.code === 'SAFETY_INPUT_INVALID', 'a refused change still says why');
       const cookieOnly = staleRequest();
-      context.DB_URL = '';
-      await context.save(cookieOnly, { readOnly: true });
-      await context.save(cookieOnly, { protect: { repo: 'alice/demo', path: 'private' } });
+      await cookieStore.savePersistentSafety(cookieOnly, { readOnly: true });
+      await cookieStore.savePersistentSafety(cookieOnly, { protect: { repo: 'alice/demo', path: 'private' } });
       assert.strictEqual(cookieOnly.session.safety.readOnly, true, 'cookie-only deployments retain controls across patches');
       assert.deepStrictEqual(Array.from(cookieOnly.session.safety.protected['alice/demo']), ['private']);
       await client.query('DELETE FROM nv_security_state WHERE identity_key=$1', [identityKey]);

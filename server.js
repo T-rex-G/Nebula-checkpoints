@@ -33,7 +33,7 @@ const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
   .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
-  evidenceRecordHash, verifyEvidenceRecord, evidenceKeyrings,
+  evidenceKeyrings, createEvidenceChain, defaultSafety, createSafetyState,
   protectedPatternsForRepository,
   createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
   registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
@@ -200,9 +200,6 @@ const EVIDENCE_KEYRINGS = evidenceKeyrings(process.env, {
   sessionSecret: SECRET,
   ledgerSecret: EVIDENCE_LEDGER_SECRET
 });
-const EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED = EVIDENCE_KEYRINGS.legacyAccepted;
-const EVIDENCE_KEYRING = EVIDENCE_KEYRINGS.keyring;
-const EVIDENCE_LEGACY_PROBE = EVIDENCE_KEYRINGS.legacyProbe;
 const SNAPSHOT_SIGNATURES = createSnapshotSignatures(loadSnapshotSigningConfig(process.env, {
   production: process.env.NODE_ENV === 'production',
   // Production uses this only to reject active-key reuse. Legacy verification
@@ -732,158 +729,18 @@ function durableSingleUseStore() {
   if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
   return _singleUseStore;
 }
-function defaultSafety(value) {
-  const sf = value && typeof value === 'object' ? value : {};
-  return { readOnly: !!sf.readOnly, freezeSync: !!sf.freezeSync, protected: sf.protected && typeof sf.protected === 'object' ? sf.protected : {} };
-}
-function safetyUnavailable() {
-  return Object.assign(new Error('Safety controls could not be loaded or saved. Try again when the database is available.'), {
-    status: 503, code: 'SAFETY_STATE_UNAVAILABLE', providerChanged: false
-  });
-}
-async function loadPersistentSafety(req) {
-  const fallback = defaultSafety(req.session && req.session.safety);
-  if (!DB_URL) return fallback;
-  if (!(await dbReady())) throw safetyUnavailable();
-  try {
-    const r = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identityKey(req.gh)]);
-    return r.rows.length ? defaultSafety(r.rows[0].state) : fallback;
-  } catch { throw safetyUnavailable(); }
-}
-function applySafetyPatch(state, patch) {
-  const cur = defaultSafety(state);
-  cur.protected = { ...cur.protected };
-  const b = patch || {};
-  if (typeof b.readOnly === 'boolean') cur.readOnly = b.readOnly;
-  if (typeof b.freezeSync === 'boolean') cur.freezeSync = b.freezeSync;
-  if (b.protect && b.protect.repo && b.protect.path) {
-    const key = String(b.protect.repo).trim();
-    if (!/^[^/\s]+\/[^/\s]+$/.test(key)) throw Object.assign(new Error('Invalid repository key'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
-    const list = new Set(cur.protected[key] || []);
-    const protectedPath = String(b.protect.path).replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/').trim();
-    if (!protectedPath || protectedPath.length > 512 || protectedPath.includes('..')) throw Object.assign(new Error('Invalid protected path or pattern'), { status: 400, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
-    if (b.protect.on === false) list.delete(protectedPath); else list.add(protectedPath);
-    if (list.size > 100) throw Object.assign(new Error('Up to 100 protected paths or patterns per repository'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
-    if (list.size) cur.protected[key] = [...list].sort(); else delete cur.protected[key];
-    if (Object.keys(cur.protected).length > 30) throw Object.assign(new Error('Up to 30 repositories with protected paths'), { status: 413, code: 'SAFETY_INPUT_INVALID', providerChanged: false });
-  }
-  return cur;
-}
-async function savePersistentSafety(req, patch) {
-  let clean;
-  if (DB_URL && !(await dbReady())) throw safetyUnavailable();
-  if (DB_URL) {
-    let client;
-    try { client = await pool().connect(); } catch { throw safetyUnavailable(); }
-    try {
-      await client.query('BEGIN');
-      const key = identityKey(req.gh);
-      // Serialize absent rows too. Apply only the requested changes to the
-      // latest controls, never the snapshot captured by request middleware.
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`safety:${key}`]);
-      const current = await client.query('SELECT state FROM nv_security_state WHERE identity_key=$1 FOR UPDATE', [key]);
-      clean = applySafetyPatch(current.rows.length ? current.rows[0].state : req.session.safety, patch);
-      await client.query(
-        `INSERT INTO nv_security_state(identity_key,state,updated) VALUES($1,$2::jsonb,now())
-         ON CONFLICT(identity_key) DO UPDATE SET state=EXCLUDED.state, updated=now()`,
-        [key, JSON.stringify(clean)]
-      );
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => {});
-      /* A refused change says why; whatever the database did instead is "unavailable", never an unexplained failure. */
-      if (error && Number(error.status) >= 400 && Number(error.status) < 500) throw error;
-      throw safetyUnavailable();
-    } finally { client.release(); }
-  } else clean = applySafetyPatch(req.session.safety, patch);
-  req.session.safety = clean;
-  return clean;
-}
 /*
- * With a database the identity's controls live in nv_security_state and the
- * session holds a copy. A copy that cannot be written because the session
- * ended meanwhile does not undo a change that has already committed.
+ * A person's safety controls, kept for the identity where there is a
+ * database, and the repository's evidence chain (Corona says how both are
+ * kept).
  */
-async function saveSessionSafetyCopy(req, res) {
-  if (!DB_URL) { await setSession(req, res, req.session); return true; }
-  try { await setSession(req, res, req.session); return true; }
-  catch (error) {
-    const ended = error && (Number(error.status) === 401 || Number(error.status) === 503
-      || ['SESSION_REVOKED', 'ALPHA_PROVIDER_SESSION_UNAVAILABLE', 'ALPHA_SESSION_REVISION_CONFLICT'].includes(error.code));
-    if (!ended) throw error;
-    return false;
-  }
-}
-async function appendEvidence(repoK, kind, recordId, payload) {
-  if (!(await dbReady())) return null;
-  const client = await pool().connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [repoK]);
-    const existing = await client.query(
-      `SELECT seq,created_at,previous_hash,record_hash,payload_hash FROM nv_evidence_chain
-       WHERE repo_key=$1 AND kind=$2 AND record_id=$3 ORDER BY seq ASC LIMIT 1`,
-      [repoK, kind, recordId]
-    );
-    if (existing.rows[0]) {
-      await client.query('COMMIT');
-      return { ...existing.rows[0], deduplicated: true };
-    }
-    const prev = await client.query('SELECT record_hash FROM nv_evidence_chain WHERE repo_key=$1 ORDER BY seq DESC LIMIT 1', [repoK]);
-    const previousHash = prev.rows[0] && prev.rows[0].record_hash || 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
-    const payloadHash = hashJson(payload);
-    const recordHash = evidenceRecordHash(EVIDENCE_LEDGER_SECRET, previousHash, repoK, kind, recordId, payloadHash);
-    const out = await client.query(
-      `INSERT INTO nv_evidence_chain(repo_key,kind,record_id,previous_hash,record_hash,payload_hash)
-       VALUES($1,$2,$3,$4,$5,$6) RETURNING seq,created_at`,
-      [repoK, kind, recordId, previousHash, recordHash, payloadHash]
-    );
-    await client.query('COMMIT');
-    return { ...out.rows[0], previousHash, recordHash, payloadHash };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally { client.release(); }
-}
-async function verifyEvidenceChain(repoK, limit = 1000) {
-  if (!(await dbReady())) return { available: false, valid: false, complete: false, checked: 0, total: 0 };
-  const capped = Math.min(Math.max(limit, 1), 5000);
-  const [r, count] = await Promise.all([
-    pool().query(
-      'SELECT seq,kind,record_id,previous_hash,record_hash,payload_hash,created_at FROM nv_evidence_chain WHERE repo_key=$1 ORDER BY seq ASC LIMIT $2',
-      [repoK, capped]
-    ),
-    pool().query('SELECT count(*)::int AS total FROM nv_evidence_chain WHERE repo_key=$1', [repoK])
-  ]);
-  const total = count.rows[0] ? Number(count.rows[0].total || 0) : 0;
-  let previousHash = 'NEBULAVERSE-EVIDENCE-GENESIS-V2';
-  /* Records written before the hashing key was separated by purpose still
-     verify, under the retired key, and are counted so the export can say so. */
-  let legacyRecords = 0;
-  for (const row of r.rows) {
-    const check = verifyEvidenceRecord(
-      EVIDENCE_KEYRING, row.record_hash, previousHash, repoK, row.kind, row.record_id, row.payload_hash
-    );
-    if (check.legacy) legacyRecords += 1;
-    if (row.previous_hash !== previousHash || !check.valid) {
-      /* Distinguish an unmigrated pre-separation chain from real tampering. */
-      const legacyKeyRequired = !EVIDENCE_LEGACY_SESSION_KEY_ACCEPTED &&
-        row.previous_hash === previousHash &&
-        verifyEvidenceRecord(
-          EVIDENCE_LEGACY_PROBE, row.record_hash, previousHash, repoK,
-          row.kind, row.record_id, row.payload_hash
-        ).valid;
-      return {
-        available: true, valid: false, complete: r.rows.length === total,
-        checked: r.rows.indexOf(row) + 1, total, failedAt: row.seq, legacyRecords,
-        legacyKeyRequired,
-        records: r.rows
-      };
-    }
-    previousHash = row.record_hash;
-  }
-  return { available: true, valid: true, complete: r.rows.length === total, checked: r.rows.length, total, head: previousHash, legacyRecords, legacyKeyRequired: false, records: r.rows };
-}
+const { loadPersistentSafety, savePersistentSafety, saveSessionSafetyCopy } = createSafetyState({
+  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, identityKey, setSession
+});
+const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({
+  ready: dbReady, pool, ledgerSecret: EVIDENCE_LEDGER_SECRET, keyring: EVIDENCE_KEYRINGS.keyring,
+  legacyProbe: EVIDENCE_KEYRINGS.legacyProbe, legacyAccepted: EVIDENCE_KEYRINGS.legacyAccepted
+});
 function liveStreamKey(provider, owner, repo, identity) {
   return scopedEvidenceKey(provider, owner, repo, identity);
 }

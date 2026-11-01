@@ -77,6 +77,7 @@ const {
   alphaConnectionRefusal,
   hostedAccountKey,
   createSessionSecurity,
+  createRequestGuards,
   CSRF_TTL_MS,
   STEP_UP_TTL_MS,
   HOSTED_SESSION_BASE,
@@ -115,9 +116,7 @@ const {
 } = require('./apps/api/src/http/pipeline/index.ts');
 const { loadMigrations, runMigrations, verifyMigrations } = require('./apps/api/src/platform/persistence/migrations.ts');
 const { scanUploadFile, scannerStatus } = require('./apps/api/src/platform/files/file-security.ts');
-const {
-  normalizeStepUpRequest, sensitiveOperationFor
-} = require('./apps/api/src/platform/authorization/security-foundation.ts');
+const { normalizeStepUpRequest } = require('./apps/api/src/platform/authorization/security-foundation.ts');
 const { rateLimitIdentity } = require('./apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 const { createLocalSessionPolicy } = require('./apps/api/src/platform/authorization/local-session-policy.ts');
 const { createDatabasePool } = require('./apps/api/src/platform/persistence/database-pool.ts');
@@ -689,88 +688,11 @@ function durableSingleUseStore() {
   if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
   return _singleUseStore;
 }
-/*
- * Provider routes see only GitHub accounts. Account management (the list,
- * switching, removal, sign-out, the CSRF token) sees retired accounts too, so
- * they can be replaced, and their cleanup evidence recorded, rather than lost.
- */
-async function attachProviderSession(req, { retainRetired = false } = {}) {
-  const s = req.session || await sessionOf(req, { retainRetiredAccounts: retainRetired });
-  if (!s) {
-    throw Object.assign(new Error('Not signed in'), { status: 401, code: 'AUTH_REQUIRED' });
-  }
-  if (!retainRetired && s.retiredSelection) {
-    throw Object.assign(new Error('The selected account is no longer supported. Choose a GitHub account.'), {
-      status: 409, code: 'ACCOUNT_SELECTION_REQUIRED'
-    });
-  }
-  req.session = s;
-  req.sessionAccount = s.accounts[Math.min(s.active || 0, s.accounts.length - 1)];
-  if (!retainRetired) assertGithubAccount(req.sessionAccount);
-  req.gh = { ...req.sessionAccount };
-}
-
-function providerAuthenticationFailure(res, error) {
-  return res.status(error.status || 500).json({
-    error: error.message || 'Security check failed',
-    ...(error.code ? { code: error.code } : {})
-  });
-}
-
-async function providerSessionAccess(req, res, next) {
-  try {
-    await attachProviderSession(req);
-    next();
-  } catch (error) {
-    providerAuthenticationFailure(res, error);
-  }
-}
-
-async function auth(req, res, next) {
-  try {
-    await attachProviderSession(req);
-    req.gh = await resolveProviderAccount(req.sessionAccount, { githubAppBroker });
-    await ensureSessionSecurity(req, res);
-    verifyRequestCsrf(req);
-    req.effectiveSafety = await loadPersistentSafety(req);
-    const blocked = guardSafety(req);
-    if (blocked) return res.status(423).json({ error: blocked, locked: true });
-    const operation = sensitiveOperationFor({
-      method: req.method, path: req.path, params: req.params, body: req.body,
-      provider: req.gh.provider || 'github', identityKey: identityKey(req.gh)
-    });
-    if (operation) await consumeStepUpAuthorization(req, res, operation);
-    next();
-  } catch (e) {
-    res.status(e.status || 500).json({
-      error: e.message || 'Security check failed',
-      ...(e.code ? { code: e.code } : {})
-    });
-  }
-}
-/*
- * A session with no GitHub account left is signed out for every product read:
- * there is nothing to choose. Sign-out and account removal still accept it, so
- * its stored credentials can be cleaned up.
- */
-function signedOutWithoutGithub(req, res) {
-  if (req.session && Array.isArray(req.session.accounts) && req.session.accounts.some(isGithubAccount)) return false;
-  res.status(401).json({ error: 'Not signed in', code: 'AUTH_REQUIRED' });
-  return true;
-}
-async function accountAuth(req, res, next) {
-  try {
-    await attachProviderSession(req, { retainRetired: true });
-    await ensureSessionSecurity(req, res);
-    verifyRequestCsrf(req);
-    req.effectiveSafety = await loadPersistentSafety(req);
-    const blocked = guardSafety(req);
-    if (blocked) return res.status(423).json({ error: blocked, locked: true });
-    next();
-  } catch (e) {
-    providerAuthenticationFailure(res, e);
-  }
-}
+/* The guards a request passes before a route reads or changes anything (identity-access/application/request-guards.ts). */
+const { providerSessionAccess, auth, signedOutWithoutGithub, accountAuth } = createRequestGuards({
+  sessionOf, resolveAccount: account => resolveProviderAccount(account, { githubAppBroker }), ensureSessionSecurity, verifyRequestCsrf,
+  consumeStepUpAuthorization, loadSafety: loadPersistentSafety, guardSafety
+});
 
 /* GitHub's REST API and the archive transport (apps/api/src/modules/github-provider/client/github-rest.ts). */
 const { gh, githubArchiveResponse } = createGithubRestClient({

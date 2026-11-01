@@ -144,12 +144,16 @@ assert.strictEqual(
   /catch[\s\S]{0,200}usedAuthorizations/.test(coronaRecovery), false,
   'no failure path may fall back to the in-process recovery guard'
 );
+/* Every call, in the server and in the modules it composes; a declaration (its parameters typed) is not a call. */
+const stepUpSources = [serverSource, ...fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
+  .filter(file => String(file).endsWith('.ts'))
+  .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', String(file)), 'utf8'))];
 let consumeStepUpAuthorizationCalls = 0;
-for (const line of serverSource.split('\n')) {
+for (const line of stepUpSources.join('\n').split('\n')) {
   if (!line.includes('consumeStepUpAuthorization(')) continue;
-  if (line.includes('async function')) continue;
+  if (line.includes('async function') || /consumeStepUpAuthorization\([^)]*:/.test(line)) continue;
   assert.match(
-    line, /await consumeStepUpAuthorization\(/,
+    line, /await (?:[\w.]+\.)?consumeStepUpAuthorization\(/,
     `every consumeStepUpAuthorization call must be awaited: ${line.trim()}`
   );
   consumeStepUpAuthorizationCalls += 1;

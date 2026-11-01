@@ -1733,3 +1733,36 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13h — the request guards
+
+- **What moved.** The guards a request passes before a route reads or changes anything go to identity and access's application, `application/request-guards.ts`, as `createRequestGuards`:
+  - `providerSessionAccess` attaches the signed-in session and its GitHub account, for a read.
+  - `auth` does that, resolves the account's credential, checks the session's security and the request's CSRF token, loads the identity's safety controls and refuses what they refuse, and spends a step-up grant for a sensitive operation.
+  - `accountAuth` does the same for account management. It accepts a retired account and neither resolves a credential nor asks for step-up.
+  - `signedOutWithoutGithub` answers a session with no GitHub account left.
+
+  The account's resolution (the GitHub provider, with the App broker), the safety controls and their guard (Corona) come in as dependencies, since identity and access cannot import either.
+- **The server.** It composes the guards where they were, after the safety store and the session's security. It no longer has the 78 lines, or the sensitive-operation table's import.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the guards, composed as the server composes them, over 20,000 scripted requests through all four.
+  - A request carried a session or not, with GitHub accounts, retired ones or a mixture, any active index, and a retired selection.
+  - Every dependency answered as the script chose, or failed with any kind of error, a null one included. Those were the stored session, the account's resolution, the session's security, the CSRF check, the safety controls and the step-up grant.
+  - The safety guard and the sensitive-operation table were the real ones, over writes and reads of every route that matters to them. A route itself sometimes threw.
+  - All 20,000 were identical: 3,834 passed, 686 locked by the controls, 11,118 refused, 2,470 failed, 346 step-ups spent, 3,825 credentials resolved, 2,495 signed out for want of a GitHub account, and 583 that threw out of the guard (a null error, as before).
+
+  Thirty-three mutants each fail on a comparison:
+  - **attaching:** the stored session over the request's; retired accounts always dropped; no session as a 403; a retired selection served, or refused to account management, or without its code; the session not attached; the active index unbounded; the first account always; a retired account served; the session's account shared rather than copied;
+  - **answering:** a failure without its status, message or code; a read let through unsigned;
+  - **auth:** the session's own credential kept; the session's security, the CSRF check or the controls skipped; the controls ignored; a lock as a 403 or not marked; the step-up for another provider, or without the request's body; a sensitive operation without step-up; a failure without its status or code;
+  - **signed out:** signed in with any account; signed out as a 403;
+  - **account management:** refusing retired accounts; without CSRF; ignoring the controls; resolving the credential.
+
+  `test/request-guards.test.js` catches all thirty-three too, on its first pass. The oracle let one past at first, the step-up for the session's account rather than the resolved one's. It was equivalent and was dropped: the sensitive-operation table never reads the identity key it is given.
+- **Tests.** `test/request-guards.test.js` covers which session and account each guard attaches, every check of `auth` and `accountAuth` in order, the step-up each sensitive operation spends (and the refusal of a provider other than GitHub), every refusal and failure with its status, message and code, and when a session counts as signed out. The source checks follow the code:
+  - `hardening-contract` and `security-foundation-contract` read the guards in identity and access, with the server's composition of them.
+  - `security-foundation-server` checks that every step-up consumption in the server and its modules is awaited, skipping declarations.
+- **Ratchet:** `server.js` falls from 2,160 lines to 2,082.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

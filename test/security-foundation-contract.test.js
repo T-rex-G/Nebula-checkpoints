@@ -34,7 +34,9 @@ assert(server.includes("require('./apps/api/src/platform/authorization/security-
   assert(routes.some(entry => entry.method === 'GET' && entry.path === '/api/security/csrf'), 'authenticated clients need a CSRF token endpoint');
   assert(routes.some(entry => entry.method === 'POST' && entry.path === '/api/security/step-up'), 'sensitive actions need a step-up grant endpoint');
 }
-assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(server), 'auth must centrally enforce CSRF and single-use step-up grants');
+/* The guards are identity and access's (application/request-guards.ts), composed by the server. */
+assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'request-guards.ts'), 'utf8'))
+  && server.includes('createRequestGuards({'), 'auth must centrally enforce CSRF and single-use step-up grants');
 assert(server.includes("authMethod: 'token'")
   && fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8').includes("authMethod: 'oauth'"),
 'session accounts must preserve the authentication method');

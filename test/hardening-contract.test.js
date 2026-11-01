@@ -31,7 +31,7 @@ assert(server.includes('databaseConfigured: Boolean(DB_URL), ready: dbReady, poo
 assert(/async function setSession\(req: SessionRequest, res: unknown, input: unknown\b[\s\S]+if \(databaseConfigured\)[\s\S]+Session database is temporarily unavailable/.test(sessions), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
 assert(sessions.includes('if (databaseConfigured && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
 assert(/async function destroySession[\s\S]+if \(sid && databaseConfigured\)[\s\S]+sign-out was not completed/.test(sessions), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
-assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(sessions) && /catch \(e\) \{\s*res\.status\(e\.status \|\| 500\)/.test(server), 'Authenticated requests must report a configured session-store outage as 503');
+assert(/if \(s\.sid\)[\s\S]+Session database is temporarily unavailable/.test(sessions) && /catch \(e\) \{\s*const error = e as Refusal;\s*res\.status\(error\.status \|\| 500\)/.test(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'request-guards.ts'), 'utf8')), 'Authenticated requests must report a configured session-store outage as 503');
 /* The account routes are identity and access's. */
 const accountRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'account-routes.ts'), 'utf8');
 for (const [route, nextRoute] of [

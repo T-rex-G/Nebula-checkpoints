@@ -30,7 +30,7 @@ assert(
   'safe passage must only be offered for an approval-required refusal'
 );
 assert(
-  server.includes('res.status(status).json(passage ? { ...body, safePassage: passage } : body)'),
+  fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'http', 'errors.ts'), 'utf8').includes('res.status(status).json(passage ? { ...body, safePassage: passage } : body)'),
   'a refusal carrying a route must answer with it alongside the unchanged error body'
 );
 

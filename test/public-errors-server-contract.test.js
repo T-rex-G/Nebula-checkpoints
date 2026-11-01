@@ -10,8 +10,11 @@ const { currentRoutePolicy } = require('./oracles/current-route-policy');
 const root = path.join(__dirname, '..');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 assert(server.includes("require('./apps/api/src/http/errors.ts')"));
-assert(server.includes('publicErrorBody(error'));
-assert(!/const fail[\s\S]{0,300}\.json\(\{ error: (?:e|error)\.message/.test(server),
+/* The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts). */
+const httpErrors = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'errors.ts'), 'utf8');
+assert(server.includes('const fail = sendFailure;'));
+assert(httpErrors.includes('publicErrorBody(error'));
+assert(!/function sendFailure[\s\S]{0,900}\.json\(\{ error: (?:e|error)\.message/.test(httpErrors),
   'central fail helper must not expose raw errors');
 
 /* A request as the pipeline sees it, and a response that records what it was told. */

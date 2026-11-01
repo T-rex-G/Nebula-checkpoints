@@ -7,7 +7,8 @@
  * literals and templates nested thousands deep, and one SQL statement that
  * never ends. Each is ~200 KB; read in linear time it takes well under a
  * second, and the readings these replace took from four seconds to well over
- * a minute. The bound leaves room for a slow runner.
+ * a minute. The bound is on the CPU time the reading spends, and leaves room
+ * for a slow runner.
  *
  * Then what the bounds keep: a bracket's partner is the one the walk would
  * have found, an argument list splits where it did, the nesting the tracer
@@ -44,10 +45,16 @@ const route = "const app = require('express')();\napp.get('/a', (req, res) => { 
     'SQL statements by the thousand': { path: 'schema.sql', text: fill('create table a (id int); alter table a enable row level security;\n') }
   };
   for (const [name, file] of Object.entries(crafted)) {
-    const started = Date.now();
+    /*
+     * The process's own CPU time, not the wall clock: what is bounded is the
+     * work the reading does, and a runner busy with other tests must not make
+     * a linear reading look quadratic.
+     */
+    const started = process.cpuUsage();
     analyse({ files: [file], paths: [file.path] });
-    const took = Date.now() - started;
-    assert(took < 2500, `${name}: ${took} ms -- a crafted file must not make the tracer quadratic`);
+    const spent = process.cpuUsage(started);
+    const took = Math.round((spent.user + spent.system) / 1000);
+    assert(took < 2500, `${name}: ${took} ms of CPU -- a crafted file must not make the tracer quadratic`);
   }
 }
 

@@ -95,8 +95,8 @@ assert.strictEqual(
  * It constructs the error from the response; a code that is not
  * set there never reaches the model above.
  */
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes("const limit = providerRateLimit(r.status, r.headers, data);\n    err.status = limit ? 429 : r.status; err.body = data;\n    err.code = providerFailureCode(err.status);"),
+const rest = fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
+assert(rest.includes("const limit = providerRateLimit(response.status, response.headers, data);\n      error.status = limit ? 429 : response.status; error.body = data;\n      error.code = providerFailureCode(error.status);"),
   'the GitHub transport must classify failures, a rate limit carried by a 403 included, before throwing');
 
 console.log('public error model tests passed');

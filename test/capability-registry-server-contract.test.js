@@ -56,7 +56,7 @@ const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
 assert.match(
-  serverSource,
+  fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8'),
   /if \(initial\.body\) await initial\.body\.cancel\(\);\s+const location/,
   'GitHub archive redirects must release the authenticated response body before validation and codeload'
 );

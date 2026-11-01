@@ -11,46 +11,8 @@
 
 const express = require('express');
 const crypto = require('crypto');
-async function fetchT(url, opts = {}, ms = 20000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`Upstream timeout after ${ms / 1000}s`)), ms);
-  if (typeof timeout.unref === 'function') timeout.unref();
-  let response;
-  try {
-    response = await fetch(url, { ...opts, signal: controller.signal });
-  } catch (error) {
-    clearTimeout(timeout);
-    throw error;
-  }
-  if (!response.body) {
-    clearTimeout(timeout);
-    return response;
-  }
-  const reader = response.body.getReader();
-  const body = new ReadableStream({
-    async pull(streamController) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          clearTimeout(timeout);
-          streamController.close();
-        } else streamController.enqueue(value);
-      } catch (error) {
-        clearTimeout(timeout);
-        streamController.error(error);
-      }
-    },
-    async cancel(reason) {
-      clearTimeout(timeout);
-      try { await reader.cancel(reason); } catch {}
-    }
-  });
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers
-  });
-}
+/* The timed fetch every provider call goes through (apps/api/src/platform/network/timed-fetch.ts). */
+const { fetchWithDeadline: fetchT } = require('./apps/api/src/platform/network/timed-fetch.ts');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
@@ -61,7 +23,7 @@ const {
 const {
   githubTokenKind, validateRepositoryCreation, githubRepositoryScopes, validateCodeQuery, scopedCodeQuery,
   GithubAppError, createGithubAppState, verifyGithubAppState, GithubAppBroker,
-  resolveProviderAccount
+  resolveProviderAccount, createGithubRestClient
 } = require('./apps/api/src/modules/github-provider/index.ts');
 const CAPABILITY_DOCUMENT = loadCapabilityDocument(
   path.join(__dirname, 'config', 'public-alpha-capabilities.json')
@@ -145,7 +107,7 @@ const WEB_BUILD = loadWebBuild(WEB_ROOT);
  * shell cache it replaces. A stamp that only names the version leaves a
  * returning browser with new HTML and cache-first scripts from an older build.
  */
-const { publicErrorBody } = require('./apps/api/src/http/errors.ts');
+const { publicErrorBody, sendFailure } = require('./apps/api/src/http/errors.ts');
 const {
   registerProbeRoutes, registerPublicFileRoutes, registerVendorRoute, registerWebhookIntakeRoute, registerWebShellRoutes,
   registerConfigRoutes, registerProviderRateRoute, registerVersionRoute, registerShellFallback
@@ -349,8 +311,6 @@ const mutationGateway = createMutationGateway({
 const authorizationResolver = createAuthorizationResolver({
   request: async ({ account, apiPath }) => gh(account, apiPath)
 });
-const GH_API = 'https://api.github.com';
-const API_VERSION = '2022-11-28';
 
 const MB = 1024 * 1024;
 const CONTENTS_MAX = 40 * MB;
@@ -1176,169 +1136,13 @@ async function accountAuth(req, res, next) {
   }
 }
 
-/* ---------------- GitHub helper ---------------- */
-const _etags = new Map(); // key → { etag, body } (LRU-ish, capped)
-/*
- * A code for a provider's own refusal, so its explanation survives.
- *
- * publicErrorBody only passes an error's message through when the error
- * carries a recognised code; anything else becomes "Operation could not be
- * completed". The GitHub helper attached no code, so every refusal GitHub
- * explained -- a workflow file rejected for want of scope, a conflict,
- * a rate limit -- reached the operator as that one sentence, and the reason
- * they had actually been given was thrown away at the last step.
- *
- * The redaction in publicErrorBody is unchanged and still runs: a message that
- * looks like it carries a credential is still suppressed. This only stops a
- * message being discarded merely for having no code.
- */
-function providerFailureCode(status) {
-  const value = Number(status);
-  if (value === 401 || value === 403) return 'PROVIDER_FORBIDDEN';
-  if (value === 404) return 'PROVIDER_NOT_FOUND';
-  if (value === 409) return 'PROVIDER_CONFLICT';
-  if (value === 422) return 'PROVIDER_REJECTED';
-  if (value === 429) return 'PROVIDER_RATE_LIMITED';
-  if (value >= 500) return 'PROVIDER_UNAVAILABLE';
-  return 'PROVIDER_REQUEST_FAILED';
-}
-
-/*
- * GitHub answers an exhausted primary rate limit, and every secondary limit,
- * with 403 as often as with 429. Read as a 403 it told the reader their
- * credential could not do what it had just been doing, sent the deletion and
- * webhook routes into permission advice, and gave no time to try again. A
- * limit is recognised by what GitHub documents for it -- a retry-after, an
- * exhausted x-ratelimit-remaining, or its own words -- and the wait is the one
- * GitHub gives: retry-after, else the reset, else a minute. The server does not
- * retry on the reader's behalf; it says when, and the client decides.
- */
-function providerRateLimit(status, headers, body, now = Date.now()) {
-  const retryAfter = headers.get('retry-after');
-  const limited = status === 429 || (status === 403 && (
-    retryAfter != null || headers.get('x-ratelimit-remaining') === '0'
-    || /\brate limit\b/i.test(String(body && body.message || ''))));
-  if (!limited) return null;
-  let seconds = /^\d+$/.test(String(retryAfter || '').trim()) ? Number(retryAfter) : NaN;
-  if (!Number.isFinite(seconds) && headers.get('x-ratelimit-remaining') === '0') {
-    const reset = Number(headers.get('x-ratelimit-reset'));
-    if (Number.isFinite(reset) && reset > 0) seconds = Math.ceil(reset - now / 1000);
-  }
-  if (!Number.isFinite(seconds)) seconds = 60;
-  return Object.freeze({ retryAfterSeconds: Math.min(Math.max(Math.trunc(seconds), 1), 3600) });
-}
-
-async function gh(acct, apiPath, opts = {}) {
-  if (typeof acct === 'string') acct = { provider: 'github', token: acct };
-  assertGithubAccount(acct);
-  const provider = 'github';
-  const token = acct.token;
-  const API_BASE = GH_API;
-  const AUTH = `Bearer ${token}`;
-  const method = opts.method || 'GET';
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    mutationGateway.assertProviderMutation({ provider, baseUrl: acct.baseUrl, method, apiPath, body: opts.body });
-  }
-  const cacheable = method === 'GET' && !opts.raw && !opts.accept;
-  const ck = cacheable ? crypto.createHash('sha1').update(`${provider}|${acct.baseUrl || ''}|${token}|${apiPath}`).digest('hex') : null;
-  const cached = ck ? _etags.get(ck) : null;
-  const r = await fetchT(API_BASE + apiPath, {
-    method,
-    headers: {
-      Authorization: AUTH,
-      Accept: opts.accept || 'application/vnd.github+json',
-      'X-GitHub-Api-Version': API_VERSION,
-      'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`,
-      ...(cached ? { 'If-None-Match': cached.etag } : {}),
-      ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(opts.headers || {})
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    redirect: opts.redirect === 'manual' ? 'manual' : 'error'
-  }, opts.timeoutMs || (opts.raw ? UPLOAD_TIMEOUT_MS : 20000));
-  if (opts.raw) return r;
-  if (cached && r.status === 304) return JSON.parse(cached.body);
-  const text = await r.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-  if (!r.ok) {
-    if (!ALPHA_CONFIG.enabled && acct.authMethod === 'github-app' && githubAppBroker && r.status === 401) {
-      githubAppBroker.invalidate(acct.installationId);
-    }
-    const err = new Error((data && data.message) || `GitHub error ${r.status}`);
-    const limit = providerRateLimit(r.status, r.headers, data);
-    err.status = limit ? 429 : r.status; err.body = data;
-    err.code = providerFailureCode(err.status);
-    if (limit) err.retryAfterSeconds = limit.retryAfterSeconds;
-    throw err;
-  }
-  if (ck && r.headers.get('etag')) {
-    if (_etags.size > 400) _etags.delete(_etags.keys().next().value);
-    _etags.set(ck, { etag: r.headers.get('etag'), body: text });
-  }
-  return data;
-}
-
-async function githubArchiveResponse(acct, owner, repo, ref) {
-  if ((acct.provider || 'github') !== 'github') {
-    throw Object.assign(new Error('GitHub archive transport requires a GitHub account'), { status: 400 });
-  }
-  const initial = await gh(acct, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/${encodeURIComponent(ref)}`, {
-    raw: true,
-    redirect: 'manual'
-  });
-  if (![301, 302, 303, 307, 308].includes(initial.status)) return initial;
-  if (initial.body) await initial.body.cancel();
-  const location = initial.headers.get('location');
-  let target;
-  try { target = new URL(String(location || '')); }
-  catch { throw Object.assign(new Error('GitHub archive redirect is invalid'), { status: 502 }); }
-  const segments = target.pathname.split('/').filter(Boolean);
-  let redirectedOwner = '';
-  let redirectedRepo = '';
-  try {
-    redirectedOwner = decodeURIComponent(segments[0] || '');
-    redirectedRepo = decodeURIComponent(segments[1] || '');
-  } catch {
-    throw Object.assign(new Error('GitHub archive redirect is invalid'), { status: 502 });
-  }
-  if (
-    target.origin !== 'https://codeload.github.com' ||
-    target.username ||
-    target.password ||
-    target.hash ||
-    segments[2] !== 'legacy.zip' ||
-    redirectedOwner.toLowerCase() !== String(owner).toLowerCase() ||
-    redirectedRepo.toLowerCase() !== String(repo).toLowerCase()
-  ) {
-    throw Object.assign(new Error('GitHub archive redirect target is not trusted'), { status: 502 });
-  }
-  return fetchT(target, {
-    headers: {
-      Accept: 'application/zip',
-      'User-Agent': `${PRODUCT_NAME}/${APP_VERSION}`
-    },
-    redirect: 'error'
-  }, UPLOAD_TIMEOUT_MS);
-}
-const fail = (res, error) => {
-  // Once a download starts, a second JSON response cannot be sent. End the
-  // broken transfer without letting ERR_HTTP_HEADERS_SENT escape the handler.
-  if (res.headersSent || res.destroyed) {
-    if (!res.destroyed) res.destroy();
-    return;
-  }
-  const status = error && error.status >= 400 && error.status < 600 ? error.status : 500;
-  const body = publicErrorBody(error, { correlationId: res.locals.correlationId });
-  /* A limit that named its own wait passes it on, so a client waits that long and no longer. */
-  if (status === 429 && Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
-    res.setHeader('Retry-After', String(error.retryAfterSeconds));
-  }
-  /* A refusal that has a compliant route carries it alongside the refusal. The
-   * public error body itself is left exactly as it was. */
-  const passage = error && error.safePassage;
-  return res.status(status).json(passage ? { ...body, safePassage: passage } : body);
-};
+/* GitHub's REST API and the archive transport (apps/api/src/modules/github-provider/client/github-rest.ts). */
+const { gh, githubArchiveResponse } = createGithubRestClient({
+  fetch: fetchT, assertProviderMutation: descriptor => mutationGateway.assertProviderMutation(descriptor),
+  userAgent: `${PRODUCT_NAME}/${APP_VERSION}`, transferTimeoutMs: UPLOAD_TIMEOUT_MS, appBroker: githubAppBroker, alphaEnabled: ALPHA_CONFIG.enabled
+});
+/* A failed request's answer (apps/api/src/http/errors.ts). */
+const fail = sendFailure;
 
 /*
  * Every content-changing action reports the complete set of repository paths it

@@ -15,6 +15,8 @@ export {
   verifyGithubAppState
 } from './client/github-app.ts';
 export type { GithubAppConfig, Installation, StateContext, StatePayload } from './client/github-app.ts';
+export { GITHUB_API, GITHUB_API_VERSION, createGithubRestClient, providerFailureCode, providerRateLimit } from './client/github-rest.ts';
+export type { GithubAccount, GithubRequestOptions, GithubRestClient, GithubRestDeps } from './client/github-rest.ts';
 export {
   connectionRestriction,
   createVerifiedRepository,

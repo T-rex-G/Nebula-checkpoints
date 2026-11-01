@@ -192,12 +192,15 @@ for (const routePath of ['/api/github-app/refresh', '/api/github-app/disconnect'
   assert(block.includes('addressed(req)'), `${routePath} must address invite-mode App state by the stable hashed connection key`);
 }
 
-const ghStart = server.indexOf('async function gh(');
-const ghEnd = server.indexOf('\n}', ghStart) + 2;
-const ghBlock = server.slice(ghStart, ghEnd);
-assert(ghBlock.includes("!ALPHA_CONFIG.enabled && acct.authMethod === 'github-app'"),
+/* GitHub's REST client is the provider's (github-provider/client/github-rest.ts); the server says whether this is the alpha. */
+const rest = fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
+const ghStart = rest.indexOf('  async function gh(');
+const ghEnd = rest.indexOf('\n  }\n', ghStart) + 4;
+assert(ghStart >= 0);
+const ghBlock = rest.slice(ghStart, ghEnd);
+assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'") && server.includes('alphaEnabled: ALPHA_CONFIG.enabled'),
   'invite-mode provider fallback must not invalidate shared broker state');
-assert(ghBlock.includes("opts.redirect === 'manual' ? 'manual' : 'error'"));
+assert(ghBlock.includes("options.redirect === 'manual' ? 'manual' : 'error'"));
 assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
 /* OAuth sign-in is identity and access's; its callback is the last route in its file. */
 const oauthRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');

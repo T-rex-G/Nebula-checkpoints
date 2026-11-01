@@ -308,8 +308,11 @@ assert(
  * and where the provider session is kept (identity-access/application/provider-sessions.ts).
  * 2,804 to 2,720: the session's own security, CSRF, step-up and the offline
  * cache's scope (identity-access/application/session-security.ts).
+ * 2,720 to 2,524: the timed fetch (platform/network/timed-fetch.ts), GitHub's
+ * REST client and archive transport (github-provider/client/github-rest.ts),
+ * and the failure answer (http/errors.ts).
  */
-const SERVER_LINE_CEILING = 2720;
+const SERVER_LINE_CEILING = 2524;
 const serverLines = (serverSource.match(/\n/g) || []).length;
 assert(serverLines <= SERVER_LINE_CEILING,
   `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);

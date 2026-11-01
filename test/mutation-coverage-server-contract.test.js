@@ -39,18 +39,20 @@ for (const entry of policyRoutes.filter(route => ['POST', 'PUT', 'PATCH', 'DELET
   }
 }
 /*
- * Every provider write asks the gateway first: the API client in server.js,
- * and the workbench's two transports that bypass it -- the native Git push and
- * the LFS upload, with each LFS exchange named.
+ * Every provider write asks the gateway first: the GitHub REST client (wired
+ * to the gateway by server.js), and the workbench's two transports that bypass
+ * it -- the native Git push and the LFS upload, with each LFS exchange named.
  */
 const workbench = file => fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
+const githubRest = fs.readFileSync(path.join(root, 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
+assert(server.includes('assertProviderMutation: descriptor => mutationGateway.assertProviderMutation(descriptor)'), 'the GitHub client must ask the mutation gateway');
 const bodyOf = (source, start, end, label) => {
   const at = source.indexOf(start);
   assert(at >= 0, `missing helper ${label}`);
   return source.slice(at, source.indexOf(end, at) + end.length);
 };
 const providerWriters = [
-  ['gh', bodyOf(server, 'async function gh(', '\n}', 'gh'), 'mutationGateway.assertProviderMutation'],
+  ['gh', bodyOf(githubRest, '  async function gh(', '\n  }', 'gh'), 'deps.assertProviderMutation'],
   ['the native push', bodyOf(workbench('application/native-push.ts'), '  async function push(', '\n  }', 'push'), 'deps.assertProviderMutation'],
   ['the LFS upload', bodyOf(workbench('application/lfs.ts'), '  async function upload(', '\n  }', 'upload'), 'deps.assertProviderMutation']
 ];

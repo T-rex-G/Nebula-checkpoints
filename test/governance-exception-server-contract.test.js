@@ -27,6 +27,6 @@ for (const [routePath, action, role] of [
   if (role) assert(guards.includes(`governanceAccess('${role}')`), 'decisions and revocation must require administrator');
 }
 
-assert.match(server, /case 'governance\.exception\.request':[\s\S]*ruleIds:[\s\S]*target:[\s\S]*ruleCount:/, 'exception request gateway metadata must bind the targeted rule set');
+assert.match(fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'kepler', 'domain', 'governance-mutation-metadata.ts'), 'utf8'), /case 'governance\.exception\.request':[\s\S]*ruleIds:[\s\S]*target:[\s\S]*ruleCount:/, 'exception request gateway metadata must bind the targeted rule set');
 
 console.log('governance exception server contract tests passed');

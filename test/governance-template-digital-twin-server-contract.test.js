@@ -18,7 +18,7 @@ for (const [method, routePath] of [
   assert(entry, `missing ${method} ${routePath}`);
   assert(entry.guards.includes("governanceAccess('reader')"), `${method} ${routePath} must be reader authorized`);
 }
-assert(server.includes("res.setHeader('Cache-Control', 'no-store')"));
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8').includes("res.setHeader('Cache-Control', 'no-store')"), 'governance answers are never cached (Kepler\'s governance context)');
 assert(governanceRoutes.includes('const readRepositoryFacts = async (req: Request)'));
 assert(governanceRoutes.includes('const repositoryFacts = await readRepositoryFacts(req);'));
 

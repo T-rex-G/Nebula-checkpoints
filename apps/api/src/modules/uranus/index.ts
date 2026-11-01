@@ -112,6 +112,7 @@ export type { Decision, KeptRow } from './domain/audit-triage.ts';
 export type { KeptAlert, KeptAudit, KeptComponent, KeptFinding } from './persistence/audit-history-records.ts';
 export type { KeptAuditRead, RecordOutcome, WatchedAudit } from './persistence/audit-history-store.ts';
 export { AUDIT_RUN_PORTS, CODE_AUDIT_STORES, createCodeAuditService } from './application/code-audit-service.ts';
+export { mergeFactsFor } from './application/merge-facts.ts';
 export type { AccountTriage, AuditRunPorts, CodeAuditDeps, CodeAuditStores, CodeAuditService, PullFacts, RecordedHistory, RepositoryTarget, RunAuditInput } from './application/code-audit-service.ts';
 export { registerCodeAuditRoutes } from './http/code-audit-routes.ts';
 export type { CodeAuditRouteDeps } from './http/code-audit-routes.ts';

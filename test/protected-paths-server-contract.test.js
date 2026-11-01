@@ -18,13 +18,15 @@ const coverage = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform
 const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
 const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 
-assert(server.includes("require('./apps/api/src/platform/mutation-gateway/protected-paths.ts')"), 'server must load the effective path set module');
+/* The repository mutation context (mutation-context.ts) builds the metadata the server's context records. */
+const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
+assert(mutationContextSource.includes("import { pathFactsForAction } from './protected-paths.ts';") && server.includes('createRepositoryMutationContext({'), 'server must load the effective path set module');
 assert(
-  server.includes('...pathFactsForAction(action, base)'),
+  mutationContextSource.includes('...pathFactsForAction(action, base)'),
   'every mutation descriptor must carry the effective path set of its action'
 );
 assert(
-  /function mutationMetadataFor\(req, action\) \{\s*const base = baseMutationMetadataFor\(req, action\);/.test(server),
+  /function mutationMetadataFor\(req: ContextRequest, action: string\): Record<string, unknown> \{\s*const base = baseMutationMetadataFor\(req, action\);/.test(mutationContextSource),
   'the path set must be merged for every action, not per switch case, so a new action cannot skip it'
 );
 assert(

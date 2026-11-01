@@ -1766,3 +1766,53 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13i — the mutation contexts
+
+- **What moved.**
+  - The context a repository change runs in goes to the platform, `platform/mutation-gateway/mutation-context.ts`, as `createRepositoryMutationContext`. It describes the change: who asks, for which repository, through which route, with what authorization, and the metadata the policy and the ledger read, path facts included. A merge's facts are read first. The route then runs inside the mutation gateway, and the context ends when the answer is sent or the connection closes. An approval refusal of a write is offered the safe passage, judged by the active policy set read without writing.
+  - The wrapper both contexts share, which runs the route until the answer or the close and leaves no listener behind, is exported as `runInMutationContext`, with `applyPolicyDecisionHeaders`. The server had written it twice.
+  - The modules' parts come in as dependencies, since the platform imports only the platform: the authorization resolver, the alpha's actor label, Uranus's merge facts, Corona's restore inspection, Kepler's active policy set and step evaluator, and the failure answer.
+  - Who may read and change a repository's governance, and the context a governance change runs in, go to Kepler, `http/governance-context.ts`, as `createGovernanceContext`, with `OWN_WORK`. What the ledger records about each governance-shaped change goes to Kepler's domain, `domain/governance-mutation-metadata.ts`. That covers governance's own actions and the exposure and code-audit decisions recorded the same way.
+  - A merge's facts go to Uranus, `application/merge-facts.ts`, as `mergeFactsFor`. It reads the pull request and the merge gate through the audit service, as the server did.
+- **The server.** It composes both contexts where they were. It no longer has the 446 lines, or the imports of the batch, path, safe-passage, snapshot and audit-triage helpers they used.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the new files, composed as the server composes them, over 8,000 scripted requests for every repository and governance action.
+  - **The gateway** refused before the route (an approval refusal or another), ran it with or without a policy decision, or failed after it.
+  - **The route** answered, threw, or left the answer open while the connection closed, and the answer was sometimes already sent when a failure arrived.
+  - **The dependencies:** authorization resolved with every role, publicly or not, or failed. The governance service, the merge's pull request and gate, a restore preview's inspection and the active policy set each answered or failed.
+  - **The inputs:** bodies and parameters were random, raw, malformed, valid or long, for every field any action reads. Accounts came with and without a provider. Alpha testers were valid and invalid, inside and outside the alpha.
+  - The safe passage and its step evaluator were the real ones.
+
+  All 8,000 were identical: 5,535 repository and 2,465 governance requests; 2,885 routes run and 3,917 failures answered; 161 safe passages offered; 1,383 governance refusals; 6,627 policy headers; 187 failures after the answer had begun; 827 merges and 1,258 restores described.
+
+  A hundred mutants each fail on a comparison:
+  - **the headers:** a decision without its outcome, mode or id; every warning sent, or an empty list sent;
+  - **the run:** ended at the answer only or the close only; listeners left behind, after either end or a throwing route; a throwing route swallowed; the context not on the request; no policy headers;
+  - **the repository metadata:** path facts dropped; texts unbounded; a repository private or initialised only when asked; a branch from nowhere; a reset without its target; a write without its head; a rename or a folder move without an end; a batch without its summary; a revert without its commit; a path restore without its prefix; a draft pull request not said; a merge's facts unread, its method not defaulted, or its audit dropped; a review without its event; an issue update without its state; a release by GitHub's field names ignored; an upload's LFS mode not defaulted; a restore not inspected, or its confirmation unbounded;
+  - **the descriptor:** another default provider; a new repository under the route's owner; the actor's login not kept; the route as requested rather than declared; the step-up, or its time, not recorded; the authorization not recorded;
+  - **the authorization:** a new repository resolved, or for another reason; the alpha's label applied outside the alpha or never; the principal or the governance actor not relabelled;
+  - **the safe passage:** offered for any refusal, any action, without content or without a database; judged by no policy; an unavailable passage offered; a failure unlogged;
+  - **the repository context:** the authorization not on the request; a merge without its facts, or every change read as a merge; a refusal without its passage; a late failure answered again, unlogged, or without its code;
+  - **governance access:** answers cached; no service; another provider's scope; the role ignored; a public reader among collaborators, or refused everywhere, or refused as a 401, or not marked; own work closed to public readers;
+  - **the governance context:** a change without governance access; the session's provider, or the session's identity, in place of the authorization's; a step-up recorded; the authorization dropped; the metadata dropped; a late failure answered again;
+  - **the governance metadata:** a policy key or an identifier unbounded; a negative revision kept; a decision, a triage reason, a simulation hash or an export format by case; rule ids unsorted or unbounded; a target list kept; the rule count capped; a reset's text recorded, or confirmed by case; a triage of 3,651 days; a probe's column count uncapped; notifications enabled by a word; a webhook's address recorded, or disabled by default; an export from a negative event; an unknown action described;
+  - **the merge facts:** a pull number as text; an unreadable pull request failing the merge; the gate never asked.
+
+  `test/mutation-context.test.js` and `test/governance-context.test.js` catch all hundred too.
+  - **The first pass** let seven past the oracle. It had never sent a valid batch, an account without a provider, a valid alpha tester, a listed policy set, a provider name in another case, or a reset confirmation that matched.
+  - **After that widening** one more slipped past: the restore confirmation's bound, since the restore mode only sent a short confirmation. It now sends a long one too.
+  - **The tests** let three past at first: a new repository whose route names another owner, and that a refusal without approval, or a write without content, never reads the policy set.
+  - **The final judge** ran again over the oracle as it now stands.
+
+  Two mutants first listed were equivalent and were dropped:
+  - a raw body read as the body: a `Buffer` has none of the fields the metadata reads;
+  - line breaks kept: `cleanText` already turns them into spaces.
+- **Tests.** `test/mutation-context.test.js` covers the policy headers, the run and how it ends, the metadata and descriptor of every action, the authorization and its alpha relabelling, every case of the safe passage, the context when it runs, refuses or fails after the answer has begun, and a merge's facts. `test/governance-context.test.js` covers governance access for every role, public reader and scope, the governance context and its failures, and the metadata of every governance-shaped action. The source checks follow the code:
+  - `authorization-resolver-server-contract`, `mutation-gateway-server-contract`, `protected-paths-server-contract`, `safe-passage-server-contract`, `mutation-coverage-server-contract` and `governance-enforcement-server-contract` read the platform's mutation context and the server's composition of it.
+  - `governance-api-server-contract`, `governance-template-digital-twin-server-contract` and `governance-exception-server-contract` read Kepler's governance context and metadata.
+  - `verify.js` reads the batch and restore summaries in the platform.
+- **Ratchet:** `server.js` falls from 2,082 lines to 1,636.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

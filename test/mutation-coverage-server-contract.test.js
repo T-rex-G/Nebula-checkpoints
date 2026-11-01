@@ -62,8 +62,11 @@ assert(providerWriters[1][1].includes("transport: 'git-receive-pack'"));
 assert(lfsUpload.includes("transport: 'git-lfs.batch'"));
 assert(lfsUpload.includes("transport: 'git-lfs.upload'"));
 assert(lfsUpload.includes("transport: 'git-lfs.verify'"));
-assert(server.includes('recovery.inspectRestoreAuthorization({ account: req.gh, owner: req.params.owner, repo: req.params.repo }, body.authorization)'));
-assert(server.includes("case 'recovery.restore-refs':"));
+/* A restore's metadata inspects its preview without spending it (the platform's mutation context, composed with Corona's recovery). */
+const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
+assert(mutationContextSource.includes('deps.inspectRestoreAuthorization({ account: req.gh, owner: (req.params as Fields).owner, repo: (req.params as Fields).repo }, body.authorization)'));
+assert(server.includes('inspectRestoreAuthorization: (target, authorization) => recovery.inspectRestoreAuthorization(target, authorization)'));
+assert(mutationContextSource.includes("case 'recovery.restore-refs':"));
 /* A folder move names the head its listing came from (the workbench's folder move). */
 assert(workbench('http/folder-move-route.ts').includes('requireAggregateExpectedHead(requestedHead)'));
 /* The reference restore reports each branch, a partial failure as one (Corona's recovery routes). */

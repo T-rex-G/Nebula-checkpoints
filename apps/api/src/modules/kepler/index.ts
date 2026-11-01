@@ -97,4 +97,7 @@ export type { GovernanceApiOptions, GovernanceApiStore, GovernanceContext, Servi
 export { GovernanceStore, translateDatabaseError } from './persistence/governance-store.ts';
 export type { AuthorizationEvidence, GovernanceActor, GovernanceStoreOptions } from './persistence/governance-store.ts';
 export { governanceFailure, registerGovernanceLifecycleRoutes, registerGovernanceRoutes } from './http/governance-routes.ts';
+export { OWN_WORK, createGovernanceContext } from './http/governance-context.ts';
+export type { GovernanceContextDeps, GovernanceGuards } from './http/governance-context.ts';
+export { governanceMutationMetadata } from './domain/governance-mutation-metadata.ts';
 export type { GovernanceRequest, GovernanceRouteDeps } from './http/governance-routes.ts';

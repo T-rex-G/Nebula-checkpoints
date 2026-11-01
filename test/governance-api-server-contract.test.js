@@ -26,16 +26,18 @@ assert(/\bcreateGovernanceApiService\b/.test(kepler[1]), 'server must load the g
 assert(/\bGovernanceStore\b/.test(kepler[1]), 'server must load the durable governance store');
 assert(/\bregisterGovernanceRoutes\b/.test(kepler[1]) && /\bregisterGovernanceLifecycleRoutes\b/.test(kepler[1]), 'server must register the governance routes through Kepler');
 assert(server.includes('governance: req => req.governance'), 'the routes must read the governance context the server guard attached');
-assert(server.includes('function governanceAccess('), 'server must expose one governance authorization middleware');
-assert(server.includes('function governanceMutationContext('), 'governance writes must use one mutation gateway middleware');
-assert(server.includes('req.governance.authorization'), 'governance boundary must retain only server-derived authorization evidence');
+/* The governance guard and its mutation context are Kepler's (http/governance-context.ts), composed by the server. */
+const governanceContext = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
+assert(governanceContext.includes('function governanceAccess(') && server.includes('const { governanceAccess, governanceMutationContext } = createGovernanceContext({'), 'server must expose one governance authorization middleware');
+assert(governanceContext.includes('function governanceMutationContext('), 'governance writes must use one mutation gateway middleware');
+assert(governanceContext.includes('req.governance.authorization'), 'governance boundary must retain only server-derived authorization evidence');
 assert(governanceRoutes.includes('authorization: governance(req).authorization') && !/authorization: req\.body/.test(governanceRoutes), 'governance routes must pass only the server-derived authorization evidence');
 for (const source of [server, governanceRoutes]) {
   assert(!source.includes('req.body.governanceRoles'), 'browser governance roles must never be trusted');
   assert(!source.includes('req.body.actorIdentityKey'), 'browser actor identities must never be trusted');
 }
 assert(governanceRoutes.includes("req.get('Idempotency-Key')"), 'governance writes must accept a bounded idempotency key without putting it in descriptors');
-assert(server.includes("res.setHeader('Cache-Control', 'no-store')"), 'governance responses must disable browser and intermediary caching');
+assert(governanceContext.includes("res.setHeader('Cache-Control', 'no-store')"), 'governance responses must disable browser and intermediary caching');
 /* The safety guard is Corona's (domain/safety-guard.ts). */
 const safetyGuard = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', 'domain', 'safety-guard.ts'), 'utf8');
 assert(safetyGuard.includes('export function isCurrentGovernanceControlPlaneRequest('), 'read-only exemption must enumerate the current governance control-plane routes');

@@ -20,13 +20,15 @@ const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 const { offerSafePassage, ROUTABLE_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/safe-passage.ts');
 
-assert(server.includes("require('./apps/api/src/platform/mutation-gateway/safe-passage.ts')"), 'server must load the safe passage module');
+/* The repository mutation context (mutation-context.ts), composed by the server, consults the safe passage. */
+const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
+assert(mutationContextSource.includes("import { offerSafePassage, type StepEvaluator } from './safe-passage.ts';") && server.includes('createRepositoryMutationContext({'), 'server must load the safe passage module');
 assert(
-  server.includes('const passage = await safePassageFor(req, action, descriptor, error);'),
+  mutationContextSource.includes('const passage = await safePassageFor(req, action, descriptor, error);'),
   'the refusal path must consult safe passage before answering'
 );
 assert(
-  server.includes("if (!error || error.code !== 'POLICY_APPROVAL_REQUIRED' || !descriptor) return null;"),
+  mutationContextSource.includes("if (!error || (error as Fields).code !== 'POLICY_APPROVAL_REQUIRED' || !descriptor) return null;"),
   'safe passage must only be offered for an approval-required refusal'
 );
 assert(
@@ -47,7 +49,7 @@ assert(
 /* Building an offer must never change the outcome of a refusal that is already
  * decided, so the helper swallows its own failures. */
 assert(
-  /async function safePassageFor\([\s\S]*?\} catch \(offerError\) \{[\s\S]*?return null;\s*\}\s*\}/.test(server),
+  /async function safePassageFor\([\s\S]*?\} catch \(offerError\) \{[\s\S]*?return null;\s*\}\s*\}/.test(mutationContextSource),
   'a failure while building an offer must mean no offer, never a different status'
 );
 
@@ -73,7 +75,7 @@ assert(!resolver.includes('idFactory'), 'the resolver must not mint a decision i
 /* Only actions whose payload is wholly in hand at refusal are routable. */
 assert.deepStrictEqual([...ROUTABLE_ACTIONS], ['file.write']);
 assert(
-  server.includes("if (action !== 'file.write') return null;"),
+  mutationContextSource.includes("if (action !== 'file.write') return null;"),
   'the server must offer routes only for the actions the module can carry'
 );
 

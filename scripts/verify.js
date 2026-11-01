@@ -198,6 +198,8 @@ for (const file of [
   'apps/api/src/modules/pulsar/application/webhook-limiter.ts', 'apps/api/src/modules/pulsar/application/webhook-intake.ts',
   'apps/api/src/modules/pulsar/domain/public-callback.ts', 'test/pulsar-webhook-intake.test.js',
   'apps/api/src/modules/identity-access/application/request-guards.ts', 'test/request-guards.test.js',
+  'apps/api/src/platform/mutation-gateway/mutation-context.ts', 'apps/api/src/modules/uranus/application/merge-facts.ts', 'test/mutation-context.test.js',
+  'apps/api/src/modules/kepler/http/governance-context.ts', 'apps/api/src/modules/kepler/domain/governance-mutation-metadata.ts', 'test/governance-context.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -412,7 +414,7 @@ must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transactio
 must(coronaRoutes.includes("app.get('/api/repo/:owner/:repo/access-surface'") && coronaRoutes.includes('riskForAccessSurface') && server.includes('registerAccessSurfaceRoutes(app,'), 'Shadow Access Radar is missing');
 must(coronaRoutes.includes("app.post('/api/repo/:owner/:repo/snapshot-compare'") && coronaRoutes.includes("app.post('/api/repo/:owner/:repo/restore-preview'") && server.includes('registerSnapshotRoutes(app,'), 'Snapshot comparison or restore preview is missing');
 must(server.includes('scanUploadFile') && server.includes('MALWARE_DETECTED'), 'Upload malware gate is missing');
-must(server.includes('normalizeFileBatch') && server.includes('summarizeBatchItems'), 'Task 18 aggregate mutation evidence is not wired');
+must(read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes('normalizeFileBatch(body.ops)') && read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes("summarizeBatchItems('recovery.restore-refs', inspected.actions)") && server.includes('createRepositoryMutationContext({'), 'Task 18 aggregate mutation evidence is not wired');
 const mutationCoverage = read('apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 must(mutationCoverage.includes('MUTATION_ROUTE_INVENTORY') && mutationCoverage.includes('ACTION_EXECUTION_CONTRACTS'), 'Task 18 mutation coverage inventory is missing');
 must(read('apps/api/src/modules/kepler/delivery/governance-delivery.ts').includes('MAX_EXPORT_EVENTS') && read('apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts').includes('startWebhookWorker'), 'Task 19 governance delivery foundation is missing');

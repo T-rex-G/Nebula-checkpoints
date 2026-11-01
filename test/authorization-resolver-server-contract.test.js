@@ -10,12 +10,17 @@ const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform'
 
 assert(server.includes("require('./apps/api/src/platform/authorization/authorization-resolver.ts')"), 'server must load the authorization resolver');
 assert(server.includes('createAuthorizationResolver({'), 'server must create one authorization resolver');
-assert(server.includes('async function resolveMutationAuthorization('), 'server must expose one mutation authorization boundary');
-assert(server.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
-assert(server.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
+/* The mutation contexts are the platform's (mutation-context.ts) and Kepler's (governance-context.ts), composed by the server. */
+const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
+const governanceContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
+assert(mutationContextSource.includes('async function resolveMutationAuthorization(') && server.includes('createRepositoryMutationContext({'), 'server must expose one mutation authorization boundary');
+assert(mutationContextSource.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
+assert(mutationContextSource.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
 assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*gh\(account, apiPath\)/.test(server), 'resolver requests must use server-side GitHub credentials');
-assert(!server.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
-assert(!server.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
+for (const source of [server, mutationContextSource, governanceContextSource]) {
+  assert(!source.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
+  assert(!source.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
+}
 
 assert(gateway.includes("from '../authorization/authorization-resolver.ts'"), 'mutation gateway must validate authorization snapshots');
 /* The descriptor's guard is the mutation contract's; the gateway hands it the resolver's snapshot guard. */
@@ -33,8 +38,8 @@ assert(descriptorContract.includes('security: normalizeMutationSecurity(input.se
  * reader's own -- their audits and scans, keyed by identity -- and refused by
  * everything the repository's collaborators share.
  */
-assert(/if \(isPublicReaderAccess\(context\.authorization\) && options\.publicRepositories !== true\)/.test(server), 'governance access must refuse public readers unless the route opts in');
-assert(server.includes("code: 'GOVERNANCE_COLLABORATORS_ONLY'"), 'the refusal must say why');
+assert(/if \(isPublicReaderAccess\(context\.authorization\) && options\.publicRepositories !== true\)/.test(governanceContextSource), 'governance access must refuse public readers unless the route opts in');
+assert(governanceContextSource.includes("code: 'GOVERNANCE_COLLABORATORS_ONLY'"), 'the refusal must say why');
 /* Read from the route policy, so a route counts wherever it is registered: server.js or a module's routes. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const ownWork = policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => `${entry.method} ${entry.path}`).sort();

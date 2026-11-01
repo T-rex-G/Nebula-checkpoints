@@ -46,7 +46,10 @@ assert.deepStrictEqual(notifications && notifications.guards, ['providerSessionA
 const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
 assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifications').code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
 assert(collaboration.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
-assert(server.includes('githubAppBroker.invalidate') && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
+/* Disconnecting is identity and access's account lifecycle, handed the server's App broker. */
+const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
+assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)') && server.includes('appBroker: githubAppBroker,')
+  && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
 assert(server.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
 assert(server.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
 assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken|userToken)/.test(server + appRoutes), 'server JSON must not expose GitHub App secrets');

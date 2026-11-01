@@ -41,7 +41,8 @@ assert(server.includes('createRequestGuards({') && server.includes('createSessio
 /* The guards are identity and access's (application/request-guards.ts), composed by the server. */
 assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'request-guards.ts'), 'utf8'))
   && server.includes('createRequestGuards({'), 'auth must centrally enforce CSRF and single-use step-up grants');
-assert(server.includes("authMethod: 'token'")
+/* Signing in is identity and access's account lifecycle; OAuth is its own route. */
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8').includes("options: Fields = { authMethod: 'token' }")
   && fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8').includes("authMethod: 'oauth'"),
 'session accounts must preserve the authentication method');
 {

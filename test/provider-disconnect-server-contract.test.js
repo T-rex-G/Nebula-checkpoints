@@ -6,6 +6,8 @@ const path = require('path');
 
 const { locations } = require('./oracles/route-policy');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+/* An account's life in a session -- signing in, disconnecting, sessions elsewhere -- is identity and access's, composed by the server. */
+const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
 
 /* A POST route's registration up to the next one, in whichever file the route policy found it. */
 const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
@@ -25,9 +27,12 @@ function routeBlock(routePath) {
 const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
 assert(identityAccess, 'the server must load identity and access through its index');
 assert.match(identityAccess[1], /\bAlphaPrivacyStore\b/);
-assert.match(identityAccess[1], /\bdisconnectProviderAccount\b/);
+assert.match(identityAccess[1], /\bcreateAccountLifecycle\b/);
+assert(lifecycle.includes("import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';"));
 assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
-assert.match(server, /async function disconnectAlphaProviderAccount\(/);
+assert(server.includes('privacyStore: alphaPrivacyStore\n});'), 'the lifecycle is handed the central privacy lifecycle store');
+assert.match(lifecycle, /async function disconnectAlphaProviderAccount\(req: LifecycleRequest/);
+assert.match(server, /\} = createAccountLifecycle\(\{/);
 const alphaSessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'alpha-sessions.ts'), 'utf8');
 const alphaRequestSessionStart = alphaSessions.indexOf('async function readRequestSession(req: Request)');
 assert(alphaRequestSessionStart >= 0, 'missing the access session reader');
@@ -61,25 +66,29 @@ for (const routePath of removalRoutes) {
 {
   /* The remove route may call it twice (the account, then retired leftovers); no other route may call it at all. */
   const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
-  let outside = [server, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
+  let outside = [server, lifecycle, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
   for (const routePath of removalRoutes) outside = outside.replace(routeBlock(routePath), '');
   assert.strictEqual((outside.match(/await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/g) || []).length, 0,
     'only the five approved routes may invoke the central account disconnect helper');
 }
 
-const helperStart = server.indexOf('async function disconnectAlphaProviderAccount(');
-const helperEnd = server.indexOf('async function addAccount(', helperStart);
-const helper = server.slice(helperStart, helperEnd);
+/* A function of the lifecycle's factory, up to its closing brace. */
+const nested = (text, start) => {
+  const at = text.indexOf(start);
+  assert(at >= 0, start);
+  return text.slice(at, text.indexOf('\n  }\n', at) + 5);
+};
+const helper = nested(lifecycle, 'async function disconnectAlphaProviderAccount(');
 assert(helper.includes('disconnectProviderAccount({'));
 assert(helper.includes('enumerateProviderWebhooks'));
 assert(helper.includes('removeProviderWebhook'));
 assert(helper.includes('readProviderWebhook'));
-assert(helper.includes('alphaPrivacyStore.prepareProviderDisconnect'));
-assert(helper.includes('alphaPrivacyStore.completeProviderWebhookCleanup'));
+assert(helper.includes('store.prepareProviderDisconnect'));
+assert(helper.includes('store.completeProviderWebhookCleanup'));
 assert(!helper.includes('removeLocalWebhookRecord'),
   'provider proof and local webhook/evidence completion must not be split across transactions');
-assert(helper.includes('alphaPrivacyStore.finalizeProviderDisconnect'));
-assert(helper.includes('recordPendingEvidence') && helper.includes('alphaPrivacyStore.createCleanupTask'),
+assert(helper.includes('store.finalizeProviderDisconnect'));
+assert(helper.includes('recordPendingEvidence') && helper.includes('store.createCleanupTask'),
   'a retired account leaves recorded manual-cleanup evidence, not silence');
 assert(helper.includes("result.reasonCode === RETIRED_CLEANUP"),
   'a retired account does not stop the GitHub accounts after it from being disconnected');
@@ -100,11 +109,6 @@ assert(helper.includes('return { verifiedAbsent: false };'),
 
 /* The provider session store is identity and access's (application/provider-sessions.ts). */
 const sessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
-const nested = (text, start) => {
-  const at = text.indexOf(start);
-  assert(at >= 0, start);
-  return text.slice(at, text.indexOf('\n  }\n', at) + 5);
-};
 const sessionOfBlock = nested(sessions, 'async function sessionOf(req: SessionRequest,');
 assert(sessionOfBlock.includes('readHostedProviderSession({'));
 assert(sessionOfBlock.includes('testerId: req.alpha.testerId'));
@@ -119,12 +123,10 @@ assert(setSessionBlock.includes('mutateHostedProviderSession({'));
 assert(setSessionBlock.includes('recomputeHostedSessionMutation('));
 assert(setSessionBlock.includes('testerId: req.alpha.testerId'));
 
-const addStart = server.indexOf('async function addAccount(');
-const addEnd = server.indexOf('\n}', addStart) + 2;
-const addBlock = server.slice(addStart, addEnd);
+const addBlock = nested(lifecycle, 'async function addAccount(');
 assert(addBlock.includes('connectHostedProviderAccount({'));
 assert(addBlock.includes('? stableProviderIdentityKey(account)'));
-assert(addBlock.indexOf('capacity: ACCOUNT_CAP()') < addBlock.indexOf('connectHostedProviderAccount({') + 500,
+assert(addBlock.indexOf('capacity: deps.accountCap()') < addBlock.indexOf('connectHostedProviderAccount({') + 500,
   'capacity must be part of the atomic connection transaction');
 
 const accountIdentity = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'account-identity.ts'), 'utf8');
@@ -138,11 +140,9 @@ assert(stableIdentityBlock.includes("domain: 'nv-alpha-provider-identity/github-
 assert(!stableIdentityBlock.includes('authorizedById'),
   'GitHub App identity must be installation-stable across testers and authorizers');
 
-const sessionInventoryStart = server.indexOf('async function sessionsForIdentity(req)');
-const sessionInventoryEnd = server.indexOf('\n}', sessionInventoryStart) + 2;
-const sessionInventoryBlock = server.slice(sessionInventoryStart, sessionInventoryEnd);
+const sessionInventoryBlock = nested(lifecycle, 'async function sessionsForIdentity(req');
 assert(sessionInventoryBlock.includes('nv_alpha_provider_session_ownership'));
-assert(sessionInventoryBlock.includes('req.alpha.testerId'));
+assert(sessionInventoryBlock.includes('(req.alpha as Alpha).testerId'));
 assert(sessionInventoryBlock.includes('session_key_hash'),
   'hosted-alpha containment must scope sessions through tester-owned session hashes');
 
@@ -156,12 +156,10 @@ for (const routePath of [
   assert(!block.includes("pool().query('DELETE FROM nv_sessions"),
     `${routePath} must not leave active ownership rows behind`);
 }
-const containmentStart = server.indexOf('async function revokeContainedSessions(');
-const containmentEnd = server.indexOf('\n}', containmentStart) + 2;
-const containmentBlock = server.slice(containmentStart, containmentEnd);
-assert(containmentBlock.includes('alphaPrivacyStore.revokeOwnedProviderSessions'));
-assert(containmentBlock.indexOf('ALPHA_CONFIG.enabled')
-  < containmentBlock.indexOf("pool().query('DELETE FROM nv_sessions"),
+const containmentBlock = nested(lifecycle, 'async function revokeContainedSessions(');
+assert(containmentBlock.includes('store.revokeOwnedProviderSessions'));
+assert(containmentBlock.indexOf('deps.alphaEnabled') >= 0 && containmentBlock.indexOf('deps.alphaEnabled')
+  < containmentBlock.indexOf("deps.pool().query('DELETE FROM nv_sessions"),
   'invite-mode containment must return through the ownership-aware store before legacy deletion');
 
 const installationPersistenceStart = server.indexOf('async function persistGithubAppInstallation(');

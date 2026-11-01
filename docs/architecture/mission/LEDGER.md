@@ -1866,3 +1866,52 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13k — the account lifecycle
+
+- **What moved.** An account's life in a session goes to identity and access's application, `application/account-lifecycle.ts`, as `createAccountLifecycle`:
+  - **who an account is:** an App installation as it says, any other account as its provider says;
+  - **signing in:** one entry per identity up to the account cap, the new one selected. In the alpha the account joins the tester's own provider session, a new one when the cookie names a session that ended; elsewhere a sign-in that replaces a row holding only retired accounts removes that row and its credentials;
+  - **disconnecting:** outside the alpha, an App installation's grant dropped and recorded, the selected identity kept selected, and what to revoke at a retired provider named. In the alpha, each account through the provider disconnect until one cannot remove its provider state; a retired account's credential leaves the session at once and its cleanup waits for the operator;
+  - **a provider session's cookie** ended with its live streams; **sessions elsewhere** revoked, and an identity's sessions found.
+
+  The GitHub client, the App broker and its audit trail, the session and its cookie, the held audits and the alpha's privacy store come in as dependencies. `RETIRED_CLEANUP` is exported with it.
+- **The server.** It composes the lifecycle where `providerIdentity` stood. It no longer has the 327 lines, or its imports of the hosted account key, the revocation guidance, the provider disconnect, the alpha's identity key, the connection refusal and the hosted session's base and revision.
+- **One read dropped.** The identity's sessions read the account's base URL and never used it; the read is gone.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the module, composed as the server composes it, over 20,000 scripted runs:
+  - inside and outside the alpha, with and without a database;
+  - for accounts of GitHub (token, OAuth, App), retired providers, none and an unknown one, and GitHub's by another spelling;
+  - with existing sessions and none, cookies naming sessions and not;
+  - with a provider, a pool and a privacy store that answer, refuse or fail as one seeded script says for both sides.
+
+  The provider disconnect, the identity keys and the alpha's refusals are the real ones. Randomness and time were fixed alike. Every call each side made, with what it passed, every answer and failure, and what the request and session were left holding, was identical: 40,091 disconnects (1,822 accounts verified gone, 509 retired, 11,511 pending), 25,652 sign-ins (9,395 into a tester's session, 9,341 refused), 4,866 session lists and 9,928 revocations.
+
+  Eighty-seven mutants each fail on a comparison:
+  - **who an account is:** an App identity asked of the provider or without its avatar; the wrong path;
+  - **disconnecting, outside the alpha:** a malformed account kept; held audits kept; the alpha path taken; a token account treated as an App; the broker kept warm; an installation's grant kept or its leaving unrecorded; the selection by clamped index, read unclamped, or handed to a retired account; accounts not removed; a step-up kept; no guidance for a retired account;
+  - **disconnecting, in the alpha:** without the tester, or refused as a 403; the account resolved each time; webhooks of every identity, without their stored hash or by their local id; a removal claimed or made with GET; the readback skipped; an unencoded path; a token account's broker invalidated; cleanup recorded against another identity or as a webhook; a retired account stopping the rest, or a pending one not; an App disconnect unrecorded; a retired credential kept; the hosted selection, base or revision lost or shared; a retired cleanup counted complete; no manual cleanup named;
+  - **the cookie and revocation:** a live session left open; the cookie not cleared; nothing to revoke still asked; revoked as asked rather than as done; the wrong column;
+  - **signing in:** an unknown method kept; a login untrimmed; an account id kept as text; an incomplete identity as a 500; a fractional installation accepted; an installation's text unbounded; every repository selected; permissions shared; a verification time made up; an installation listed twice or replaced across authorizers; no credential; a token account listed twice or replaced across providers; the alpha keyed like the legacy session; a held session ignored or a numeric one held; the cap ignored, exceeded or applied to the newest; an ended session not restarted, restarted on any refusal, or restarted under its own name; a refusal passed raw; the connected session, its base or its cookie lost; the new account not selected; a retired selection or a step-up kept; a replaced row or its live streams kept; a row replaced over an existing session; a new session never created;
+  - **sessions elsewhere:** listed without a cookie or for another provider; released or unowned sessions listed; legacy rows not read; a row listed twice, unreadable or not the identity's; the current session unmarked.
+
+  `test/account-lifecycle.test.js` catches all eighty-seven too.
+  - **The first pass** let five past the oracle. It had never compared the hosted base with the session itself, signed an App in with another authorizer's installation, or sent a long account type. Recording whether the base is a copy, and those sign-ins, closed them. Two more came through when the plan changed: a retired account selected, and an installation replaced across authorizers. A drive that disconnects the selected account, and an App sign-in into every scenario's session, closed those.
+  - **The final judge** ran over the oracle as it now stands.
+
+  Three mutants first listed were equivalent and were dropped:
+  - **the binding's provider:** the provider disconnect lowercases it, and only GitHub's reaches the binding;
+  - **a partial disconnect supported-complete:** a shorter list of results always ends with an account whose state stayed, which fails the check anyway;
+  - **a hook removed at a retired provider:** removal is reached only with a valid binding, which needs GitHub's own authority.
+- **Tests.**
+  - `test/account-lifecycle.test.js` covers who an account is; signing in outside the alpha (trimmed and keyed, replacing the right entries, the cap, a replaced row) and into a tester's session (the held session, a numeric cookie, an ended session restarted, refusals); disconnecting outside the alpha (selection, an installation's grant) and through the provider disconnect (each hook removed and read back, a hash that disagrees, an installation, a retired account's cleanup and session, an account that stops the rest); the cookie; revocation; and an identity's sessions.
+  - The source checks follow the code:
+    - `provider-disconnect-server-contract` reads the disconnect, the sign-in, the containment and the session inventory in the lifecycle, and counts the lifecycle among the places that may not call the central disconnect.
+    - `alpha-privacy-server-contract` checks that the lifecycle takes the revocation guidance from the privacy policy.
+    - `github-app-server-contract` reads the broker's invalidation in the lifecycle, handed the server's broker.
+    - `hardening-contract` reads the session inventory's query in the lifecycle.
+    - `security-foundation-contract` reads the default sign-in method in the lifecycle.
+- **Ratchet:** `server.js` falls from 1,367 lines to 1,040.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

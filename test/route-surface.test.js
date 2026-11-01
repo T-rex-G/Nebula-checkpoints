@@ -312,7 +312,7 @@ assert(
  * REST client and archive transport (github-provider/client/github-rest.ts),
  * and the failure answer (http/errors.ts).
  */
-const SERVER_LINE_CEILING = 1367;
+const SERVER_LINE_CEILING = 1040;
 const serverLines = (serverSource.match(/\n/g) || []).length;
 assert(serverLines <= SERVER_LINE_CEILING,
   `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);

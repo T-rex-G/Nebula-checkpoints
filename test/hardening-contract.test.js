@@ -46,7 +46,9 @@ for (const [route, nextRoute] of [
 }
 assert(corona.includes('tagsAvailable') && corona.includes('tagsError'), 'Snapshots must disclose an unavailable tag inventory');
 assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_identity_keys_idx'), 'Session containment must index identity ownership instead of scanning an arbitrary global window');
-assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(server), 'Session inventory must query the active identity directly');
+/* An identity's sessions elsewhere are identity and access's account lifecycle's to find. */
+const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
+assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(accountLifecycle) && server.includes('sessionsForIdentity'), 'Session inventory must query the active identity directly');
 assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
 assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(corona), 'Evidence append must be idempotent across webhook retries');
 assert(server.includes('const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');

@@ -31,9 +31,12 @@ function routeBlock(method, routePath) {
   /* The server reaches identity and access through the module's index only; the routes take the privacy policy from its domain. */
   const identityAccess = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/identity-access\/index\.ts'\)/.exec(server);
   assert(identityAccess, 'the server must load identity and access through its index');
-  for (const name of ['alphaActorLabel', 'providerRevocationGuidance', 'registerAlphaPrivacyRoutes', 'registerAlphaDisconnectRoutes']) {
+  for (const name of ['alphaActorLabel', 'createAccountLifecycle', 'registerAlphaPrivacyRoutes', 'registerAlphaDisconnectRoutes']) {
     assert.match(identityAccess[1], new RegExp(`\\b${name}\\b`), `the server must take ${name} from identity and access`);
   }
+  /* What to revoke by hand is the lifecycle's to say, from the privacy policy. */
+  const accountLifecycle = fs.readFileSync(path.join(identityHttp, '..', 'application', 'account-lifecycle.ts'), 'utf8');
+  assert(accountLifecycle.includes("import { providerRevocationGuidance } from '../domain/alpha-privacy.ts';"));
   assert(lifecycle.includes("import { alphaRetentionPolicy, sanitizeFeedback } from '../domain/alpha-privacy.ts';"));
   assert.match(server, /registerAlphaPrivacyRoutes\(app, \{ config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, releaseVersion: APP_VERSION \}\);/);
   assert.match(server, /registerAlphaDisconnectRoutes\(app, \{\s+config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, accountAuth, fail, sessions: alphaSessions,\s+disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie\s+\}\);/);

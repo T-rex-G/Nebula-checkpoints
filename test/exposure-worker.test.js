@@ -783,21 +783,22 @@ function runnerFor(store, reader, options = {}) {
  * halves: that the gate exists, and that it reads the document rather than a
  * separate flag somebody would have to remember to set in two places.
  *
- * These read server.js as text. That is a weaker instrument than running it,
- * and it is the one available: starting the server to prove a background
- * worker did not start would prove very little either way.
+ * These read Quasar's exposure host and the server that composes it as text;
+ * test/exposure-host.test.js runs the host itself. Starting the server to
+ * prove a background worker did not start would prove very little either way.
  */
 {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
 
   const quasar = server.match(/const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/quasar\/index\.ts'\)/);
-  assert(quasar && /\bstartExposureWorker\b/.test(quasar[1]), 'the worker must be wired in');
-  assert(/\bexposureReader\b/.test(quasar[1]), 'with the reader it reads through');
+  assert(quasar && /\bcreateExposureHost\b/.test(quasar[1]) && host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
+  assert(host.includes('      reader: exposureReader,'), 'with the reader it reads through');
 
-  const gate = server.match(/function exposureScanningAvailable\(\)[\s\S]*?\n}/);
+  const gate = host.match(/function exposureScanningAvailable\(\)[\s\S]*?\n  }/);
   assert(gate, 'the capability gate must exist');
   assert(
-    gate[0].includes('CAPABILITY_DOCUMENT'),
+    gate[0].includes('deps.capabilityDocument') && server.includes('capabilityDocument: CAPABILITY_DOCUMENT'),
     'the gate must read the capability document, not a second source of truth'
   );
   assert(
@@ -805,16 +806,16 @@ function runnerFor(store, reader, options = {}) {
     'and must treat Unavailable as not available'
   );
 
-  const ensure = server.match(/function ensureExposureWorker\(\)[\s\S]*?\n}/);
+  const ensure = host.match(/function ensureExposureWorker\(\)[\s\S]*?\n  }/);
   assert(ensure, 'the worker must be started through one function');
-  for (const condition of ['exposureWorker', 'DB_URL', 'shuttingDown', 'exposureScanningAvailable()']) {
+  for (const condition of ['worker ||', 'deps.databaseConfigured', 'deps.shuttingDown()', 'exposureScanningAvailable()']) {
     assert(
       ensure[0].includes(condition),
       `starting the worker must be conditional on ${condition}`
     );
   }
   assert(
-    /ensureExposureWorker\(\);/.test(server),
+    /\nensureExposureWorker\(\);/.test(server),
     'and the function must actually be called at startup'
   );
 
@@ -824,13 +825,15 @@ function runnerFor(store, reader, options = {}) {
    * recovering it means reading the repository again, and finishing the batch
    * in hand is cheaper.
    */
+  const shutdown = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'lifecycle', 'graceful-shutdown.ts'), 'utf8');
   assert(
-    /const drainedExposureWorker = exposureWorker \? exposureWorker\.stop\(\) : null;/.test(server),
+    host.includes('return worker ? worker.stop() : null;') && server.includes('drain: () => [governance.stop(), exposure.stop()]'),
     'the worker must be drained on shutdown'
   );
   assert(
-    /await drainedExposureWorker;/.test(server),
-    'and awaited, or draining it is a statement with no effect'
+    /for \(const work of drained\) \{\s*try \{ await work; \} catch \{\}/.test(shutdown)
+      && shutdown.indexOf('await work;') < shutdown.indexOf('await deps.closeDatabase()'),
+    'and awaited before the pool closes, or draining it is a statement with no effect'
   );
 
   /*
@@ -838,7 +841,7 @@ function runnerFor(store, reader, options = {}) {
    * rather than anything stored on the job. The token must not be written
    * anywhere: asserted by requiring the resolver to return it and nothing else.
    */
-  assert(server.includes('resolveStoredExposureSession(input'), 'the server uses the owned-session resolver');
+  assert(host.includes('resolveStoredExposureSession(input'), 'the server uses the owned-session resolver');
   const resolver = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-session.ts'), 'utf8')
     .match(/async function resolveExposureSession[<(][\s\S]*?\n}/);
   assert(resolver, 'the session resolver must exist');
@@ -897,7 +900,8 @@ function runnerFor(store, reader, options = {}) {
   );
   assert(/reader: exposureReader, verifyCredential, probeReadability: probeAnonymousReadability/.test(server),
     'the routes reach the provider through the module\'s own reader, verifier and prober');
-  assert(server.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
+  const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
+  assert(host.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
 }
 
   /* ---- History ------------------------------------------------------------ */

@@ -9,12 +9,14 @@ const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
 const exposes = routePath => policyRoutes.some(entry => entry.method === 'GET' && entry.path === routePath);
 const gateway = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
-assert(server.includes('createGovernanceRuntime'), 'server must create the runtime policy evaluator');
+/* The runtime is built by Kepler's governance host, which the server composes and hands the gateway's policy port. */
+const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'kepler', 'application', 'governance-host.ts'), 'utf8');
+assert(host.includes('const runtime = createGovernanceRuntime({') && server.includes('createGovernanceHost({') && server.includes('runtime: governanceRuntime'), 'server must create the runtime policy evaluator');
 assert(server.includes('policyEvaluator:'), 'mutation gateway must receive the policy evaluator');
 assert(fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8').includes("X-Nebulaverse-Policy-Outcome"), 'warning/observe outcome must be surfaced in bounded response headers');
 const settings = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8');
 assert(settings.includes('normalizeGovernanceRuntimeFailureMode(env.NV_GOVERNANCE_RUNTIME_FAILURE_MODE)')
-  && server.includes('failureMode: GOVERNANCE_RUNTIME_FAILURE_MODE'), 'runtime failure mode must be explicit and validated');
+  && server.includes('runtimeFailureMode: GOVERNANCE_RUNTIME_FAILURE_MODE') && host.includes('    failureMode: deps.runtimeFailureMode,'), 'runtime failure mode must be explicit and validated');
 for (const injected of ['policyDecision', 'controlMapping', 'enforcementMode']) {
   assert.throws(() => require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts').normalizeMutationDescriptor({ action: 'file.write', [injected]: {} }),
     error => error.name === 'MutationGatewayError' && error.code === 'MUTATION_POLICY_INPUT_FORBIDDEN', 'client/server descriptors must not inject policy decisions');

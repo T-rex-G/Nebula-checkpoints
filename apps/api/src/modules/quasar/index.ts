@@ -1,7 +1,7 @@
 /*
  * Quasar: credential exposure. Detection and its rules, keyed findings, the
  * archives a scan opens, what a finding means in words, the scan worker and
- * its store, and the three provider clients -- the repository reader, the
+ * its store and their life in the process, and the three provider clients -- the repository reader, the
  * credential verifier and the readability probe -- each a namespace of its
  * own, because each speaks to a different party and their vocabularies
  * overlap. Its routes are in http/. The rest of the server reaches this module
@@ -87,6 +87,8 @@ export * as credentialVerifier from './client/credential-verification.ts';
 export * as readabilityProbe from './client/anonymous-readability-probe.ts';
 export { resolveExposureSession } from './application/exposure-session.ts';
 export type { ExposureSessionDependencies, ExposureSessionInput } from './application/exposure-session.ts';
+export { createExposureHost } from './application/exposure-host.ts';
+export type { ExposureHost, ExposureHostDeps } from './application/exposure-host.ts';
 export { DEFAULT_BUDGETS, EXPOSURE_BUDGET_VERSION, createExposureRunner, startExposureWorker } from './application/exposure-worker.ts';
 export type {
   Budgets,

@@ -36,7 +36,6 @@ const {
   createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
   registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
 } = require('./apps/api/src/modules/corona/index.ts');
-const { cleanText } = require('./apps/api/src/platform/values/text.ts');
 const {
   createLiveHub, createWebhookLimiter, createWebhookIntake, publicCallbackBase, registerActivityRoutes, registerLiveEventRoutes
 } = require('./apps/api/src/modules/pulsar/index.ts');
@@ -117,20 +116,18 @@ const { createSessionSeal, readCookie: getCookie, createSessionCookieWriter } = 
 const { createDatabaseLifecycle } = require('./apps/api/src/platform/persistence/database-lifecycle.ts');
 const localSessionPolicy = createLocalSessionPolicy();
 const { createDurableStores } = require('./apps/api/src/platform/rate-limit/durable-stores.ts');
+const { createGracefulShutdown } = require('./apps/api/src/platform/lifecycle/graceful-shutdown.ts');
 const { createAuthorizationResolver } = require('./apps/api/src/platform/authorization/authorization-resolver.ts');
 const {
   activePolicySetStepEvaluator,
-  createGovernanceApiService,
   createGovernanceContext,
+  createGovernanceHost,
   OWN_WORK,
-  createGovernanceRuntime,
-  GovernanceStore,
   normalizePolicyScope,
-  startWebhookWorker, registerGovernanceRoutes, registerGovernanceLifecycleRoutes
+  registerGovernanceRoutes, registerGovernanceLifecycleRoutes
 } = require('./apps/api/src/modules/kepler/index.ts');
 const { createMutationGateway } = require('./apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const { createRepositoryMutationContext } = require('./apps/api/src/platform/mutation-gateway/mutation-context.ts');
-const { PROFILES: GUARDED_PROFILES, createGuardedSession } = require('./apps/api/src/platform/network/guarded-fetch.ts');
 const {
   auditTriage: { VOCABULARY: TRIAGE_VOCABULARY },
   createCodeAuditService, mergeFactsFor, registerCodeAuditRoutes
@@ -138,9 +135,7 @@ const {
 const { registerParallaxRoutes } = require('./apps/api/src/modules/parallax/index.ts');
 const { securityContact } = require('./src/public-assets');
 const {
-  DEFAULT_BUDGETS: EXPOSURE_BUDGETS, startExposureWorker, resolveExposureSession: resolveStoredExposureSession,
-  exposureSeverityOf, safeDisplayPath, credentialVerifier, readabilityProbe,
-  exposureReader, ExposureStore, registerExposureRoutes
+  createExposureHost, exposureSeverityOf, safeDisplayPath, credentialVerifier, readabilityProbe, exposureReader, registerExposureRoutes
 } = require('./apps/api/src/modules/quasar/index.ts');
 const { verifyCredential } = credentialVerifier;
 const { probeAnonymousReadability } = readabilityProbe;
@@ -278,28 +273,19 @@ const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_A
     );
   }
 }) : null;
-const governanceRuntime = createGovernanceRuntime({
-  failureMode: GOVERNANCE_RUNTIME_FAILURE_MODE,
-  onError(event) {
-    console.error(JSON.stringify({
-      t: new Date().toISOString(), warn: 'runtime policy evaluation unavailable',
-      code: event && event.code || 'POLICY_EVALUATION_FAILED',
-      action: event && event.action || 'unknown',
-      scopeKey: event && event.scopeKey || 'unknown',
-      failureMode: GOVERNANCE_RUNTIME_FAILURE_MODE
-    }));
-  },
-  store: {
-    async evaluateAndAppendPolicyDecision(input) {
-      if (!(await dbReady())) {
-        throw Object.assign(new Error('Governance runtime requires PostgreSQL'), {
-          status: 503, code: 'GOVERNANCE_DATABASE_REQUIRED'
-        });
-      }
-      return ensureGovernanceStore().evaluateAndAppendPolicyDecision(input);
-    }
-  }
+/* Stopping, once, on the first signal: no new jobs, the live streams told why, the workers' work finished, then the pool (apps/api/src/platform/lifecycle/graceful-shutdown.ts). */
+const { shutdown, shuttingDown } = createGracefulShutdown({
+  closeJobs: () => { renderedJobs.close(); siteJobs.close(); codeAudit.jobs.close(); },
+  closeStreams: signal => liveHub.shutdown(signal),
+  drain: () => [governance.stop(), exposure.stop()],
+  server: () => httpServer, closeDatabase: () => database.close(), exit: code => process.exit(code)
 });
+/* Governance's life in this process: the runtime's policy decisions, the API service and webhook delivery (kepler/application/governance-host.ts). */
+const governance = createGovernanceHost({
+  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, auditSecret: GOVERNANCE_AUDIT_SECRET,
+  runtimeFailureMode: GOVERNANCE_RUNTIME_FAILURE_MODE, shuttingDown
+});
+const { runtime: governanceRuntime, ensureGovernanceStore, governanceService, bootstrapGovernanceDelivery } = governance;
 /* The gateway is handed its policy port here, the one place both are built; it imports no policy module. */
 const mutationGateway = createMutationGateway({
   policyEvaluator: governanceRuntime,
@@ -408,128 +394,21 @@ registerAlphaAccessRoutes(app, { sessions: alphaSessions, config: ALPHA_CONFIG, 
 
 const alphaPrivacyRetention = createAlphaPrivacyRetention({ config: ALPHA_CONFIG, store: alphaPrivacyStore });
 
-let _governanceStore = null;
-let _governanceApiService = null;
-let governanceWebhookWorker = null;
-let governanceWebhookBootstrapTimer = null;
-function ensureGovernanceStore() {
-  if (!_governanceStore) {
-    _governanceStore = new GovernanceStore(pool(), { secret: GOVERNANCE_AUDIT_SECRET });
-    _governanceApiService = createGovernanceApiService({ store: _governanceStore });
-    governanceWebhookWorker = startWebhookWorker({
-      store: _governanceStore,
-      masterSecret: GOVERNANCE_AUDIT_SECRET,
-      onError(error) {
-        console.error(JSON.stringify({
-          t: new Date().toISOString(), warn: 'governance webhook delivery worker failed',
-          code: cleanText(String(error && error.code || 'GOVERNANCE_WEBHOOK_WORKER_FAILED'), 100)
-        }));
-      }
-    });
-  }
-  return _governanceStore;
-}
-async function bootstrapGovernanceDelivery() {
-  if (!DB_URL || shuttingDown || governanceWebhookWorker) return;
-  if (await dbReady()) {
-    ensureGovernanceStore();
-    return;
-  }
-  governanceWebhookBootstrapTimer = setTimeout(() => { void bootstrapGovernanceDelivery(); }, 30_000);
-  if (typeof governanceWebhookBootstrapTimer.unref === 'function') governanceWebhookBootstrapTimer.unref();
-}
-/*
- * Exposure scanning.
- *
- * The worker starts only when the capability document says the feature is
- * available for some provider, and today it says Unavailable everywhere. That
- * is deliberate rather than a missing wire: a poller asking the database for
- * work that no route can create would spend a query every fifteen seconds of a
- * free service's budget for nothing. Raising the capability starts it, and
- * nothing else here has to change -- which is the point of gating on the
- * document rather than on a flag somebody would have to remember to set in two
- * places.
- */
-let exposureWorker = null;
-let _exposureStore = null;
-
-function exposureScanningAvailable() {
-  const providers = (CAPABILITY_DOCUMENT && CAPABILITY_DOCUMENT.providers) || {};
-  for (const deployments of Object.values(providers)) {
-    const features = (deployments && deployments[DEPLOYMENT_PROFILE]) || {};
-    const tuple = features['exposure.scan'];
-    if (Array.isArray(tuple) && (tuple[0] === 'Supported' || tuple[0] === 'Experimental')) return true;
-  }
-  return false;
-}
-
-/*
- * A scan holds no credential. It holds the identity the work belongs to, and
- * the token is resolved from a session that is still signed in at the moment
- * the scan runs -- so a disconnect, a sign-out or a revocation simply stops the
- * next read, rather than leaving a copied token in a job row for something to
- * remember to clean up.
- *
- * The identity is read from the row here rather than carried on the scan object
- * the store returns, because that object is passed around and a hashed identity
- * is not something the rest of a scan needs to hold.
- */
-async function resolveExposureSession(input) {
-  if (!DB_URL) return null;
-  return resolveStoredExposureSession(input, {
-    pool: pool(), unseal, identityKey, providerAuthority,
+/* Exposure scanning's life in this process: the worker, a scan's session, and the store the routes read (quasar/application/exposure-host.ts). */
+const exposure = createExposureHost({
+  databaseConfigured: Boolean(DB_URL), pool, capabilityDocument: CAPABILITY_DOCUMENT, deployment: DEPLOYMENT_PROFILE,
+  fingerprintKey: EXPOSURE_FINGERPRINT_KEY, shuttingDown,
+  session: {
+    unseal, identityKey, providerAuthority,
     resolveAccount: account => resolveProviderAccount(account, { githubAppBroker }),
     alphaEnabled: ALPHA_CONFIG.enabled,
     readAlphaSession: id => alphaStore.readSession(id, { touch: false }),
     readOwnedSession: input => alphaPrivacyStore.readHostedProviderSession(input),
     repositoryAllowed: (access, scope) => inviteUnbound(access.repositoryScopes)
       || repositoryAllowed(access.repositoryScopes, scope)
-  });
-}
-
-function ensureExposureWorker() {
-  if (exposureWorker || !DB_URL || shuttingDown || !exposureScanningAvailable()) return exposureWorker;
-  _exposureStore = new ExposureStore({ pool: pool(), cursorKey: EXPOSURE_FINGERPRINT_KEY });
-  exposureWorker = startExposureWorker({
-    store: _exposureStore,
-    reader: exposureReader,
-    fingerprintKey: EXPOSURE_FINGERPRINT_KEY,
-    sessionResolver: resolveExposureSession,
-    /*
-     * One connection pool per scan, pinned to validated addresses. Without it
-     * every file costs a DNS lookup and a TLS handshake, which for a scan of
-     * small files is most of the time the scan takes.
-     */
-    createTransport: () => createGuardedSession({
-      profile: GUARDED_PROFILES.PROVIDER_READ,
-      maxSockets: EXPOSURE_BUDGETS.readConcurrency
-    })
-  });
-  return exposureWorker;
-}
-
-/*
- * Start the scan now rather than at the worker's next tick. The worker is
- * already one-at-a-time -- a run while one is in flight is refused -- so a
- * nudge can never overlap two scans; it only stops a reader waiting up to a
- * poll interval for work that was ready.
- */
-function nudgeExposureWorker() {
-  const worker = ensureExposureWorker();
-  if (worker && typeof worker.run === 'function') {
-    Promise.resolve().then(() => worker.run()).catch(() => { /* the next tick tries again */ });
   }
-}
-
-async function governanceService() {
-  if (!(await dbReady())) {
-    throw Object.assign(new Error('Governance requires the configured PostgreSQL DATABASE_URL'), {
-      status: 503, code: 'GOVERNANCE_DATABASE_REQUIRED'
-    });
-  }
-  ensureGovernanceStore();
-  return _governanceApiService;
-}
+});
+const { ensureExposureWorker, nudgeExposureWorker, exposureService } = exposure;
 
 function closeLiveSessions(sessionIds, reason = 'session-revoked') {
   return liveHub.closeSessions(sessionIds, reason);
@@ -691,20 +570,6 @@ registerGovernanceRoutes(app, {
   governance: req => req.governance, account: req => req.gh, gh
 });
 
-/*
- * Quasar's store of exposure scans, the one the scan worker writes. Without the
- * configured database there is none, and every route that reads it says so.
- */
-function exposureService() {
-  if (!DB_URL) {
-    throw Object.assign(new Error('Exposure scanning requires the configured PostgreSQL DATABASE_URL'), {
-      status: 503, code: 'EXPOSURE_DATABASE_REQUIRED'
-    });
-  }
-  if (!_exposureStore) _exposureStore = new ExposureStore({ pool: pool(), cursorKey: EXPOSURE_FINGERPRINT_KEY });
-  return _exposureStore;
-}
-
 /* Quasar: exposure scans, their findings, and the questions a finding can be asked (apps/api/src/modules/quasar/http/exposure-routes.ts). */
 registerExposureRoutes(app, {
   providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth,
@@ -858,43 +723,7 @@ registerVersionRoute(app, {
 registerShellFallback(app, { webBuild: WEB_BUILD });
 startTempMaintenance();
 const httpServer = app.listen(PORT, () => console.log(`${PRODUCT_NAME} v${APP_VERSION} orbiting on :${PORT}`));
-let shuttingDown = false;
 void bootstrapGovernanceDelivery();
 ensureExposureWorker();
-async function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  renderedJobs.close();
-  siteJobs.close();
-  codeAudit.jobs.close();
-  console.log(JSON.stringify({ t: new Date().toISOString(), event: 'shutdown', signal }));
-  liveHub.shutdown(signal);
-  if (governanceWebhookBootstrapTimer) clearTimeout(governanceWebhookBootstrapTimer);
-  /*
-   * Drained before the pool closes. A delivery in flight has already sent its
-   * request; if the pool goes first it cannot record the attempt, so its row
-   * stays leased and the receiver is sent the same event again once the lease
-   * expires. The force timer below still bounds this -- a batch that outlasts
-   * it is cut off regardless -- but the common case, a batch part-way through,
-   * now finishes.
-   */
-  const drainedWebhookWorker = governanceWebhookWorker ? governanceWebhookWorker.stop() : null;
-  /*
-   * A scan in flight is drained for a different reason than a delivery: it has
-   * sent nothing irreversible, and an abandoned scan is recovered by its lease
-   * expiring. Finishing the one in hand is simply cheaper than reading the
-   * repository again.
-   */
-  const drainedExposureWorker = exposureWorker ? exposureWorker.stop() : null;
-  const force = setTimeout(() => process.exit(1), 10000);
-  if (typeof force.unref === 'function') force.unref();
-  httpServer.close(async () => {
-    try { await drainedWebhookWorker; } catch {}
-    try { await drainedExposureWorker; } catch {}
-    try { await database.close(); } catch {}
-    clearTimeout(force);
-    process.exit(0);
-  });
-}
 process.once('SIGTERM', () => shutdown('SIGTERM'));
 process.once('SIGINT', () => shutdown('SIGINT'));

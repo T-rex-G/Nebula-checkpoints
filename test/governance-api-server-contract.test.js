@@ -22,8 +22,10 @@ const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 /* The server reaches governance through the Kepler module's index only. */
 const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
 assert(kepler, 'the server must load governance through the Kepler index');
-assert(/\bcreateGovernanceApiService\b/.test(kepler[1]), 'server must load the governance API boundary');
-assert(/\bGovernanceStore\b/.test(kepler[1]), 'server must load the durable governance store');
+/* Governance's life in the process -- its store and API service -- is Kepler's governance host, composed by the server. */
+const host = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'application', 'governance-host.ts'), 'utf8');
+assert(/\bcreateGovernanceHost\b/.test(kepler[1]) && host.includes('service = createGovernanceApiService({ store });'), 'server must load the governance API boundary');
+assert(host.includes('store = new GovernanceStore(deps.pool(), { secret: deps.auditSecret });'), 'server must load the durable governance store');
 assert(/\bregisterGovernanceRoutes\b/.test(kepler[1]) && /\bregisterGovernanceLifecycleRoutes\b/.test(kepler[1]), 'server must register the governance routes through Kepler');
 assert(server.includes('governance: req => req.governance'), 'the routes must read the governance context the server guard attached');
 /* The governance guard and its mutation context are Kepler's (http/governance-context.ts), composed by the server. */

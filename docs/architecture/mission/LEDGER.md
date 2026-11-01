@@ -1956,3 +1956,44 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13m — governance's and exposure scanning's life in the process, and the shutdown
+
+- **What moved.**
+  - Governance's life in the process goes to Kepler, as `createGovernanceHost` (`application/governance-host.ts`):
+    - the store, its API service and the webhook delivery worker, built once on first need;
+    - the runtime the mutation gateway consults, with its failure log and the decisions it records;
+    - delivery started at boot once the database answers, retried every thirty seconds until it does, never without a database or once shutdown has begun;
+    - stopping, which clears the retry and hands back the batch in flight.
+  - Exposure scanning's goes to Quasar, as `createExposureHost` (`application/exposure-host.ts`): the capability document's gate, the worker with its store, reader, fingerprint key, a scan's session and its pinned transport, a nudge, the store the routes read, and stopping.
+  - Stopping goes to the platform, as `createGracefulShutdown` (`platform/lifecycle/graceful-shutdown.ts`): once, on the first signal; the job queues, the log line, the live streams and the workers in order; then the workers' work waited for in turn, the pool closed and a clean exit, bounded by a forced exit after ten seconds.
+- **The server.** It composes the shutdown and the governance host where the runtime was built, before the mutation gateway that takes the runtime, and the exposure host where its worker was. It hands the shutdown's flag to both hosts and both hosts' `stop` to the shutdown. It no longer has the 171 lines, or its imports of the store, service, worker and runtime constructors, the guarded transport and the text cleaner.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the three files, composed as the server composes them, over 20,000 scripted runs. What the hosts build is a recording stand-in, handed to the old statements as parameters and to the hosts through module hooks, so every construction is compared with what it was given. Each run applies a seeded sequence of operations:
+  - the runtime's decisions and its failure log;
+  - delivery started at boot and retried, the API service, a delivery failure's log;
+  - the capability document read for scanning, the worker started and nudged, a scan's session and transport, the store the routes read;
+  - a shutdown with workers and a pool that finish, fail or never answer.
+
+  These run with or without a database, a database that answers or not, a failure mode valid or not, and a capability document of every shape. Time and the timers were fixed alike, the workers finish only once the server has closed, and a promise either side left rejected was recorded. Every construction and call, every log line, answer, failure and timer was identical: 17,987 hosts built and 2,013 refused for their failure mode, 17,032 stores, 13,401 delivery workers, 1,185 retries, 12,568 decisions, 1,518 scan workers, 2,089 nudged runs, 7,504 sessions resolved, and 11,465 shutdowns.
+
+  Sixty-four mutants each fail on a comparison:
+  - **the governance host:** a retry every second; a refusal as a 500; a store built each time or without its secret; no API service or delivery worker; delivery under another secret; a delivery failure unlogged, unbounded or without its code; the runtime's failure mode ignored; a policy failure unlogged, or without its code, action, scope or mode; a decision recorded without a database; delivery started without a database, during shutdown, twice, or before the database answers; delivery never retried, or its retry keeping the process alive; a service without a database or without its store; the retry left running at shutdown; delivery not drained;
+  - **the exposure host:** scanning on a planned capability, by any deployment, or on an entry that only reads like a tuple; an experimental capability refused; a session without a database or without the pool; a worker without a database, during shutdown, whatever the document says, or a second one; the worker's store kept apart from the routes', or its cursor unkeyed; findings unfingerprinted; a scan without a session; a scan read by another profile or over unbounded sockets; a nudge that starts nothing, or whose failure goes unanswered; the routes' store without a database, refused as a 500, or built for each route; a scan not drained;
+  - **the shutdown:** a second signal stopping again; shutdown never said to begin; jobs kept open; the stop unlogged; the streams not told why; the workers stopped after the server; the exit forced at once, or said to succeed; the force timer keeping the process alive or left set; the workers' work not waited for, or a worker's failure holding the exit; the pool left open, or closed before the workers finish; a clean stop said to fail.
+
+  `test/governance-host.test.js`, `test/exposure-host.test.js` and `test/graceful-shutdown.test.js` catch all sixty-four too. The first two hand the hosts recording stand-ins through a module hook, as the oracle does.
+  - **The first pass** let three past the oracle and crashed it on one. It had never read a malformed entry that is not a list, and its workers finished the moment they were stopped, so a shutdown that did not wait for them, or closed the pool first, looked the same; and a drain that failed before anyone awaited it stopped the oracle. The oracle now reads such an entry, holds each worker's work until the server has closed, and records an unanswered rejection.
+  - **The tests** let one past at first: delivery started a second time asks the database again. The test now counts what it asks.
+  - **The final judge** ran over the oracle as it now stands.
+
+  One mutant first listed was equivalent and was dropped: **a nudge that runs at once.** The worker's run is asynchronous and never throws where it is called, so starting it one microtask sooner changes nothing a caller sees.
+- **Tests.**
+  - `test/governance-host.test.js` covers the runtime's decisions and failure log, the store, service and worker built once, delivery at boot and its retries, a delivery failure's log, and stopping. `test/exposure-host.test.js` covers the capability gate, the worker and what it is given, a nudge, the routes' store, a scan's session, and stopping. `test/graceful-shutdown.test.js` covers the order of a shutdown, a second signal, the workers waited for in turn whatever they do, the pool, the clean exit and the forced one.
+  - The source checks follow the code:
+    - `exposure-worker` reads the capability gate, the worker's conditions, the session resolver and the transport in the exposure host, and the drain in the platform's shutdown, waited for before the pool closes.
+    - `governance-api-server-contract`, `governance-delivery-server-contract`, `governance-enforcement-server-contract` and `governance-enforcement-deployment-contract` read the store, the API service, the worker, its drain, the runtime and its failure log in the governance host, composed with the deployment's failure mode.
+- **Ratchet:** `server.js` falls from 900 lines to 729.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

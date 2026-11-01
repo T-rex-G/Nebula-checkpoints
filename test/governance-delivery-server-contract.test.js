@@ -13,8 +13,10 @@ const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 const kepler = /const \{([^}]*)\} = require\('\.\/apps\/api\/src\/modules\/kepler\/index\.ts'\)/.exec(server);
-assert(kepler && /\bstartWebhookWorker\b/.test(kepler[1]), 'server must load the webhook worker through the Kepler index');
-assert(server.includes('startWebhookWorker'));
+/* Delivery's worker is started by Kepler's governance host, which the server composes through the Kepler index. */
+const host = fs.readFileSync('apps/api/src/modules/kepler/application/governance-host.ts', 'utf8');
+assert(kepler && /\bcreateGovernanceHost\b/.test(kepler[1]), 'server must load the webhook worker through the Kepler index');
+assert(host.includes('worker = startWebhookWorker({'));
 const route = (method, routePath) => {
   const entry = policyRoutes.find(candidate => candidate.method === method && candidate.path === routePath);
   assert(entry, `missing ${method} ${routePath}`);
@@ -44,5 +46,5 @@ for (const [method, routePath, action] of [
   assert(guards.includes(`governanceMutationContext('${action}')`), `${method} ${routePath} missing gateway context ${action}`);
 }
 assert(governanceRoutes.includes("res.setHeader('Content-Disposition'"), 'an export download must name its attachment');
-assert(server.includes('governanceWebhookWorker.stop()'));
+assert(host.includes('return worker ? worker.stop() : null;') && server.includes('drain: () => [governance.stop(), exposure.stop()]'), 'delivery is drained at shutdown');
 console.log('governance delivery server contract tests passed');

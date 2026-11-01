@@ -1681,3 +1681,55 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
   - the architecture oracles, route surface, module boundaries and contracts;
   - the full unit gate and every verify-job gate on Node 22.23.4.
+
+### D13g — the safety guard and the webhook intake
+
+- **What moved.**
+  - What the safety controls refuse goes to Corona's domain, `domain/safety-guard.ts`: `guardSafety` and the pieces it is made of (`safetyOf`, `candidatePaths`, `protectedPatternsForReq`, `protectedPathHit`, `protectedPathError`, `enforceProtectedPaths`, the governance control-plane classifier and the exempt prefixes). Read-only mode refuses every write. Protected paths refuse a write that names one, and, while any are protected, a write that acts on the whole repository. The controls themselves, the session's security, sign-out, the accounts, the GitHub App, the read-only recovery routes and governance's lifecycle stay reachable.
+  - The key a repository's evidence is kept under goes to Corona's domain, `domain/evidence-keys.ts` (`repoKey`, `scopedEvidenceKey`).
+  - Corona's safety store gains `protectedPatternsForIdentity`, the read a webhook delivery scores against. It is the same statement the server sent, and a failed read is still the caller's failure, never "nothing protected".
+  - The webhook limiter goes to Pulsar's application, `application/webhook-limiter.ts`: 120 deliveries a minute for one sender and hook, the local bucket in front of the shared counter, the window that reopens once sixty seconds have passed, and the sweep past 2,000 senders. It now says how many senders it tracks (`tracked`), so the sweep can be tested.
+  - The intake goes to Pulsar's application, `application/webhook-intake.ts`, with the broadcast it makes: the hook looked up, the signature checked against the hook's own secret, the event scored, stored once, recorded in the identity's evidence chain and written to the identity's live streams. It takes the protected paths, the evidence key and the chain from Corona through its dependencies, so Pulsar does not read Corona's table.
+  - The address GitHub delivers to goes to Pulsar's domain, `domain/public-callback.ts`, as `publicCallbackBase(req, env)`.
+- **The server.** The intake's route is mounted before the JSON parser, so what it needs now exists by then: the safety store, the evidence chain and the live hub are composed beside the session, and the limiter and the intake just before the route. It no longer has the 221 lines, and no longer imports the webhook's signature, normalizer or risk, the path matcher or the stable hash.
+- **Behaviour unchanged.** An oracle evaluated the previous statements of `server.js` beside the new files, composed as the server composes them, over 3,000 scripted runs, each with four drives.
+  - **The guard and the keys:** 40 random requests a run, over every method, the routes the guard treats specially and ordinary ones, every place a request can name a path, and controls from the request, the session or malformed stored keys.
+  - **The limiter:** deliveries from a few senders to a few hooks, bursts past the local ceiling, floods of new senders past the sweep size, a clock moved across the window's edges, and a shared counter that answers, refuses, fails or is absent, each answer held until the script settles it.
+  - **The intake:** deliveries signed with the hook's secret or not, with every header, payload and repository, and every answer the database and the evidence chain can give.
+  - **The callback address:** every environment and request.
+
+  All 3,000 were identical:
+  - 120,000 guarded requests: 4,897 refused for read-only mode, 3,357 for a protected path and 1,262 as repository-wide; 19,159 on governance's control plane; 3,749 refused by `enforceProtectedPaths`;
+  - 6,331,585 deliveries allowed and 466,541 refused by the limiter, 17,728 shared counts;
+  - 981 deliveries accepted, 7,533 refused, 1,696 failed, 853 broadcasts;
+  - 99,000 callback addresses.
+
+  Ninety-six mutants each fail on the tests. The oracle catches ninety-five. The ninety-sixth, buckets never swept, changes only how much the limiter remembers: the server's limiter gave no way to see its buckets, so the oracle cannot observe it, and the test catches it through `tracked`.
+  - **the guard:** the controls, or the App, no longer exempt; the session's copy over the loaded controls; a body's path, a move's destination, a rename's old path, a prefix, the query, a batch's paths, an upload's files or a commit's operations ignored; a leading slash kept; a request without a repository protected; any pattern a hit; a hit not named; a protected path as a 403; governance's draft edits and deletions, a policy's restore, its reset or a baseline refused; governance on any route under it, by the method's case, or on a longer path; a read guarded or a PUT unguarded; governance, a restore preview or an emergency manifest guarded; an exemption anywhere in the path; read-only ignored; a named protected path allowed; a restore, a reset, a reference restore, a repository deletion or a branch deletion allowed; a deeper deletion or a branch's creation repository-wide; repository-wide refusal without protection;
+  - **the keys:** another default provider; an owner or a repository by case; an empty identity not anonymous; a longer identity;
+  - **the protected-path read:** another identity's; a failed read swallowed;
+  - **the limiter:** a window of thirty seconds; a limit of 100; no local excess; a window reopened only after it ends; a bucket per sender only; an address unbounded; buckets never swept, or fresh ones swept; a refusal forgotten; one over the limit allowed; another namespace; the API limiter's window rule; an unanswerable counter as permission; a shared refusal not held;
+  - **the intake:** a hook id of any length or by case; the rate ignored; a delivery without a database; another provider's hook; an inactive hook delivered; an unsigned delivery read; a bad signature as a 403; a delivery without its id or its event; an event name unbounded; a bad payload as a failure; the payload unhashed; another repository's delivery, or a repository by case; the protected paths ignored; an event stored alike for every identity; GitHub's event id not kept; the stored time ignored; evidence under GitHub's id; a redelivery broadcast again, or a completed chain not broadcast; a ping answered 202; a redelivery called accepted; a failure not logged, or explained; a broadcast under another event name, or to the whole repository;
+  - **the callback address:** the Render address ignored; a trailing slash kept; an inferred address, or plain HTTP, in production; credentials in the address; any scheme; the address normalised.
+
+  The first pass let five past the oracle and one past the tests, each closed since.
+  - The oracle had never met a malformed stored key that names no owner, a governance route longer than its own, an exempt prefix inside another path, or a long event name on an accepted delivery.
+  - The tests had never met that malformed key either.
+
+  One mutant first listed was itself broken: its replacement held `$'`, which `String.replace` reads as "the text after the match". It was rewritten.
+
+  Four mutants first listed were equivalent and were dropped:
+  - a stored record read raw for the protected paths: a non-object reads as no paths either way;
+  - a broadcast id unfiltered: the id is always the stored event's hex digest;
+  - a local refusal not held: it would end exactly when the bucket resets anyway;
+  - the default branch ignored: the risk falls back to the event's own default branch.
+- **Tests.**
+  - `test/corona-safety-guard.test.js` covers whose controls apply, every place a path is named, the patterns and their hits, every governance control-plane route and its near misses, every refusal and exemption, and the evidence key.
+  - `test/pulsar-webhook-intake.test.js` covers the limiter alone and with the shared counter (windows, refusals held and lifted, an unanswerable counter, the local ceiling, the sweep), a delivery that passes every check with what it stores, records and broadcasts, a redelivery and a completed chain, every refusal and what it does not reach, failures past the checks, and the callback address.
+  - `test/corona-safety-state.test.js` covers the protected-path read.
+  - The source checks follow the code: `governance-api-server-contract`, `governance-simulation-server-contract` and `governance-template-digital-twin-server-contract` read the guard in Corona; `rate-limit-server-contract` reads the webhook window in Pulsar; `hardening-contract` reads the protected-path read in Corona and the intake in Pulsar, with the server's composition of them; `verify.js` reads the intake and the limiter.
+- **Ratchet:** `server.js` falls from 2,381 lines to 2,160.
+- **Checks:**
+  - typecheck, lint, syntax, secrets, docs, inventory and verify (which parses the new files);
+  - the architecture oracles, route surface, module boundaries and contracts;
+  - the full unit gate and every verify-job gate on Node 22.23.4.

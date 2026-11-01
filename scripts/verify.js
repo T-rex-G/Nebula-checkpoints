@@ -194,6 +194,9 @@ for (const file of [
   'apps/api/src/platform/network/timed-fetch.ts', 'apps/api/src/modules/github-provider/client/github-rest.ts', 'test/github-rest.test.js',
   'apps/api/src/modules/corona/domain/safety-controls.ts', 'apps/api/src/modules/corona/application/safety-state.ts', 'test/corona-safety-state.test.js',
   'apps/api/src/modules/corona/application/evidence-chain.ts', 'test/corona-evidence-chain.test.js',
+  'apps/api/src/modules/corona/domain/safety-guard.ts', 'apps/api/src/modules/corona/domain/evidence-keys.ts', 'test/corona-safety-guard.test.js',
+  'apps/api/src/modules/pulsar/application/webhook-limiter.ts', 'apps/api/src/modules/pulsar/application/webhook-intake.ts',
+  'apps/api/src/modules/pulsar/domain/public-callback.ts', 'test/pulsar-webhook-intake.test.js',
   'apps/api/src/http/pipeline/index.ts', 'apps/api/src/http/pipeline/environment.ts',
   'apps/api/src/http/pipeline/legacy-cookies.ts', 'apps/api/src/http/pipeline/correlation-id.ts',
   'apps/api/src/http/pipeline/request-log.ts', 'apps/api/src/http/pipeline/security-headers.ts',
@@ -345,8 +348,11 @@ must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includ
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
 /* The platform's own routes (apps/api/src/http/routes). */
 const platformRoute = name => read(`apps/api/src/http/routes/${name}`);
+/* Pulsar's webhook intake and limiter, which the server composes. */
+const webhookIntake = read('apps/api/src/modules/pulsar/application/webhook-intake.ts');
+const webhookLimiter = read('apps/api/src/modules/pulsar/application/webhook-limiter.ts');
 must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && server.includes('registerWebhookIntakeRoute(app, { receiveGithubWebhook })')
-  && server.includes('verifyGithubSignature'), 'Verified GitHub webhook intake is missing');
+  && server.includes('const { receiveGithubWebhook } = createWebhookIntake({') && webhookIntake.includes('verifyGithubSignature(secret, raw,'), 'Verified GitHub webhook intake is missing');
 {
   const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
   must([true, false].every(production => {
@@ -367,7 +373,7 @@ must([server, vendorRoute].every(text => !/gfonts|GFONTS_ALLOWLIST|fonts\.google
 must([server, vendorRoute].every(text => !/\/gstatic|fonts\.gstatic/.test(text)), 'A font-file proxy has returned');
 must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
 must(server.includes("vendorRoot: path.join(__dirname, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
-must(server.includes('allowWebhookRequest') && server.includes('Webhook delivery rate exceeded'), 'Webhook abuse limiter is missing');
+must(server.includes('allow: allowWebhookRequest') && webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
 must(platformRoute('probes.ts').includes("app.get('/readyz'") && server.includes('registerProbeRoutes(app, {'), 'Readiness endpoint is missing');
 must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: DB_URL') && server.includes('openPool: createDatabasePool')
   && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')

@@ -33,17 +33,14 @@ const DEPLOYMENT_PROFILE = 'hosted-alpha';
 const QUALIFICATION_CAPABILITIES = require('./src/qualification-capabilities')
   .loadQualificationCapabilities(process.env, CAPABILITY_DOCUMENT, { deployment: DEPLOYMENT_PROFILE });
 const {
-  evidenceKeyrings, createEvidenceChain, defaultSafety, createSafetyState,
-  protectedPatternsForRepository,
+  evidenceKeyrings, createEvidenceChain, defaultSafety, createSafetyState, scopedEvidenceKey,
+  safetyOf, protectedPatternsForReq, protectedPathError, enforceProtectedPaths, guardSafety,
   createSnapshotSignatures, loadSnapshotSigningConfig, createRecovery,
   registerCommitRecoveryRoutes, registerSafeguardRoutes, registerSnapshotRoutes, registerAccessSurfaceRoutes, registerEvidenceRoutes
 } = require('./apps/api/src/modules/corona/index.ts');
-const { stableJson, hashJson } = require('./apps/api/src/platform/values/stable-hash.ts');
 const { cleanText } = require('./apps/api/src/platform/values/text.ts');
-const { pathMatches } = require('./apps/api/src/platform/values/path-patterns.ts');
 const {
-  verifyGithubSignature, normalizeGithubWebhook, riskForEvent,
-  createLiveHub, registerActivityRoutes, registerLiveEventRoutes
+  createLiveHub, createWebhookLimiter, createWebhookIntake, publicCallbackBase, registerActivityRoutes, registerLiveEventRoutes
 } = require('./apps/api/src/modules/pulsar/index.ts');
 const { loadTrustedProxies } = require('./apps/api/src/platform/config/config.ts');
 const { loadServerSecrets, loadServerSettings } = require('./apps/api/src/platform/config/server-settings.ts');
@@ -261,6 +258,20 @@ const {
   databaseConfigured: Boolean(DB_URL), durableSingleUseStore, setSession, csrfSecret: CSRF_SECRET, stepUpSecret: STEP_UP_SECRET,
   safeMethods: SAFE_API_METHODS, offlineCacheScopeKey: OFFLINE_CACHE_SCOPE_KEY, readCookie: getCookie, sessionIdFromRequest: sessionSidFromRequest
 });
+/*
+ * A person's safety controls, kept for the identity where there is a
+ * database, and the repository's evidence chain (Corona says how both are
+ * kept).
+ */
+const { loadPersistentSafety, savePersistentSafety, saveSessionSafetyCopy, protectedPatternsForIdentity } = createSafetyState({
+  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, identityKey, setSession
+});
+const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({
+  ready: dbReady, pool, ledgerSecret: EVIDENCE_LEDGER_SECRET, keyring: EVIDENCE_KEYRINGS.keyring,
+  legacyProbe: EVIDENCE_KEYRINGS.legacyProbe, legacyAccepted: EVIDENCE_KEYRINGS.legacyAccepted
+});
+/* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
+const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
 const githubAppBroker = GITHUB_APP_CONFIG.enabled ? new GithubAppBroker(GITHUB_APP_CONFIG, {
   audit(event) {
     return recordGithubAppAudit(
@@ -428,7 +439,13 @@ registerPublicFileRoutes(app, {
 
 /* The browser's libraries and fonts from this origin (apps/api/src/http/routes/vendor.ts). */
 registerVendorRoute(app, { fetch: fetchT, vendorRoot: path.join(__dirname, 'public', 'vendor') });
-/* GitHub's webhook deliveries, read raw for their signature, before the JSON parser (http/routes/webhook-intake.ts). */
+/* GitHub's webhook deliveries: the sender's rate, then the delivery (Pulsar's webhook limiter and intake). */
+const { allowWebhookRequest } = createWebhookLimiter({ counter: apiRateLimitStore });
+const { receiveGithubWebhook } = createWebhookIntake({
+  allow: allowWebhookRequest, ready: dbReady, pool, unseal, protectedPatternsForIdentity,
+  evidenceKey: scopedEvidenceKey, appendEvidence, liveHub
+});
+/* Read raw for their signature, before the JSON parser (http/routes/webhook-intake.ts). */
 registerWebhookIntakeRoute(app, { receiveGithubWebhook });
 app.use(jsonBody());
 /* The page and its service worker (http/routes/public-files.ts). */
@@ -657,66 +674,9 @@ async function removeGithubAppInstallation(identity, installationId) {
 }
 const ACCOUNT_CAP = () => (DB_URL ? 10 : 3);
 
-/* The live streams open on this instance (apps/api/src/modules/pulsar/application/live-hub.ts). */
-const liveHub = createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY });
 function closeLiveSessions(sessionIds, reason = 'session-revoked') {
   return liveHub.closeSessions(sessionIds, reason);
 }
-const WEBHOOK_BUCKETS = new Map();
-const WEBHOOK_RATE_WINDOW_MS = 60000;
-const WEBHOOK_RATE_LIMIT = 120;
-/*
- * The same two-layer shape as the API limiter, and the same reason for it: the
- * shared counter makes a hundred and twenty mean a hundred and twenty rather
- * than that many per instance, and the local bucket in front of it means a
- * sender being throttled costs no queries.
- *
- * This limiter keys on the address and the hook rather than on a session --
- * a provider delivering a webhook has no session -- so the identity is already
- * unforgeable behind trust proxy and needs no derivation.
- *
- * Its window rule is not the API limiter's. This one reopens once sixty
- * seconds have passed; that one reopens once MORE than sixty seconds have.
- * The difference is one millisecond a minute and exists only because both were
- * written by hand, but preserving each is cheaper than explaining an
- * unreproducible 429 to whoever hits the boundary.
- */
-async function allowWebhookRequest(req, hookId) {
-  const now = Date.now();
-  const key = `${String(req.ip || 'unknown').slice(0, 80)}|${hookId}`;
-  let bucket = WEBHOOK_BUCKETS.get(key);
-  if (!bucket || now - bucket.startedAt >= WEBHOOK_RATE_WINDOW_MS) bucket = { startedAt: now, count: 0, refusedUntil: 0 };
-  bucket.count += 1;
-  WEBHOOK_BUCKETS.set(key, bucket);
-  if (WEBHOOK_BUCKETS.size > 2000) {
-    for (const [k, value] of WEBHOOK_BUCKETS) if (now - value.startedAt >= 120000) WEBHOOK_BUCKETS.delete(k);
-  }
-
-  if (bucket.refusedUntil > now) return false;
-  if (bucket.count > WEBHOOK_RATE_LIMIT + 30) {
-    bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
-    return false;
-  }
-
-  const store = apiRateLimitStore();
-  if (!store) return bucket.count <= WEBHOOK_RATE_LIMIT;
-
-  let verdict;
-  try {
-    verdict = await store.count({
-      namespace: 'webhook', key, windowMs: WEBHOOK_RATE_WINDOW_MS, limit: WEBHOOK_RATE_LIMIT,
-      inclusiveReset: true
-    });
-  } catch (error) {
-    /* Unanswerable is not permission. The caller turns a false into a 429,
-       which is the safe reading for a sender that can retry. */
-    return false;
-  }
-  if (!verdict.allowed) bucket.refusedUntil = bucket.startedAt + WEBHOOK_RATE_WINDOW_MS;
-  return verdict.allowed;
-}
-function repoKey(provider, owner, repo) { return `${provider || 'github'}:${String(owner).toLowerCase()}/${String(repo).toLowerCase()}`; }
-function scopedEvidenceKey(provider, owner, repo, identity) { return `${repoKey(provider, owner, repo)}:${String(identity || 'anonymous').slice(0, 80)}`; }
 let _singleUseStore = null;
 let _rateLimitStore = null;
 /*
@@ -728,187 +688,6 @@ let _rateLimitStore = null;
 function durableSingleUseStore() {
   if (!_singleUseStore) _singleUseStore = new SingleUseStore({ pool: pool() });
   return _singleUseStore;
-}
-/*
- * A person's safety controls, kept for the identity where there is a
- * database, and the repository's evidence chain (Corona says how both are
- * kept).
- */
-const { loadPersistentSafety, savePersistentSafety, saveSessionSafetyCopy } = createSafetyState({
-  databaseConfigured: Boolean(DB_URL), ready: dbReady, pool, identityKey, setSession
-});
-const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({
-  ready: dbReady, pool, ledgerSecret: EVIDENCE_LEDGER_SECRET, keyring: EVIDENCE_KEYRINGS.keyring,
-  legacyProbe: EVIDENCE_KEYRINGS.legacyProbe, legacyAccepted: EVIDENCE_KEYRINGS.legacyAccepted
-});
-function liveStreamKey(provider, owner, repo, identity) {
-  return scopedEvidenceKey(provider, owner, repo, identity);
-}
-function broadcastLive(provider, owner, repo, identity, event) {
-  const payload = `id: ${String(event.id || '').replace(/[^0-9a-f-]/gi, '')}\nevent: intelligence\ndata: ${JSON.stringify(event)}\n\n`;
-  liveHub.broadcast(liveStreamKey(provider, owner, repo, identity), payload);
-}
-function publicBase(req) {
-  const configured = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
-  const inferred = `${req.protocol}://${req.get('host')}`;
-  if (process.env.NODE_ENV === 'production' && !configured) {
-    throw Object.assign(new Error('Set PUBLIC_BASE_URL for verified live events on non-Render production hosts'), { status: 400 });
-  }
-  const value = configured || inferred;
-  const u = new URL(value);
-  if (process.env.NODE_ENV === 'production' && u.protocol !== 'https:') throw Object.assign(new Error('Live events require an HTTPS public URL'), { status: 400 });
-  if (u.username || u.password || !['http:', 'https:'].includes(u.protocol)) throw Object.assign(new Error('Invalid public callback URL'), { status: 400 });
-  return value;
-}
-
-async function receiveGithubWebhook(req, res) {
-  try {
-    const hookId = String(req.params.hookId || '');
-    if (!/^[0-9a-f]{32,64}$/i.test(hookId)) return res.status(404).end();
-    if (!(await allowWebhookRequest(req, hookId))) return res.status(429).json({ error: 'Webhook delivery rate exceeded' });
-    if (!(await dbReady())) return res.status(503).json({ error: 'Live events require the existing Neon DATABASE_URL' });
-    const found = await pool().query(
-      'SELECT hook_id,owner,repo,identity_key,secret_enc,active FROM nv_webhooks WHERE hook_id=$1 AND provider=$2',
-      [hookId, 'github']
-    );
-    const hook = found.rows[0];
-    if (!hook || !hook.active) return res.status(404).end();
-    const sealed = unseal(hook.secret_enc);
-    const secret = sealed && sealed.secret;
-    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
-    if (!verifyGithubSignature(secret, raw, String(req.headers['x-hub-signature-256'] || ''))) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-    const deliveryId = cleanText(req.headers['x-github-delivery'] || '', 100);
-    const eventName = cleanText(req.headers['x-github-event'] || '', 80);
-    if (!deliveryId || !eventName) return res.status(400).json({ error: 'Missing GitHub delivery headers' });
-    let payload;
-    try { payload = JSON.parse(raw.toString('utf8')); }
-    catch { return res.status(400).json({ error: 'Invalid JSON payload' }); }
-    const event = normalizeGithubWebhook(eventName, payload, deliveryId);
-    event.metadata = { ...(event.metadata || {}), rawPayloadHash: crypto.createHash('sha256').update(raw).digest('hex') };
-    if (String(event.owner).toLowerCase() !== String(hook.owner).toLowerCase() || String(event.repo).toLowerCase() !== String(hook.repo).toLowerCase()) {
-      return res.status(409).json({ error: 'Webhook repository mismatch' });
-    }
-    const sf = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [hook.identity_key]);
-    const state = defaultSafety(sf.rows[0] && sf.rows[0].state);
-    const patterns = protectedPatternsForRepository(state.protected, hook.owner, hook.repo);
-    const risk = riskForEvent(event, { protectedPatterns: patterns, defaultBranch: event.defaultBranch });
-    const providerEventId = event.id;
-    const storedEventId = hashJson({ identityKey: hook.identity_key, deliveryId: providerEventId });
-    const stored = await pool().query(
-      `INSERT INTO nv_intelligence_events(
-        event_id,provider,owner,repo,identity_key,event_type,action,actor,target_type,target_id,ref,before_sha,after_sha,
-        severity,risk_score,reasons,summary,paths,metadata,delivery_id,created_at
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18::jsonb,$19::jsonb,$20,now())
-      ON CONFLICT(event_id) DO NOTHING RETURNING created_at`,
-      [storedEventId, event.provider, hook.owner, hook.repo, hook.identity_key, event.eventType, event.action, event.actor,
-       event.targetType, event.targetId, event.ref, event.beforeSha, event.afterSha, risk.severity, risk.score,
-       JSON.stringify(risk.reasons), event.summary, JSON.stringify(event.paths || []), JSON.stringify({ ...(event.metadata || {}), providerEventId }), deliveryId]
-    );
-    const enriched = {
-      ...event, id: storedEventId, providerEventId, owner: hook.owner, repo: hook.repo, ...risk,
-      createdAt: stored.rows[0] && stored.rows[0].created_at || new Date().toISOString()
-    };
-    /* Evidence is idempotent by repository/kind/record ID. If an append fails after
-       event persistence, GitHub can retry the delivery and complete the chain. */
-    const evidence = await appendEvidence(scopedEvidenceKey('github', hook.owner, hook.repo, hook.identity_key), 'webhook', storedEventId, enriched);
-    if (stored.rowCount || !evidence.deduplicated) broadcastLive('github', hook.owner, hook.repo, hook.identity_key, enriched);
-    res.status(eventName === 'ping' ? 200 : 202).json({ ok: true, accepted: !!stored.rowCount, event: eventName });
-  } catch (error) {
-    console.error('Webhook intake failed:', error.message);
-    res.status(500).json({ error: 'Webhook intake failed' });
-  }
-}
-const SAFETY_EXEMPT = ['/api/safety', '/api/security', '/api/logout', '/api/accounts', '/api/github-app'];
-function safetyOf(req) {
-  return defaultSafety(req.effectiveSafety || req.session && req.session.safety);
-}
-function candidatePaths(req) {
-  const b = req.body || {}, q = req.query || {};
-  const out = [];
-  for (const v of [b.path, b.from, b.to, b.newPath, b.oldPath, b.prefix, q.path, q.p]) if (typeof v === 'string' && v) out.push(v);
-  if (Array.isArray(b.paths)) for (const v of b.paths) if (typeof v === 'string') out.push(v);
-  if (Array.isArray(b.files)) for (const f of b.files) if (f && typeof f.path === 'string') out.push(f.path);
-  if (Array.isArray(b.ops)) for (const op of b.ops) if (op && typeof op.path === 'string') out.push(op.path);
-  return out.map(p => p.replace(/^\/+/, ''));
-}
-function protectedPatternsForReq(req) {
-  const sf = safetyOf(req);
-  const { owner, repo } = req.params || {};
-  if (!owner || !repo) return [];
-  return protectedPatternsForRepository(sf.protected, owner, repo);
-}
-function protectedPathHit(req, paths) {
-  const list = protectedPatternsForReq(req);
-  return (paths || []).find(p => list.some(pattern => pathMatches(pattern, p))) || '';
-}
-function protectedPathError(req, paths) {
-  const hit = protectedPathHit(req, paths);
-  return hit ? `${hit} is a protected file — unlock it in Safeguards to change it.` : '';
-}
-function enforceProtectedPaths(req, paths) {
-  const error = protectedPathError(req, paths);
-  if (error) throw Object.assign(new Error(error), { status: 423, code: 'PROTECTED_PATH' });
-}
-function isCurrentGovernanceControlPlaneRequest(req) {
-  const method = String(req.method || '').toUpperCase();
-  const route = String(req.path || '');
-  const prefix = '^/api/repo/[^/]+/[^/]+/governance/policies';
-  /*
-   * Governance changes rows this server owns, not the repository, so read-only
-   * containment and protected paths do not apply to them -- and without the
-   * lifecycle routes listed here, "/restore" and "/reset" were read as
-   * repository-wide writes and refused whenever any path was protected.
-   */
-  const patterns = method === 'PATCH'
-    ? [new RegExp(`${prefix}/[^/]+/drafts/[^/]+$`)]
-    : method === 'DELETE'
-      ? [new RegExp(`${prefix}/[^/]+/drafts/[^/]+$`)]
-    : method === 'POST'
-      ? [
-          new RegExp(`${prefix}$`),
-          new RegExp(`${prefix}/[^/]+/validate$`),
-          new RegExp(`${prefix}/[^/]+/drafts$`),
-          new RegExp(`${prefix}/[^/]+/drafts/[^/]+/validate$`),
-          new RegExp(`${prefix}/[^/]+/drafts/[^/]+/submit$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/simulate$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/reviewers/me$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/decisions$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/activate$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/rollback$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/exceptions$`),
-          new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$'),
-          new RegExp('^/api/repo/[^/]+/[^/]+/governance/exceptions/[^/]+/decision$'),
-          new RegExp('^/api/repo/[^/]+/[^/]+/governance/exceptions/[^/]+/revoke$'),
-          new RegExp(`${prefix}/[^/]+/deactivate$`),
-          new RegExp(`${prefix}/[^/]+/archive$`),
-          new RegExp(`${prefix}/[^/]+/restore$`),
-          new RegExp(`${prefix}/[^/]+/versions/[^/]+/withdraw$`),
-          new RegExp('^/api/repo/[^/]+/[^/]+/governance/reset$')
-        ]
-      : [];
-  return patterns.some(pattern => pattern.test(route));
-}
-
-function guardSafety(req) {
-  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return null;
-  if (isCurrentGovernanceControlPlaneRequest(req)) return null;
-  if (req.path.endsWith('/snapshot-compare') || req.path.endsWith('/restore-preview') || req.path.endsWith('/emergency-manifest')) return null;
-  if (SAFETY_EXEMPT.some(p => req.path.startsWith(p))) return null;
-  const sf = safetyOf(req);
-  if (sf.readOnly) return 'Read-only mode is on — writes are disabled. Turn it off in Safeguards.';
-  const list = protectedPatternsForReq(req);
-  if (list.length) {
-    const hit = protectedPathError(req, candidatePaths(req));
-    if (hit) return hit;
-    const repositoryWide = req.path.endsWith('/restore') || req.path.endsWith('/reset') ||
-      req.path.endsWith('/restore-refs') ||
-      (req.method === 'DELETE' && /^\/api\/repo\/[^/]+\/[^/]+$/.test(req.path)) ||
-      (req.method === 'DELETE' && req.path.includes('/branches/'));
-    if (repositoryWide) return 'This repository contains protected paths. Unlock them before a repository-wide restore, reset, branch/reference deletion, or repository deletion.';
-  }
-  return null;
 }
 /*
  * Provider routes see only GitHub accounts. Account management (the list,
@@ -2266,7 +2045,7 @@ registerDependencyAuditRoute(app, { providerSessionAccess, alphaRepositoryAccess
 /* Pulsar: verified live events -- connection, stored events and the stream (apps/api/src/modules/pulsar/http/live-event-routes.ts). */
 registerLiveEventRoutes(app, {
   providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, mutationContext, account: req => req.gh, fail,
-  gh, dbReady, pool, identityKey, databaseConfigured: Boolean(DB_URL), publicBase, seal,
+  gh, dbReady, pool, identityKey, databaseConfigured: Boolean(DB_URL), publicBase: req => publicCallbackBase(req, process.env), seal,
   scopedEvidenceKey, appendEvidence, retainedActor, providerResourceKeyHash, providerAuthority,
   alphaEnabled: ALPHA_CONFIG.enabled, alphaTesterId: req => req.alpha.testerId, alphaSessionId: req => req[ALPHA_SESSION_ID],
   readAlphaSession: (sessionId, options) => alphaStore.readSession(sessionId, options), alphaWebhooks: alphaPrivacyStore,

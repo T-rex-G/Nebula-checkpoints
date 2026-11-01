@@ -1,15 +1,15 @@
 /*
  * Corona: the safeguards around a repository and the way back. The evidence
  * ledger's keys and what a record verifies under, and the chain itself; a
- * person's safety controls, how a change to them is applied, and where they
- * are kept; the paths a person has protected; the names a restore may act
- * on; what a restore would do, from two snapshots; a snapshot's signature and
- * the keyring that keeps old ones verifiable; and the repository's access
+ * person's safety controls, how a change to them is applied, where they
+ * are kept, and what they refuse; the key a repository's evidence is kept
+ * under; the paths a person has protected; the names a restore may act on;
+ * what a restore would do, from two snapshots; a snapshot's signature and the
+ * keyring that keeps old ones verifiable; and the repository's access
  * surface, with the access graph's shortest paths. Recovery reads and
  * compares snapshots and issues and spends a restore preview's single-use
- * grant, and http/ holds the routes:
- * the commit recoveries, the safeguards, the snapshots and restores, the
- * access surface and the evidence. The rest of the server reaches this module
+ * grant, and http/ holds the routes: the commit recoveries, the safeguards,
+ * the snapshots and restores, the access surface and the evidence. The rest of the server reaches this module
  * through this file only.
  */
 export {
@@ -24,6 +24,12 @@ export {
 export type { EvidenceKeyrings, Keyring, Verification } from './domain/evidence-ledger.ts';
 export { protectedPatternsForRepository } from './domain/safeguards.ts';
 export { applySafetyPatch, defaultSafety } from './domain/safety-controls.ts';
+export {
+  SAFETY_EXEMPT, candidatePaths, enforceProtectedPaths, guardSafety, isCurrentGovernanceControlPlaneRequest,
+  protectedPathError, protectedPathHit, protectedPatternsForReq, safetyOf
+} from './domain/safety-guard.ts';
+export type { GuardedRequest } from './domain/safety-guard.ts';
+export { repoKey, scopedEvidenceKey } from './domain/evidence-keys.ts';
 export type { SafetyControls, SafetyPatch } from './domain/safety-controls.ts';
 export { createSafetyState, safetyUnavailable } from './application/safety-state.ts';
 export type { SafetyStateDeps, SafetyStore } from './application/safety-state.ts';

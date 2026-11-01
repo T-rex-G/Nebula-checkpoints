@@ -36,8 +36,10 @@ for (const source of [server, governanceRoutes]) {
 }
 assert(governanceRoutes.includes("req.get('Idempotency-Key')"), 'governance writes must accept a bounded idempotency key without putting it in descriptors');
 assert(server.includes("res.setHeader('Cache-Control', 'no-store')"), 'governance responses must disable browser and intermediary caching');
-assert(server.includes('function isCurrentGovernanceControlPlaneRequest('), 'read-only exemption must enumerate the current governance control-plane routes');
-assert(server.includes('if (isCurrentGovernanceControlPlaneRequest(req)) return null;'), 'guardSafety must use the bounded governance-route classifier');
+/* The safety guard is Corona's (domain/safety-guard.ts). */
+const safetyGuard = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', 'domain', 'safety-guard.ts'), 'utf8');
+assert(safetyGuard.includes('export function isCurrentGovernanceControlPlaneRequest('), 'read-only exemption must enumerate the current governance control-plane routes');
+assert(safetyGuard.includes('if (isCurrentGovernanceControlPlaneRequest(r)) return null;'), 'guardSafety must use the bounded governance-route classifier');
 assert(!server.includes("if (/^\\/api\\/repo\\/[^/]+\\/[^/]+\\/governance(?:\\/|$)/.test(req.path)) return null;"), 'future governance routes must not inherit an automatic read-only exemption');
 
 const routes = [

@@ -172,8 +172,8 @@ async function admissionProperties() {
   }
   assert.strictEqual(localRefusal, LIMIT + 1);
 
-  const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-  assert.match(serverSource, /inclusiveReset: true/, 'and the webhook window keeps its own');
+  const webhookLimiter = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'application', 'webhook-limiter.ts'), 'utf8');
+  assert.match(webhookLimiter, /inclusiveReset: true/, 'and the webhook window keeps its own');
 }
 
 (async () => {

@@ -22,7 +22,7 @@ assert(server.includes("res.setHeader('Cache-Control', 'no-store')"));
 assert(governanceRoutes.includes('const readRepositoryFacts = async (req: Request)'));
 assert(governanceRoutes.includes('const repositoryFacts = await readRepositoryFacts(req);'));
 
-assert(server.includes("new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$')"),
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', 'domain', 'safety-guard.ts'), 'utf8').includes("new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$')"),
   'read-only safeguards must exempt only the exact baseline generation route');
 assert(governanceRoutes.includes('deps.gh(account(req), `${repositoryPath(req)}/branches?per_page=100`)'),
   'branch facts must use GitHub pagination');

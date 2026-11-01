@@ -249,6 +249,26 @@ const UPSERT = 'INSERT INTO nv_security_state(identity_key,state,updated) VALUES
     assert.strictEqual(await store({ configured: false }).saveSessionSafetyCopy(request({}), res), true);
   }
 
+  /* The paths an identity protects, for a delivery that has no session. */
+  {
+    const reads = [];
+    const answers = [
+      { rows: [{ state: { protected: { 'Alice/Demo': ['/src//a', '', 'docs/*'] } } }] },
+      { rows: [] },
+      { rows: [{ state: { protected: 'text' } }] },
+      { rows: [{ state: null }] }
+    ];
+    const s = store({ db: database({ read: async (text, values) => { reads.push([text, values]); return answers.shift(); } }) });
+    assert.deepStrictEqual(await s.protectedPatternsForIdentity('github:alice', 'alice', 'demo'), ['src/a', 'docs/*']);
+    assert.deepStrictEqual(reads, [['SELECT state FROM nv_security_state WHERE identity_key=$1', ['github:alice']]]);
+    assert.deepStrictEqual(await s.protectedPatternsForIdentity('github:alice', 'alice', 'demo'), []);
+    assert.deepStrictEqual(await s.protectedPatternsForIdentity('github:alice', 'alice', 'demo'), []);
+    assert.deepStrictEqual(await s.protectedPatternsForIdentity('github:alice', 'alice', 'demo'), []);
+    assert.deepStrictEqual(s.readiness, [], 'the caller has already asked for the database');
+    const failing = store({ db: database({ read: async () => { throw new Error('read failed'); } }) });
+    await assert.rejects(failing.protectedPatternsForIdentity('github:alice', 'alice', 'demo'), /read failed/, 'a failed read is the caller\'s failure, never "nothing protected"');
+  }
+
   finished = true;
   console.log('Corona safety state tests passed');
 })().catch(error => { finished = true; console.error(error); process.exit(1); });

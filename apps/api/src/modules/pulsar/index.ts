@@ -1,8 +1,10 @@
 /*
  * Pulsar: what is happening in the repositories, as it happens. A GitHub
  * webhook delivery checked against its signature and read into one event
- * shape, with the risk it carries; the live streams each event is written to,
- * which drop a reader too far behind rather than buffering for it; the
+ * shape, with the risk it carries, and received: its sender's rate, its
+ * storage, its evidence and its broadcast, to the address the deployment
+ * gives GitHub; the live streams each event is written to, which drop a
+ * reader too far behind rather than buffering for it; the
  * activity feed merged from what each repository answered; and the routes
  * that connect, read and stream a repository's events. The rest of the
  * server reaches this module through this file only.
@@ -15,6 +17,11 @@ export { DROPPED, ENDED, MAX_LIVE_CLIENT_BUFFER_BYTES, WRITTEN, canAcceptLiveCli
 export type { LiveWrite, LiveWriteOptions } from './application/live-stream.ts';
 export { createLiveHub } from './application/live-hub.ts';
 export type { LiveClient, LiveHub, LiveHubLimits } from './application/live-hub.ts';
+export { WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_WINDOW_MS, createWebhookLimiter } from './application/webhook-limiter.ts';
+export type { WebhookCounter, WebhookLimiter, WebhookLimiterDeps } from './application/webhook-limiter.ts';
+export { createWebhookIntake } from './application/webhook-intake.ts';
+export type { WebhookIntake, WebhookIntakeDeps } from './application/webhook-intake.ts';
+export { publicCallbackBase } from './domain/public-callback.ts';
 export { decodeEventCursor, encodeEventCursor } from './domain/event-cursor.ts';
 export type { EventCursor } from './domain/event-cursor.ts';
 export { registerActivityRoutes } from './http/activity-routes.ts';

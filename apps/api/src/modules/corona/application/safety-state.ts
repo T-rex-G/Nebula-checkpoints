@@ -11,6 +11,7 @@
  * request's middleware read.
  */
 import { applySafetyPatch, defaultSafety, type SafetyControls, type SafetyPatch } from '../domain/safety-controls.ts';
+import { protectedPatternsForRepository } from '../domain/safeguards.ts';
 
 interface Client {
   query(text: string, values?: readonly unknown[]): Promise<{ readonly rows: readonly Record<string, unknown>[] }>;
@@ -103,7 +104,19 @@ export function createSafetyState(deps: SafetyStateDeps) {
     }
   }
 
-  return { loadPersistentSafety, savePersistentSafety, saveSessionSafetyCopy };
+  /*
+   * The paths an identity protects in one repository, read from its stored
+   * controls for a request that has no session (a webhook delivery). A read
+   * that fails is the caller's failure: scoring an event without the policy
+   * would quietly drop the protected paths from its risk.
+   */
+  async function protectedPatternsForIdentity(identity: string, owner: string, repo: string): Promise<string[]> {
+    const sf = await deps.pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identity]);
+    const state = defaultSafety(sf.rows[0] && sf.rows[0].state);
+    return protectedPatternsForRepository(state.protected, owner, repo);
+  }
+
+  return { loadPersistentSafety, savePersistentSafety, saveSessionSafetyCopy, protectedPatternsForIdentity };
 }
 
 export type SafetyStore = ReturnType<typeof createSafetyState>;

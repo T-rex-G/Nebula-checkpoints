@@ -10,11 +10,13 @@ for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-ap
 }
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 /* Corona's recovery service and routes, which hold the snapshot, restore, access-surface and evidence code (D12f). */
-const corona = ['application/recovery.ts', 'application/evidence-chain.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
+const corona = ['application/recovery.ts', 'application/evidence-chain.ts', 'application/safety-state.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
   .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', file), 'utf8')).join('\n');
 const schema = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => fs.readFileSync(path.join(root, 'db', 'migrations', name), 'utf8')).join('\n');
 
-assert(server.includes('protectedPatternsForRepository'), 'Webhook risk must use case-insensitive protected-pattern lookup');
+/* Pulsar's webhook intake, which the server composes with Corona's safety store and evidence chain. */
+const webhookIntake = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'application', 'webhook-intake.ts'), 'utf8');
+assert(corona.includes('return protectedPatternsForRepository(state.protected, owner, repo);') && webhookIntake.includes('await deps.protectedPatternsForIdentity(hook.identity_key, hook.owner, hook.repo)'), 'Webhook risk must use case-insensitive protected-pattern lookup');
 assert(corona.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
 assert(server.includes('MAX_LIVE_CLIENTS_PER_KEY'), 'SSE per-repository connection cap is missing');
 assert(server.includes('MAX_LIVE_CLIENTS_TOTAL'), 'SSE global connection cap is missing');
@@ -48,12 +50,10 @@ assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\
 assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
 assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(corona), 'Evidence append must be idempotent across webhook retries');
 assert(server.includes('const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');
-const webhookStart = server.indexOf('async function receiveGithubWebhook');
-const webhookEnd = server.indexOf('const SAFETY_EXEMPT', webhookStart);
-const webhookBlock = server.slice(webhookStart, webhookEnd);
-assert(webhookBlock.includes("const sf = await pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [hook.identity_key]);"), 'Webhook scoring must fail rather than silently discard protected-path policy context');
-assert(/await appendEvidence\(scopedEvidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(server), 'Webhook acceptance must require an evidence append that can complete on retry');
-assert(server.includes('evidence.deduplicated') && server.includes('stored.rowCount || !evidence.deduplicated'), 'A retried delivery must broadcast after its missing evidence record is completed');
+const patternRead = corona.slice(corona.indexOf('async function protectedPatternsForIdentity('), corona.indexOf('return protectedPatternsForRepository(state.protected, owner, repo);'));
+assert(patternRead.includes("const sf = await deps.pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identity]);") && !patternRead.includes('catch'), 'Webhook scoring must fail rather than silently discard protected-path policy context');
+assert(/await deps\.appendEvidence\(deps\.evidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(webhookIntake) && server.includes('evidenceKey: scopedEvidenceKey, appendEvidence, liveHub'), 'Webhook acceptance must require an evidence append that can complete on retry');
+assert(webhookIntake.includes('stored.rowCount || !evidence!.deduplicated'), 'A retried delivery must broadcast after its missing evidence record is completed');
 
 assert(corona.includes('/access-surface') && corona.includes('riskForAccessSurface'), 'Shadow Access Radar endpoint or deterministic access risk is missing');
 assert(corona.includes('/snapshot-compare') && corona.includes('compareSnapshots'), 'Snapshot comparison endpoint is missing');

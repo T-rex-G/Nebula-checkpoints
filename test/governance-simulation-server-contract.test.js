@@ -16,7 +16,7 @@ const governanceRoutes = fs.readFileSync(path.join(kepler, 'http', 'governance-r
 assert(governanceRoutes.includes("(?:GOVERNANCE|MUTATION|AUTHORIZATION|SIMULATION|POLICY)_"), 'simulation and policy errors must remain bounded API errors');
 assert(simulation.guards.includes("governanceAccess('reader')"), 'simulation requires reader authorization');
 assert(!simulation.guards.some(guard => guard.startsWith('governanceMutationContext(')), 'simulation must not enter the mutation gateway');
-assert(server.includes("new RegExp(`${prefix}/[^/]+/versions/[^/]+/simulate$`)"), 'read-only safeguard exemption must enumerate only the exact simulation route');
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', 'domain', 'safety-guard.ts'), 'utf8').includes("new RegExp(`${prefix}/[^/]+/versions/[^/]+/simulate$`)"), 'read-only safeguard exemption must enumerate only the exact simulation route');
 assert(pkg.scripts['test:unit'].includes('governance-simulation.test.js'), 'unit manifest must run simulation tests');
 assert(pkg.scripts['test:unit'].includes('governance-simulation-api.test.js'), 'unit manifest must run simulation API tests');
 assert(pkg.scripts['test:unit'].includes('governance-simulation-server-contract.test.js'), 'unit manifest must run simulation route contract');

@@ -19,7 +19,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
-const { disposableDatabase } = require('./helpers/disposable-database');
+const { disposableDatabase, watchOverlappingQueries } = require('./helpers/disposable-database');
 const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 const { identityKey } = require('../apps/api/src/modules/identity-access/index.ts');
@@ -39,6 +39,7 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
 }))}`;
 
 (async () => {
+  const overlapping = watchOverlappingQueries();
   const database = await disposableDatabase('composition');
   /* The repository's branches, as GitHub has them: a test deletes one, and a restore recreates it. */
   const branches = new Map([['main', 'a'.repeat(40)], ['feature', 'b'.repeat(40)]]);
@@ -94,7 +95,7 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     {
       const page = browser(application);
       assert.equal((await page.signIn(OCTO)).status, 200);
-      const cookie = application.core.unseal(page.cookie.slice('nv_session='.length));
+      const cookie = application.core.unseal(page.cookieValue('nv_session'));
       assert.deepEqual(Object.keys(cookie), ['sid'], 'the cookie carries the session\'s key alone');
       const stored = await client.query('SELECT identity_keys FROM nv_sessions WHERE sid=$1', [cookie.sid]);
       assert.deepEqual(stored.rows.map(row => row.identity_keys), [[octoKey]], 'and the session is stored under the identity that holds it');
@@ -314,6 +315,9 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     await application.close();
     await database.drop();
   }
+  await new Promise(resolve => setImmediate(resolve));
+  overlapping.stop();
+  assert.deepEqual(overlapping.seen, [], 'no database client was handed a query while it was still running one');
   console.log('composition with a database: ok');
 })().catch(error => {
   console.error(error);

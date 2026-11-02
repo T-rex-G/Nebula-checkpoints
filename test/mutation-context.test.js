@@ -330,6 +330,46 @@ const request = (extra = {}) => ({
     assert.strictEqual(c.calls.find(call => call[0] === 'fail')[1].code, 'MUTATION_EVIDENCE_FAILED', 'before the answer, a failure is answered');
   }
 
+  /* ---- A provider change made for an account, beyond a route's own repository --------------- */
+  {
+    const c = context();
+    const disconnecting = request({ method: 'POST', path: '/api/alpha/providers/disconnect-all', route: { path: '/api/alpha/providers/disconnect-all' }, params: {} });
+    const account = { provider: 'github', login: 'alice', token: 'resolved' };
+    let inside = null;
+    const answer = await c.runProviderMutation(disconnecting, { account, action: 'webhook.disconnect', owner: 'acme', repo: 'demo', method: 'DELETE' }, async () => {
+      inside = c.gateway.current();
+      return 'removed';
+    });
+    assert.strictEqual(answer, 'removed', 'the write runs, and its answer is returned');
+    assert.deepStrictEqual(inside, { action: 'webhook.disconnect' }, 'inside the gateway, as the action named');
+    assert.deepStrictEqual(c.calls.find(call => call[0] === 'resolve')[1], { account, owner: 'acme', repo: 'demo', actorIdentityKey: identityKey(account) },
+      'the account\'s authorization on that repository is resolved');
+    const [descriptor] = c.gateway.runs;
+    assert.deepStrictEqual(
+      [descriptor.action, descriptor.provider, descriptor.owner, descriptor.repo, descriptor.method, descriptor.route, descriptor.actorLogin, descriptor.authorization.scope.scopeKey],
+      ['webhook.disconnect', 'github', 'acme', 'demo', 'DELETE', '/api/alpha/providers/disconnect-all', 'alice', 'github:github.com:acme/demo'],
+      'and the change is described as a route\'s is, under the route that made it'
+    );
+  }
+  {
+    const c = context({ alphaEnabled: true });
+    const tester = request({ alpha: { testerId: TESTER }, route: { path: '/api/alpha/providers/disconnect-all' }, params: {} });
+    await c.runProviderMutation(tester, { account: ACCOUNT, action: 'webhook.disconnect', owner: 'acme', repo: 'demo', method: 'DELETE' }, async () => {});
+    const [descriptor] = c.gateway.runs;
+    assert.deepStrictEqual([descriptor.actorLogin, descriptor.authorization.executionPrincipal.login], ['alpha-actor', alphaActorLabel({ testerId: TESTER })],
+      'in the alpha, the principal is recorded under the tester\'s label');
+  }
+  {
+    const unavailable = Object.assign(new Error('Not Found'), { status: 404 });
+    const c = context({ authFails: unavailable });
+    let ran = false;
+    await assert.rejects(
+      c.runProviderMutation(request(), { account: ACCOUNT, action: 'webhook.disconnect', owner: 'acme', repo: 'demo', method: 'DELETE' }, async () => { ran = true; }),
+      error => error === unavailable
+    );
+    assert.deepStrictEqual([ran, c.gateway.runs.length], [false, 0], 'an authorization that cannot be resolved stops the change before the gateway');
+  }
+
   /* ---- A merge's facts (Uranus) --------------------------------------------------------------- */
   {
     const calls = [];

@@ -47,7 +47,7 @@ export function composeAccess(settings: Settings, core: Core, later: Later) {
     alphaEnabled: alphaConfig.enabled, fail: sendFailure, defaultSafety,
     validateRepositoryCreation, validateCodeQuery, githubRepositoryScopes, scopedCodeQuery
   });
-  const { mutationContext } = createRepositoryMutationContext({
+  const { mutationContext, runProviderMutation } = createRepositoryMutationContext({
     gateway: mutationGateway, identityKey, retainedActor: repositories.retainedActor,
     resolveAuthorization: input => authorizationResolver.resolve(input), alphaEnabled: alphaConfig.enabled, alphaActorLabel,
     mergeFacts: (req: GuardedRequest) => mergeFactsFor(core.codeAudit, { account: accountOf(req), owner: req.params.owner, repo: req.params.repo }, req.params.num),
@@ -61,7 +61,7 @@ export function composeAccess(settings: Settings, core: Core, later: Later) {
   });
   const lifecycle = createAccountLifecycle({
     alphaEnabled: alphaConfig.enabled, databaseConfigured, accountCap: () => sessionAccountCapacity(databaseConfigured), ready: core.ready, pool: core.pool,
-    gh: github.gh, resolveAccount: core.resolveAccount, appBroker: core.githubAppBroker,
+    gh: github.gh, resolveAccount: core.resolveAccount, runProviderMutation, appBroker: core.githubAppBroker,
     removeGithubAppInstallation: core.githubAppRecords.removeGithubAppInstallation, recordGithubAppAudit: core.githubAppRecords.recordGithubAppAudit,
     retainedActor: repositories.retainedActor,
     forgetJobs: account => {

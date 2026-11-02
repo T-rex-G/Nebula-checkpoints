@@ -75,6 +75,8 @@ function harness(options = {}) {
     }),
     gh: async (account, apiPath, opts) => { calls.push(['gh', account, apiPath, opts]); return answers.gh(account, apiPath, opts); },
     resolveAccount: async account => { calls.push(['resolve', account]); return { ...account, resolved: true }; },
+    /* The gateway's run, as the platform's mutation context offers it: recorded, then the write. */
+    runProviderMutation: async (req, target, work) => { calls.push(['mutation', target]); return work(); },
     appBroker: options.broker === false ? null : { invalidate(id) { calls.push(['invalidate', id]); } },
     removeGithubAppInstallation: async (key, installationId) => { calls.push(['removeInstallation', key, installationId]); },
     recordGithubAppAudit: async (key, eventType, installationId, details) => { calls.push(['audit', key, eventType, installationId, details]); },
@@ -322,6 +324,9 @@ process.on('exit', code => { if (!finished && code === 0) { console.error('the a
       ['/repos/a%20b/demo/hooks/100', { method: 'DELETE' }], ['/repos/a%20b/demo/hooks/100', undefined],
       ['/repos/a%20b/demo/hooks/101', { method: 'DELETE' }], ['/repos/a%20b/demo/hooks/101', undefined]
     ], 'each removed and read back');
+    assert.deepStrictEqual(h.at('mutation').map(([target]) => [target.action, target.owner, target.repo, target.method, target.account.resolved]), [
+      ['webhook.disconnect', 'a b', 'demo', 'DELETE', true], ['webhook.disconnect', 'a b', 'demo', 'DELETE', true]
+    ], 'each removal runs inside the mutation gateway, as its repository\'s webhook.disconnect, with the resolved credential');
     assert.strictEqual(h.at('resolve').length, 1, 'with the credential resolved once');
     assert.deepStrictEqual(h.at('complete').map(([input]) => input.providerVerifiedAbsent), [true, true]);
     assert.strictEqual(h.at('invalidate').length, 0, 'a token account has no installation token');

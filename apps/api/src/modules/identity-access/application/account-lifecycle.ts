@@ -71,6 +71,16 @@ export interface AccountLifecycleDeps {
   /* GitHub's REST API (the GitHub provider) and an account with its credential resolved. */
   readonly gh: (account: unknown, apiPath: string, options?: { readonly method?: string }) => Promise<unknown>;
   readonly resolveAccount: (account: unknown) => Promise<unknown>;
+  /*
+   * A provider write the disconnect makes on one of the account's repositories,
+   * run inside the mutation gateway (the platform's mutation context), which
+   * refuses any provider write made outside one.
+   */
+  readonly runProviderMutation: <T>(
+    req: never,
+    target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
+    work: () => Promise<T>
+  ) => Promise<T>;
   /* The GitHub App broker, or null where no App is configured. */
   readonly appBroker: { invalidate(installationId: unknown): unknown } | null;
   /* An App installation's grant and its audit trail. */
@@ -101,6 +111,11 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     sessionIdFromRequest(req: LifecycleRequest): string;
     readCookie(req: LifecycleRequest, name: string): string | null;
     writeCookie(res: unknown, value: string, maxAge?: number): void;
+    runProviderMutation<T>(
+      req: LifecycleRequest,
+      target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
+      work: () => Promise<T>
+    ): Promise<T>;
   };
   /* The alpha's store: every path that reads it runs only in the alpha, where it is always given. */
   const store = deps.privacyStore!;
@@ -199,10 +214,14 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
             return { verifiedAbsent: false };
           }
           const providerAccount = await transportAccount();
-          await deps.gh(
-            providerAccount,
-            `/repos/${encodeURIComponent(webhook.owner)}/${encodeURIComponent(webhook.repo)}/hooks/${webhook.providerHookId}`,
-            { method: 'DELETE' }
+          await call.runProviderMutation(
+            req,
+            { account: providerAccount, action: 'webhook.disconnect', owner: webhook.owner, repo: webhook.repo, method: 'DELETE' },
+            () => deps.gh(
+              providerAccount,
+              `/repos/${encodeURIComponent(webhook.owner)}/${encodeURIComponent(webhook.repo)}/hooks/${webhook.providerHookId}`,
+              { method: 'DELETE' }
+            )
           );
           return { verifiedAbsent: false };
         },

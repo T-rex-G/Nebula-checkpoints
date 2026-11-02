@@ -290,7 +290,40 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
     };
   }
 
-  return { mutationContext, mutationDescriptorFor, mutationMetadataFor, safePassageFor };
+  /*
+   * A provider change a request makes for an account on a repository other
+   * than a route's own -- the central disconnect removing the webhooks the
+   * account left on its repositories -- run inside the gateway as a route's
+   * change is: the account's authorization on that repository resolved, the
+   * change put to policy, and the provider write held to the action and the
+   * repository named. Without it the gateway refuses the write, as it refuses
+   * every provider write made outside a mutation.
+   */
+  async function runProviderMutation<T>(
+    req: ContextRequest,
+    target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
+    work: () => T | Promise<T>
+  ): Promise<T> {
+    const account = (target.account || {}) as Fields;
+    const actorIdentityKey = call.identityKey(account);
+    const snapshot = await deps.resolveAuthorization({ account, owner: target.owner, repo: target.repo, actorIdentityKey });
+    return deps.gateway.run({
+      action: target.action,
+      provider: account.provider || 'github',
+      baseUrl: account.baseUrl || '',
+      owner: target.owner,
+      repo: target.repo,
+      actorIdentityKey,
+      actorLogin: call.retainedActor(req),
+      method: target.method,
+      route: req.route && req.route.path ? String(req.route.path) : req.path,
+      metadata: {},
+      security: {},
+      authorization: retainedMutationAuthorization(req, snapshot)
+    }, work);
+  }
+
+  return { mutationContext, mutationDescriptorFor, mutationMetadataFor, safePassageFor, runProviderMutation };
 }
 
 export type RepositoryMutationContext = ReturnType<typeof createRepositoryMutationContext>;

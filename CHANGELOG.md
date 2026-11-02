@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### A tester's disconnect removes the webhooks it should
+
+- **Disconnecting GitHub in the invite-only alpha now completes.** Signing
+  out, removing an account, disconnecting GitHub or the App, and deleting
+  alpha data all run the central disconnect. It removes the webhooks the
+  account registered for live events, then ends the provider session. Each
+  removal was made outside the mutation gateway, which refuses every provider
+  write made outside a mutation, so nothing reached GitHub:
+  - the webhook stayed on the repository;
+  - the cleanup was left pending for the operator;
+  - and the tester stayed connected.
+
+  Each removal now runs inside the gateway as that repository's
+  `webhook.disconnect`, authorized for the account and put to policy like any
+  other change. A removal GitHub refuses still leaves the cleanup pending, as
+  before.
+- **The privacy store asks one question at a time.** Checking whether a
+  tester's cleanup is complete handed one database client five queries at
+  once. pg 8 queues them with a deprecation warning, and pg 9 refuses them.
+  They now run one after another.
+- Pinned in `test/composition-alpha.test.js`, on the composed invite-only
+  server: a connected tester disconnects, the webhook is deleted and read back
+  gone, the removal is put to policy, the provider session ends, the access
+  session stays, and no database client is handed overlapping queries. Also in
+  `test/mutation-context.test.js` and `test/account-lifecycle.test.js`.
+
 ### A protected folder written with its slash protects it
 
 - **`docs/` now protects what `docs` does.** Safeguards take "a file, folder

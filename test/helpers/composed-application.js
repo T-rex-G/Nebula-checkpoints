@@ -89,13 +89,17 @@ async function bodyOf(response) {
 
 /*
  * A page on the composed application: every request carries the app header
- * and the origin the page's own requests carry, and the session cookie the
- * server last set. A body is sent as JSON, or as it is when it is bytes, as
- * the page sends a file. signIn() signs in with a token the way the page does.
+ * and the origin the page's own requests carry, and the cookies the server
+ * set, as a browser keeps them -- the provider session's and, invite-only,
+ * the alpha's access session's. A body is sent as JSON, or as it is when it
+ * is bytes, as the page sends a file. signIn() signs in with a token the way
+ * the page does.
  */
 function browser(application) {
-  let cookie = '';
+  const jar = new Map();
+  const header = () => [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
   async function request(pathname, { method = 'GET', body, headers = {} } = {}) {
+    const cookie = header();
     const bytes = body instanceof Uint8Array;
     const response = await ownFetch(`${application.url}${pathname}`, {
       method,
@@ -107,9 +111,14 @@ function browser(application) {
       },
       body: body === undefined || bytes ? body : JSON.stringify(body)
     });
+    /* A cookie set empty, or to expire now, is cleared, as a browser clears it. */
     for (const set of response.headers.getSetCookie()) {
-      const pair = set.split(';')[0];
-      if (pair.startsWith('nv_session=')) cookie = pair === 'nv_session=' ? '' : pair;
+      const [pair, ...attributes] = set.split(';');
+      const at = pair.indexOf('=');
+      const name = pair.slice(0, at).trim();
+      const value = pair.slice(at + 1).trim();
+      const expired = attributes.some(attribute => /^\s*max-age=0\s*$/i.test(attribute));
+      if (!value || expired) jar.delete(name); else jar.set(name, value);
     }
     return response;
   }
@@ -119,6 +128,7 @@ function browser(application) {
    * with the status, or with null when nothing is answered within `waitMs`.
    */
   function declare(pathname, length, { method = 'POST', headers = {}, waitMs = 10000 } = {}) {
+    const cookie = header();
     return new Promise((resolve, reject) => {
       let settled = false;
       const settle = (outcome, value) => {
@@ -148,8 +158,17 @@ function browser(application) {
   return {
     request,
     declare,
-    get cookie() { return cookie; },
-    set cookie(value) { cookie = value; },
+    /* The Cookie header the page sends; set, it replaces every cookie the page holds. */
+    get cookie() { return header(); },
+    set cookie(value) {
+      jar.clear();
+      for (const pair of String(value).split(';')) {
+        const at = pair.indexOf('=');
+        if (at > 0) jar.set(pair.slice(0, at).trim(), pair.slice(at + 1).trim());
+      }
+    },
+    /* One cookie's value, or '' when the page holds none by that name. */
+    cookieValue: name => jar.get(name) || '',
     signIn: token => request('/api/login', { method: 'POST', body: { token } }),
     async csrf() {
       const answer = await request('/api/security/csrf');

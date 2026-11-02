@@ -42,4 +42,20 @@ async function disposableDatabase(purpose) {
   });
 }
 
-module.exports = { disposableDatabase };
+/*
+ * Whether anything handed a database client a query while it was still
+ * running one. pg 8 queues such a query with a deprecation warning, and pg 9
+ * refuses it, so a test watches for the warning while pg still forgives the
+ * overlap. Node gives each deprecation once a process, so one watcher a test
+ * is enough.
+ */
+function watchOverlappingQueries() {
+  const seen = [];
+  const listener = warning => {
+    if (warning && warning.name === 'DeprecationWarning' && /already executing a query/.test(String(warning.message))) seen.push(String(warning.stack || warning.message));
+  };
+  process.on('warning', listener);
+  return Object.freeze({ seen, stop: () => process.off('warning', listener) });
+}
+
+module.exports = { disposableDatabase, watchOverlappingQueries };

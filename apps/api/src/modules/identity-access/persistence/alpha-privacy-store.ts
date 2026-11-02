@@ -977,46 +977,42 @@ export class AlphaPrivacyStore {
   }
 
   async cleanupReadiness(client: PoolClient, testerId: string, scope: ReadinessScope | null = null): Promise<CleanupReadiness> {
-    const [
-      bindingResult,
-      manifestResult,
-      taskResult,
-      ownershipResult,
-      webhookOwnershipResult
-    ] = await Promise.all([
-      client.query(
-        `SELECT tester_id,identity_key,provider,authority,connected_at,disconnected_at
+    /*
+     * One query after another: a client runs one at a time. Handed several at
+     * once, pg 8 queues them with a deprecation, and pg 9 refuses them.
+     */
+    const bindingResult = await client.query(
+      `SELECT tester_id,identity_key,provider,authority,connected_at,disconnected_at
            FROM nv_alpha_provider_bindings
           WHERE tester_id=$1 ORDER BY identity_key,provider`,
-        [testerId]
-      ),
-      client.query(
-        `SELECT manifest_id,tester_id,identity_key,provider,resource_type,
+      [testerId]
+    );
+    const manifestResult = await client.query(
+      `SELECT manifest_id,tester_id,identity_key,provider,resource_type,
                 resource_key_hash,created_at
            FROM nv_alpha_cleanup_manifest
           WHERE tester_id=$1 ORDER BY identity_key,provider,resource_type,resource_key_hash`,
-        [testerId]
-      ),
-      client.query(
-        `SELECT cleanup_id,manifest_id,tester_id,identity_key,provider,resource_type,
+      [testerId]
+    );
+    const taskResult = await client.query(
+      `SELECT cleanup_id,manifest_id,tester_id,identity_key,provider,resource_type,
                 resource_key_hash,status,reason_code,created_at,verified_at
            FROM nv_alpha_cleanup_tasks
           WHERE tester_id=$1 ORDER BY identity_key,provider,resource_type,resource_key_hash,cleanup_id`,
-        [testerId]
-      ),
-      client.query(
-        `SELECT session_key_hash,tester_id,identity_key,provider,claimed_at,released_at
+      [testerId]
+    );
+    const ownershipResult = await client.query(
+      `SELECT session_key_hash,tester_id,identity_key,provider,claimed_at,released_at
            FROM nv_alpha_provider_session_ownership
           WHERE tester_id=$1 ORDER BY identity_key,provider,session_key_hash`,
-        [testerId]
-      ),
-      client.query(
-        `SELECT tester_id,identity_key,provider,resource_key_hash,claimed_at,released_at
+      [testerId]
+    );
+    const webhookOwnershipResult = await client.query(
+      `SELECT tester_id,identity_key,provider,resource_key_hash,claimed_at,released_at
            FROM nv_alpha_provider_webhook_ownership
           WHERE tester_id=$1 ORDER BY identity_key,provider,resource_key_hash`,
-        [testerId]
-      )
-    ]);
+      [testerId]
+    );
     const inScope = (row: Row): boolean => !scope || (
       row.identity_key === scope.identityKey && row.provider === scope.provider
     );

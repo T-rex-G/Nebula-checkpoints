@@ -7,8 +7,9 @@
  * module reads beside itself -- migrations, configuration, the built page --
  * is where it looks:
  *
- *  1. the server's module graph (server.js, src/, apps/api/src/ and the
- *     shared contracts) is emitted by tsc, TypeScript as JavaScript and every
+ *  1. the server's module graph (apps/api/src/, from its entry point
+ *     apps/api/src/main.ts, the CommonJS modules still in src/ and the shared
+ *     contracts) is emitted by tsc, TypeScript as JavaScript and every
  *     relative `.ts` specifier rewritten to `.js`;
  *  2. every other releasable file is copied as it is, except TypeScript
  *     source, which the compiled tree replaces;
@@ -34,7 +35,7 @@ const OUT = path.join(ROOT, COMPILED_DIRECTORY);
 const WEB = path.join(ROOT, 'dist', 'web');
 
 /* The server's module graph: what it requires, and what that requires. */
-const COMPILED = /^(?:server\.js|src\/.+\.js|apps\/api\/src\/.+\.ts|packages\/contracts\/src\/.+\.ts)$/;
+const COMPILED = /^(?:src\/.+\.js|apps\/api\/src\/.+\.ts|packages\/contracts\/src\/.+\.ts)$/;
 const TYPESCRIPT = /\.(?:ts|tsx|mts|cts)$/;
 
 const COMPILER_OPTIONS = Object.freeze({

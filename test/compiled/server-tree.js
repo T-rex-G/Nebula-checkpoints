@@ -18,10 +18,10 @@ const { listFiles } = require('../../apps/api/src/platform/release/directory-dig
 
 const root = path.resolve(__dirname, '..', '..');
 const compiled = path.join(root, 'dist', 'server');
-assert(fs.existsSync(path.join(compiled, 'server.js')), 'the compiled server is not built: run npm run build:server');
+assert(fs.existsSync(path.join(compiled, 'apps', 'api', 'src', 'main.js')), 'the compiled server is not built: run npm run build:server');
 
 const files = listFiles(compiled, 'the compiled server');
-const code = files.filter(file => /^(?:server\.js|src\/.+\.js|apps\/api\/src\/.+\.js|packages\/contracts\/src\/.+\.js)$/.test(file));
+const code = files.filter(file => /^(?:src\/.+\.js|apps\/api\/src\/.+\.js|packages\/contracts\/src\/.+\.js)$/.test(file));
 assert.deepEqual(files.filter(file => /\.(?:ts|tsx|mts|cts)$/.test(file)), [], 'the compiled tree carries TypeScript source');
 for (const scope of ['package.json', 'apps/package.json', 'packages/package.json']) {
   assert.deepEqual(fs.readFileSync(path.join(compiled, scope), 'utf8'), fs.readFileSync(path.join(root, scope), 'utf8'), `${scope} is copied as it is`);

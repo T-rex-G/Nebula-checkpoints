@@ -31,9 +31,10 @@ assert.match(identityAccess, /\bAlphaPrivacyStore\b/);
 assert.match(identityAccess, /\bcreateAccountLifecycle\b/);
 assert(lifecycle.includes("import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';"));
 assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
-assert(server.includes('privacyStore: alphaPrivacyStore\n});'), 'the lifecycle is handed the central privacy lifecycle store');
+const lifecycleWiring = (server.match(/const lifecycle = createAccountLifecycle\(\{[\s\S]*?\n  \}\);/) || [''])[0];
+assert(lifecycleWiring.endsWith('privacyStore: core.alphaPrivacyStore\n  });'), 'the lifecycle is handed the central privacy lifecycle store');
 assert.match(lifecycle, /async function disconnectAlphaProviderAccount\(req: LifecycleRequest/);
-assert.match(server, /\} = createAccountLifecycle\(\{/);
+assert.match(server, /const lifecycle = createAccountLifecycle\(\{/);
 const alphaSessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'alpha-sessions.ts'), 'utf8');
 const alphaRequestSessionStart = alphaSessions.indexOf('async function readRequestSession(req: Request)');
 assert(alphaRequestSessionStart >= 0, 'missing the access session reader');
@@ -52,7 +53,9 @@ const removalRoutes = [
 ];
 /* The central disconnect, as the server calls it and as identity and access's routes are handed it. */
 const disconnectCall = /await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/;
-assert.strictEqual((server.match(/disconnectProviderAccounts: disconnectAlphaProviderAccount\b/g) || []).length, 3,
+assert(server.includes('const disconnect = { disconnectProviderAccounts: lifecycle.disconnectAlphaProviderAccount,')
+  && (server.match(/\bdisconnectProviderAccounts:/g) || []).length === 1, 'the central disconnect helper is the only one handed out');
+assert.strictEqual((server.match(/\.\.\.disconnect\b/g) || []).length, 3,
   'identity and access\'s account, alpha and GitHub App disconnect routes must be handed the central disconnect helper');
 for (const routePath of removalRoutes) {
   const block = routeBlock(routePath);
@@ -167,7 +170,7 @@ assert(containmentBlock.indexOf('deps.alphaEnabled') >= 0 && containmentBlock.in
 const appRecords = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
 const installationPersistenceBlock = nested(appRecords, 'async function persistGithubAppInstallation(');
 assert(installationPersistenceBlock.includes('if (deps.alphaEnabled) return false;')
-  && server.includes('createGithubAppRecords({\n  alphaEnabled: ALPHA_CONFIG.enabled,'),
+  && server.includes('createGithubAppRecords({ alphaEnabled: alphaConfig.enabled,'),
   'invite mode must not copy raw GitHub installation metadata into the legacy table');
 /* The App connection's routes and its view are identity and access's. */
 const appRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
@@ -182,7 +185,7 @@ assert(connectionViewBlock.includes('if (deps.config.enabled)'));
 assert(connectionViewBlock.indexOf('connectionKey: deps.identityKey(account)')
   < connectionViewBlock.indexOf('installationId: Number(account.installationId)'),
   'invite-mode App responses must return the stable connection key before the legacy raw provider view');
-assert(server.includes('const githubAppConnectionView = createGithubAppConnectionView({ config: ALPHA_CONFIG, identityKey });'),
+assert(server.includes('const githubAppConnectionView = createGithubAppConnectionView({ config: alphaConfig, identityKey });'),
   'the server must show App connections through identity and access\'s view');
 const addressing = appRoutes.slice(appRoutes.indexOf('const addressed = (req: Request) => {'), appRoutes.indexOf("app.post('/api/github-app/connect'"));
 assert(addressing.includes('deps.identityKey(item) === requestedConnectionKey'),
@@ -198,7 +201,7 @@ const ghStart = rest.indexOf('  async function gh(');
 const ghEnd = rest.indexOf('\n  }\n', ghStart) + 4;
 assert(ghStart >= 0);
 const ghBlock = rest.slice(ghStart, ghEnd);
-assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'") && server.includes('alphaEnabled: ALPHA_CONFIG.enabled'),
+assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'") && /const github = createGithubRestClient\(\{[\s\S]*?alphaEnabled: alphaConfig\.enabled\n  \}\);/.test(server),
   'invite-mode provider fallback must not invalidate shared broker state');
 assert(ghBlock.includes("options.redirect === 'manual' ? 'manual' : 'error'"));
 assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
@@ -210,7 +213,7 @@ const oauthCallbackBlock = oauthRoutes.slice(oauthCallbackStart);
 assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
 /* Both LFS exchanges, the URL validator, the download and the upload are the workbench's LFS transfer. */
 const lfsTransfer = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
-assert(!server.includes('info/lfs/objects/batch'), 'LFS negotiations belong to the workbench, not server.js');
+assert(!server.includes('info/lfs/objects/batch'), 'LFS negotiations belong to the workbench, not the composition');
 assert.strictEqual(
   (lfsTransfer.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
   2,
@@ -246,7 +249,7 @@ assert.match(
   fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'repository-access.ts'), 'utf8'),
   /function retainedActor\(req[^)]*\)[^{]*\{[\s\S]+deps\.alphaEnabled && req\.alpha[\s\S]+alphaActorLabel\(req\.alpha\)[\s\S]+req\.gh && req\.gh\.login/
 );
-assert(server.includes('createRepositoryAccess({\n  alphaEnabled: ALPHA_CONFIG.enabled,'), 'the server gives the guards the alpha\'s flag');
+assert(server.includes('createRepositoryAccess({\n    alphaEnabled: alphaConfig.enabled,'), 'the server gives the guards the alpha\'s flag');
 for (const forbidden of [
   'actor: req.gh.login',
   'actorLogin: req.gh.login',
@@ -266,7 +269,7 @@ for (const forbidden of [
 /* Evidence a request leaves -- a disconnected installation, a blocked upload -- names the invite actor label. */
 const uploadScan = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'upload-scan.ts'), 'utf8');
 assert(lifecycle.includes('actor: call.retainedActor(req)') && uploadScan.includes('actor: actorOf(req)')
-  && server.includes('scan: scanUploadFile, appendEvidence, retainedActor,'), 'retained evidence must use the invite actor label');
+  && server.includes('scan: scanUploadFile, appendEvidence: core.evidenceChain.appendEvidence, retainedActor,'), 'retained evidence must use the invite actor label');
 assert(appRecords.includes('retainedProviderActor('), 'background GitHub App audits need an identity-to-alpha-actor boundary');
 
 console.log('provider disconnect server contract tests passed');

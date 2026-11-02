@@ -7,7 +7,7 @@ const root = path.join(__dirname, '..');
 const { locations } = require('./oracles/route-policy');
 const server = serverSource();
 const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
-/* Every route with its guard chain, as the route policy reads it from server.js and the modules' registration functions. */
+/* Every route with its guard chain, as the route policy reads it from the composition root and the modules' registration functions. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const guardsOf = new Map(policyRoutes.map(entry => [`${entry.method} ${entry.path}`, entry.guards]));
 for (const item of MUTATION_ROUTE_INVENTORY) {
@@ -41,7 +41,7 @@ for (const entry of policyRoutes.filter(route => ['POST', 'PUT', 'PATCH', 'DELET
 }
 /*
  * Every provider write asks the gateway first: the GitHub REST client (wired
- * to the gateway by server.js), and the workbench's two transports that bypass
+ * to the gateway by the composition), and the workbench's two transports that bypass
  * it -- the native Git push and the LFS upload, with each LFS exchange named.
  */
 const workbench = file => fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
@@ -66,7 +66,7 @@ assert(lfsUpload.includes("transport: 'git-lfs.verify'"));
 /* A restore's metadata inspects its preview without spending it (the platform's mutation context, composed with Corona's recovery). */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
 assert(mutationContextSource.includes('deps.inspectRestoreAuthorization({ account: req.gh, owner: (req.params as Fields).owner, repo: (req.params as Fields).repo }, body.authorization)'));
-assert(server.includes('inspectRestoreAuthorization: (target, authorization) => recovery.inspectRestoreAuthorization(target, authorization)'));
+assert(server.includes('inspectRestoreAuthorization: (target, authorization) => core.recovery.inspectRestoreAuthorization(target, authorization)'));
 assert(mutationContextSource.includes("case 'recovery.restore-refs':"));
 /* A folder move names the head its listing came from (the workbench's folder move). */
 assert(workbench('http/folder-move-route.ts').includes('requireAggregateExpectedHead(requestedHead)'));

@@ -12,8 +12,9 @@
  *     freeze what they return, and need no platform.
  *  3. Adoption. A pattern or header name a contract owns may not be written
  *     out again anywhere else, and every export has a consumer. What is still
- *     written out in server.js and the classic page, and what is still waiting
- *     for its consumer, is recorded in test/oracles/contract-adoption.json.
+ *     written out in the CommonJS modules left in src/ and in the page, and
+ *     what is still waiting for its consumer, is recorded in
+ *     test/oracles/contract-adoption.json.
  *     Both lists may only shrink (NV_CONTRACT_ADOPTION_WRITE=1 records a
  *     shrink, never growth); Phase D and Phase E empty them.
  */

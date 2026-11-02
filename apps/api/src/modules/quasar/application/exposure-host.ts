@@ -40,7 +40,8 @@ import { resolveExposureSession as resolveStoredExposureSession, type ExposureSe
 import { DEFAULT_BUDGETS, startExposureWorker, type ExposureWorkerOptions } from './exposure-worker.ts';
 
 type ExposureWorker = ReturnType<typeof startExposureWorker>;
-type Access = { readonly testerId?: unknown };
+/* A tester's alpha access, as a scan's session reads it. */
+type Access = { readonly testerId?: unknown; readonly repositoryScopes?: unknown };
 
 export interface ExposureHostDeps {
   readonly databaseConfigured: boolean;

@@ -1,7 +1,7 @@
 'use strict';
 /*
  * The server's startup settings (apps/api/src/platform/config/server-settings.ts):
- * the two readings server.js makes, the secrets first and the rest after
+ * the two readings the server makes at startup, the secrets first and the rest after
  * Corona's keys.
  *
  * What they must hold: a production deployment refuses a missing, default or

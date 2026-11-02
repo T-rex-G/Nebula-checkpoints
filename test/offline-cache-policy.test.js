@@ -98,7 +98,7 @@ const serverSource = readServerSource();
   res.writeHead(404);
   assert.strictEqual(headers.get('cache-control'), 'no-store');
   assert.strictEqual(headers.get('x-nv-offline-scope'), undefined);
-  assert(serverSource.includes("app.use('/api', apiNoStore(offlineCacheResponseBinding));"),
+  assert(serverSource.includes("app.use('/api', apiNoStore(core.security.offlineCacheResponseBinding));"),
     'server must retain the bounded private offline response middleware');
 }
 /* The binding is the session's own security's to decide (identity-access/application/session-security.ts). */

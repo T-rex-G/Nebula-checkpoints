@@ -31,7 +31,7 @@ assert(!hashTaskReference(CLEANUP_ID).includes(CLEANUP_ID));
 /* The daily retention is identity and access's; the server starts it once the store is ready. */
 const server = serverSource();
 const retention = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'alpha-privacy-retention.ts'), 'utf8');
-assert(server.includes('createAlphaPrivacyRetention({ config: ALPHA_CONFIG, store: alphaPrivacyStore })'));
+assert(server.includes('createAlphaPrivacyRetention({ config: alphaConfig, store: alphaPrivacyStore })'));
 assert(server.includes('onReady: () => alphaPrivacyRetention.start()'));
 assert(retention.includes('if (!config.enabled || !store) return;'));
 assert(retention.includes('await store.runRetention()'));

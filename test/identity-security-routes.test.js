@@ -44,8 +44,8 @@ const MOVED = [
     assert.deepEqual(entry.guards, route.guards, `${key} keeps its chain`);
     assert(entry.at.startsWith('apps/api/src/modules/identity-access/http/'), `${key} is registered by identity and access (${entry.at})`);
   }
-  const fromServer = [...now.values()].filter(entry => entry.at.startsWith('server.js:'));
-  assert.deepEqual(fromServer, [], 'server.js registers no route itself');
+  const fromRoot = [...now.values()].filter(entry => /^apps\/api\/src\/(?:main\.ts|composition\/)/.test(entry.at));
+  assert.deepEqual(fromRoot, [], 'the composition root registers no route itself');
 }
 
 /* ---- A server with the module's registrations, a scripted broker and the real states and grants ---- */

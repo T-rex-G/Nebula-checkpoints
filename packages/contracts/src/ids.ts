@@ -6,8 +6,9 @@
  * its own name here so a reader of the caller knows which one it holds.
  *
  * test/contracts.test.js counts the copies of these patterns still written
- * out elsewhere. The count may only fall: the server's reach zero as Phase D
- * dissolves server.js, and the page's as Phase E dissolves the classic page.
+ * out elsewhere. The count may only fall: the server's composition holds
+ * none, the CommonJS modules left in src/ give theirs up as they move, and
+ * the page's go as Phase E dissolves the classic page.
  */
 
 export const IDS_CONTRACT_VERSION = 1;

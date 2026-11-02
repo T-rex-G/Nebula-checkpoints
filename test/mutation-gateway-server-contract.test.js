@@ -63,7 +63,7 @@ for (const [route, action] of routes) {
  * client, so each asks the active gateway context itself: the server hands
  * both the gateway's check, and each calls it before it writes.
  */
-assert(server.includes('const assertProviderMutation = target => mutationGateway.assertProviderMutation(target);'),
+assert(/const assertProviderMutation = \(target: [^)]+\) => core\.mutationGateway\.assertProviderMutation\(target\);/.test(server),
   'the workbench transports must be handed the active gateway context');
 for (const [factory, file, start] of [
   ['createNativePush', 'application/native-push.ts', '  async function push('],

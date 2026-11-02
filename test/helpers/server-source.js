@@ -3,16 +3,19 @@
  * The server's composition root, for the checks that read how the server
  * wires the platform and the modules together.
  *
- * While server.js is the root it is that one file. Once the decomposed entry
- * point replaces it, the root is apps/api/src/main.ts and the composition it
- * calls in apps/api/src/composition/, read as one text in that order. A check
- * that reads the root through here holds wherever in it the wiring lives, and
- * holds across the move from one root to the other.
+ * The root is apps/api/src/main.ts and the composition it calls in
+ * apps/api/src/composition/, read as one text in that order (server.js was
+ * the root until D13 replaced it). A check that reads the root through here
+ * holds wherever in it the wiring lives.
  *
  * What the root loads is read from its module syntax rather than its text:
  * `const { a, b: c } = require('…')` and `import { a, b as c } from '…'` both
  * take a and b -- the names the module exports, whatever the root calls them.
- * A type-only import loads nothing and is not counted.
+ * So does `import m from '…'` followed by `const { a, b: c } = m`, the way an
+ * ES module reads a CommonJS module's exports. A type-only import loads
+ * nothing and is not counted. A module is named by its path in the tree: a
+ * relative specifier is resolved from the folder of the file that holds it,
+ * so a check names the module once, wherever in the root it is loaded from.
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +26,6 @@ const COMPOSITION = path.join('apps', 'api', 'src', 'composition');
 
 /* The root's files, relative to the tree, in the order they are read. */
 function serverFiles(root = ROOT) {
-  if (fs.existsSync(path.join(root, 'server.js'))) return ['server.js'];
   const composition = path.join(root, COMPOSITION);
   const parts = fs.existsSync(composition)
     ? fs.readdirSync(composition).filter(name => name.endsWith('.ts')).sort().map(name => path.posix.join('apps', 'api', 'src', 'composition', name))
@@ -35,7 +37,12 @@ function serverSource(root = ROOT) {
   return serverFiles(root).map(file => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
 }
 
-/* Every module the root loads, with the names it takes from each; `*` for a whole module. */
+/* A specifier as the tree names it: a relative one resolved from its file's folder, a package's as written. */
+function treePath(file, specifier) {
+  return specifier.startsWith('.') ? path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)) : specifier;
+}
+
+/* Every module the root loads, by its path in the tree, with the names it takes from each; `*` for a whole module. */
 function serverModules(root = ROOT) {
   const loads = new Map();
   const take = (specifier, names) => {
@@ -50,36 +57,43 @@ function serverModules(root = ROOT) {
   for (const file of serverFiles(root)) {
     const source = ts.createSourceFile(file, fs.readFileSync(path.join(root, file), 'utf8'), ts.ScriptTarget.Latest, true,
       file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS);
+    /* A default import's local name, and the module whose exports it holds. */
+    const defaults = new Map();
+    const destructured = binding => binding.elements.map(element => (element.propertyName || element.name).getText(source));
     const visit = node => {
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+        const module = treePath(file, node.moduleSpecifier.text);
         const clause = node.importClause;
         if (clause && !clause.isTypeOnly) {
           const names = [];
-          if (clause.name) names.push('default');
+          if (clause.name) {
+            names.push('default');
+            defaults.set(clause.name.text, module);
+          }
           const bindings = clause.namedBindings;
           if (bindings && ts.isNamespaceImport(bindings)) names.push('*');
           if (bindings && ts.isNamedImports(bindings)) {
             for (const element of bindings.elements) if (!element.isTypeOnly) names.push((element.propertyName || element.name).text);
           }
-          take(node.moduleSpecifier.text, names);
+          take(module, names);
         } else if (!clause) {
-          take(node.moduleSpecifier.text, []);
+          take(module, []);
         }
         return;
       }
       if (ts.isVariableDeclaration(node) && node.initializer) {
         const specifier = requiredSpecifier(node.initializer);
         if (specifier !== null) {
-          if (ts.isObjectBindingPattern(node.name)) {
-            take(specifier, node.name.elements.map(element => (element.propertyName || element.name).getText(source)));
-          } else {
-            take(specifier, ['*']);
-          }
+          take(treePath(file, specifier), ts.isObjectBindingPattern(node.name) ? destructured(node.name) : ['*']);
+          return;
+        }
+        if (ts.isIdentifier(node.initializer) && defaults.has(node.initializer.text) && ts.isObjectBindingPattern(node.name)) {
+          take(defaults.get(node.initializer.text), destructured(node.name));
           return;
         }
       }
       const specifier = requiredSpecifier(node);
-      if (specifier !== null) take(specifier, ['*']);
+      if (specifier !== null) take(treePath(file, specifier), ['*']);
       ts.forEachChild(node, visit);
     };
     visit(source);
@@ -87,17 +101,23 @@ function serverModules(root = ROOT) {
   return loads;
 }
 
-/* Whether the root loads the module whose specifier ends so, e.g. 'platform/release/version.ts'. */
+/* Whether a loaded module is the one a check names by the end of its path, with or without its extension. */
+function isModule(module, ending) {
+  const bare = text => text.replace(/\.(?:[cm]?js|ts)$/, '');
+  return bare(module) === bare(ending) || bare(module).endsWith(`/${bare(ending)}`);
+}
+
+/* Whether the root loads the module whose path ends so, e.g. 'platform/release/version.ts'. */
 function serverLoads(ending, root = ROOT) {
-  return [...serverModules(root).keys()].some(specifier => specifier === ending || specifier.endsWith(`/${ending}`));
+  return [...serverModules(root).keys()].some(module => isModule(module, ending));
 }
 
 /* The names the root takes from that module, as one text for a check to match; null when it does not load it. */
 function serverImports(ending, root = ROOT) {
   const names = new Set();
   let found = false;
-  for (const [specifier, taken] of serverModules(root)) {
-    if (specifier === ending || specifier.endsWith(`/${ending}`)) {
+  for (const [module, taken] of serverModules(root)) {
+    if (isModule(module, ending)) {
       found = true;
       for (const name of taken) names.add(name);
     }

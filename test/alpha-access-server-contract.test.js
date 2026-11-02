@@ -3,7 +3,7 @@
 /*
  * The hosted alpha's boundary in front of every route, read from the route
  * policy (test/oracles/route-policy.js), so a route counts wherever it is
- * registered: in server.js or in a module's routes. A repository route
+ * registered: in the composition root or in a module's routes. A repository route
  * attaches the local provider session, then the invitation's repository
  * boundary, then capability access, then the live provider credentials, and
  * only then any governance or mutation context; the semantic surfaces carry
@@ -214,7 +214,7 @@ const changed = (method, routePath, guards) => policy.map(entry => (
 assert.throws(
   () => validateAlphaRouteInventory([...policy, {
     kind: 'route', method: 'GET', path: '/api/repo/:owner/:repo/unreviewed-alpha-route',
-    guards: ['auth', "capabilityAccess('repository.read')"], handler: 'inline', at: 'server.js:1'
+    guards: ['auth', "capabilityAccess('repository.read')"], handler: 'inline', at: 'apps/api/src/main.ts:1'
   }]),
   /unreviewed-alpha-route/,
   'a new repository route without the boundary must fail the exhaustive inventory'

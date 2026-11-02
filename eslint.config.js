@@ -77,7 +77,6 @@ module.exports = [
   {
     name: 'nebulaverse/node-commonjs',
     files: [
-      'server.js',
       'eslint.config.js',
       'playwright*.config.js',
       'src/**/*.js',

@@ -206,12 +206,22 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
   }
 
   /* ---- No stray control bytes in the code that ships ---------------------------- */
+  /*
+   * The server's code, the CommonJS modules left in src/, the contracts both
+   * sides share, the page's sources and the public files served as they are.
+   */
   const root = path.join(__dirname, '..');
+  const tree = (directory, pattern) => fs.readdirSync(path.join(root, directory), { recursive: true })
+    .map(name => path.join(directory, String(name)))
+    .filter(file => pattern.test(file) && fs.statSync(path.join(root, file)).isFile());
   const shipped = [
     ...fs.readdirSync(path.join(root, 'src')).filter(name => name.endsWith('.js')).map(name => path.join('src', name)),
     ...fs.readdirSync(path.join(root, 'public')).filter(name => /\.(js|css|html)$/.test(name)).map(name => path.join('public', name)),
-    'server.js'
+    ...tree(path.join('apps', 'api', 'src'), /\.ts$/),
+    ...tree(path.join('packages', 'contracts', 'src'), /\.ts$/),
+    ...tree(path.join('apps', 'web', 'src'), /\.(?:[cm]?[jt]sx?|css|html)$/)
   ];
+  assert(shipped.includes(path.join('apps', 'api', 'src', 'main.ts')), 'the server\'s entry point is among the code that ships');
   for (const file of shipped) {
     const text = fs.readFileSync(path.join(root, file), 'latin1');
     const stray = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.exec(text);

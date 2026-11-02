@@ -10,10 +10,10 @@ const server = serverSource();
 const appRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 
 assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8').includes('loadGithubAppConfig(env, { production })')
-  && server.includes('githubApp: GITHUB_APP_CONFIG'), 'server must load optional GitHub App configuration');
+  && server.includes('githubApp: env.githubApp'), 'server must load optional GitHub App configuration');
 assert(server.includes('new GithubAppBroker'), 'server must construct the server-side installation credential broker');
 assert(server.includes('resolveProviderAccount'), 'authenticated provider operations must resolve credentials through one boundary');
-/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+/* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const guardsOf = (method, routePath) => {
@@ -49,7 +49,7 @@ assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifica
 assert(collaboration.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
 /* Disconnecting is identity and access's account lifecycle, handed the server's App broker. */
 const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
-assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)') && server.includes('appBroker: githubAppBroker,')
+assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)') && server.includes('appBroker: core.githubAppBroker,')
   && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
 /* An installation's record and its audit trail are identity and access's GitHub App records, composed by the server. */
 const appRecords = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');

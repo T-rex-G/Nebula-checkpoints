@@ -106,7 +106,9 @@ export function createGithubRestClient(deps: GithubRestDeps) {
   const etags = new Map<string, { etag: string; body: string }>();
 
   /* GitHub's answer as JSON (or { raw } when it is not), or the response itself for a raw request. */
-  /* Whatever a route holds as the account is handed in: a token, or an account the check below lets through. */
+  /* Whatever a route holds as the account is handed in: a token, or an account the check below lets through. A raw request answers with the response itself. */
+  function gh(account: unknown, apiPath: string, options: GithubRequestOptions & { readonly raw: true }): Promise<Response>;
+  function gh(account: unknown, apiPath: string, options?: GithubRequestOptions): Promise<unknown>;
   async function gh(account: unknown, apiPath: string, options: GithubRequestOptions = {}): Promise<unknown> {
     const acct = typeof account === 'string' ? { provider: 'github', token: account } : account;
     assertGithubAccount(acct);

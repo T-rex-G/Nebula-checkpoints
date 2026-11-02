@@ -112,7 +112,7 @@ assert.doesNotMatch(serverSource, /const KEY = crypto\.createHash/,
  * value is compared against the operator's snapshot secret to reject reuse, so
  * deriving it there would defeat the check it exists to perform.
  */
-assert.match(serverSource, /sessionSecret: SECRET/,
+assert.match(serverSource, /loadSnapshotSigningConfig\(env, \{[^}]*sessionSecret: secrets\.secret\b/,
   'the snapshot reuse check must keep comparing against the raw session secret');
 
 console.log('key derivation tests passed');

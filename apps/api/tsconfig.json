@@ -5,7 +5,10 @@
     "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": ["node"]
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": false,
+    "maxNodeModuleJsDepth": 0
   },
   "include": ["src/**/*.ts", "../../packages/contracts/src/**/*.ts"]
 }

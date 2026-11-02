@@ -138,7 +138,7 @@ for (const [method, routePath] of [
   );
 }
 
-/* The governance routes with their guard chains, as the route policy reads them from server.js and Kepler's registrations. */
+/* The governance routes with their guard chains, as the route policy reads them from the composition root and Kepler's registrations. */
 function governanceRegistrations(methods) {
   return policyRoutes.filter(entry => methods.includes(entry.method) && entry.path.startsWith('/api/repo/:owner/:repo/governance/'));
 }

@@ -143,7 +143,7 @@ async function waitForServer() {
     assert(!/^\s*\/\*(?!!)|^\s*\/\//m.test(worker), 'the service worker is served without comments');
 
     /* A file that is not there is not there: no shell page at 200 for a dotfile or a file name. */
-    for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/backup.zip']) {
+    for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/apps/api/src/main.ts', '/backup.zip']) {
       const response = await request(missing);
       assert.strictEqual(response.status, 404, `${missing} must be a 404`);
       assert(!/html/i.test(response.headers.get('content-type') || ''), `${missing} must not answer with the app`);

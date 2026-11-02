@@ -2,7 +2,7 @@
 const assert = require('assert');
 const path = require('path');
 const root = path.join(__dirname, '..');
-/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+/* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 /* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */

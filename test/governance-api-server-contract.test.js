@@ -28,10 +28,10 @@ const host = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'k
 assert(/\bcreateGovernanceHost\b/.test(kepler) && host.includes('service = createGovernanceApiService({ store });'), 'server must load the governance API boundary');
 assert(host.includes('store = new GovernanceStore(deps.pool(), { secret: deps.auditSecret });'), 'server must load the durable governance store');
 assert(/\bregisterGovernanceRoutes\b/.test(kepler) && /\bregisterGovernanceLifecycleRoutes\b/.test(kepler), 'server must register the governance routes through Kepler');
-assert(server.includes('governance: req => req.governance'), 'the routes must read the governance context the server guard attached');
+assert(server.includes('governance: governanceOf') && server.includes('export const governanceOf = (req: GuardedRequest): GovernanceRequest => req.governance!;'), 'the routes must read the governance context the server guard attached');
 /* The governance guard and its mutation context are Kepler's (http/governance-context.ts), composed by the server. */
 const governanceContext = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
-assert(governanceContext.includes('function governanceAccess(') && server.includes('const { governanceAccess, governanceMutationContext } = createGovernanceContext({'), 'server must expose one governance authorization middleware');
+assert(governanceContext.includes('function governanceAccess(') && server.includes('const governance = createGovernanceContext({') && server.includes('const { governanceAccess, governanceMutationContext } = access.governance;'), 'server must expose one governance authorization middleware');
 assert(governanceContext.includes('function governanceMutationContext('), 'governance writes must use one mutation gateway middleware');
 assert(governanceContext.includes('req.governance.authorization'), 'governance boundary must retain only server-derived authorization evidence');
 assert(governanceRoutes.includes('authorization: governance(req).authorization') && !/authorization: req\.body/.test(governanceRoutes), 'governance routes must pass only the server-derived authorization evidence');

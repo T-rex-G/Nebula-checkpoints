@@ -55,6 +55,8 @@
   "files": [
     "src/capability-registry.js",
     "src/config-registry.js",
+    "src/public-assets.js",
+    "src/qualification-capabilities.js",
     "src/staging-validation.js",
     "src/work-continuity.js"
   ],

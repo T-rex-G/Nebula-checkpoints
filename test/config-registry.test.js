@@ -27,7 +27,7 @@ const path = require('path');
 const { ENTRIES, GROUPS } = require('../src/config-registry');
 
 const root = path.join(__dirname, '..');
-const SCANNED_ROOTS = ['src', 'apps/api/src', 'scripts', 'ci', 'db', 'server.js'];
+const SCANNED_ROOTS = ['src', 'apps/api/src', 'scripts', 'ci', 'db'];
 
 const READ_PATTERNS = [
   /process\.env\.([A-Z][A-Z0-9_]{2,})/g,

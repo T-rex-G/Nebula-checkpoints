@@ -456,7 +456,7 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
     const server = serverSource();
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
-    /* A route where it is registered: in server.js, or in the workbench's own registrations. */
+    /* A route where it is registered: in the composition root, or in the workbench's own registrations. */
     const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts', 'collaboration-routes.ts', 'folder-move-route.ts']
       .map(file => fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', file), 'utf8'));
     const route = (method, routePath) => {

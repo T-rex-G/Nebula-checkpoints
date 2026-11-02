@@ -17,7 +17,7 @@ const governanceContextSource = fs.readFileSync(path.join(root, 'apps', 'api', '
 assert(mutationContextSource.includes('async function resolveMutationAuthorization(') && server.includes('createRepositoryMutationContext({'), 'server must expose one mutation authorization boundary');
 assert(mutationContextSource.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
 assert(mutationContextSource.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
-assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*gh\(account, apiPath\)/.test(server), 'resolver requests must use server-side GitHub credentials');
+assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*github\.gh\(account, apiPath\)/.test(server), 'resolver requests must use server-side GitHub credentials');
 for (const source of [server, mutationContextSource, governanceContextSource]) {
   assert(!source.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
   assert(!source.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
@@ -61,10 +61,10 @@ assert.deepStrictEqual(ownWork, [
   'POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel'
 ], 'exactly the identity-scoped routes accept a public reader');
 /*
- * OWN_WORK is used nowhere else. In the server's composition root: its
- * definition, the routes still registered there, and one hand-over to each
- * module whose routes take it. In each such module's routes: the field that
- * receives it, the binding that names it, and its routes.
+ * OWN_WORK is used nowhere else. In the server's composition root: the routes
+ * still registered there, and in each file that hands it to a module, its
+ * import from Kepler and that one hand-over. In each such module's routes:
+ * the field that receives it, the binding that names it, and its routes.
  */
 const ownWorkIn = file => policyRoutes.filter(entry => entry.at.startsWith(`${file}:`) && entry.guards.includes("governanceAccess('reader', OWN_WORK)")).length;
 const ownWorkFiles = [...new Set(policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => entry.at.split(':')[0]))];
@@ -75,9 +75,14 @@ for (const file of moduleFiles) {
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   assert.strictEqual((text.match(/OWN_WORK/g) || []).length, ownWorkIn(file) + 2, `OWN_WORK is used nowhere else in ${file}`);
 }
-const handOvers = (server.match(/register[A-Za-z]+Routes\(app, \{[^}]*\bOWN_WORK\b/g) || []).length;
+const handOversIn = text => (text.match(/register[A-Za-z]+Routes\(app, \{[^}]*\bOWN_WORK\b/g) || []).length;
+const handOvers = handOversIn(server);
 assert.strictEqual(handOvers, moduleFiles.length, 'one hand-over to each module whose routes take it');
-assert.strictEqual((server.match(/OWN_WORK/g) || []).length, rootFiles.reduce((sum, file) => sum + ownWorkIn(file), 0) + 1 + handOvers,
+const importers = rootFiles.filter(file => /import \{[^}]*\bOWN_WORK\b[^}]*\} from '\.\.\/modules\/kepler\/index\.ts';/.test(fs.readFileSync(path.join(root, file), 'utf8')));
+for (const file of importers) {
+  assert.strictEqual(handOversIn(fs.readFileSync(path.join(root, file), 'utf8')), 1, `${file} imports OWN_WORK to hand it over once`);
+}
+assert.strictEqual((server.match(/OWN_WORK/g) || []).length, rootFiles.reduce((sum, file) => sum + ownWorkIn(file), 0) + importers.length + handOvers,
   'OWN_WORK is used nowhere else in the composition root');
 assert.strictEqual(ownWorkFiles.reduce((sum, file) => sum + ownWorkIn(file), 0), ownWork.length, 'and no other file registers a route with it');
 for (const entry of policyRoutes.filter(item => item.path.startsWith('/api/repo/:owner/:repo/governance'))) {

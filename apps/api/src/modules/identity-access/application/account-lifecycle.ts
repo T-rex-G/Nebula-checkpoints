@@ -69,7 +69,7 @@ export interface AccountLifecycleDeps {
   readonly ready: () => Promise<boolean>;
   readonly pool: () => { query(text: string, values?: readonly unknown[]): Promise<Rows> };
   /* GitHub's REST API (the GitHub provider) and an account with its credential resolved. */
-  readonly gh: (account: unknown, apiPath: string, options?: unknown) => Promise<unknown>;
+  readonly gh: (account: unknown, apiPath: string, options?: { readonly method?: string }) => Promise<unknown>;
   readonly resolveAccount: (account: unknown) => Promise<unknown>;
   /* The GitHub App broker, or null where no App is configured. */
   readonly appBroker: { invalidate(installationId: unknown): unknown } | null;
@@ -77,7 +77,7 @@ export interface AccountLifecycleDeps {
   readonly removeGithubAppInstallation: (identity: unknown, installationId: number) => Promise<unknown>;
   readonly recordGithubAppAudit: (identity: unknown, eventType: string, installationId: number, details: unknown) => Promise<unknown>;
   /* The audits held for an account, forgotten when it leaves. */
-  readonly forgetJobs: (account: unknown) => void;
+  readonly forgetJobs: (account: Account) => void;
   readonly retainedActor: (req: never) => unknown;
   /* The session, its cookie and its security (provider-sessions.ts, session-security.ts). */
   readonly sessionOf: (req: never) => Promise<SignedInSession | null>;

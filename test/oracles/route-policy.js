@@ -111,11 +111,13 @@ function spreadBindings(scope, source) {
 /*
  * Since D12 the routes leave server.js for registration functions in the
  * modules: `register...(app, deps)` in an `http` folder under apps/api/src
- * (and, until it moved, src/routes). A call to one is read in place -- the
- * routes its body registers, in that order, and the registration functions
- * it calls in turn -- so a route keeps its place in the policy wherever its
- * code lives. A name defined twice is resolved within the calling file, and
- * refused when the server calls it, rather than guessed at.
+ * (and, until it moved, src/routes). Since D13 the composition root that
+ * calls them is apps/api/src/main.ts, and its own segments are registration
+ * functions in apps/api/src/composition. A call to one is read in place --
+ * the routes its body registers, in that order, and the registration
+ * functions it calls in turn -- so a route keeps its place in the policy
+ * wherever its code lives. A name defined twice is resolved within the
+ * calling file, and refused when the server calls it, rather than guessed at.
  */
 function registrationFiles(root) {
   const files = [];
@@ -124,7 +126,7 @@ function registrationFiles(root) {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) visit(full);
-      else if (/\.(?:js|ts)$/.test(entry.name) && (path.basename(directory) === 'http' || path.basename(directory) === 'routes')) files.push(full);
+      else if (/\.(?:js|ts)$/.test(entry.name) && ['http', 'routes', 'composition'].includes(path.basename(directory))) files.push(full);
     }
   };
   visit(path.join(root, 'apps', 'api', 'src'));
@@ -229,9 +231,10 @@ function registrationsIn(scope, source, spreads, file, root, expand) {
   return entries;
 }
 
-/* server.js, with every registration function it calls read in place. */
+/* The composition root -- server.js while it existed, apps/api/src/main.ts since -- with every registration function it calls read in place. */
 function serverRegistrations(root) {
-  const serverFile = path.join(root, 'server.js');
+  const monolith = path.join(root, 'server.js');
+  const serverFile = fs.existsSync(monolith) ? monolith : path.join(root, 'apps', 'api', 'src', 'main.ts');
   const server = parse(serverFile);
   return registrationsIn(server, server, new Map(), serverFile, root, expander(root));
 }

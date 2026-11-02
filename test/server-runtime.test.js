@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Which server is running (src/server-runtime.js): the source natively, or the
+ * Which server is running (apps/api/src/platform/release/server-runtime.ts): the source natively, or the
  * tree compiled into dist/server. The mode is read from where the server runs,
  * the release fingerprint always names the source, and a compiled tree names
  * itself by the digest of its own bytes.
@@ -17,7 +17,8 @@ try {
   const source = path.join(scratch, 'checkout');
   const compiled = path.join(source, 'dist', 'server');
   fs.mkdirSync(path.join(compiled, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(compiled, 'server.js'), 'one\n');
+  fs.mkdirSync(path.join(compiled, 'apps', 'api', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(compiled, 'apps', 'api', 'src', 'main.js'), 'one\n');
   fs.writeFileSync(path.join(compiled, 'src', 'a.js'), 'two\n');
 
   assert.deepEqual(describeServerRuntime(source), { mode: 'native-ts', serverRoot: source, sourceRoot: source, buildSha256: null });
@@ -42,9 +43,9 @@ try {
   assert.equal(isCompiledRoot(path.join(scratch, 'dist', 'servers')), false);
 
   /* The helper starts the tree the runtime names, and refuses a compiled run that was never built. */
-  assert.equal(serverEntry(source), path.join(source, 'server.js'));
+  assert.equal(serverEntry(source), path.join(source, 'apps', 'api', 'src', 'main.ts'));
   process.env.NV_SERVER_RUNTIME = 'compiled';
-  assert.equal(serverEntry(source), path.join(compiled, 'server.js'));
+  assert.equal(serverEntry(source), path.join(compiled, 'apps', 'api', 'src', 'main.js'));
   assert.throws(() => serverEntry(path.join(scratch, 'elsewhere')), /not built/);
   delete process.env.NV_SERVER_RUNTIME;
 } finally {

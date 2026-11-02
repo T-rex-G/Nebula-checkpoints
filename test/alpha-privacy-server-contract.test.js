@@ -39,8 +39,9 @@ function routeBlock(method, routePath) {
   const accountLifecycle = fs.readFileSync(path.join(identityHttp, '..', 'application', 'account-lifecycle.ts'), 'utf8');
   assert(accountLifecycle.includes("import { providerRevocationGuidance } from '../domain/alpha-privacy.ts';"));
   assert(lifecycle.includes("import { alphaRetentionPolicy, sanitizeFeedback } from '../domain/alpha-privacy.ts';"));
-  assert.match(server, /registerAlphaPrivacyRoutes\(app, \{ config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, releaseVersion: APP_VERSION \}\);/);
-  assert.match(server, /registerAlphaDisconnectRoutes\(app, \{\s+config: ALPHA_CONFIG, privacyStore: alphaPrivacyStore, accountAuth, fail, sessions: alphaSessions,\s+disconnectProviderAccounts: disconnectAlphaProviderAccount, clearProviderSessionCookie\s+\}\);/);
+  assert.match(server, /registerAlphaPrivacyRoutes\(app, \{ config: alphaConfig, privacyStore: core\.alphaPrivacyStore, releaseVersion: APP_VERSION \}\);/);
+  assert.match(server, /registerAlphaDisconnectRoutes\(app, \{\s+config: alphaConfig, privacyStore: core\.alphaPrivacyStore, accountAuth: guards\.accountAuth, fail: sendFailure, sessions: access\.alphaSessions, \.\.\.disconnect\s+\}\);/);
+  assert(server.includes('const disconnect = { disconnectProviderAccounts: lifecycle.disconnectAlphaProviderAccount, clearProviderSessionCookie: lifecycle.clearProviderSessionCookie };'));
 }
 
 const privacy = routeBlock('get', '/api/alpha/privacy');
@@ -112,7 +113,7 @@ assert(recovery.includes('deletionRecovery: true'));
 const accessBoundary = functionBlock(alphaSessions, 'async function alphaAccessBoundary(');
 assert(accessBoundary.includes('readDeletionRecovery(req)'));
 assert(accessBoundary.includes("Reflect.set(req, 'alpha', recovery)"));
-assert.match(server, /registerAlphaAccessRoutes\(app, \{ sessions: alphaSessions,/, 'the server must register the alpha boundary from identity and access');
+assert.match(server, /registerAlphaAccessRoutes\(app, \{ sessions: access\.alphaSessions,/, 'the server must register the alpha boundary from identity and access');
 
 const redemptionStart = alphaAccessRoutes.indexOf("app.post('/api/alpha/redeem'");
 assert(redemptionStart >= 0, 'missing the redemption route');

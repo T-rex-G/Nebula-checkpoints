@@ -1,25 +1,21 @@
 'use strict';
 /*
- * The file a process starts to run the server. Tests that spawn the server name
- * it through here, so the monolith and the decomposed entry point -- natively,
- * or compiled into dist/server by scripts/build-server.js -- are driven by the
- * same tests while one replaces the other.
- *
- * NV_SERVER_RUNTIME=compiled runs the compiled tree; it must have been built.
+ * The file a process starts to run the server: apps/api/src/main.ts as
+ * written, or, with NV_SERVER_RUNTIME=compiled, what scripts/build-server.js
+ * emitted for it into dist/server (ADR-088), which must have been built.
+ * Tests that spawn the server name it through here, so the same tests drive
+ * both runtimes.
  */
 const fs = require('fs');
 const path = require('path');
 
 function serverEntry(root = path.resolve(__dirname, '..', '..')) {
   if (process.env.NV_SERVER_RUNTIME === 'compiled') {
-    const compiledRoot = path.join(root, 'dist', 'server');
-    const entry = [path.join(compiledRoot, 'apps', 'api', 'src', 'main.js'), path.join(compiledRoot, 'server.js')].find(fs.existsSync);
-    if (!entry) throw new Error('NV_SERVER_RUNTIME=compiled, but the compiled server is not built: run npm run build:server');
+    const entry = path.join(root, 'dist', 'server', 'apps', 'api', 'src', 'main.js');
+    if (!fs.existsSync(entry)) throw new Error('NV_SERVER_RUNTIME=compiled, but the compiled server is not built: run npm run build:server');
     return entry;
   }
-  const decomposed = path.join(root, 'apps', 'api', 'src', 'main.ts');
-  if (fs.existsSync(decomposed)) return decomposed;
-  return path.join(root, 'server.js');
+  return path.join(root, 'apps', 'api', 'src', 'main.ts');
 }
 
 /* What /api/version must say about the runtime the tests started: its mode, and in the compiled one its tree's digest. */

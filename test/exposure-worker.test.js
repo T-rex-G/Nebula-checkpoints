@@ -799,7 +799,7 @@ function runnerFor(store, reader, options = {}) {
   const gate = host.match(/function exposureScanningAvailable\(\)[\s\S]*?\n  }/);
   assert(gate, 'the capability gate must exist');
   assert(
-    gate[0].includes('deps.capabilityDocument') && server.includes('capabilityDocument: CAPABILITY_DOCUMENT'),
+    gate[0].includes('deps.capabilityDocument') && server.includes('capabilityDocument: release.capabilityDocument'),
     'the gate must read the capability document, not a second source of truth'
   );
   assert(
@@ -816,7 +816,7 @@ function runnerFor(store, reader, options = {}) {
     );
   }
   assert(
-    /\nensureExposureWorker\(\);/.test(server),
+    /\ncore\.exposure\.ensureExposureWorker\(\);/.test(server),
     'and the function must actually be called at startup'
   );
 
@@ -891,15 +891,15 @@ function runnerFor(store, reader, options = {}) {
     ['EXPOSURE_READABILITY_KEY', 'exposureReadability', 'EXPOSURE_READABILITY_AUTHORIZATION']
   ]) {
     assert.deepStrictEqual(keys[setting], deriveKey(secret, KEY_PURPOSES[purpose]), `${name} is derived for its own purpose`);
-    assert(server.includes(`${setting}: ${name}`), `the server takes ${name} from the settings`);
+    assert(server.includes(`secrets.keys.${setting}`), `the server takes ${name} from the settings`);
     grants.push(keys[setting].toString('hex'));
   }
   assert.strictEqual(new Set(grants).size, 3, 'no two grants share a key');
   assert(
-    /keys: \{\s*fingerprint: EXPOSURE_FINGERPRINT_KEY, verification: EXPOSURE_VERIFICATION_KEY,\s*verificationSubject: EXPOSURE_VERIFICATION_SUBJECT_KEY, readability: EXPOSURE_READABILITY_KEY\s*\}/.test(server),
+    /keys: \{\s*fingerprint: secrets\.keys\.exposureFingerprint, verification: secrets\.keys\.exposureVerification,\s*verificationSubject: secrets\.keys\.exposureVerificationSubject, readability: secrets\.keys\.exposureReadability\s*\}/.test(server),
     'and each reaches the routes under its own name'
   );
-  assert(/reader: exposureReader, verifyCredential, probeReadability: probeAnonymousReadability/.test(server),
+  assert(/reader: exposureReader, verifyCredential: credentialVerifier\.verifyCredential, probeReadability: readabilityProbe\.probeAnonymousReadability/.test(server),
     'the routes reach the provider through the module\'s own reader, verifier and prober');
   const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
   assert(host.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');

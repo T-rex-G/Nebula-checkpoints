@@ -19,16 +19,16 @@ const schema = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name =
 const webhookIntake = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'application', 'webhook-intake.ts'), 'utf8');
 assert(corona.includes('return protectedPatternsForRepository(state.protected, owner, repo);') && webhookIntake.includes('await deps.protectedPatternsForIdentity(hook.identity_key, hook.owner, hook.repo)'), 'Webhook risk must use case-insensitive protected-pattern lookup');
 assert(corona.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
-assert(server.includes('MAX_LIVE_CLIENTS_PER_KEY'), 'SSE per-repository connection cap is missing');
-assert(server.includes('MAX_LIVE_CLIENTS_TOTAL'), 'SSE global connection cap is missing');
-assert(server.includes('createLiveHub({ maxTotal: MAX_LIVE_CLIENTS_TOTAL, maxPerKey: MAX_LIVE_CLIENTS_PER_KEY })'), 'SSE admission is not held to both caps');
-assert(server.includes('SNAPSHOT_RETENTION_COUNT'), 'Snapshot retention cap is missing');
+assert(server.includes('maxPerKey: env.liveClientsPerRepo'), 'SSE per-repository connection cap is missing');
+assert(server.includes('maxTotal: env.liveClientsTotal'), 'SSE global connection cap is missing');
+assert(server.includes('createLiveHub({ maxTotal: env.liveClientsTotal, maxPerKey: env.liveClientsPerRepo })'), 'SSE admission is not held to both caps');
+assert(server.includes('retentionCount: env.snapshotRetentionCount'), 'Snapshot retention cap is missing');
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(corona), 'Old snapshot pruning query is missing');
 /* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
 
 /* Where the provider session is kept is identity and access's; the server says whether a database is configured. */
 const sessions = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
-assert(server.includes('databaseConfigured: Boolean(DB_URL), ready: dbReady, pool,'), 'The provider sessions must know a database is configured, not whether it is reachable');
+assert(server.includes('databaseConfigured: Boolean(settings.databaseUrl)') && server.includes('createProviderSessions({\n    databaseConfigured, ready, pool,'), 'The provider sessions must know a database is configured, not whether it is reachable');
 assert(/async function setSession\(req: SessionRequest, res: SessionResponse, input: unknown\b[\s\S]+if \(databaseConfigured\)[\s\S]+Session database is temporarily unavailable/.test(sessions), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
 assert(sessions.includes('if (databaseConfigured && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
 assert(/async function destroySession[\s\S]+if \(sid && databaseConfigured\)[\s\S]+sign-out was not completed/.test(sessions), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
@@ -52,10 +52,10 @@ const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', '
 assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(accountLifecycle) && server.includes('sessionsForIdentity'), 'Session inventory must query the active identity directly');
 assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
 assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(corona), 'Evidence append must be idempotent across webhook retries');
-assert(server.includes('const { appendEvidence, verifyEvidenceChain } = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');
+assert(server.includes('const evidenceChain = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');
 const patternRead = corona.slice(corona.indexOf('async function protectedPatternsForIdentity('), corona.indexOf('return protectedPatternsForRepository(state.protected, owner, repo);'));
 assert(patternRead.includes("const sf = await deps.pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identity]);") && !patternRead.includes('catch'), 'Webhook scoring must fail rather than silently discard protected-path policy context');
-assert(/await deps\.appendEvidence\(deps\.evidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(webhookIntake) && server.includes('evidenceKey: scopedEvidenceKey, appendEvidence, liveHub'), 'Webhook acceptance must require an evidence append that can complete on retry');
+assert(/await deps\.appendEvidence\(deps\.evidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(webhookIntake) && server.includes('evidenceKey: scopedEvidenceKey, appendEvidence: core.evidenceChain.appendEvidence, liveHub: core.liveHub'), 'Webhook acceptance must require an evidence append that can complete on retry');
 assert(webhookIntake.includes('stored.rowCount || !evidence!.deduplicated'), 'A retried delivery must broadcast after its missing evidence record is completed');
 
 assert(corona.includes('/access-surface') && corona.includes('riskForAccessSurface'), 'Shadow Access Radar endpoint or deterministic access risk is missing');

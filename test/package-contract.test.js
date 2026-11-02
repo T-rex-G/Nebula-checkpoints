@@ -602,7 +602,7 @@ for (const forbidden of [
   'backups/db-backup-manifest.json'
 ]) assert.strictEqual(shouldInclude(forbidden), false, forbidden);
 for (const allowed of [
-  'server.js', '.env.example', '.gitignore', '.github/workflows/ci.yml',
+  'apps/api/src/main.ts', '.env.example', '.gitignore', '.github/workflows/ci.yml',
   'apps/web/src/legacy/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
   ...task6Artifacts
 ]) assert.strictEqual(shouldInclude(allowed), true, allowed);

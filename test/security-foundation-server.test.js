@@ -34,8 +34,8 @@ for (const line of sessionSecuritySource.split('\n')) {
   consumePendingStepUpCalls += 1;
 }
 /*
- * A loop that finds nothing passes. If these calls ever move out of
- * server.js -- which an extraction would do -- this file would keep
+ * A loop that finds nothing passes. If these calls ever moved out of the
+ * file read -- which an extraction would do -- this file would keep
  * reporting success while checking an empty string, which is the failure
  * mode worth guarding above all the others here. They have moved, to
  * identity-access/application/session-security.ts, and the checks with them.
@@ -58,7 +58,7 @@ assert.match(
   sessionSecuritySource, /function stepUpReplayStore\(\): unknown \{\s*\n\s*if \(!deps\.databaseConfigured\) return usedStepUpGrants;/,
   'the replay guard must be chosen by configuration, not by database availability'
 );
-assert(serverSource.includes('databaseConfigured: Boolean(DB_URL), durableSingleUseStore, setSession,'),
+assert(serverSource.includes('databaseConfigured: Boolean(settings.databaseUrl)') && serverSource.includes('createSessionSecurity({\n    databaseConfigured, durableSingleUseStore, setSession: sessions.setSession,'),
   'the server must say whether a database is configured, not whether it is reachable');
 assert.strictEqual(
   /catch[\s\S]{0,200}usedStepUpGrants/.test(sessionSecuritySource), false,

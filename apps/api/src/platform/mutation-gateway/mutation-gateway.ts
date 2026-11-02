@@ -233,7 +233,8 @@ export interface MutationGateway {
 }
 
 export interface MutationGatewayOptions {
-  readonly eventSink?: unknown;
+  /* Told of each mutation's entry, policy decision and completion; a promise it returns is not awaited. */
+  readonly eventSink?: ((event: GatewayEvent) => unknown) | null;
   readonly policyEvaluator?: unknown;
 }
 

@@ -22,5 +22,5 @@ for (const text of [readme, deploy, security]) {
 /* The runtime is Kepler's governance host's, composed with the deployment's failure mode. */
 const host = read('apps/api/src/modules/kepler/application/governance-host.ts');
 assert(host.includes("runtime policy evaluation unavailable"), 'runtime failures must be logged with a bounded signal');
-assert(host.includes('        failureMode: deps.runtimeFailureMode\n') && server.includes('runtimeFailureMode: GOVERNANCE_RUNTIME_FAILURE_MODE'), 'runtime logs must identify the configured failure mode');
+assert(host.includes('        failureMode: deps.runtimeFailureMode\n') && server.includes('runtimeFailureMode: env.governanceRuntimeFailureMode'), 'runtime logs must identify the configured failure mode');
 console.log('governance enforcement deployment contract tests passed');

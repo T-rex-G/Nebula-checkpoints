@@ -5,7 +5,7 @@ const fs = require('fs');
 const { serverSource, serverImports } = require('./helpers/server-source');
 const server = serverSource();
 const governanceRoutes = fs.readFileSync('apps/api/src/modules/kepler/http/governance-routes.ts', 'utf8');
-/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+/* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(process.cwd()).filter(entry => entry.kind === 'route');
 const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'utf8');

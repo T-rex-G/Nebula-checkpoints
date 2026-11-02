@@ -864,7 +864,7 @@ function createGithubClient({ env, fetchImpl }) {
     });
   }
 
-  /* gitTreeEntryByPath in server.js: one level of the tree at a time. */
+  /* gitTreeEntryByPath in the workbench's commit writer: one level of the tree at a time. */
   async function treeEntryByPath(rootTreeSha, entryPath) {
     const parts = entryPath.split('/');
     let treeSha = rootTreeSha;
@@ -893,7 +893,7 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   /*
-   * commitTree in server.js, request for request: the ref, its commit, the
+   * commitTree in the workbench's commit writer, request for request: the ref, its commit, the
    * recursive base tree, one tree carrying every entry, one commit on the
    * observed head, and a ref move without force.
    */

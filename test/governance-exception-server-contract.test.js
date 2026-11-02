@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { serverSource } = require('./helpers/server-source');
 const server = serverSource();
-/* Every route with its guard chain, as the route policy reads them from server.js and the modules' registrations. */
+/* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
 const guardsOf = (method, routePath) => {

@@ -386,10 +386,10 @@ must(vendorRoute.includes('!VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy allowli
 must([server, vendorRoute].every(text => !/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(text)), 'A stylesheet font proxy has returned');
 must([server, vendorRoute].every(text => !/\/gstatic|fonts\.gstatic/.test(text)), 'A font-file proxy has returned');
 must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
-must(server.includes("vendorRoot: path.join(__dirname, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
+must(server.includes("vendorRoot: path.join(release.root, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(server.includes('allow: allowWebhookRequest') && webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
 must(platformRoute('probes.ts').includes("app.get('/readyz'") && server.includes('registerProbeRoutes(app, {'), 'Readiness endpoint is missing');
-must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: DB_URL') && server.includes('openPool: createDatabasePool')
+must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: env.databaseUrl') && server.includes('openPool: createDatabasePool')
   && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')
   && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');

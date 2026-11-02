@@ -263,7 +263,8 @@ interface CredentialRecord {
 export interface BrokerOptions {
   readonly fetchImpl?: unknown;
   readonly now?: unknown;
-  readonly audit?: unknown;
+  /* Told of each installation credential the broker mints. */
+  readonly audit?: ((event: Fields) => unknown) | null;
   readonly timeoutMs?: unknown;
 }
 

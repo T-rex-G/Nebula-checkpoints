@@ -28,7 +28,7 @@ import { repaintCard } from '../../components/held-repaint.ts';
   const REPOSITORY_LIMIT = 12;
   const CONCURRENCY = 4;
   /*
-   * One page of the list route (per_page in server.js), most recently updated
+   * One page of the list route (per_page in the workbench's collaboration routes), most recently updated
    * first. A repository that fills it may hold more, and the ones left out are
    * the least recently touched.
    */

@@ -200,8 +200,9 @@ function evaluate(env) {
   check('Alpha access', 'alpha-access', () => config.loadAlphaAccessConfig(env, { databaseUrl: env.DATABASE_URL || '' }));
 
   /*
-   * Production rules that live in server.js rather than in a loader. These are
-   * mirrored, not shared, which is a seam: server.js remains the authority and
+   * Production rules the server enforces as it starts, in its settings
+   * (apps/api/src/platform/config/server-settings.ts). These are mirrored, not
+   * shared, which is a seam: the server remains the authority and
    * test/doctor-startup-agreement.test.js pins the thresholds so the two
    * cannot drift apart silently.
    */

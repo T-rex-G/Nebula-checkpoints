@@ -111,29 +111,30 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
 /*
  * The growth ratchet.
  *
- * This number is a speed bump with a message on it, and it is worth being
+ * This number was a speed bump with a message on it, and it is worth being
  * plain about that: a hardcoded count proves nothing about the code it
  * guards, and anyone can raise it in the same commit that breaks it. What it
- * does is make growing server.js a deliberate act with a diff line attached,
- * rather than the path of least resistance it is today at a hundred and
+ * did was make growing server.js a deliberate act with a diff line attached,
+ * rather than the path of least resistance it was at a hundred and
  * forty-seven routes and seven thousand lines.
  *
- * The rule it is here to carry:
+ * The rule it was here to carry, and still holds:
  *
- *   A new route's *logic* belongs in a module under src/ behind a narrow
- *   contract, with server.js holding only the registration. That is the
+ *   A route's *logic* belongs in a module behind a narrow contract, with the
+ *   composition holding only the registration. That is the
  *   pattern that has actually worked here -- apps/api/src/platform/rate-limit/single-use-store.ts,
  *   Pulsar's live stream (apps/api/src/modules/pulsar/application/live-stream.ts) and
  *   apps/api/src/platform/rate-limit/rate-limit-identity.ts each took real logic
  *   out and each made what remained smaller and testable on its own.
  *
- * What was measured and deliberately not done: lifting a whole URL prefix
- * into a router module. Every candidate group needs between twenty-two and
- * ninety-nine of server.js's top-level bindings passed in to work. That
- * dependency count is the finding, not an obstacle to route around -- routes
- * and helpers here are entangled, and moving routes behind a large injected
- * dependency object relocates the entanglement across a parameter list
- * without reducing it. Extracting logic reduces it; extracting URLs does not.
+ * What was measured and deliberately not done at the time: lifting a whole
+ * URL prefix into a router module. Every candidate group needed between
+ * twenty-two and ninety-nine of server.js's top-level bindings passed in to
+ * work. That dependency count was the finding: routes and helpers were
+ * entangled, and moving routes behind a large injected dependency object
+ * would have relocated the entanglement across a parameter list without
+ * reducing it. Extracting logic reduced it, module by module, until D12 could
+ * move the routes and D13 the rest.
  */
 /*
  * Raised from 147 to 153 for exposure scanning, deliberately and with the
@@ -246,9 +247,9 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * their own, the store queries against a real database.
  */
 /*
- * From D12 the routes leave server.js for registration functions in the
+ * From D12 the routes left server.js for registration functions in the
  * modules (`apps/api/src/modules/<module>/http`), so the number server.js
- * registers itself only falls, and each move lowers this ceiling to match.
+ * registered itself only fell, and each move lowered this ceiling to match.
  * 187 to 185: Parallax's two site-check routes (its four rendered-audit
  * routes were already registered from their own file).
  * 185 to 181: Posture's four.
@@ -272,58 +273,42 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * disconnected, deletion).
  * 13 to 0: the GitHub App connection, the session's own security (the
  * scanner's state, the CSRF token, the step-up grant), OAuth sign-in and the
- * sessions an identity holds elsewhere. server.js registers no route itself;
- * every route is a module's or the platform's.
+ * sessions an identity holds elsewhere.
+ *
+ * Since D13 the composition root is apps/api/src/main.ts and the segments it
+ * calls in apps/api/src/composition; it registers no route itself, and every
+ * route is a module's or the platform's.
  */
-const SERVER_ROUTE_CEILING = 0;
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const registeredInServer = serverSource
+const rootFiles = serverFiles(root);
+const rootSource = rootFiles.map(file => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+const registeredInRoot = rootSource
   .split('\n')
-  .filter(line => /^app\.(get|post|put|patch|delete)\('/.test(line)).length;
-
-assert(
-  registeredInServer <= SERVER_ROUTE_CEILING,
-  `server.js now registers ${registeredInServer} routes, above the ${SERVER_ROUTE_CEILING} it held when this ratchet was set. `
-  + 'Put the new route\'s logic in a module under src/ behind a narrow contract and leave the registration here, '
-  + 'or raise this number deliberately and say why.'
-);
-
-/* The ratchet may only tighten. A count that has drifted below the ceiling
-   means the ceiling is stale and is quietly permitting growth again. */
-assert(
-  registeredInServer >= SERVER_ROUTE_CEILING - 5,
-  `server.js registers ${registeredInServer} routes, well under the ${SERVER_ROUTE_CEILING} ceiling. `
-  + 'Lower SERVER_ROUTE_CEILING to match so the ratchet keeps meaning something.'
-);
+  .filter(line => /^\s*app\.(get|post|put|patch|delete|all)\(/.test(line)).length;
+assert.equal(registeredInRoot, 0,
+  `the composition root registers ${registeredInRoot} routes itself: put the route in a module's or the platform's registration function`);
 
 /*
- * From D13 what is left of server.js moves into the platform and the modules,
- * with apps/api/src/main.ts composing them, so the lines server.js holds only
- * fall, and each move lowers this ceiling to match.
- * 3,332 to 3,248: the startup settings and the keys derived from the secret
- * (apps/api/src/platform/config/server-settings.ts).
- * 3,248 to 3,103: the database's pool, readiness and upkeep
- * (apps/api/src/platform/persistence/database-lifecycle.ts), and the alpha's
- * privacy retention (identity-access/application/alpha-privacy-retention.ts).
- * 3,103 to 2,804: the session cookie (platform/authorization/session-cookie.ts),
- * the accounts' identity and the hosted session merge (identity-access/domain),
- * and where the provider session is kept (identity-access/application/provider-sessions.ts).
- * 2,804 to 2,720: the session's own security, CSRF, step-up and the offline
- * cache's scope (identity-access/application/session-security.ts).
- * 2,720 to 2,524: the timed fetch (platform/network/timed-fetch.ts), GitHub's
- * REST client and archive transport (github-provider/client/github-rest.ts),
- * and the failure answer (http/errors.ts).
+ * From D13 what was left of server.js moved into the platform and the
+ * modules, so the lines it held only fell, and each move lowered a ceiling:
+ * 3,332 to 3,248, the startup settings and the keys derived from the secret;
+ * to 3,103, the database's pool, readiness and upkeep and the alpha's privacy
+ * retention; to 2,804, the session cookie, the accounts' identity, the hosted
+ * session merge and where the provider session is kept; to 2,720, the
+ * session's own security; to 2,524, the timed fetch, GitHub's REST client and
+ * the failure answer; and on to 729, every service it built and route segment
+ * it held. server.js is gone: what is left is composition, and the entry point
+ * that runs it is held to the mission's 150 lines. Its segments are composition
+ * too, each a part of the route policy's order or of the services' build.
  */
-const SERVER_LINE_CEILING = 729;
-const serverLines = (serverSource.match(/\n/g) || []).length;
-assert(serverLines <= SERVER_LINE_CEILING,
-  `server.js holds ${serverLines} lines, above the ${SERVER_LINE_CEILING} it held when this ratchet was set. Put the code in the platform or a module.`);
-assert(serverLines >= SERVER_LINE_CEILING - 40,
-  `server.js holds ${serverLines} lines, well under the ${SERVER_LINE_CEILING} ceiling. Lower SERVER_LINE_CEILING to match.`);
+const MAIN_LINE_LIMIT = 150;
+const mainLines = (fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'main.ts'), 'utf8').match(/\n/g) || []).length;
+assert(mainLines <= MAIN_LINE_LIMIT,
+  `apps/api/src/main.ts holds ${mainLines} lines, above the ${MAIN_LINE_LIMIT} the entry point may hold. Put the composition in apps/api/src/composition.`);
+assert.deepEqual(fs.readdirSync(root).filter(name => name === 'server.js'), [], 'server.js is gone; the entry point is apps/api/src/main.ts');
 
 /* A route module that nothing mounts is worse than no route module: it reads
    as covered and serves nothing. Every registration function a module's http
-   folder exports is called by the server. */
+   folder exports is called by the composition. */
 const modulesRoot = path.join(root, 'apps', 'api', 'src', 'modules');
 for (const moduleName of fs.readdirSync(modulesRoot)) {
   const httpDir = path.join(modulesRoot, moduleName, 'http');
@@ -332,8 +317,8 @@ for (const moduleName of fs.readdirSync(modulesRoot)) {
     const source = fs.readFileSync(path.join(httpDir, file), 'utf8');
     for (const [, name] of source.matchAll(/^export function (register[A-Z]\w*)\(/gm)) {
       assert(
-        new RegExp(`\\b${name}\\(app\\b`).test(serverSource),
-        `${moduleName}/http/${file}: ${name} is never called by server.js`
+        new RegExp(`\\b${name}\\(app\\b`).test(rootSource),
+        `${moduleName}/http/${file}: ${name} is never called by the composition`
       );
     }
   }

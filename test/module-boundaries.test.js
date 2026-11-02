@@ -20,9 +20,9 @@
  *  - The platform imports only the platform and the shared contracts: the
  *    modules stand on it, so it depends on none of them, nor on the server
  *    code still in src/.
- *  - No dependency cycle anywhere in the backend: one graph over server.js,
- *    src, apps and packages, so a cycle that runs through a TypeScript module
- *    and back into the CommonJS server is seen as well.
+ *  - No dependency cycle anywhere in the backend: one graph over src, apps
+ *    and packages, so a cycle that runs through a TypeScript module and back
+ *    into the CommonJS code still in src/ is seen as well.
  */
 const assert = require('assert/strict');
 const fs = require('fs');
@@ -302,9 +302,9 @@ assert.deepStrictEqual(violations, [], `module rules broken:\n- ${violations.joi
 assert.deepStrictEqual(stronglyConnected(edges), [], 'a dependency cycle in apps/ or packages/');
 console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray entry paths, errors named first, boundaries held, no cycle`);
 
-/* --- the CommonJS server that remains ------------------------------------- */
+/* --- the CommonJS server code that remains in src/ -------------------------- */
 
-const legacy = [path.join(root, 'server.js'), ...walk(path.join(root, 'src'))].filter(fs.existsSync);
+const legacy = walk(path.join(root, 'src'));
 const legacyEdges = new Map();
 const legacyEntries = [];
 for (const file of legacy) {
@@ -312,7 +312,7 @@ for (const file of legacy) {
   for (const literal of entryPathLiterals(source)) legacyEntries.push(`${rel(file)}: names the entry file ${literal}; only apps/api/src/entrypoint.ts may`);
   const { requires } = importsOf(source);
   legacyEdges.set(rel(file), requires.map(specifier => resolveRelative(file, specifier)).filter(Boolean).map(rel)
-    .filter(target => target === 'server.js' || /^(?:src|apps|packages)\//.test(target)));
+    .filter(target => /^(?:src|apps|packages)\//.test(target)));
 }
 /* The server code still in src/ reaches a module through its index, as the modules do. */
 const legacyReaches = [...legacyEdges].flatMap(([name, targets]) => targets

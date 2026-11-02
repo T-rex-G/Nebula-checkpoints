@@ -2,7 +2,7 @@
 
 /*
  * The path set is only worth something if the server actually attaches it. A
- * module that computes complete path sets while server.js keeps building
+ * module that computes complete path sets while the server keeps building
  * metadata the old way would leave the defect in place and the unit guard
  * green, so these assertions bind the two together.
  */

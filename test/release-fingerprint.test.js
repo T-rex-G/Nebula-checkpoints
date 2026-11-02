@@ -32,7 +32,8 @@ try {
   fs.writeFileSync(path.join(root, 'runtime.log'), 'ignored runtime log\n');
   /* Both builds are derived from the source and named by their own digests, never by the release's. */
   fs.mkdirSync(path.join(root, 'dist', 'server', 'src'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'dist', 'server', 'server.js'), 'compiled server\n');
+  fs.mkdirSync(path.join(root, 'dist', 'server', 'apps', 'api', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'dist', 'server', 'apps', 'api', 'src', 'main.js'), 'compiled server\n');
   fs.writeFileSync(path.join(root, 'dist', 'server', 'src', 'module.js'), 'compiled module\n');
   fs.mkdirSync(path.join(root, 'dist', 'web'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dist', 'web', 'index.html'), '<!doctype html>\n');
@@ -58,7 +59,7 @@ try {
   assert.strictEqual(shouldIncludeReleasePath('node_modules/pkg/index.js'), false);
   assert.strictEqual(shouldIncludeReleasePath('staging/evidence/live.json'), false);
   assert.strictEqual(shouldIncludeReleasePath('dist/release.js'), false);
-  assert.strictEqual(shouldIncludeReleasePath('dist/server/server.js'), false);
+  assert.strictEqual(shouldIncludeReleasePath('dist/server/apps/api/src/main.js'), false);
   assert.strictEqual(shouldIncludeReleasePath('dist/web/index.html'), false);
   assert.strictEqual(shouldIncludeReleasePath('../escape.js'), false);
 } finally {

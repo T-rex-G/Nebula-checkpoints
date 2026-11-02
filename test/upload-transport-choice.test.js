@@ -155,7 +155,7 @@ const uploads = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src',
 /* Matched as a pattern: a quoted relative path here would read, to the candidate qualifier, as a file this test loads. */
 assert(/import \{ normalizeTransportChoice, planUploadTransport \} from '(?:\.\.\/)+packages\/contracts\/src\/upload-planning\.ts';/.test(uploads),
   'the upload route must load the shared planner');
-assert(server.includes('limits: { blobMaxBytes: BLOB_MAX, uploadMaxBytes: UPLOAD_MAX, gitPushMaxBytes: GIT_PUSH_MAX, gitDataMaxBytes: CONTENTS_MAX }'),
+assert(server.includes('limits: { blobMaxBytes: limits.blobMax, uploadMaxBytes: limits.uploadMax, gitPushMaxBytes: limits.gitPushMax, gitDataMaxBytes: limits.contentsMax }'),
   "the upload route must be given this deployment's real ceilings");
 
 const routeStart = uploads.indexOf("app.post('/api/repo/:owner/:repo/upload'");
@@ -233,7 +233,7 @@ assert(/function strategyFor\([\s\S]{0,500}?transportPlanFor\(size, transport\)/
   'the queued-file label must be read from the plan');
 
 /* The boundary it plans against is published, not written down twice. */
-assert(/contentsMaxMb: CONTENTS_MAX \/ MB/.test(server),
+assert(/contentsMaxMb: limits\.contentsMax \/ BYTES_PER_MB/.test(server),
   'the Git Data boundary must be published from the constant itself');
 
 /* The old copies of the size rule are gone from the browser. */

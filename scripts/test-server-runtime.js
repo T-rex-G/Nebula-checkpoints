@@ -7,9 +7,11 @@
  *
  * The set is found, not listed: every test that starts the server through
  * test/helpers/server-entry.js, directly or through the negative-request
- * matrix. A new server test joins it by starting the server the way every
- * other one does. The compiled run adds the checks of the compiled tree
- * itself (test/compiled/server-tree.js).
+ * matrix, and every test that builds the composed application in its own
+ * process through test/helpers/composed-application.js. A new server test
+ * joins it by starting or building the server the way every other one does.
+ * The compiled run adds the checks of the compiled tree itself
+ * (test/compiled/server-tree.js).
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +25,7 @@ function serverTests() {
     .filter(name => name.endsWith('.test.js'))
     .filter(name => {
       const source = fs.readFileSync(path.join(TESTS, name), 'utf8');
-      return /\bserverEntry\(/.test(source) || source.includes("require('./oracles/negative-matrix')");
+      return /\bserverEntry\(/.test(source) || /\bcomposedApplication\(/.test(source) || source.includes("require('./oracles/negative-matrix')");
     })
     .filter(name => name !== 'server-runtime.test.js')
     .sort()

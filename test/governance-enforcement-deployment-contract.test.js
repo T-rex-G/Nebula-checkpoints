@@ -2,7 +2,6 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const env = read('.env.example');
@@ -10,7 +9,6 @@ const render = read('render.yaml');
 const readme = read('README.md');
 const deploy = read('docs/operations/DEPLOY_RENDER_NEON.md');
 const security = read('docs/operations/SECURITY_DEPLOYMENT.md');
-const server = serverSource();
 assert(env.includes('NV_GOVERNANCE_RUNTIME_FAILURE_MODE=warn'), '.env.example must declare the backward-compatible runtime failure mode');
 assert(render.includes('NV_GOVERNANCE_RUNTIME_FAILURE_MODE'), 'Render configuration must expose the runtime failure mode');
 assert(/NV_GOVERNANCE_RUNTIME_FAILURE_MODE[\s\S]{0,100}value:\s*warn/.test(render), 'Render default must be explicit warn');
@@ -22,5 +20,6 @@ for (const text of [readme, deploy, security]) {
 /* The runtime is Kepler's governance host's, composed with the deployment's failure mode. */
 const host = read('apps/api/src/modules/kepler/application/governance-host.ts');
 assert(host.includes("runtime policy evaluation unavailable"), 'runtime failures must be logged with a bounded signal');
-assert(host.includes('        failureMode: deps.runtimeFailureMode\n') && server.includes('runtimeFailureMode: env.governanceRuntimeFailureMode'), 'runtime logs must identify the configured failure mode');
+assert(host.includes('        failureMode: deps.runtimeFailureMode\n'), 'runtime logs must identify the configured failure mode');
+/* That the composed server's log names the mode the deployment configured is test/composition.test.js's. */
 console.log('governance enforcement deployment contract tests passed');

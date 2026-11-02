@@ -9,10 +9,9 @@ const server = serverSource();
 /* The App connection's routes are identity and access's; the server builds the broker and hands it in. */
 const appRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 
-assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8').includes('loadGithubAppConfig(env, { production })')
-  && server.includes('githubApp: env.githubApp'), 'server must load optional GitHub App configuration');
-assert(server.includes('new GithubAppBroker'), 'server must construct the server-side installation credential broker');
-assert(server.includes('resolveProviderAccount'), 'authenticated provider operations must resolve credentials through one boundary');
+assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8').includes('loadGithubAppConfig(env, { production })'),
+  'server must load optional GitHub App configuration');
+/* What the composed server tells the page, the broker it builds and the credentials an App account resolves to are test/composition.test.js's. */
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');

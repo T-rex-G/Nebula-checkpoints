@@ -2095,3 +2095,20 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - The doctor's production fixtures carry a signing key, and a keyring the server cannot read is refused without being quoted.
   - The settings test refuses five near misses of production, and reads every other value as development, as before.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step one — the composed server, asked
+
+- **Why.** D14 replaces the tests that check the server by reading its source. Ninety assertions read the composition's text, in nineteen tests and `scripts/verify.js`, and more read the modules'. A text check passes on a line that never runs, fails on a rename that changes nothing, and says nothing of what the server does with what it was handed.
+- **One function puts the application together.** `composition/application.ts`'s `registerApplication(app, root, listening)` builds what `main.ts` built: the configuration, the services, who may do what and every route, in the route policy's order. It returns the parts. `main.ts`, 33 lines, listens with it and starts the work beside requests. The route policy read through it is unchanged: 195 routes, 208 entries in order.
+- **The harness.** `test/helpers/composed-application.js` builds that application in a test's own process, from an environment of its own, listening on a port the system picks. Building it starts nothing and leaves no handle open. With `NV_SERVER_RUNTIME=compiled` it builds the compiled tree's application, and the compiled-runtime run picks up every test that uses it.
+- **Twenty-three assertions, now behaviour.** `test/composition.test.js` names, for each check, the text it replaced:
+  - **The live streams' caps** (three): readers are admitted per repository and in total as the environment sets them.
+  - **The font proxy's absence** (three): its former routes reach no third party and serve neither a stylesheet nor a font. `verify.js`'s check for Google's font hosts now reads the server's whole tree, not the composition alone.
+  - **What the page is told and served** (three): the four upload ceilings published are the server's own limits; a pinned library is the release's copy, byte for byte; readiness says a database is not configured rather than down.
+  - **The webhook intake** (three): its route answers, 120 deliveries a minute reach it, and the next is refused.
+  - **GitHub writes and reads** (four): a write with no mutation in progress is refused before anything leaves the server; a read and the resolver's permission question carry the account's own credential.
+  - **The GitHub App** (three): off, the page is told so and an App account cannot be used; on, the broker mints the account's credential, proves itself with the configured App's key, and the mint is audited through the App records.
+  - **Governance's runtime** (four): in warn mode a mutation whose policy cannot be evaluated runs under a warning; in block mode it is refused before it runs. The log names the mode, and the gateway's events record the decision.
+- **Each check fails when its wiring is broken.** Seventeen mutants of the composition, each caught: a cap read from the wrong setting, a re-added font proxy, the wrong vendor root, a limiter that allows everything, the wrong published boundary or ceiling, readiness told a database is configured, a REST client without the gateway, a resolver that never asks GitHub, the App's configuration unpublished, no broker, resolution around it, its audit dropped, no policy evaluator, a fixed failure mode and a silent event sink.
+- **What stays.** The module-text halves of these checks stay until their own conversion. The other 67 composition-text assertions come next: those that need a signed-in session, then those that need a database.
+- **Checks:** typecheck, lint, the route-policy comparison, the unit gate and every verify-job gate on Node 22.23.4, the composition test against both runtimes.

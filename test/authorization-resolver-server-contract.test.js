@@ -10,14 +10,13 @@ const server = serverSource();
 const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 
 assert(serverLoads('apps/api/src/platform/authorization/authorization-resolver.ts'), 'server must load the authorization resolver');
-assert(server.includes('createAuthorizationResolver({'), 'server must create one authorization resolver');
+/* The composed resolver, and the credential it asks GitHub with, are test/composition.test.js's. */
 /* The mutation contexts are the platform's (mutation-context.ts) and Kepler's (governance-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
 const governanceContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
 assert(mutationContextSource.includes('async function resolveMutationAuthorization(') && server.includes('createRepositoryMutationContext({'), 'server must expose one mutation authorization boundary');
 assert(mutationContextSource.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
 assert(mutationContextSource.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
-assert(/request:\s*async\s*\(\{\s*account,\s*apiPath\s*\}\)\s*=>\s*github\.gh\(account, apiPath\)/.test(server), 'resolver requests must use server-side GitHub credentials');
 for (const source of [server, mutationContextSource, governanceContextSource]) {
   assert(!source.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
   assert(!source.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');

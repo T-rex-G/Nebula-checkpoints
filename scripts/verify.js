@@ -365,8 +365,8 @@ const platformRoute = name => read(`apps/api/src/http/routes/${name}`);
 /* Pulsar's webhook intake and limiter, which the server composes. */
 const webhookIntake = read('apps/api/src/modules/pulsar/application/webhook-intake.ts');
 const webhookLimiter = read('apps/api/src/modules/pulsar/application/webhook-limiter.ts');
-must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && server.includes('registerWebhookIntakeRoute(app, { receiveGithubWebhook })')
-  && server.includes('const { receiveGithubWebhook } = createWebhookIntake({') && webhookIntake.includes('verifyGithubSignature(secret, raw,'), 'Verified GitHub webhook intake is missing');
+/* The composed server's intake, its route and its limiter are asked of the server in test/composition.test.js. */
+must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && webhookIntake.includes('verifyGithubSignature(secret, raw,'), 'Verified GitHub webhook intake is missing');
 {
   const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
   must([true, false].every(production => {
@@ -381,14 +381,22 @@ must(vendorRoute.includes('!VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy allowli
  * reader's address reached a third party, an offline session lost the faces,
  * and the proxied bytes were absent from the archive whose fingerprint the
  * hosted gate verifies. They are served from this origin now, so the stronger
- * property is that no font proxy exists at all.
+ * property is that no font proxy exists at all: no file of the server's names
+ * Google's font hosts or the routes that proxied them. test/composition.test.js
+ * asks the composed server for both former routes.
  */
-must([server, vendorRoute].every(text => !/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/.test(text)), 'A stylesheet font proxy has returned');
-must([server, vendorRoute].every(text => !/\/gstatic|fonts\.gstatic/.test(text)), 'A font-file proxy has returned');
+const serverTree = fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
+  .map(name => path.posix.join('apps/api/src', String(name).split(path.sep).join('/')))
+  .filter(file => file.endsWith('.ts'))
+  .map(file => [file, read(file)]);
+const naming = pattern => serverTree.filter(([, text]) => pattern.test(text)).map(([file]) => file);
+must(!naming(/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/).length, `A stylesheet font proxy has returned: ${naming(/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/).join(', ')}`);
+must(!naming(/\/gstatic|fonts\.gstatic/).length, `A font-file proxy has returned: ${naming(/\/gstatic|fonts\.gstatic/).join(', ')}`);
 must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
-must(server.includes("vendorRoot: path.join(release.root, 'public', 'vendor')") && vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
-must(server.includes('allow: allowWebhookRequest') && webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
-must(platformRoute('probes.ts').includes("app.get('/readyz'") && server.includes('registerProbeRoutes(app, {'), 'Readiness endpoint is missing');
+/* That the composed server serves pinned libraries from its own copy, holds senders to the webhook rate and answers readiness is test/composition.test.js's. */
+must(vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
+must(webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
+must(platformRoute('probes.ts').includes("app.get('/readyz'"), 'Readiness endpoint is missing');
 must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: env.databaseUrl') && server.includes('openPool: createDatabasePool')
   && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')
   && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');

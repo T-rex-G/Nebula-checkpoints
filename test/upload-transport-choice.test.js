@@ -232,9 +232,7 @@ assert(app.includes('gitDataMaxBytes: state.runtime.contentsMaxMb * 1048576'),
 assert(/function strategyFor\([\s\S]{0,500}?transportPlanFor\(size, transport\)/.test(app),
   'the queued-file label must be read from the plan');
 
-/* The boundary it plans against is published, not written down twice. */
-assert(/contentsMaxMb: limits\.contentsMax \/ BYTES_PER_MB/.test(server),
-  'the Git Data boundary must be published from the constant itself');
+/* The boundary it plans against is published, not written down twice: test/composition.test.js asks the composed server what it publishes. */
 
 /* The old copies of the size rule are gone from the browser. */
 assert(!/size > 40 \* 1048576/.test(app),

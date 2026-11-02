@@ -19,9 +19,7 @@ const schema = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name =
 const webhookIntake = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'application', 'webhook-intake.ts'), 'utf8');
 assert(corona.includes('return protectedPatternsForRepository(state.protected, owner, repo);') && webhookIntake.includes('await deps.protectedPatternsForIdentity(hook.identity_key, hook.owner, hook.repo)'), 'Webhook risk must use case-insensitive protected-pattern lookup');
 assert(corona.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
-assert(server.includes('maxPerKey: env.liveClientsPerRepo'), 'SSE per-repository connection cap is missing');
-assert(server.includes('maxTotal: env.liveClientsTotal'), 'SSE global connection cap is missing');
-assert(server.includes('createLiveHub({ maxTotal: env.liveClientsTotal, maxPerKey: env.liveClientsPerRepo })'), 'SSE admission is not held to both caps');
+/* The live streams' two caps, as the composed server admits readers, are test/composition.test.js's. */
 assert(server.includes('retentionCount: env.snapshotRetentionCount'), 'Snapshot retention cap is missing');
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(corona), 'Old snapshot pruning query is missing');
 /* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
@@ -69,14 +67,14 @@ assert(server.includes('scan: scanUploadFile') && server.includes('scanUpload: s
 assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts'), 'utf8').includes("app.get('/api/security/scanner-status'"), 'Scanner status endpoint is missing');
 /*
  * FONT_ASSET_RX bounded the font-file proxy's path. That proxy is gone --
- * typefaces are served from this origin -- so the surviving outbound path is
+ * typefaces are served from this origin, and test/composition.test.js asks the
+ * composed server for its former routes -- so the surviving outbound path is
  * the vendor CDN fallback, which must stay allowlisted and size-bounded.
  */
 /* The vendor proxy is the platform's own route (apps/api/src/http/routes/vendor.ts). */
 const vendor = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'routes', 'vendor.ts'), 'utf8');
 assert(/await readBoundedResponse\(r, 2 \* MB\)/.test(vendor), 'Outbound vendor responses must be size-bounded');
 assert(vendor.includes('!VENDOR_ALLOWLIST.has(p)) return res.status(404).end();'), 'The vendor proxy must serve allowlisted paths only');
-assert(!server.includes('FONT_ASSET_RX'), 'The font-file proxy must stay removed');
 
 assert(/restore-paths[\s\S]+deps\.enforceProtectedPaths\(req, matches\.map\(item => member\(item, 'path'\)\)\)/.test(corona), 'Restore-paths must enforce policies against every restored child path');
 const folderMove = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'folder-move-route.ts'), 'utf8');

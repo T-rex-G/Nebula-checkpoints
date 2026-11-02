@@ -46,7 +46,7 @@ for (const entry of policyRoutes.filter(route => ['POST', 'PUT', 'PATCH', 'DELET
  */
 const workbench = file => fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
 const githubRest = fs.readFileSync(path.join(root, 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
-assert(server.includes('assertProviderMutation: descriptor => mutationGateway.assertProviderMutation(descriptor)'), 'the GitHub client must ask the mutation gateway');
+/* That the composed GitHub client asks the mutation gateway before a write is test/composition.test.js's. */
 const bodyOf = (source, start, end, label) => {
   const at = source.indexOf(start);
   assert(at >= 0, `missing helper ${label}`);

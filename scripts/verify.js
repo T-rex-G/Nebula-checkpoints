@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 const ts = require('typescript');
 /* The server's composition root, as the source checks read it (test/helpers/server-source.js). */
-const { serverFiles, serverSource, serverLoads } = require('../test/helpers/server-source');
+const { serverFiles, serverLoads } = require('../test/helpers/server-source');
 const { PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
 const renderReleaseTemplate = value => value.replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME);
 /* The browser entry's imports, in order, as root-relative paths. */
@@ -320,7 +320,6 @@ for (const destination of ['Neural', 'Governance', 'Pull requests', 'Issues', 'R
   must(app.includes(`label: '${destination}'`), `Command palette entry missing for ${destination}`);
 }
 
-const server = serverSource(root);
 /* A session's own security routes are identity and access's (apps/api/src/modules/identity-access/http/security-routes.ts). */
 const securityRoutes = read('apps/api/src/modules/identity-access/http/security-routes.ts');
 must(securityRoutes.includes("app.get('/api/security/sessions'"), 'Session inventory endpoint missing');
@@ -396,23 +395,21 @@ must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hos
 must(vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
 must(webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
 must(platformRoute('probes.ts').includes("app.get('/readyz'"), 'Readiness endpoint is missing');
-must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''") && server.includes('databaseUrl: env.databaseUrl') && server.includes('openPool: createDatabasePool')
+/* That the composed server opens its store on DATABASE_URL, migrated, is test/composition-postgres.test.js's. */
+must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''")
   && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')
   && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
 must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');
 must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP extraction must enforce the actual extracted-size ceiling');
-{
-  /* Pulsar registers the live-event routes since D12; the server must still call it. */
-  const liveEventRoutes = read('apps/api/src/modules/pulsar/http/live-event-routes.ts');
-  must(server.includes('registerLiveEventRoutes(app,') && liveEventRoutes.includes("'/api/repo/:owner/:repo/live-events/connect'")
-    && liveEventRoutes.includes("'/api/repo/:owner/:repo/live-events/stream'"), 'Live event registration or SSE streaming is missing');
-}
+/* That the composed server's live events are connected through their route and stream a delivery is test/composition-postgres.test.js's. */
 const migrationSql = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => read('db/migrations/' + name)).join('\n');
-/* Corona's routes: the evidence export, the access surface and the snapshot routes (D12f). */
-const coronaRoutes = ['recovery-routes', 'access-surface-routes', 'evidence-routes']
-  .map(name => read(`apps/api/src/modules/corona/http/${name}.ts`)).join('\n');
-must(migrationSql.includes('nv_evidence_chain') && coronaRoutes.includes("app.get('/api/repo/:owner/:repo/evidence'") && server.includes('registerEvidenceRoutes(app,'), 'Tamper-evident export is missing');
+/*
+ * Corona's routes -- the evidence export and the chain it verifies, the
+ * access surface and its risk, the snapshot comparison and the restore
+ * preview -- are asked of the composed server, on its database, by
+ * test/composition-postgres.test.js.
+ */
 
 must(migrationSql.includes('nv_governance_policies') && migrationSql.includes('nv_governance_policy_versions'), 'Governance persistence schema is missing');
 must(migrationSql.includes('nv_governance_reject_history_mutation') && migrationSql.includes('BEFORE TRUNCATE'), 'Governance history must be append-only at the database layer');
@@ -420,8 +417,8 @@ const governanceStore = read('apps/api/src/modules/kepler/persistence/governance
 must(governanceStore.includes('GOVERNANCE_APPROVALS_REQUIRED') && governanceStore.includes('GOVERNANCE_REVISION_CONFLICT'), 'Governance activation gates are missing');
 must(governanceStore.includes('pg_advisory_xact_lock') && governanceStore.includes('verifyGovernanceAuditChain'), 'Governance concurrency or audit-chain controls are missing');
 
-must(migrationSql.includes('nv_security_state') && server.includes('loadPersistentSafety'), 'Persistent safety state is missing');
-must(server.includes('runMigrations') && migrationSql.includes('nv_schema_migrations') === false, 'Server must use the numbered migration runner');
+/* That a protection holds in every session of the identity is test/composition-postgres.test.js's, as is the runner applying every migration. */
+must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migration runner keeps the migration record; no migration may');
 must(app.includes('Secure CSV exporter is unavailable') && app.includes('NebulaExportSafety.activityCsv'), 'CSV export must fail closed through the formula-safe helper');
 must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
 const neural = read('apps/web/src/visualizations/neural.js');
@@ -429,10 +426,9 @@ must(neural.includes('graphShortestPath') && neural.includes('Explain this conne
 must(neural.includes('EventSource') && neural.includes('VERIFIED LIVE'), 'Neural verified live stream is missing');
 must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeURIComponent(after)}'), 'Cursor-based Neural event catch-up is missing');
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');
-must(coronaRoutes.includes("app.get('/api/repo/:owner/:repo/access-surface'") && coronaRoutes.includes('riskForAccessSurface') && server.includes('registerAccessSurfaceRoutes(app,'), 'Shadow Access Radar is missing');
-must(coronaRoutes.includes("app.post('/api/repo/:owner/:repo/snapshot-compare'") && coronaRoutes.includes("app.post('/api/repo/:owner/:repo/restore-preview'") && server.includes('registerSnapshotRoutes(app,'), 'Snapshot comparison or restore preview is missing');
-must(server.includes('scan: scanUploadFile') && server.includes('scanUpload: scanUploadOrThrow') && read('apps/api/src/modules/workbench/application/upload-scan.ts').includes("code: 'MALWARE_DETECTED'"), 'Upload malware gate is missing');
-must(read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes('normalizeFileBatch(body.ops)') && read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes("summarizeBatchItems('recovery.restore-refs', inspected.actions)") && server.includes('createRepositoryMutationContext({'), 'Task 18 aggregate mutation evidence is not wired');
+/* That an upload carrying a malware signature is refused, MALWARE_DETECTED, is test/composition.test.js's. */
+/* That the composed mutation context binds a restore to its preview is test/composition-postgres.test.js's. */
+must(read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes('normalizeFileBatch(body.ops)') && read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes("summarizeBatchItems('recovery.restore-refs', inspected.actions)"), 'Task 18 aggregate mutation evidence is not wired');
 const mutationCoverage = read('apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 must(mutationCoverage.includes('MUTATION_ROUTE_INVENTORY') && mutationCoverage.includes('ACTION_EXECUTION_CONTRACTS'), 'Task 18 mutation coverage inventory is missing');
 must(read('apps/api/src/modules/kepler/delivery/governance-delivery.ts').includes('MAX_EXPORT_EVENTS') && read('apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts').includes('startWebhookWorker'), 'Task 19 governance delivery foundation is missing');

@@ -2,10 +2,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
 const { locations } = require('./oracles/route-policy');
-const server = serverSource();
 const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 /* Every route with its guard chain, as the route policy reads it from the composition root and the modules' registration functions. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
@@ -66,7 +64,7 @@ assert(lfsUpload.includes("transport: 'git-lfs.verify'"));
 /* A restore's metadata inspects its preview without spending it (the platform's mutation context, composed with Corona's recovery). */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
 assert(mutationContextSource.includes('deps.inspectRestoreAuthorization({ account: req.gh, owner: (req.params as Fields).owner, repo: (req.params as Fields).repo }, body.authorization)'));
-assert(server.includes('inspectRestoreAuthorization: (target, authorization) => core.recovery.inspectRestoreAuthorization(target, authorization)'));
+/* That the composed mutation context inspects the grant, binding a restore to its preview, is test/composition-postgres.test.js's. */
 assert(mutationContextSource.includes("case 'recovery.restore-refs':"));
 /* A folder move names the head its listing came from (the workbench's folder move). */
 assert(workbench('http/folder-move-route.ts').includes('requireAggregateExpectedHead(requestedHead)'));

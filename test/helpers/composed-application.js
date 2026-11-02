@@ -51,21 +51,41 @@ async function composedApplication(environment, { listen = true, root = ROOT } =
     ...composed,
     app,
     url: server ? `http://127.0.0.1:${server.address().port}` : null,
-    /* Everything the application holds open: its job queues and, when it listens, the server and its connections. */
+    /*
+     * Everything the application holds open, closed in the order the server's
+     * own shutdown closes it: the job queues, the workers' work, the server and
+     * its connections when it listens, then the database pool.
+     */
     async close() {
       composed.records.jobs.site.close();
       composed.records.jobs.rendered.close();
       composed.core.codeAudit.jobs.close();
+      await Promise.all([composed.core.governance.stop(), composed.core.exposure.stop()]);
       if (server) {
         server.closeAllConnections();
         await new Promise(resolve => server.close(resolve));
       }
+      await composed.core.database.close();
     }
   };
 }
 
 /* The process's own fetch, before any test stands in for GitHub. */
 const ownFetch = globalThis.fetch;
+
+/*
+ * A response's body, read as JSON. A body that is not JSON comes back as its
+ * first words, so a check that fails says what was answered instead of failing
+ * to read it.
+ */
+async function bodyOf(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { notJson: text.slice(0, 120) };
+  }
+}
 
 /*
  * A page on the composed application: every request carries the app header
@@ -166,4 +186,4 @@ function standInForOutbound(routes) {
   return { requests, restore() { globalThis.fetch = ownFetch; } };
 }
 
-module.exports = { composedApplication, applicationTree, browser, standInForOutbound };
+module.exports = { composedApplication, applicationTree, browser, standInForOutbound, bodyOf };

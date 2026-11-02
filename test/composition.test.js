@@ -15,24 +15,10 @@
  * account for each one.
  */
 const assert = require('node:assert/strict');
-const { composedApplication, browser, standInForOutbound } = require('./helpers/composed-application');
+const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
 
 const SECRET = 's'.repeat(48);
 const BASE = Object.freeze({ NODE_ENV: 'test', SESSION_SECRET: SECRET, NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn' });
-
-/*
- * A response's body, read as JSON. A body that is not JSON comes back as its
- * first words, so a check that fails says what was answered instead of failing
- * to read it.
- */
-async function bodyOf(response) {
-  const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { notJson: text.slice(0, 120) };
-  }
-}
 
 /* A stand-in for a live-stream reader: it accepts every write and can be ended. */
 const reader = () => ({ write: () => true, end() {} });

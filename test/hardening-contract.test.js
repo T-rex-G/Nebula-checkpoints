@@ -2,14 +2,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 const root = path.join(__dirname, '..');
 for (const sourceFile of ['apps/api/src/modules/kepler/application/governance-api.ts']) {
   const bytes = fs.readFileSync(path.join(root, sourceFile));
   const forbidden = [...bytes].filter(byte => (byte < 32 && ![9, 10, 13].includes(byte)) || byte === 127);
   assert.strictEqual(forbidden.length, 0, `${sourceFile} must not contain literal control bytes`);
 }
-const server = serverSource();
 /* Corona's recovery service and routes, which hold the snapshot, restore, access-surface and evidence code (D12f). */
 const corona = ['application/recovery.ts', 'application/evidence-chain.ts', 'application/safety-state.ts', 'http/recovery-routes.ts', 'http/safeguard-routes.ts', 'http/access-surface-routes.ts', 'http/evidence-routes.ts']
   .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', file), 'utf8')).join('\n');
@@ -20,13 +18,17 @@ const webhookIntake = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'mod
 assert(corona.includes('return protectedPatternsForRepository(state.protected, owner, repo);') && webhookIntake.includes('await deps.protectedPatternsForIdentity(hook.identity_key, hook.owner, hook.repo)'), 'Webhook risk must use case-insensitive protected-pattern lookup');
 assert(corona.includes('referenceSha'), 'Snapshots must accept GitHub and Gitea reference SHA shapes');
 /* The live streams' two caps, as the composed server admits readers, are test/composition.test.js's. */
-assert(server.includes('retentionCount: env.snapshotRetentionCount'), 'Snapshot retention cap is missing');
+/* That signed snapshots are kept to NV_SNAPSHOT_RETENTION_COUNT is test/composition-postgres.test.js's. */
 assert(/DELETE FROM nv_recovery_snapshots[\s\S]+OFFSET \$5/.test(corona), 'Old snapshot pruning query is missing');
 /* Webhook creation cleaning up an orphaned provider hook is held by test/pulsar-live-event-routes.test.js. */
 
-/* Where the provider session is kept is identity and access's; the server says whether a database is configured. */
+/*
+ * Where the provider session is kept is identity and access's. That a
+ * configured database holds it -- the cookie only its key, a carried session
+ * refused, and a session refused rather than written to the cookie while the
+ * store is down -- is test/composition-postgres.test.js's.
+ */
 const sessions = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
-assert(server.includes('databaseConfigured: Boolean(settings.databaseUrl)') && server.includes('createProviderSessions({\n    databaseConfigured, ready, pool,'), 'The provider sessions must know a database is configured, not whether it is reachable');
 assert(/async function setSession\(req: SessionRequest, res: SessionResponse, input: unknown\b[\s\S]+if \(databaseConfigured\)[\s\S]+Session database is temporarily unavailable/.test(sessions), 'Configured Neon sessions must fail closed instead of downgrading to a long-lived cookie');
 assert(sessions.includes('if (databaseConfigured && !s.sid) return null'), 'Database mode must reject legacy full-session cookies');
 assert(/async function destroySession[\s\S]+if \(sid && databaseConfigured\)[\s\S]+sign-out was not completed/.test(sessions), 'Configured database logout must not pretend server-side revocation succeeded during an outage');
@@ -45,15 +47,12 @@ for (const [route, nextRoute] of [
 }
 assert(corona.includes('tagsAvailable') && corona.includes('tagsError'), 'Snapshots must disclose an unavailable tag inventory');
 assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_identity_keys_idx'), 'Session containment must index identity ownership instead of scanning an arbitrary global window');
-/* An identity's sessions elsewhere are identity and access's account lifecycle's to find. */
-const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
-assert(/SELECT sid, data, updated FROM nv_sessions WHERE identity_keys @> ARRAY\[\$1\]::text\[\]/.test(accountLifecycle) && server.includes('sessionsForIdentity'), 'Session inventory must query the active identity directly');
+/* That an identity's sessions are listed to each other, and another person's are not, is test/composition-postgres.test.js's. */
 assert(/kind: 'nebulaverse-evidence'[\s\S]+records: evidenceRecords/.test(corona), 'Evidence export must include the bounded chain records it verifies');
 assert(/async function appendEvidence[\s\S]+WHERE repo_key=\$1 AND kind=\$2 AND record_id=\$3[\s\S]+deduplicated: true/.test(corona), 'Evidence append must be idempotent across webhook retries');
-assert(server.includes('const evidenceChain = createEvidenceChain({'), 'the server appends evidence through Corona\'s chain');
 const patternRead = corona.slice(corona.indexOf('async function protectedPatternsForIdentity('), corona.indexOf('return protectedPatternsForRepository(state.protected, owner, repo);'));
 assert(patternRead.includes("const sf = await deps.pool().query('SELECT state FROM nv_security_state WHERE identity_key=$1', [identity]);") && !patternRead.includes('catch'), 'Webhook scoring must fail rather than silently discard protected-path policy context');
-assert(/await deps\.appendEvidence\(deps\.evidenceKey\('github'[\s\S]+storedEventId, enriched\);/.test(webhookIntake) && server.includes('evidenceKey: scopedEvidenceKey, appendEvidence: core.evidenceChain.appendEvidence, liveHub: core.liveHub'), 'Webhook acceptance must require an evidence append that can complete on retry');
+/* That an accepted delivery is chained into the identity's evidence, under the stored event's id, and streamed is test/composition-postgres.test.js's. */
 assert(webhookIntake.includes('stored.rowCount || !evidence!.deduplicated'), 'A retried delivery must broadcast after its missing evidence record is completed');
 
 assert(corona.includes('/access-surface') && corona.includes('riskForAccessSurface'), 'Shadow Access Radar endpoint or deterministic access risk is missing');

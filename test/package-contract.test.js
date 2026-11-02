@@ -717,7 +717,8 @@ const unitGateChain = [
    under the same terms: it starts two real server processes against one
    database, which is the one claim no fake can settle. */
 /* test:code-audit-history is the audit history's store against the same server: its privacy rests on CHECK constraints and a cascade. */
-const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store', 'test:code-audit-history', 'test:governance-lifecycle'];
+/* test:composition-postgres builds the composed server on a database of its own: where a session lives and what a delivery leaves behind are the store's to show. */
+const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store', 'test:code-audit-history', 'test:governance-lifecycle', 'test:composition-postgres'];
 const workflow = read('.github/workflows/ci.yml');
 for (const script of externallyGatedScripts) {
   assert(pkg.scripts[script], `externally gated script is missing: ${script}`);

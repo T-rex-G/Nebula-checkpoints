@@ -2152,3 +2152,36 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **One table, both readers.** `test/protected-path-patterns.test.js` puts twenty-nine cases to the server's matcher and the page's, and checks that the write guard refuses what a folder protection covers, written either way. The matcher's cases in `test/intelligence.test.js` moved there.
 - **Each part is needed.** Seven mutants, each caught: either matcher reading the slash literally, either not widening a wildcard folder, the page not collapsing doubled slashes in the pattern or in the path, and a guard that ignores protections.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step three — the composed server, on its database
+
+- **Why.** Steps one and two asked the composed server what needs no database. These checks need the store a deployment names: where a session lives, the sessions an identity holds, the protections it sets, what a webhook delivery leaves behind, and the snapshots, evidence and restores Corona keeps.
+- **The harness.** `test/helpers/disposable-database.js` creates a database of the test's own on the PostgreSQL service `NV_TEST_DATABASE_URL` names, and drops it afterwards, whatever still holds it. The composed application's `close()` now ends what the server's own shutdown ends, in its order: the job queues, the workers' work, the server, then the pool. `bodyOf()` moved into the harness, shared by both tests.
+- **Fifteen assertions, now behaviour.** `test/composition-postgres.test.js` runs in the verify job (`npm run test:composition-postgres`) and in the compiled-runtime job. It names, for each check, the text it replaced:
+  - **The store** (`verify.js`, two): `DATABASE_URL` is the store opened, every numbered migration is applied once by the runner, and readiness reports the last one.
+  - **Sessions** (the hardening contract, two): the cookie carries the session's key alone, and the session is stored under the identity that holds it. A cookie carrying a whole session, as a server without a database writes one, is no session. With the store configured but down, a session is refused rather than written to the cookie.
+    - An identity's two sessions are listed to each other, and another person's is not. Ending the others with a step-up grant signs the second out and leaves the rest signed in.
+  - **Protections** (`verify.js`, one): a folder protected from one session holds in another session of the identity, which is refused a write beneath it.
+  - **A webhook delivery** (the hardening contract two, `verify.js` one): live events are connected through their route, which gives GitHub the delivery address and its secret. A delivery signed with that secret is accepted, stored for the identity, and scored against the folder it protects. It is chained into the identity's evidence under the stored event's id and sent to the identity's open stream.
+  - **Snapshots and evidence** (the hardening contract one, `verify.js` one): six signed snapshots, with `NV_SNAPSHOT_RETENTION_COUNT` at five, keep the latest five. The evidence export verifies the chain and records the connection, the delivery and all six snapshots; evidence is kept when a snapshot is not.
+  - **A restore** (the mutation-coverage contract one, `verify.js` two): a snapshot is compared with what GitHub holds, a branch deleted since. While a folder is protected, the preview grants nothing and a restore is refused. Unprotected, the preview grants the branch's recreation, the restore is bound to it and recreates the branch, and the same grant is refused the second time.
+  - **The access surface** (`verify.js`, one): a repository's collaborators, deploy keys and webhooks are read for the signed-in identity, and a deploy key that can write is named as a risk.
+  - **Uploads** (`verify.js`, one): its check of the scan wiring was step two's upload section's to replace, and goes now.
+- **Each check fails when its wiring is broken.** Eighteen mutants of the composition, each caught by its check's own message:
+  - The sessions, or the whole configuration, told there is no database.
+  - The store opened on no URL or on another database; the migrations never run.
+  - The session inventory unavailable, or a revocation that does nothing.
+  - The identity's safety not loaded.
+  - A delivery not chained, not streamed, keyed to no identity, or not scored against its protections.
+  - Snapshots kept to the default count.
+  - A restore grant not inspected.
+  - The live-event, evidence, access-surface or snapshot routes not registered.
+- **Module-text halves go with them.** The behaviour above now proves:
+  - the account lifecycle's inventory query by identity;
+  - the intake's evidence append under the stored event;
+  - the live-event, evidence, access-surface, comparison and preview routes, with the access surface's risk;
+  - the migrations that create the evidence chain and the safety state;
+  - and the upload scan's `MALWARE_DETECTED`.
+- **What stays, counted again.** A parser census of the tests counts every statement that reads the composition's source or its imports. It finds 118 such statements before D14, not ninety: the first count matched the text bound as `server`, and missed files that bind it under another name or read the composition's imports. By statement, steps one to three converted 22, 10 and 15. Seventy-one remain: alpha mode, the GitHub App's records, exposure scanning, governance's context and the workers' drain, the mutation gateway's transports and paths, the public-error sweep, the key purposes, and the checks that read the composition's imports. The next step commits the census as a test that holds the count down.
+- **Gated like the other database suites.** The package contract's list of externally gated scripts names `test:composition-postgres`, so CI must keep running it.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4, including the new one; the database test against both runtimes (3.5 s).

@@ -3,10 +3,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 
 const { locations } = require('./oracles/route-policy');
-const server = serverSource();
 /* An account's life in a session -- signing in, disconnecting, sessions elsewhere -- is identity and access's, composed by the server. */
 const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
 
@@ -170,9 +168,9 @@ assert(containmentBlock.indexOf('deps.alphaEnabled') >= 0 && containmentBlock.in
 /* An installation's record and its audit trail are identity and access's GitHub App records, composed with the alpha's flag. */
 const appRecords = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
 const installationPersistenceBlock = nested(appRecords, 'async function persistGithubAppInstallation(');
-assert(installationPersistenceBlock.includes('if (deps.alphaEnabled) return false;')
-  && server.includes('createGithubAppRecords({ alphaEnabled: alphaConfig.enabled,'),
+assert(installationPersistenceBlock.includes('if (deps.alphaEnabled) return false;'),
   'invite mode must not copy raw GitHub installation metadata into the legacy table');
+/* That the composed invite-only server, connecting the App, leaves the legacy installation table empty is test/composition-alpha.test.js's. */
 /* The App connection's routes and its view are identity and access's. */
 const appRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 assert(appRoutes.includes('? connectedAccount.identityKey'));
@@ -186,8 +184,12 @@ assert(connectionViewBlock.includes('if (deps.config.enabled)'));
 assert(connectionViewBlock.indexOf('connectionKey: deps.identityKey(account)')
   < connectionViewBlock.indexOf('installationId: Number(account.installationId)'),
   'invite-mode App responses must return the stable connection key before the legacy raw provider view');
-assert(server.includes('const githubAppConnectionView = createGithubAppConnectionView({ config: alphaConfig, identityKey });'),
-  'the server must show App connections through identity and access\'s view');
+/*
+ * That the composed server shows an App connection through this view --
+ * invite-only, by its connection key and nothing raw; otherwise, the
+ * installation's own view -- is test/composition-alpha.test.js's and
+ * test/composition-postgres.test.js's.
+ */
 const addressing = appRoutes.slice(appRoutes.indexOf('const addressed = (req: Request) => {'), appRoutes.indexOf("app.post('/api/github-app/connect'"));
 assert(addressing.includes('deps.identityKey(item) === requestedConnectionKey'),
   'invite-mode App state must be addressed by the stable hashed connection key');
@@ -202,8 +204,9 @@ const ghStart = rest.indexOf('  async function gh(');
 const ghEnd = rest.indexOf('\n  }\n', ghStart) + 4;
 assert(ghStart >= 0);
 const ghBlock = rest.slice(ghStart, ghEnd);
-assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'") && /const github = createGithubRestClient\(\{[\s\S]*?alphaEnabled: alphaConfig\.enabled\n  \}\);/.test(server),
+assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'"),
   'invite-mode provider fallback must not invalidate shared broker state');
+/* That the composed invite-only server, refused by GitHub, keeps the installation's token rather than minting another is test/composition-alpha.test.js's. */
 assert(ghBlock.includes("options.redirect === 'manual' ? 'manual' : 'error'"));
 assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
 /* OAuth sign-in is identity and access's; its callback is the last route in its file. */
@@ -264,7 +267,8 @@ for (const forbidden of [
   'accountLogin: installation.account.login',
   'accountLogin: removed.login',
   'accountLogin: account.login'
-]) assert(!(server + appRecords).includes(forbidden), `GitHub App lifecycle audit retains provider login: ${forbidden}`);
+]) assert(!appRecords.includes(forbidden), `GitHub App lifecycle audit retains provider login: ${forbidden}`);
+/* That no audit the composed server writes for an App connection keeps the account's login is test/composition-postgres.test.js's and test/composition-alpha.test.js's. */
 
 /* Evidence a request leaves -- a disconnected installation, a blocked upload -- names the invite actor label. */
 const uploadScan = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'upload-scan.ts'), 'utf8');

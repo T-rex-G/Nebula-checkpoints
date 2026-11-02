@@ -3,9 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 const root = path.resolve(__dirname, '..');
-const server = serverSource();
 /* The App connection's routes are identity and access's; the server builds the broker and hands it in. */
 const appRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
 
@@ -33,7 +31,8 @@ assert(appRoutes.indexOf("consumeGithubAppPending(sessionOn(req), 'installation'
 assert.match(appRoutes, /authMethod:\s*'github-app'/);
 assert.match(appRoutes, /installationId:/);
 assert(appRoutes.includes("await deps.addAccount(req, res, '', {"), 'GitHub App session accounts must remain tokenless');
-assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(server + appRoutes), 'GitHub App session accounts must remain tokenless');
+assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(appRoutes), 'GitHub App session accounts must remain tokenless');
+/* That the composed server's stored App account carries no token, with a database and invite-only, is test/composition-postgres.test.js's and test/composition-alpha.test.js's. */
 assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'repository-list.ts'), 'utf8').includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
 /* The workbench's collaboration routes: notifications, stars and the rest of a person's GitHub. */
 const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
@@ -49,12 +48,14 @@ assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifica
 assert(collaboration.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
 /* Disconnecting is identity and access's account lifecycle, handed the server's App broker. */
 const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
-assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)') && server.includes('appBroker: core.githubAppBroker,')
+assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)')
   && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
+/* That disconnecting an App account on the composed server drops its token from the broker is test/composition-postgres.test.js's. */
 /* An installation's record and its audit trail are identity and access's GitHub App records, composed by the server. */
 const appRecords = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
-assert(server.includes('createGithubAppRecords({'), 'the server keeps installations and their audit through identity and access');
+/* That the composed server records an installation and audits its connection through these records is test/composition-postgres.test.js's. */
 assert(appRecords.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
 assert(appRecords.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
-assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken|userToken)/.test(server + appRoutes), 'server JSON must not expose GitHub App secrets');
+assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken|userToken)/.test(appRoutes), 'server JSON must not expose GitHub App secrets');
+/* That nothing the composed server answers in the App's flow holds a secret or credential is test/composition-postgres.test.js's. */
 console.log('github app server contract tests passed');

@@ -2239,3 +2239,31 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **The fix.** The database path leaves the request holding the session as stored, as the other two do.
 - **Proven.** `test/provider-sessions.test.js` holds the request to the session as stored, after a first write and after a rewrite. `test/composition-postgres.test.js` connects the App on the composed server: the person's grant is exchanged, the setup completes, and the installation and its `installation.connected` audit are recorded. Without the fix each fails.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step five — the GitHub App, asked
+
+- **Why.** The composition gives the GitHub App's records, its connection view, the account lifecycle and GitHub's REST client the broker and the alpha's flag. Eight statements read that wiring as text. The composed server can be asked instead.
+- **Outside the alpha** (`test/composition-postgres.test.js`; the App contract four, the disconnect contract one). A person connects the App on the composed server with a database:
+  - the stored App account carries no token;
+  - the broker mints the installation's token once and keeps it, and disconnecting the account drops it, so its next use mints again;
+  - the installation is recorded and its connection audited, and no App audit keeps the installation account's login;
+  - nothing the server answers in the App's flow, headers included, holds the App's client secret, webhook secret or private key, the person's user token or the installation token.
+- **Invite-only** (`test/composition-alpha.test.js`; the disconnect contract three). A tester connects the App:
+  - the connection is shown by its stable key alone, with no installation number and no login, and the account by the tester's label;
+  - nothing is copied into the legacy installations table;
+  - the connection's audit names the tester by label, and no login;
+  - the owned App account carries no token;
+  - a token GitHub refuses stays in the broker the testers share, rather than being dropped for all of them.
+- **Each check fails when its wiring is broken.** Twelve mutants, each caught by its check's own message:
+  - the account lifecycle without the broker;
+  - the App records, or the connection view, told the wrong mode, either way;
+  - the REST client told this is not the alpha;
+  - the installation never recorded, or its connection never audited;
+  - an App account that keeps a token;
+  - an audit that keeps the login, or loses the tester's label;
+  - the person's user token put into the redirect to GitHub.
+
+  One candidate is not a fault: a setup audit that supplies no actor still names the tester, because invite-only the App records take the label from the identity.
+- **Found on the way.** Connecting the App on a database without invitations always failed. It is fixed in its own commit, *A GitHub App connection that completes*, above.
+- **Forty-two remain:** exposure scanning (8), governance's API (8), its delivery and interface (3), the authorization resolver (4), the mutation gateway (3), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

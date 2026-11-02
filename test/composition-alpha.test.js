@@ -12,6 +12,7 @@
  * source-text assertion it replaced.
  */
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
 const { disposableDatabase, watchOverlappingQueries } = require('./helpers/disposable-database');
 const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
@@ -24,15 +25,19 @@ const INVITE_ONLY = Object.freeze({
   NODE_ENV: 'test', SESSION_SECRET: 's'.repeat(48), NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
   NV_ALPHA_ACCESS_MODE: 'invite', NV_ALPHA_INVITE_PEPPER: 'p'.repeat(64), NV_ALPHA_TERMS_VERSION: TERMS
 });
-/* A tester's GitHub token says who signs in: octo-1, octo-2, ... */
+/* A tester's GitHub token says who signs in: octo-1, octo-2, ... A user token the GitHub App is granted says the same. */
 const tokenOf = n => `ghp_${String(n).padStart(4, '0')}${'z'.repeat(32)}`;
-const loginOf = authorization => `octo-${Number(/ghp_(\d{4})/.exec(String(authorization))[1])}`;
+const userTokenOf = n => `ghu_${String(n).padStart(4, '0')}${'u'.repeat(32)}`;
+const loginOf = authorization => `octo-${Number(/gh[pu]_(\d{4})/.exec(String(authorization))[1])}`;
+const INSTALLATION_TOKEN = `ghs_${'i'.repeat(36)}`;
 
 (async () => {
   const overlapping = watchOverlappingQueries();
   const database = await disposableDatabase('alpha');
   /* The webhooks live events register on GitHub: what each was given, and whether it is gone. */
   const hooks = new Map();
+  /* The installation tokens the App's broker has minted. */
+  const minted = [];
   const github = standInForOutbound([
     ['GET /user$', (href, options) => {
       const login = loginOf(new Headers(options.headers || {}).get('authorization'));
@@ -42,6 +47,17 @@ const loginOf = authorization => `octo-${Number(/ghp_(\d{4})/.exec(String(author
       const login = /collaborators\/([\w-]+)\//.exec(href)[1];
       return { body: { permission: 'admin', role_name: 'admin', user: { login, id: login.length } } };
     }],
+    /* The GitHub App's side of a connection; the installation's own token is refused on the repository. */
+    ['POST //github.com/login/oauth/access_token$', (href, options) => ({ body: { access_token: userTokenOf(Number(/granted-(\d+)/.exec(JSON.parse(options.body).code)[1])), expires_in: 28800 } })],
+    ['GET /user/installations\\?', { body: { total_count: 1, installations: [{ id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' } }] } }],
+    ['GET /app/installations/42$', {
+      body: { id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' }, repository_selection: 'selected', permissions: { contents: 'write' } }
+    }],
+    ['POST /app/installations/42/access_tokens$', () => {
+      minted.push(Date.now());
+      return { status: 201, body: { token: INSTALLATION_TOKEN, expires_at: new Date(Date.now() + 3600e3).toISOString() } };
+    }],
+    ['GET /repos/acme/demo$', { status: 401, body: { message: 'Bad credentials' } }],
     ['GET /repos/acme/demo/git/ref/heads/main$', { body: { ref: 'refs/heads/main', object: { sha: 'a'.repeat(40), type: 'commit' } } }],
     ['POST /repos/acme/demo/git/refs$', { status: 201, body: { ref: 'refs/heads/feature', object: { sha: 'a'.repeat(40) } } }],
     ['POST /repos/acme/demo/hooks$', (href, options) => {
@@ -241,6 +257,62 @@ const loginOf = authorization => `octo-${Number(/ghp_(\d{4})/.exec(String(author
       const ended = await first.request('/api/alpha/end', { method: 'POST', body: {}, headers: { 'x-nv-csrf': await first.csrf() } });
       assert.equal(ended.status, 200);
       assert.equal((await bodyOf(await first.request('/api/alpha/status'))).authenticated, false, 'the tester ends the access session');
+    }
+
+    /*
+     * ---- Invite-only, an App connection is the tester's, and holds nothing of the installation's identity ----
+     * Replaces the disconnect contract's checks that the composition gave
+     * the App records, the App connection view and GitHub's REST client the
+     * alpha's flag, and that no App audit it composed keeps a login. A tester
+     * connects the App: the connection is shown by its stable key alone, the
+     * account by the tester's label, nothing is copied into the legacy
+     * installations table, and the audit names the label. A refusal of the
+     * installation's token does not drop it from the broker other testers'
+     * work shares.
+     */
+    {
+      const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const withApp = await composedApplication({
+        ...INVITE_ONLY, DATABASE_URL: database.url, GITHUB_APP_ID: '123', GITHUB_APP_SLUG: 'nebula-composition', GITHUB_APP_CLIENT_ID: 'Iv1.composition',
+        GITHUB_APP_CLIENT_SECRET: 'c'.repeat(40), GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: 'pkcs1', format: 'pem' }),
+        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: 'w'.repeat(32)
+      });
+      try {
+        testers += 1;
+        const page = browser(withApp);
+        const invite = await withApp.core.alphaStore.issueInvite({ testerLabel: `composition tester ${testers}`, termsVersion: TERMS, repositoryScopes: [SCOPE] });
+        assert.equal((await page.request('/api/alpha/redeem', { method: 'POST', body: { code: invite.code, acceptedTermsVersion: TERMS } })).status, 200);
+        assert.equal((await page.signIn(tokenOf(testers))).status, 200);
+        const connect = await bodyOf(await page.request('/api/github-app/connect', { method: 'POST', body: {}, headers: { 'x-nv-csrf': await page.csrf() } }));
+        const granted = await page.request(`/api/github-app/oauth/callback?code=granted-${testers}&state=${encodeURIComponent(new URL(connect.url).searchParams.get('state'))}`);
+        const install = new URL(String(granted.headers.get('location')));
+        const setup = await page.request(`/api/github-app/setup?installation_id=42&state=${encodeURIComponent(install.searchParams.get('state'))}`);
+        assert.deepEqual([setup.status, setup.headers.get('location')], [302, '/?githubApp=connected'], 'the tester connects the App');
+
+        const { connections } = await bodyOf(await page.request('/api/github-app/status'));
+        assert.deepEqual(connections.map(connection => Object.keys(connection).sort()), [['accountType', 'active', 'connectionKey', 'lastVerifiedAt', 'repositorySelection', 'status']],
+          'the connection is shown by its stable key, with no installation number and no login');
+        assert.match(connections[0].connectionKey, /^[0-9a-f]{64}$/);
+        const testerId = (await client.query('SELECT tester_id FROM nv_alpha_testers WHERE tester_label=$1', [`composition tester ${testers}`])).rows[0].tester_id;
+        const label = alphaActorLabel({ testerId });
+        assert.equal((await bodyOf(await page.request('/api/me'))).login, label, 'and the account by the tester\'s label');
+        assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_github_app_installations')).rows[0].n, 0, 'nothing is copied into the legacy installations table');
+        const audits = (await client.query('SELECT details FROM nv_github_app_audit')).rows.map(row => row.details);
+        assert.deepEqual(audits.map(details => details.actor), [label], 'the connection\'s audit names the tester by label');
+        assert.deepEqual(audits.filter(details => /octo-|install-owner/.test(JSON.stringify(details))), [], 'and no login');
+
+        const { sid } = withApp.core.unseal(page.cookieValue('nv_session'));
+        const owned = withApp.core.unseal((await client.query('SELECT data FROM nv_sessions WHERE sid=$1', [sid])).rows[0].data);
+        const appAccount = owned.accounts.find(account => account.authMethod === 'github-app');
+        assert.equal('token' in appAccount, false, 'the owned App account carries no token');
+        const resolved = await withApp.core.resolveAccount(appAccount);
+        assert.equal(minted.length, 1);
+        await assert.rejects(withApp.core.github.gh(resolved, '/repos/acme/demo'), error => error.status === 401);
+        await withApp.core.resolveAccount(appAccount);
+        assert.equal(minted.length, 1, 'a refused installation token stays in the broker, shared as it is, rather than being dropped for every tester');
+      } finally {
+        await withApp.close();
+      }
     }
   } finally {
     console.log = ownLog;

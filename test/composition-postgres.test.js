@@ -29,6 +29,9 @@ const BASE = Object.freeze({ NODE_ENV: 'test', SESSION_SECRET: 's'.repeat(48), N
 const OCTO = `ghp_o${'z'.repeat(35)}`;
 const OTHER = `ghp_t${'z'.repeat(35)}`;
 const octoKey = identityKey({ provider: 'github', login: 'octo', baseUrl: '' });
+/* The GitHub App's secrets, and the credentials it is given: none may appear in anything the server answers. */
+const APP_SECRETS = Object.freeze({ clientSecret: 'c'.repeat(40), webhookSecret: 'w'.repeat(32), userToken: `ghu_${'u'.repeat(36)}` });
+const INSTALLATION_TOKEN = `ghs_${'i'.repeat(36)}`;
 const MIGRATIONS = fs.readdirSync(path.join(__dirname, '..', 'db', 'migrations'))
   .filter(name => name.endsWith('.sql')).map(name => name.replace(/\.sql$/, '')).sort();
 
@@ -41,6 +44,8 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
 (async () => {
   const overlapping = watchOverlappingQueries();
   const database = await disposableDatabase('composition');
+  /* The installation tokens the App's broker has minted. */
+  const minted = [];
   /* The repository's branches, as GitHub has them: a test deletes one, and a restore recreates it. */
   const branches = new Map([['main', 'a'.repeat(40)], ['feature', 'b'.repeat(40)]]);
   const github = standInForOutbound([
@@ -60,10 +65,14 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     ['GET /repos/acme/demo/hooks\\?', { body: [] }],
     ['POST /repos/acme/demo/hooks$', { status: 201, body: { id: 991, active: true } }],
     /* The GitHub App's side of a connection: the person's grant, the installation they can see, and the App's own view of it. */
-    ['POST //github.com/login/oauth/access_token$', { body: { access_token: `ghu_${'u'.repeat(36)}`, expires_in: 28800, token_type: 'bearer' } }],
+    ['POST //github.com/login/oauth/access_token$', { body: { access_token: APP_SECRETS.userToken, expires_in: 28800, token_type: 'bearer' } }],
     ['GET /user/installations\\?', { body: { total_count: 1, installations: [{ id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' } }] } }],
     ['GET /app/installations/42$', {
       body: { id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' }, repository_selection: 'selected', permissions: { contents: 'write' } }
+    }],
+    ['POST /app/installations/42/access_tokens$', () => {
+      minted.push(Date.now());
+      return { status: 201, body: { token: INSTALLATION_TOKEN, expires_at: new Date(Date.now() + 3600e3).toISOString() } };
     }],
     ['POST /repos/acme/demo/git/refs$', (href, options) => {
       const { ref, sha } = JSON.parse(options.body);
@@ -324,27 +333,68 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
      * so it answered with an error, and neither the installation's record
      * nor its audit was written. The request now carries the session as
      * stored.
+     *
+     * ---- An App account holds no credential; its token is the broker's, and goes when it does ----
+     * Replaces the GitHub App contract's checks that the composition kept
+     * App session accounts tokenless, built the App records, handed the
+     * account lifecycle the broker, and never answered with an App secret,
+     * and the disconnect contract's that no App audit it composed keeps the
+     * installation account's login as such. The stored session's App account carries no
+     * token: the broker mints one when the account is used, and disconnecting
+     * the account drops it, so the next use mints again. Nothing the server
+     * answered along the way holds a secret or a credential.
      */
     {
       const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const pem = privateKey.export({ type: 'pkcs1', format: 'pem' });
       const withApp = await composedApplication({
         ...BASE, DATABASE_URL: database.url, GITHUB_APP_ID: '123', GITHUB_APP_SLUG: 'nebula-composition', GITHUB_APP_CLIENT_ID: 'Iv1.composition',
-        GITHUB_APP_CLIENT_SECRET: 'c'.repeat(40), GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: 'pkcs1', format: 'pem' }),
-        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: 'w'.repeat(32)
+        GITHUB_APP_CLIENT_SECRET: APP_SECRETS.clientSecret, GITHUB_APP_PRIVATE_KEY: pem,
+        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: APP_SECRETS.webhookSecret
       });
+      /* Everything the server answers in the App's flow, headers and all. */
+      const answered = [];
+      const kept = async pending => {
+        const response = await pending;
+        answered.push(`${JSON.stringify([...response.headers])}\n${await response.clone().text()}`);
+        return response;
+      };
       try {
         const person = browser(withApp);
-        assert.equal((await person.signIn(OCTO)).status, 200);
-        const connect = await bodyOf(await person.request('/api/github-app/connect', { method: 'POST', body: {}, headers: { 'x-nv-csrf': await person.csrf() } }));
-        const granted = await person.request(`/api/github-app/oauth/callback?code=granted&state=${encodeURIComponent(new URL(connect.url).searchParams.get('state'))}`);
+        assert.equal((await kept(person.signIn(OCTO))).status, 200);
+        const connect = await bodyOf(await kept(person.request('/api/github-app/connect', { method: 'POST', body: {}, headers: { 'x-nv-csrf': await person.csrf() } })));
+        const granted = await kept(person.request(`/api/github-app/oauth/callback?code=granted&state=${encodeURIComponent(new URL(connect.url).searchParams.get('state'))}`));
         assert.equal(granted.status, 302, 'the person\'s grant is exchanged, and the installation asked for');
         const install = new URL(String(granted.headers.get('location')));
-        const setup = await person.request(`/api/github-app/setup?installation_id=42&state=${encodeURIComponent(install.searchParams.get('state'))}`);
+        const setup = await kept(person.request(`/api/github-app/setup?installation_id=42&state=${encodeURIComponent(install.searchParams.get('state'))}`));
         assert.deepEqual([setup.status, setup.headers.get('location')], [302, '/?githubApp=connected'], 'the setup completes');
         assert.deepEqual((await client.query('SELECT installation_id, account_login, status FROM nv_github_app_installations')).rows,
           [{ installation_id: '42', account_login: 'install-owner', status: 'connected' }], 'the installation is recorded');
         assert.deepEqual((await client.query("SELECT event_type, installation_id FROM nv_github_app_audit WHERE event_type <> 'authorization.refreshed'")).rows,
           [{ event_type: 'installation.connected', installation_id: '42' }], 'and its connection audited');
+
+        const { sid } = withApp.core.unseal(person.cookieValue('nv_session'));
+        const stored = withApp.core.unseal((await client.query('SELECT data FROM nv_sessions WHERE sid=$1', [sid])).rows[0].data);
+        const appAccount = stored.accounts.find(account => account.authMethod === 'github-app');
+        assert.deepEqual([appAccount.installationId, 'token' in appAccount], [42, false], 'the stored App account carries no token');
+        const status = await bodyOf(await kept(person.request('/api/github-app/status')));
+        assert.deepEqual(status.connections.map(connection => [connection.installationId, connection.accountLogin, connection.status]), [[42, 'install-owner', 'connected']],
+          'outside the alpha, the connection is shown with its installation');
+
+        await withApp.core.resolveAccount(appAccount);
+        await withApp.core.resolveAccount(appAccount);
+        assert.equal(minted.length, 1, 'the broker mints the account\'s token once, and keeps it');
+        const disconnected = await kept(person.request('/api/github-app/disconnect', { method: 'POST', body: { installationId: 42 }, headers: { 'x-nv-csrf': await person.csrf() } }));
+        assert.deepEqual([disconnected.status, (await bodyOf(disconnected)).installationId], [200, 42]);
+        await withApp.core.resolveAccount(appAccount);
+        assert.equal(minted.length, 2, 'disconnecting the account drops its token from the broker, so its next use mints again');
+
+        const audits = (await client.query('SELECT event_type, details FROM nv_github_app_audit ORDER BY created_at')).rows;
+        assert.deepEqual(audits.filter(audit => 'accountLogin' in audit.details).map(audit => audit.event_type), [],
+          'no App audit keeps the installation account\'s login; outside the alpha its actor is the acting account\'s');
+        const secrets = { ...APP_SECRETS, installationToken: INSTALLATION_TOKEN, privateKey: pem.split('\n')[1] };
+        assert.deepEqual(Object.keys(secrets).filter(name => answered.some(answer => answer.includes(secrets[name]))), [],
+          'nothing the server answered holds an App secret or credential');
       } finally {
         await withApp.close();
       }

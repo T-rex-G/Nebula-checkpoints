@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const RECORDED = 50;
+const RECORDED = 42;
 
 const ROOT = path.resolve(__dirname, '..');
 const READERS = new Set(['serverSource', 'serverImports']);

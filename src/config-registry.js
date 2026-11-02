@@ -51,7 +51,7 @@ const ENTRIES = Object.freeze([
     format: 'comma-separated proxy IP addresses or CIDR ranges; hop counts and universal ranges are rejected',
     summary: 'Only these immediate proxy addresses may supply forwarding headers, and an explicit list always wins. Leave unset for a directly reachable Node server. Hosted operators must verify proxy source ranges and block bypass paths before enabling trust.' },
   { name: 'NODE_ENV', group: 'server', requirement: 'production', fallback: null,
-    format: "'production' enables the production posture",
+    format: "'production', exactly, enables the production posture; a value that differs only in case or spacing is refused",
     summary: 'Turns on HSTS, Secure cookies, TLS enforcement on the database URL, and every production-only requirement in this table.' },
   { name: 'SESSION_SECRET', group: 'server', requirement: 'production', fallback: "'dev-secret-change-me'",
     format: 'at least 32 bytes in production',
@@ -196,11 +196,11 @@ const ENTRIES = Object.freeze([
     summary: 'Signs the governance audit chain. Falls back to SESSION_SECRET, so set it only to rotate the two independently.' },
 
   /* ---------------- Snapshot signing ---------------- */
-  { name: 'NV_SNAPSHOT_SIGNING_KEY_ID', group: 'snapshots', requirement: 'group', fallback: null,
+  { name: 'NV_SNAPSHOT_SIGNING_KEY_ID', group: 'snapshots', requirement: 'production', fallback: "'local-development' outside production; none in production",
     format: 'key identifier',
     summary: 'Names the key that signs snapshots, so a verifier knows which secret to expect.' },
-  { name: 'NV_SNAPSHOT_SIGNING_SECRET', group: 'snapshots', requirement: 'group', fallback: null,
-    format: 'signing secret',
+  { name: 'NV_SNAPSHOT_SIGNING_SECRET', group: 'snapshots', requirement: 'production', fallback: 'SESSION_SECRET outside production; none in production',
+    format: 'signing secret of 32 to 4096 UTF-8 bytes in production (16 elsewhere), not SESSION_SECRET',
     summary: 'The active snapshot signing secret.' },
   { name: 'NV_SNAPSHOT_RETIRED_KEYS_JSON', group: 'snapshots', requirement: 'optional', fallback: "'' (none)",
     format: 'JSON array of retired keys',

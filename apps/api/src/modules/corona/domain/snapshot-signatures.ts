@@ -98,12 +98,13 @@ export function loadSnapshotSigningConfig(env: Environment = process.env, option
   }
   if (!activeKeyId || !activeSecret) {
     const message = production
-      ? 'Production requires a dedicated snapshot signing key ID and secret'
-      : 'Snapshot signing configuration requires both a dedicated key ID and signing secret';
+      ? 'Production requires a dedicated snapshot signing key ID and secret: set NV_SNAPSHOT_SIGNING_KEY_ID and NV_SNAPSHOT_SIGNING_SECRET'
+      : 'Snapshot signing configuration requires both a dedicated key ID and signing secret: set NV_SNAPSHOT_SIGNING_KEY_ID and NV_SNAPSHOT_SIGNING_SECRET together';
     throw new TypeError(message);
   }
-  activeKeyId = assertKeyId(activeKeyId, 'Active snapshot key ID');
-  activeSecret = assertSecret(activeSecret, 'Active snapshot signing secret', production ? 32 : 16);
+  /* Named by the variables that hold them, so a deployment refused for one is told which to fix. */
+  activeKeyId = assertKeyId(activeKeyId, 'NV_SNAPSHOT_SIGNING_KEY_ID');
+  activeSecret = assertSecret(activeSecret, 'NV_SNAPSHOT_SIGNING_SECRET', production ? 32 : 16);
   if (production && sessionSecret && activeSecret === sessionSecret) {
     throw new TypeError('NV_SNAPSHOT_SIGNING_SECRET must differ from SESSION_SECRET');
   }

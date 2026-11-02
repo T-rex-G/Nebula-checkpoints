@@ -2073,3 +2073,25 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **The ratchets.** The composition root registers no route itself; `main.ts` may hold 150 lines; `server.js` may not come back; and every registration function a module's `http` folder exports is called by the composition.
 - **Removed:** `server.js`. The proof is the identical route policy, the server booting natively from `main.ts` and compiled from `dist/server/apps/api/src/main.js`, and every gate below. The baseline inventories keep their baseline paths.
 - **Checks:** typecheck, lint, the route-policy comparison, the unit gate and every verify-job gate on Node 22.23.4, the compiled server's among them.
+
+### The doctor gives the server's answer
+
+- **What was wrong.** `scripts/doctor.js` is the check an operator runs before a deploy, and the deploy guide and operator checklist both say a pass is the answer the server will give at startup. It was not:
+  - Its production rules were a copy of the server's. The comment beside them named a test that pinned the two together; that test never existed.
+  - The registry called the snapshot signing key optional until half of it was set, so the doctor passed a production deployment without one. The server refuses to start without it, as the README and the security deployment guide say. The doctor's own test called that deployment clean.
+  - It never asked about the deployment profile, the migration mode, a hosted alpha's limits, the snapshot keys or the qualification capabilities. The server refuses on each.
+- **The server's reading, asked.** The doctor calls the configuration reading the server makes as it starts (`composition/configuration.ts`): `loadCapabilities`, now a function of its own within the release, then `loadSettings`.
+  - Each stops at its first refusal, as the server does.
+  - A refusal that a loader the doctor already ran has reported is not repeated; any other is reported as the server refusing to start.
+  - A precise problem covers every variable it names, so the generic "is required" line beside it goes.
+- **Production spelt exactly.** The server compares `NODE_ENV` exactly wherever it reads it. A value that was production in all but its case or spacing started a development server: the development secret accepted, cookies without `Secure`, the database's TLS left to its URL. The server now refuses it before anything else is read. The doctor lists what production will need beside that refusal.
+- **Refusals that name their variable.** The snapshot signing refusals spoke of a key ID and a secret, not of the variables that hold them. They now name `NV_SNAPSHOT_SIGNING_KEY_ID` and `NV_SNAPSHOT_SIGNING_SECRET`.
+- **The registry.**
+  - The snapshot signing key and secret are required in production, with their development fallbacks stated. The secret's format gives its size and says it is not `SESSION_SECRET`.
+  - `NODE_ENV`'s format says it is compared exactly.
+  - The doctor's snapshot group rule went with the requirement it served: outside production the pair is the server's loader to refuse.
+- **Tests.**
+  - `test/doctor-startup-agreement.test.js` starts the real server under 26 deployments. Each is one change from a deployment that starts. The doctor is held to what happened: where the server refused, the doctor names the variable the server named; where it started, the doctor does not say it refuses. Every threshold is walked on both sides of its edge, in bytes.
+  - The doctor's production fixtures carry a signing key, and a keyring the server cannot read is refused without being quoted.
+  - The settings test refuses five near misses of production, and reads every other value as development, as before.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

@@ -45,6 +45,19 @@ const refuses = (fn, message) => assert.throws(fn, error => error instanceof Err
   assert.equal(loadServerSecrets({ NODE_ENV: 'production', SESSION_SECRET: 'é'.repeat(16) }).secret, 'é'.repeat(16), 'the length is in bytes, not characters');
   /* The first thing wrong is the one named. */
   refuses(() => loadServerSecrets({ NV_DEPLOYMENT_PROFILE: 'staging', NV_DATABASE_MIGRATION_MODE: 'migrate' }), 'NV_DEPLOYMENT_PROFILE');
+  /*
+   * Production is spelt exactly. A value that is production in all but its
+   * case or spacing would start a development server where production was
+   * meant, so it is refused before anything else is read; any other value is
+   * development, as it always was.
+   */
+  for (const nearMiss of ['Production', 'PRODUCTION', ' production', 'production ', '\tproduction\n']) {
+    refuses(() => loadServerSecrets({ NODE_ENV: nearMiss, SESSION_SECRET: SECRET }), 'NODE_ENV must be exactly production');
+    refuses(() => loadServerSecrets({ NODE_ENV: nearMiss, NV_DEPLOYMENT_PROFILE: 'staging' }), 'NODE_ENV must be exactly production');
+  }
+  for (const other of ['', 'development', 'test', 'prod', 'productions']) {
+    assert.equal(loadServerSecrets({ NODE_ENV: other }).secret, DEVELOPMENT_SECRET, `${JSON.stringify(other)} is development`);
+  }
 
   /* Every key from its own purpose. */
   const { keys } = loadServerSecrets({ SESSION_SECRET: SECRET });

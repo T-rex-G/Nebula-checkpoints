@@ -12,10 +12,12 @@
  *
  * It does not re-implement validation. Where the server has a loader --
  * loadGithubAppConfig, loadAlphaAccessConfig, normalizeDatabaseUrl,
- * normalizeGovernanceRuntimeFailureMode -- the doctor calls that same loader
- * and reports what it says. A second implementation would eventually disagree
- * with the first, and the one a person ran would not be the one that decides
- * whether the process boots.
+ * normalizeGovernanceRuntimeFailureMode, and the configuration reading the
+ * server makes as it starts -- the doctor calls that same loader and reports
+ * what it says. A second implementation would eventually disagree with the
+ * first, and the one a person ran would not be the one that decides whether
+ * the process boots. test/doctor-startup-agreement.test.js starts the server
+ * to hold the two to one answer.
  *
  * It never prints a value. Every answer here is "set" or "not set", with the
  * fallback the code would use. A configuration report that echoes secrets is
@@ -28,8 +30,13 @@
  *   node scripts/doctor.js --json        machine-readable
  */
 
+const path = require('path');
 const { ENTRIES, GROUPS } = require('../src/config-registry');
 const config = require('../apps/api/src/platform/config/config.ts');
+const { loadCapabilities, loadSettings } = require('../apps/api/src/composition/configuration.ts');
+
+/* The tree the server reads its capability document from. */
+const ROOT = path.join(__dirname, '..');
 
 const RUNTIME_GROUPS = Object.freeze([
   'server', 'database', 'oauth', 'github-app',
@@ -68,9 +75,7 @@ const GROUP_RULES = Object.freeze([
       'GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET',
       'GITHUB_APP_PRIVATE_KEY', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_APP_CALLBACK_URL',
       'GITHUB_APP_WEBHOOK_SECRET'],
-    because: 'naming any GitHub App value commits the whole App configuration' },
-  { group: 'snapshots', trigger: ['NV_SNAPSHOT_SIGNING_KEY_ID', 'NV_SNAPSHOT_SIGNING_SECRET'],
-    because: 'a signing secret is unusable without the key id that names it' }
+    because: 'naming any GitHub App value commits the whole App configuration' }
 ]);
 
 /*
@@ -104,8 +109,23 @@ function alternativeFor(name, alternatives) {
   return alternatives.find(alternative => alternative.of.includes(name)) || null;
 }
 
+/* The configuration variable a message names first, if it names one. */
+function variableNamed(message) {
+  let first = null;
+  for (const { name } of ENTRIES) {
+    const at = message.search(new RegExp(`\\b${name}\\b`));
+    if (at >= 0 && (!first || at < first.at)) first = { name, at };
+  }
+  return first ? first.name : null;
+}
+
 function evaluate(env) {
-  const production = String(env.NODE_ENV || '').trim() === 'production';
+  /*
+   * Production as the deployment means it. The server compares NODE_ENV
+   * exactly, and refuses one that is production in all but its case or
+   * spacing; the report still lists what production will need.
+   */
+  const production = String(env.NODE_ENV || '').trim().toLowerCase() === 'production';
   const profile = String(env.NV_DEPLOYMENT_PROFILE || 'local').trim().toLowerCase();
   const problems = [];
   const notes = [];
@@ -186,7 +206,7 @@ function evaluate(env) {
    */
   const check = (label, group, run) => {
     try { run(); }
-    catch (error) { problems.push({ severity: 'error', kind: 'detail', group, detail: `${label}: ${error.message}` }); }
+    catch (error) { problems.push({ severity: 'error', kind: 'detail', name: variableNamed(error.message), group, detail: `${label}: ${error.message}` }); }
   };
   check('DATABASE_URL', 'database', () => config.normalizeDatabaseUrl(env.DATABASE_URL || '', {
     production, insecure: env.NV_DB_INSECURE === '1'
@@ -200,40 +220,36 @@ function evaluate(env) {
   check('Alpha access', 'alpha-access', () => config.loadAlphaAccessConfig(env, { databaseUrl: env.DATABASE_URL || '' }));
 
   /*
-   * Production rules the server enforces as it starts, in its settings
-   * (apps/api/src/platform/config/server-settings.ts). These are mirrored, not
-   * shared, which is a seam: the server remains the authority and
-   * test/doctor-startup-agreement.test.js pins the thresholds so the two
-   * cannot drift apart silently.
+   * The server's own reading of its configuration, as it makes it when it
+   * starts (apps/api/src/composition/configuration.ts): what the deployment
+   * may offer, then the secrets, the keys derived from them and every other
+   * setting. Each stops at the first thing wrong, as the server does. A
+   * refusal one of the loaders above has already reported is not reported
+   * again; any other is the server refusing to start, and is reported as that.
    */
-  if (production) {
-    const secret = String(env.SESSION_SECRET || '');
-    if (!secret || secret === 'dev-secret-change-me') {
-      problems.push({ severity: 'error', kind: 'detail', name: 'SESSION_SECRET', detail: 'SESSION_SECRET is still the development default; production refuses to start.' });
-    } else if (Buffer.byteLength(secret, 'utf8') < 32) {
-      problems.push({ severity: 'error', kind: 'detail', name: 'SESSION_SECRET', detail: 'SESSION_SECRET must contain at least 32 bytes in production.' });
+  const startup = read => {
+    try { read(); }
+    catch (error) {
+      const message = String(error && error.message || error);
+      if (problems.some(problem => problem.detail.endsWith(message))) return;
+      problems.push({ severity: 'error', kind: 'detail', name: variableNamed(message), detail: `The server refuses to start: ${message}` });
     }
-    const audit = String(env.NV_GOVERNANCE_AUDIT_SECRET || '');
-    if (audit && Buffer.byteLength(audit, 'utf8') < 32) {
-      problems.push({ severity: 'error', kind: 'detail', name: 'NV_GOVERNANCE_AUDIT_SECRET', detail: 'NV_GOVERNANCE_AUDIT_SECRET must contain at least 32 bytes in production.' });
-    }
-    if (profile === 'hosted-alpha'
-      && String(env.NV_DATABASE_MIGRATION_MODE || 'apply').trim().toLowerCase() !== 'verify') {
-      problems.push({ severity: 'error', kind: 'detail', name: 'NV_DATABASE_MIGRATION_MODE', detail: 'hosted-alpha in production requires NV_DATABASE_MIGRATION_MODE=verify.' });
-    }
-  }
+  };
+  startup(() => loadCapabilities(ROOT, env));
+  startup(() => loadSettings(env));
 
   /*
    * A precise problem supersedes the generic one. "SESSION_SECRET is required"
-   * beside "SESSION_SECRET is still the development default" is two lines for
-   * one fact, and the reader has to work out they are the same fact.
+   * beside "SESSION_SECRET must be configured in production" is two lines for
+   * one fact, and the reader has to work out they are the same fact. A
+   * precise problem covers every variable it names.
    */
-  const detailed = new Set(problems.filter(problem => problem.kind === 'detail')
-    .map(problem => problem.name).filter(Boolean));
-  const detailedGroups = new Set(problems.filter(problem => problem.kind === 'detail' && problem.group)
-    .map(problem => problem.group));
+  const precise = problems.filter(problem => problem.kind === 'detail');
+  const detailed = name => Boolean(name) && precise.some(problem =>
+    problem.name === name || new RegExp(`\\b${name}\\b`).test(problem.detail));
+  const detailedGroups = new Set(precise.filter(problem => problem.group).map(problem => problem.group));
   const reported = problems.filter(problem => problem.kind !== 'requirement'
-    || (!detailed.has(problem.name) && !detailedGroups.has(problem.group)));
+    || (!detailed(problem.name) && !detailedGroups.has(problem.group)));
 
   return { production, profile, rows, problems: reported, notes };
 }

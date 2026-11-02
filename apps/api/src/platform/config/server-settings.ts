@@ -7,7 +7,11 @@
  * server sets on the application before anything else), then, after Corona
  * has read its evidence keyrings and snapshot signing keys, everything else.
  * Each check runs in the order it always has, and throws the message it
- * always has.
+ * always has. The first asks whether production is meant: NODE_ENV is
+ * compared exactly wherever the server reads it, so a value that is
+ * production in all but its case or spacing would start a development server
+ * -- the development secret accepted, cookies without Secure, the database's
+ * TLS left to its URL -- where production was meant. It is refused instead.
  *
  * Every keyed construction derives its own key from SESSION_SECRET through a
  * distinct HKDF purpose (see ../crypto/key-derivation.ts for why the previous
@@ -73,6 +77,9 @@ function clamped(raw: string | undefined, fallback: number, low: number, high: n
 
 export function loadServerSecrets(env: Environment): ServerSecrets {
   const production = env.NODE_ENV === 'production';
+  if (!production && String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+    throw new Error('NODE_ENV must be exactly production: a value that differs only in case or spacing would start a development server.');
+  }
   const port = env.PORT || 10000;
   const secret = env.SESSION_SECRET || DEVELOPMENT_SECRET;
   const hostingProfile = String(env.NV_DEPLOYMENT_PROFILE || 'local').trim().toLowerCase();

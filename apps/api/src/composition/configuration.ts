@@ -31,14 +31,24 @@ const MB = 1024 * 1024;
  * beside it. The page is read once; the server will not start without it.
  */
 export function loadRelease(root: string, env: NodeJS.ProcessEnv) {
-  const capabilityDocument = loadCapabilityDocument(path.join(root, 'config', 'public-alpha-capabilities.json'));
-  /* A staging deployment's capabilities awaiting the proof only it can give; empty everywhere else. */
-  const qualificationCapabilities = loadQualificationCapabilities(env, capabilityDocument, { deployment: DEPLOYMENT_PROFILE });
+  const { capabilityDocument, qualificationCapabilities } = loadCapabilities(root, env);
   const runtime = describeServerRuntime(root);
   const releaseTreeSha256 = computeReleaseFingerprint(runtime.sourceRoot);
   const webRoot = path.join(root, 'dist', 'web');
   const webBuild = loadWebBuild(webRoot);
   return Object.freeze({ root, capabilityDocument, qualificationCapabilities, runtime, releaseTreeSha256, webRoot, webBuild });
+}
+
+/*
+ * What the deployment may offer: the capability document, and a staging
+ * deployment's capabilities awaiting the proof only it can give (empty
+ * everywhere else). Part of the release, and the part of it the environment
+ * decides, so scripts/doctor.js asks it too.
+ */
+export function loadCapabilities(root: string, env: NodeJS.ProcessEnv) {
+  const capabilityDocument = loadCapabilityDocument(path.join(root, 'config', 'public-alpha-capabilities.json'));
+  const qualificationCapabilities = loadQualificationCapabilities(env, capabilityDocument, { deployment: DEPLOYMENT_PROFILE });
+  return { capabilityDocument, qualificationCapabilities };
 }
 
 /*

@@ -20,6 +20,8 @@ const assert = require('assert');
 const { evaluate } = require('../scripts/doctor');
 
 const SECRET = 'x'.repeat(64);
+/* Production signs snapshots with a key of its own, never the session secret. */
+const SIGNING = Object.freeze({ NV_SNAPSHOT_SIGNING_KEY_ID: 'doctor-snapshot-key', NV_SNAPSHOT_SIGNING_SECRET: 'y'.repeat(64) });
 const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
 
 /* A local development environment with nothing set is a working one. */
@@ -36,7 +38,7 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
   const result = evaluate(bare({ NODE_ENV: 'production' }));
   const text = result.problems.map(problem => problem.detail).join('\n');
   assert(result.problems.length > 0, 'bare production must report problems');
-  for (const expected of ['SESSION_SECRET', 'DATABASE_URL', 'PUBLIC_BASE_URL']) {
+  for (const expected of ['SESSION_SECRET', 'DATABASE_URL', 'PUBLIC_BASE_URL', 'NV_SNAPSHOT_SIGNING_KEY_ID', 'NV_SNAPSHOT_SIGNING_SECRET']) {
     assert(text.includes(expected), `bare production must name ${expected}`);
   }
 
@@ -53,6 +55,7 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
   const result = evaluate(bare({
     NODE_ENV: 'production',
     SESSION_SECRET: SECRET,
+    ...SIGNING,
     PUBLIC_BASE_URL: 'https://nebula.example.com',
     DATABASE_URL: 'postgresql://u:p@db.example.com:5432/nv?sslmode=verify-full'
   }));
@@ -64,7 +67,7 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
 {
   const hosted = {
     NODE_ENV: 'production', NV_DEPLOYMENT_PROFILE: 'hosted-alpha',
-    SESSION_SECRET: SECRET, PUBLIC_BASE_URL: 'https://nebula.example.com',
+    SESSION_SECRET: SECRET, ...SIGNING, PUBLIC_BASE_URL: 'https://nebula.example.com',
     DATABASE_URL: 'postgresql://u:p@db.example.com:5432/nv?sslmode=verify-full'
   };
   const applying = evaluate(bare(hosted));
@@ -121,6 +124,8 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
     NODE_ENV: 'production',
     SESSION_SECRET: compose('session', 'fixture', '0123456789abcdef', '0123456789abcdef'),
     NV_GOVERNANCE_AUDIT_SECRET: compose('audit', 'fixture', 'fedcba9876543210', 'fedcba9876543210'),
+    NV_SNAPSHOT_SIGNING_KEY_ID: 'doctor-snapshot-key',
+    NV_SNAPSHOT_SIGNING_SECRET: compose('snapshot', 'fixture', '0123456789abcdef', 'fedcba9876543210'),
     DATABASE_URL: `postgresql://someuser:${compose('pw', 'fixture')}@db.example.com:5432/nv?sslmode=verify-full`,
     PUBLIC_BASE_URL: 'https://nebula.example.com',
     GITHUB_APP_WEBHOOK_SECRET: compose('webhook', 'fixture', '01234567')
@@ -128,10 +133,27 @@ const bare = extra => Object.assign({ PATH: '/usr/bin' }, extra);
   const result = evaluate(bare(values));
   const rendered = JSON.stringify(result);
   for (const [name, value] of Object.entries(values)) {
-    if (name === 'NODE_ENV' || name === 'PUBLIC_BASE_URL') continue;
+    if (name === 'NODE_ENV' || name === 'PUBLIC_BASE_URL' || name === 'NV_SNAPSHOT_SIGNING_KEY_ID') continue;
     assert(!rendered.includes(value), `${name}'s value must never appear in the report`);
   }
   assert(!rendered.includes(compose('pw', 'fixture')), 'a database password must never appear in the report');
+}
+
+/*
+ * Nor when the server refuses it. The doctor reports the server's own startup
+ * refusals as the server words them, so a keyring the server cannot read must
+ * be refused without quoting what it was given.
+ */
+{
+  const compose = (...parts) => parts.join('-');
+  const keyring = '["' + compose('legacy', 'fixture', '0123456789abcdef', '0123456789abcdef');
+  const result = evaluate(bare({
+    NODE_ENV: 'production', SESSION_SECRET: SECRET, ...SIGNING, NV_SNAPSHOT_LEGACY_KEYS_JSON: keyring,
+    PUBLIC_BASE_URL: 'https://nebula.example.com', DATABASE_URL: 'postgresql://u:p@db.example.com:5432/nv?sslmode=verify-full'
+  }));
+  assert(result.problems.some(problem => /Legacy snapshot keyring must be valid JSON/.test(problem.detail)),
+    'an unreadable keyring is a refusal the doctor reports');
+  assert(!JSON.stringify(result).includes(compose('legacy', 'fixture')), 'and the keyring it could not read never appears in the report');
 }
 
 console.log('doctor tests passed');

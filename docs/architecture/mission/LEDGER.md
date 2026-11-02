@@ -2275,3 +2275,28 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **The fix.** A failed lookup counts as one that found nothing, for adding and changing alike. The delivery worker already records a failed lookup as a failed attempt.
 - **Proven.** `test/governance-delivery-api.test.js` refuses both with `422 GOVERNANCE_WEBHOOK_DNS_INVALID`, before the store is asked. `test/composition-postgres.test.js` asks the composed server: refused, and nothing kept. Without the fix each fails.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step six — the server's own life, asked
+
+- **Why.** `apps/api/src/main.ts` listens with the composed application, then starts what runs beside requests: the upkeep of stale upload files, governance's webhook delivery and exposure scanning's worker. It stops once, on SIGTERM or SIGINT. The composition hands the platform's graceful shutdown the workers to wait for before the pool closes. Six statements read that wiring as text. `test/composition-lifecycle.test.js` asks the server itself, on a database of its own.
+- **The work the server takes up** (exposure scanning's test three, governance delivery's contract one). The real server, started as a deployment starts it, on a database holding work from before the start, with no request made of it:
+  - its upkeep removes an upload's temporary file older than the stale-upload age, and leaves a recent one and a file that is not an upload's;
+  - governance's delivery attempts the delivery it had queued, and, the destination not found, keeps it for another try;
+  - exposure scanning's worker runs, at its first look, the scan it had queued, and stops it as asked under another configuration.
+
+  Stopped by SIGTERM, and started again and stopped by SIGINT, it says why and exits cleanly.
+- **The work the server waits for** (exposure scanning's test one, governance delivery's contract one). The composed server, stopped as a signal stops it, with the process's exit stood in for:
+  - with a delivery batch held at its table, it does not exit; let go, the batch records its attempt, then the pool closes and the exit is clean;
+  - with a scan held where it reads its requester's session, likewise: the scan is stopped as revoked before the pool closes.
+- **Nothing leaves the machine.** The webhook's destination is a name under `.invalid`, which never resolves (RFC 6761). It is stood in for (`standInForNames`, beside `standInForOutbound`) only while the webhook is kept, and a delivery's lookup fails, as it would. Each scan stops before it reads a repository.
+- **Each check fails when its wiring is broken.** Eleven mutants, each caught by its check's own message:
+  - main.ts without the upload upkeep, governance's delivery or the exposure worker at start;
+  - main.ts deaf to SIGTERM or SIGINT;
+  - the shutdown not draining delivery, or not draining scans;
+  - the exposure host without the release's capability document;
+  - governance told there is no database;
+  - the shutdown never closing the pool, or never exiting.
+- **A test that proved less than it said.** The first version prepared its work in more than one application. Governance starts its delivery worker on first need, and an application that only queued a scan started one. That worker, not the server under test, made the attempt the check looked for, and the mutant that stops main.ts starting delivery survived. All the work is now left in one application, and its worker is started and stopped before anything is queued, so the mutant is caught.
+- **Found on the way.** Adding a governance webhook whose destination does not resolve answered 500. It is fixed in its own commit, *A governance webhook to a name that does not resolve*, above.
+- **Thirty-six remain:** exposure scanning's route keys (4), governance's API (8) and interface (1), the authorization resolver (4), the mutation gateway (3), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4; the lifecycle test in 40 s.

@@ -2,8 +2,6 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const { serverSource, serverImports } = require('./helpers/server-source');
-const server = serverSource();
 const governanceRoutes = fs.readFileSync('apps/api/src/modules/kepler/http/governance-routes.ts', 'utf8');
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
@@ -13,10 +11,13 @@ const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutatio
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
-const kepler = serverImports('modules/kepler/index.ts');
-/* Delivery's worker is started by Kepler's governance host, which the server composes through the Kepler index. */
+/*
+ * Delivery's worker is started by Kepler's governance host. That the server
+ * starts it at boot, so a delivery queued before the start is attempted, and
+ * waits for its batch before the pool closes, is asked of the server itself by
+ * test/composition-lifecycle.test.js.
+ */
 const host = fs.readFileSync('apps/api/src/modules/kepler/application/governance-host.ts', 'utf8');
-assert(kepler && /\bcreateGovernanceHost\b/.test(kepler), 'server must load the webhook worker through the Kepler index');
 assert(host.includes('worker = startWebhookWorker({'));
 const route = (method, routePath) => {
   const entry = policyRoutes.find(candidate => candidate.method === method && candidate.path === routePath);
@@ -47,5 +48,5 @@ for (const [method, routePath, action] of [
   assert(guards.includes(`governanceMutationContext('${action}')`), `${method} ${routePath} missing gateway context ${action}`);
 }
 assert(governanceRoutes.includes("res.setHeader('Content-Disposition'"), 'an export download must name its attachment');
-assert(host.includes('return worker ? worker.stop() : null;') && server.includes('drain: () => [governance.stop(), exposure.stop()]'), 'delivery is drained at shutdown');
+assert(host.includes('return worker ? worker.stop() : null;'), 'stopping delivery hands back the batch in flight');
 console.log('governance delivery server contract tests passed');

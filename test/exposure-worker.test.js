@@ -29,7 +29,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { serverSource, serverImports } = require('./helpers/server-source');
+const { serverSource } = require('./helpers/server-source');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { SKIP_REASONS } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
@@ -778,28 +778,27 @@ function runnerFor(store, reader, options = {}) {
 /* ---- How the server wires it --------------------------------------- */
 
 /*
- * The worker is gated on the capability document, which today says
- * `exposure.scan` is Unavailable everywhere -- so it does not start. That is
- * the wire being correct rather than missing, and it is worth asserting both
- * halves: that the gate exists, and that it reads the document rather than a
- * separate flag somebody would have to remember to set in two places.
+ * The worker is gated on the capability document: it starts only where the
+ * document says `exposure.scan` is Supported or Experimental. It is worth
+ * asserting both halves: that the gate exists, and that it reads the document
+ * rather than a separate flag somebody would have to remember to set in two
+ * places.
  *
- * These read Quasar's exposure host and the server that composes it as text;
- * test/exposure-host.test.js runs the host itself. Starting the server to
- * prove a background worker did not start would prove very little either way.
+ * These read Quasar's exposure host as text; test/exposure-host.test.js runs
+ * the host itself. That the server starts the worker at boot, with the
+ * release's capability document, and drains it before the pool closes, is
+ * asked of the server itself by test/composition-lifecycle.test.js.
  */
 {
-  const server = serverSource();
   const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
 
-  const quasar = serverImports('modules/quasar/index.ts');
-  assert(quasar && /\bcreateExposureHost\b/.test(quasar) && host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
+  assert(host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
   assert(host.includes('      reader: exposureReader,'), 'with the reader it reads through');
 
   const gate = host.match(/function exposureScanningAvailable\(\)[\s\S]*?\n  }/);
   assert(gate, 'the capability gate must exist');
   assert(
-    gate[0].includes('deps.capabilityDocument') && server.includes('capabilityDocument: release.capabilityDocument'),
+    gate[0].includes('deps.capabilityDocument'),
     'the gate must read the capability document, not a second source of truth'
   );
   assert(
@@ -815,10 +814,6 @@ function runnerFor(store, reader, options = {}) {
       `starting the worker must be conditional on ${condition}`
     );
   }
-  assert(
-    /\ncore\.exposure\.ensureExposureWorker\(\);/.test(server),
-    'and the function must actually be called at startup'
-  );
 
   /*
    * Drained on shutdown, and awaited before the pool closes. A scan that loses
@@ -828,7 +823,7 @@ function runnerFor(store, reader, options = {}) {
    */
   const shutdown = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'lifecycle', 'graceful-shutdown.ts'), 'utf8');
   assert(
-    host.includes('return worker ? worker.stop() : null;') && server.includes('drain: () => [governance.stop(), exposure.stop()]'),
+    host.includes('return worker ? worker.stop() : null;'),
     'the worker must be drained on shutdown'
   );
   assert(

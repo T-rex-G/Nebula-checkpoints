@@ -207,4 +207,22 @@ function standInForOutbound(routes) {
   return { requests, restore() { globalThis.fetch = ownFetch; } };
 }
 
-module.exports = { composedApplication, applicationTree, browser, standInForOutbound, bodyOf };
+/*
+ * Names a test says resolve, resolved so in this process: the governance
+ * service looks a webhook's destination up before it keeps the webhook. Every
+ * other name is asked of the system, as it would be, so a name the test does
+ * not stand in for fails as it would.
+ */
+function standInForNames(names) {
+  const { promises } = require('node:dns');
+  const { isIP } = require('node:net');
+  const ownLookup = promises.lookup;
+  promises.lookup = async (hostname, options = {}) => {
+    if (!Object.hasOwn(names, hostname)) return ownLookup.call(promises, hostname, options);
+    const addresses = names[hostname].map(address => ({ address, family: isIP(address) }));
+    return options && options.all ? addresses : addresses[0];
+  };
+  return { restore() { promises.lookup = ownLookup; } };
+}
+
+module.exports = { composedApplication, applicationTree, browser, standInForOutbound, standInForNames, bodyOf };

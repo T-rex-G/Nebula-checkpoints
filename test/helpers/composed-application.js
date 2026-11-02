@@ -92,8 +92,8 @@ async function bodyOf(response) {
  * and the origin the page's own requests carry, and the cookies the server
  * set, as a browser keeps them -- the provider session's and, invite-only,
  * the alpha's access session's. A body is sent as JSON, or as it is when it
- * is bytes, as the page sends a file. signIn() signs in with a token the way
- * the page does.
+ * is bytes, as the page sends a file. A redirect is answered, not followed.
+ * signIn() signs in with a token the way the page does.
  */
 function browser(application) {
   const jar = new Map();
@@ -109,7 +109,9 @@ function browser(application) {
         ...(body === undefined ? {} : { 'content-type': bytes ? 'application/octet-stream' : 'application/json' }),
         ...headers
       },
-      body: body === undefined || bytes ? body : JSON.stringify(body)
+      body: body === undefined || bytes ? body : JSON.stringify(body),
+      /* A redirect is the answer a test reads, never one it follows: past it may lie the internet. */
+      redirect: 'manual'
     });
     /* A cookie set empty, or to expire now, is cleared, as a browser clears it. */
     for (const set of response.headers.getSetCookie()) {

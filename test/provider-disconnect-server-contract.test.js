@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource, serverImports } = require('./helpers/server-source');
+const { serverSource } = require('./helpers/server-source');
 
 const { locations } = require('./oracles/route-policy');
 const server = serverSource();
@@ -24,17 +24,15 @@ function routeBlock(routePath) {
   return next < 0 ? text.slice(start) : text.slice(start, start + marker.length + next);
 }
 
-/* The server reaches identity and access through the module's index only. */
-const identityAccess = serverImports('modules/identity-access/index.ts');
-assert(identityAccess, 'the server must load identity and access through its index');
-assert.match(identityAccess, /\bAlphaPrivacyStore\b/);
-assert.match(identityAccess, /\bcreateAccountLifecycle\b/);
+/*
+ * That the server reaches identity and access through its index only is
+ * test/module-boundaries.test.js's rule for every module. That invite mode
+ * builds the privacy store and hands it to the account lifecycle, which owns
+ * a tester's provider session, is asked of the composed invite-only server
+ * by test/composition-alpha.test.js.
+ */
 assert(lifecycle.includes("import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';"));
-assert(server.includes('new AlphaPrivacyStore({'), 'invite mode must construct the central privacy lifecycle store');
-const lifecycleWiring = (server.match(/const lifecycle = createAccountLifecycle\(\{[\s\S]*?\n  \}\);/) || [''])[0];
-assert(lifecycleWiring.endsWith('privacyStore: core.alphaPrivacyStore\n  });'), 'the lifecycle is handed the central privacy lifecycle store');
 assert.match(lifecycle, /async function disconnectAlphaProviderAccount\(req: LifecycleRequest/);
-assert.match(server, /const lifecycle = createAccountLifecycle\(\{/);
 const alphaSessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'alpha-sessions.ts'), 'utf8');
 const alphaRequestSessionStart = alphaSessions.indexOf('async function readRequestSession(req: Request)');
 assert(alphaRequestSessionStart >= 0, 'missing the access session reader');
@@ -51,12 +49,15 @@ const removalRoutes = [
   '/api/alpha/providers/disconnect-all',
   '/api/alpha/delete'
 ];
-/* The central disconnect, as the server calls it and as identity and access's routes are handed it. */
+/*
+ * The central disconnect, as identity and access's routes are handed it.
+ * That signing out, removing the account, disconnecting GitHub and deleting
+ * the alpha's data each run it -- removing the tester's webhooks and ending
+ * the provider session -- is asked of the composed server by
+ * test/composition-alpha.test.js; that the composition calls no disconnect
+ * itself is test/composition-root.test.js's.
+ */
 const disconnectCall = /await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/;
-assert(server.includes('const disconnect = { disconnectProviderAccounts: lifecycle.disconnectAlphaProviderAccount,')
-  && (server.match(/\bdisconnectProviderAccounts:/g) || []).length === 1, 'the central disconnect helper is the only one handed out');
-assert.strictEqual((server.match(/\.\.\.disconnect\b/g) || []).length, 3,
-  'identity and access\'s account, alpha and GitHub App disconnect routes must be handed the central disconnect helper');
 for (const routePath of removalRoutes) {
   const block = routeBlock(routePath);
   const call = disconnectCall.exec(block);
@@ -70,7 +71,7 @@ for (const routePath of removalRoutes) {
 {
   /* The remove route may call it twice (the account, then retired leftovers); no other route may call it at all. */
   const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
-  let outside = [server, lifecycle, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
+  let outside = [lifecycle, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
   for (const routePath of removalRoutes) outside = outside.replace(routeBlock(routePath), '');
   assert.strictEqual((outside.match(/await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/g) || []).length, 0,
     'only the five approved routes may invoke the central account disconnect helper');
@@ -213,7 +214,7 @@ const oauthCallbackBlock = oauthRoutes.slice(oauthCallbackStart);
 assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
 /* Both LFS exchanges, the URL validator, the download and the upload are the workbench's LFS transfer. */
 const lfsTransfer = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
-assert(!server.includes('info/lfs/objects/batch'), 'LFS negotiations belong to the workbench, not the composition');
+/* That the composition names no provider endpoint, LFS's among them, is test/composition-root.test.js's. */
 assert.strictEqual(
   (lfsTransfer.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
   2,
@@ -249,12 +250,11 @@ assert.match(
   fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'repository-access.ts'), 'utf8'),
   /function retainedActor\(req[^)]*\)[^{]*\{[\s\S]+deps\.alphaEnabled && req\.alpha[\s\S]+alphaActorLabel\(req\.alpha\)[\s\S]+req\.gh && req\.gh\.login/
 );
-assert(server.includes('createRepositoryAccess({\n    alphaEnabled: alphaConfig.enabled,'), 'the server gives the guards the alpha\'s flag');
-for (const forbidden of [
-  'actor: req.gh.login',
-  'actorLogin: req.gh.login',
-  'created_by_login: req.gh.login'
-]) assert(!server.includes(forbidden), `hosted-alpha persistence retains forbidden pattern: ${forbidden}`);
+/*
+ * That the composed invite-only server records a write under the tester's
+ * label, and keeps no GitHub login in any column of any table, is
+ * test/composition-alpha.test.js's.
+ */
 
 /* What an audit detail may keep is identity and access's domain rule. */
 const githubAuditFields = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'github-app-audit.ts'), 'utf8');
@@ -268,8 +268,8 @@ for (const forbidden of [
 
 /* Evidence a request leaves -- a disconnected installation, a blocked upload -- names the invite actor label. */
 const uploadScan = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'upload-scan.ts'), 'utf8');
-assert(lifecycle.includes('actor: call.retainedActor(req)') && uploadScan.includes('actor: actorOf(req)')
-  && server.includes('scan: scanUploadFile, appendEvidence: core.evidenceChain.appendEvidence, retainedActor,'), 'retained evidence must use the invite actor label');
+/* That a blocked upload's evidence names the tester's label, as its hash shows, is test/composition-alpha.test.js's. */
+assert(lifecycle.includes('actor: call.retainedActor(req)') && uploadScan.includes('actor: actorOf(req)'), 'retained evidence must use the invite actor label');
 assert(appRecords.includes('retainedProviderActor('), 'background GitHub App audits need an identity-to-alpha-actor boundary');
 
 console.log('provider disconnect server contract tests passed');

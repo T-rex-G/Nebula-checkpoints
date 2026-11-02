@@ -2200,3 +2200,34 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - The test browser (`test/helpers/composed-application.js`) now keeps every cookie the server sets, as a browser does, the invitation's access session beside the provider session's, and clears one set empty or to expire.
 - **Each part is needed.** Four mutants, each caught: the removal made outside the gateway again, the runner not handed to the lifecycle, the removal run under another action, and the store's queries handed over at once.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step four — the composed server, invite-only
+
+- **Why.** The hosted alpha runs the server with invitations on. A tester redeems an invitation for an access session, signs in to GitHub in it, and owns the provider session; what is kept names the tester by label. These checks need that server, and its database.
+- **Twenty-one statements, now behaviour or the syntax tree.** `test/composition-alpha.test.js`, begun with the disconnect fix, builds the composed server invite-only on a database of its own:
+  - **Retention** (the privacy CLI test, two): once the store is ready, the alpha's retention runs, over its own store.
+  - **Admission and the owned session** (the privacy server contract one, the disconnect contract three):
+    - without an invitation nothing is answered;
+    - redeemed, it admits the tester to the repositories it names;
+    - the tester signs in, and the provider session is the tester's own, bound to the identity;
+    - a repository the invitation does not name is refused.
+  - **The privacy routes** (the privacy server contract, one): the notice is the alpha's terms and retention, and feedback is kept for this release.
+  - **The central disconnect, from every route** (the privacy server contract two, the disconnect contract two): signing out, removing the account, disconnecting GitHub and deleting the alpha's data each remove the tester's webhook inside the gateway, end the provider session and clear its cookie.
+  - **What the alpha keeps** (the disconnect contract, three):
+    - the write's policy decision is recorded under the tester's label;
+    - a blocked upload's evidence names the label, as matching its hash shows;
+    - no column of any table holds a GitHub login.
+  - **The composition's imports** (the privacy server contract two, the disconnect contract three): `test/module-boundaries.test.js` already holds every module to its index, and the behaviour above runs each name these checks looked for.
+  - **What no request can show** (the disconnect contract, two): `test/composition-root.test.js` holds the composition root, over its syntax tree, to calling no account disconnect and naming no provider host or Git, LFS or REST path. A comment that mentions either passes; a call or a string fails.
+- **Each check fails when its wiring is broken.** Thirteen mutants of the composition, each caught by its check's own message:
+  - retention never started, or started without the store;
+  - the lifecycle without the privacy store;
+  - feedback kept for another release;
+  - the disconnect routes or the account routes without the central disconnect, or a disconnect that never clears the cookie;
+  - the access routes unregistered;
+  - the guards or the mutation context told this is not the alpha;
+  - the upload's evidence naming the login;
+  - and, for the syntax rules, an LFS negotiation or a disconnect call put into the root.
+- **The test browser answers redirects.** It no longer follows one. A test reads the server's redirect, and nothing past it is reached: a probe of the GitHub App's flow had followed one to github.com.
+- **The census, as a test.** `test/composition-reads.test.js` counts, over the syntax tree, every statement in the tests and scripts that reads the composition's source or imports, and holds the count to its record exactly. A new read fails, and so does a converted one until the record is lowered. Run against earlier commits, it gives 118 before D14 and 86 after step two. Fifty remain: the GitHub App's records, exposure scanning, governance's context and the workers' drain, the mutation gateway's transports and paths, the public-error sweep, the key purposes, the offline cache, and the checks that read the imports.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4, the invite-only test against both runtimes (3.6 s).

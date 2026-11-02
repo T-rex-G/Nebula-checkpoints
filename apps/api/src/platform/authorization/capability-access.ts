@@ -43,7 +43,11 @@ export interface CapabilityAccessDeps {
   readonly githubTokenKind: (account: never) => unknown;
 }
 
-interface CapabilityRequest { readonly gh: CapabilityAccount; capability?: unknown }
+/*
+ * Any request object, carrying the account the session guards attached before
+ * these run, and given the capability they decide.
+ */
+type CapabilityRequest = object & { readonly gh?: CapabilityAccount; capability?: unknown };
 interface CapabilityResponse { status(code: number): CapabilityResponse; json(body: unknown): unknown }
 
 export function createCapabilityAccess(deps: CapabilityAccessDeps) {
@@ -66,7 +70,8 @@ export function createCapabilityAccess(deps: CapabilityAccessDeps) {
     return { ...legacy, notif: registry.resolveCapability(deps.document, { ...context, feature: 'notifications' }).status !== 'Unavailable' };
   }
 
-  function providerCapabilityContext(account: CapabilityAccount | null | undefined, feature: string): CapabilityContext {
+  /* The context a capability is resolved in; without a feature, the account's whole projection is asked for. */
+  function providerCapabilityContext(account: CapabilityAccount | null | undefined, feature?: string): CapabilityContext {
     return {
       provider: account && account.provider || 'github',
       authority: authority(account),
@@ -106,9 +111,10 @@ export function createCapabilityAccess(deps: CapabilityAccessDeps) {
    * is read whenever the request asks for it; the handler still asserts it at
    * the point of use for the requests that come to need it on their own.
    */
-  function capabilityAccessWhen(feature: string, applies: (req: CapabilityRequest) => boolean) {
+  function capabilityAccessWhen<R extends CapabilityRequest>(feature: string, applies: (req: R) => boolean) {
     const check = capabilityAccess(feature);
-    return function enforceCapabilityWhen(req: CapabilityRequest, res: CapabilityResponse, next: () => void) {
+    /* The request is the route's own, so its test reads it as the route does. */
+    return function enforceCapabilityWhen(req: R, res: CapabilityResponse, next: () => void) {
       if (!applies(req)) return next();
       return check(req, res, next);
     };

@@ -21,6 +21,7 @@ import { CSRF_HEADER, STEP_UP_HEADER } from '../../../../../../packages/contract
 import * as OFFLINE_CACHE_POLICY from '../../../../../../packages/contracts/src/offline-cache-policy.ts';
 import { consumePendingStepUp, verifyCsrfToken, verifyStepUpGrant } from '../../../platform/authorization/security-foundation.ts';
 import { identityKey, type AccountLike } from '../domain/account-identity.ts';
+import type { SessionResponse } from './provider-sessions.ts';
 
 /* How long a CSRF token and a step-up grant are good for once minted. */
 export const CSRF_TTL_MS = 30 * 60 * 1000;
@@ -49,7 +50,7 @@ export interface SessionSecurityDeps {
   readonly databaseConfigured: boolean;
   /* The shared single-use guard, opened on first use; asked for only where a database is configured. */
   readonly durableSingleUseStore: () => unknown;
-  readonly setSession: (req: never, res: unknown, data: unknown) => Promise<void>;
+  readonly setSession: (req: never, res: SessionResponse, data: unknown) => Promise<void>;
   readonly csrfSecret: string;
   readonly stepUpSecret: string;
   /* The methods that change nothing, and so carry no CSRF token. */
@@ -61,7 +62,7 @@ export interface SessionSecurityDeps {
 
 export function createSessionSecurity(deps: SessionSecurityDeps) {
   const usedStepUpGrants = new Map();
-  const setSession = deps.setSession as (req: SecurityRequest, res: unknown, data: unknown) => Promise<void>;
+  const setSession = deps.setSession as (req: SecurityRequest, res: SessionResponse, data: unknown) => Promise<void>;
   const readCookie = deps.readCookie as (req: SecurityRequest, name: string) => string | null;
   const sessionIdFromRequest = deps.sessionIdFromRequest as (req: SecurityRequest) => string;
 
@@ -81,7 +82,7 @@ export function createSessionSecurity(deps: SessionSecurityDeps) {
   }
 
   /* Gives the session a nonce if it has none, which also ends any step-up it held. */
-  async function ensureSessionSecurity(req: SecurityRequest, res: unknown): Promise<SecurityState> {
+  async function ensureSessionSecurity(req: SecurityRequest, res: SessionResponse): Promise<SecurityState> {
     const state = sessionSecurityState(req.session!);
     if (SESSION_NONCE.test(String(state.sessionNonce || ''))) return state;
     state.sessionNonce = randomBytes(24).toString('hex');
@@ -108,7 +109,7 @@ export function createSessionSecurity(deps: SessionSecurityDeps) {
     return verifyCsrfToken(deps.csrfSecret, token, requestSecurityContext(req));
   }
 
-  async function consumeStepUpAuthorization(req: SecurityRequest, res: unknown, operation: { action: string; scope: unknown }): Promise<unknown> {
+  async function consumeStepUpAuthorization(req: SecurityRequest, res: SessionResponse, operation: { action: string; scope: unknown }): Promise<unknown> {
     const token = String(req.headers[STEP_UP_HEADER] || '');
     if (!token) throw Object.assign(new Error('This sensitive action requires step-up authorization'), { status: 403, code: 'STEP_UP_REQUIRED' });
     const context = requestSecurityContext(req);

@@ -28,13 +28,13 @@ export interface UploadScanResult {
   } | null;
 }
 
+/* A request as the scan reads it: the repository its route names. */
 export interface ScanRequest {
   readonly params?: { readonly owner?: string; readonly repo?: string } | null;
-  readonly [field: string]: unknown;
 }
 
 export interface UploadScanDeps {
-  readonly scan: (file: string, options: { readonly repoPath: unknown; readonly size: unknown }) => Promise<UploadScanResult>;
+  readonly scan: (file: string, options: { readonly repoPath: string; readonly size: number }) => Promise<UploadScanResult>;
   /* The repository's evidence chain for the request's identity (Corona). */
   readonly evidenceKey: (req: ScanRequest) => string;
   readonly appendEvidence: (key: string, type: string, id: string, details: unknown) => Promise<unknown>;
@@ -44,7 +44,7 @@ export interface UploadScanDeps {
 export function createUploadScan(deps: UploadScanDeps) {
   const actorOf = deps.retainedActor as unknown as (req: ScanRequest) => unknown;
 
-  return async function scanUploadOrThrow(req: ScanRequest, tmp: string, repoPath: unknown, size: unknown) {
+  return async function scanUploadOrThrow(req: ScanRequest, tmp: string, repoPath: string, size: number) {
     const result = await deps.scan(tmp, { repoPath, size });
     if (result.blocked) {
       const matches = (result.matches || []).map(match => ({

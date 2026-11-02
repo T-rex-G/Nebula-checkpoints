@@ -18,11 +18,14 @@ export interface ProviderSession {
   [key: string]: unknown;
 }
 
+/* One account's disconnect, as the cleanup reports it; the routes read only how its credentials are revoked. */
+export interface DisconnectOutcome { readonly revocationGuidance?: unknown }
+
 /* A disconnect's outcome, as the server's provider cleanup reports it. */
 export interface ProviderCleanup {
   readonly complete: boolean;
   readonly supportedComplete: boolean;
-  readonly results: readonly Fields[];
+  readonly results: readonly DisconnectOutcome[];
   readonly manualCleanup: readonly unknown[];
 }
 

@@ -17,8 +17,9 @@
  * A refusal answers with its own status and code; anything else is a 500
  * whose message is the error's own, as it always was.
  */
-import { sensitiveOperationFor } from '../../../platform/authorization/security-foundation.ts';
+import { sensitiveOperationFor, type StepUpRequest } from '../../../platform/authorization/security-foundation.ts';
 import { assertGithubAccount, identityKey, isGithubAccount } from '../domain/account-identity.ts';
+import type { SignedInSession } from './provider-sessions.ts';
 
 type Next = () => void;
 
@@ -51,13 +52,13 @@ interface Refusal { readonly status?: number; readonly message?: string; readonl
 
 export interface RequestGuardDeps {
   /* The provider session, retired accounts kept when asked (provider-sessions.ts). */
-  readonly sessionOf: (req: never, options: { retainRetiredAccounts: boolean }) => Promise<ProviderSession | null>;
+  readonly sessionOf: (req: never, options: { retainRetiredAccounts: boolean }) => Promise<SignedInSession | null>;
   /* The account with its credential resolved (the GitHub provider, with the App broker). */
   readonly resolveAccount: (account: ProviderAccount) => Promise<ProviderAccount>;
   /* The session's own security (session-security.ts). */
   readonly ensureSessionSecurity: (req: never, res: never) => Promise<unknown>;
   readonly verifyRequestCsrf: (req: never) => void;
-  readonly consumeStepUpAuthorization: (req: never, res: never, operation: unknown) => Promise<unknown>;
+  readonly consumeStepUpAuthorization: (req: never, res: never, operation: StepUpRequest) => Promise<unknown>;
   /* The identity's safety controls, and what they refuse (Corona). */
   readonly loadSafety: (req: never) => Promise<unknown>;
   readonly guardSafety: (req: never) => string | null;
@@ -68,7 +69,7 @@ export function createRequestGuards(deps: RequestGuardDeps) {
     sessionOf(req: GuardedRequest, options: { retainRetiredAccounts: boolean }): Promise<ProviderSession | null>;
     ensureSessionSecurity(req: GuardedRequest, res: GuardResponse): Promise<unknown>;
     verifyRequestCsrf(req: GuardedRequest): void;
-    consumeStepUpAuthorization(req: GuardedRequest, res: GuardResponse, operation: unknown): Promise<unknown>;
+    consumeStepUpAuthorization(req: GuardedRequest, res: GuardResponse, operation: StepUpRequest): Promise<unknown>;
     loadSafety(req: GuardedRequest): Promise<unknown>;
     guardSafety(req: GuardedRequest): string | null;
   };

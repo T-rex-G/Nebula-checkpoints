@@ -9,13 +9,20 @@
  * it. The timer never keeps the process alive.
  */
 
-export async function fetchWithDeadline(url: string | URL, options: RequestInit = {}, ms = 20000): Promise<Response> {
+/*
+ * What a caller hands in: options it built, often around an address or headers
+ * a provider's answer named. They are typed no tighter than the caller holds
+ * them, and fetch reads them as it always has.
+ */
+export type TimedFetchOptions = RequestInit | Readonly<Record<string, unknown>>;
+
+export async function fetchWithDeadline(url: unknown, options: TimedFetchOptions = {}, ms = 20000): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`Upstream timeout after ${ms / 1000}s`)), ms);
   if (typeof timeout.unref === 'function') timeout.unref();
   let response: Response;
   try {
-    response = await fetch(url, { ...options, signal: controller.signal });
+    response = await fetch(url as string | URL, { ...options, signal: controller.signal } as RequestInit);
   } catch (error) {
     clearTimeout(timeout);
     throw error;

@@ -48,7 +48,7 @@ export interface ExposureHostDeps {
   /* The deployment's capability document, and which of its deployments this is. */
   readonly capabilityDocument: unknown;
   readonly deployment: string;
-  readonly fingerprintKey: string;
+  readonly fingerprintKey: string | Buffer;
   readonly shuttingDown: () => boolean;
   /* How a scan finds a session still signed in, less the pool, which is this host's. */
   readonly session: Omit<ExposureSessionDependencies<Access, unknown>, 'pool'>;

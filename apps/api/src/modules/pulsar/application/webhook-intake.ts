@@ -13,6 +13,7 @@
  * past the checks is answered 500 without detail, and logged by message only.
  */
 import crypto from 'node:crypto';
+import { member } from '../../../platform/values/fields.ts';
 import { cleanText } from '../../../platform/values/text.ts';
 import { hashJson } from '../../../platform/values/stable-hash.ts';
 import { normalizeGithubWebhook, riskForEvent } from '../domain/webhook-events.ts';
@@ -48,12 +49,12 @@ export interface WebhookIntakeDeps {
   readonly ready: () => Promise<boolean>;
   readonly pool: () => { query(text: string, values?: readonly unknown[]): Promise<Rows> };
   /* Opens the hook's sealed secret. */
-  readonly unseal: (sealed: unknown) => { readonly secret?: unknown } | null | undefined;
+  readonly unseal: (sealed: unknown) => unknown;
   /* The paths an identity protects in a repository (Corona). */
   readonly protectedPatternsForIdentity: (identity: string, owner: string, repo: string) => Promise<readonly string[]>;
   /* The key an identity's evidence and live streams for a repository are kept under (Corona). */
   readonly evidenceKey: (provider: string, owner: string, repo: string, identity: string) => string;
-  readonly appendEvidence: (key: string, kind: string, recordId: string, payload: unknown) => Promise<{ readonly deduplicated?: boolean } | null>;
+  readonly appendEvidence: (key: string, kind: string, recordId: string, payload: unknown) => Promise<Readonly<Record<string, unknown>> | null>;
   readonly liveHub: { broadcast(key: string, payload: string): unknown };
 }
 
@@ -76,7 +77,7 @@ export function createWebhookIntake(deps: WebhookIntakeDeps) {
       const hook = found.rows[0] as HookRow | undefined;
       if (!hook || !hook.active) return res.status(404).end();
       const sealed = deps.unseal(hook.secret_enc);
-      const secret = sealed && sealed.secret;
+      const secret = sealed && member(sealed, 'secret');
       const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from((req.body || '') as string);
       if (!verifyGithubSignature(secret, raw, String(req.headers['x-hub-signature-256'] || ''))) {
         return res.status(401).json({ error: 'Invalid webhook signature' });

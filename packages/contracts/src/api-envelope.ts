@@ -14,7 +14,7 @@
 import { CORRELATION_ID } from './ids.ts';
 import type { CorrelationId } from './ids.ts';
 
-export const API_ENVELOPE_CONTRACT_VERSION = 1;
+export const API_ENVELOPE_CONTRACT_VERSION = 2;
 
 export const APP_HEADER = 'x-nv';
 export const APP_HEADER_VALUE = '1';
@@ -52,7 +52,7 @@ export interface ApiErrorBody {
   readonly locked?: boolean;
 }
 
-/* What the server knows about a failure when it answers. */
+/* What the server reads from a failure when it answers; anything thrown may be handed in. */
 export interface FailureFacts {
   readonly message?: unknown;
   readonly code?: unknown;
@@ -68,27 +68,36 @@ function clean(value: unknown, max: number): string {
     .slice(0, max);
 }
 
-export function publicErrorBody(error: FailureFacts | null | undefined, context: { readonly correlationId?: unknown }, mintCorrelationId: () => string): PublicErrorBody {
+/*
+ * `error && error[key]`, as JavaScript reads it from whatever was thrown: a
+ * falsy value is its own answer, and anything else is read as an object, so a
+ * text or a number thrown has none of these facts.
+ */
+function fact(error: unknown, key: keyof FailureFacts): unknown {
+  return error ? Reflect.get(Object(error), key) : error;
+}
+
+export function publicErrorBody(error: unknown, context: { readonly correlationId?: unknown }, mintCorrelationId: () => string): PublicErrorBody {
   const correlationId = CORRELATION_ID.test(String(context.correlationId || ''))
     ? String(context.correlationId)
     : mintCorrelationId();
-  const raw = clean(error && error.message, 300);
-  const known = ERROR_CODE_FORMAT.test(String(error && error.code || ''));
+  const raw = clean(fact(error, 'message'), 300);
+  const known = ERROR_CODE_FORMAT.test(String(fact(error, 'code') || ''));
   const safeMessage = raw && !SECRET_SIGNAL.test(raw) && known
     ? raw
     : 'Operation could not be completed';
-  const changed = error && error.providerChanged;
+  const changed = fact(error, 'providerChanged');
   return Object.freeze({
     error: safeMessage,
-    code: known ? String(error && error.code) : 'OPERATION_FAILED',
+    code: known ? String(fact(error, 'code')) : 'OPERATION_FAILED',
     correlationId: correlationId as CorrelationId,
     providerChanged: changed === true ? 'yes' : changed === false ? 'no' : 'unknown',
-    safeState: clean(error && error.safeState, 300) || (
+    safeState: clean(fact(error, 'safeState'), 300) || (
       changed === false
         ? 'No provider change was confirmed.'
         : 'The final provider state is not yet confirmed.'
     ),
-    nextAction: clean(error && error.nextAction, 300)
+    nextAction: clean(fact(error, 'nextAction'), 300)
       || 'Retry once. If the problem remains, copy the support correlation ID.'
   });
 }

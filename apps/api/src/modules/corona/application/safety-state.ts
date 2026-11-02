@@ -18,10 +18,14 @@ interface Client {
   release(): void;
 }
 
-interface SafetyRequest {
+/* An account as the session holds it, read only for whose controls these are. */
+interface Account { readonly provider?: unknown; readonly [field: string]: unknown }
+
+/* Any request object, with the session and account the session guards attached. */
+type SafetyRequest = object & {
   session?: { safety?: unknown; [field: string]: unknown } | null;
-  gh?: unknown;
-}
+  gh?: Account | null;
+};
 
 export interface SafetyStateDeps {
   /* Whether the deployment keeps the controls in a database; fixed at startup. */
@@ -31,9 +35,12 @@ export interface SafetyStateDeps {
     query(text: string, values?: readonly unknown[]): Promise<{ readonly rows: readonly Record<string, unknown>[] }>;
     connect(): Promise<Client>;
   };
-  readonly identityKey: (account: unknown) => string;
-  readonly setSession: (req: never, res: unknown, data: unknown) => Promise<void>;
+  readonly identityKey: (account: Account | null | undefined) => string;
+  readonly setSession: (req: never, res: SessionResponse, data: unknown) => Promise<void>;
 }
+
+/* The response a session copy is written to: the session's cookie is set on it. */
+interface SessionResponse { setHeader(name: string, value: string): unknown }
 
 export function safetyUnavailable(): Error & { status: number; code: string; providerChanged: boolean } {
   return Object.assign(new Error('Safety controls could not be loaded or saved. Try again when the database is available.'), {
@@ -42,7 +49,7 @@ export function safetyUnavailable(): Error & { status: number; code: string; pro
 }
 
 export function createSafetyState(deps: SafetyStateDeps) {
-  const setSession = deps.setSession as (req: SafetyRequest, res: unknown, data: unknown) => Promise<void>;
+  const setSession = deps.setSession as (req: SafetyRequest, res: SessionResponse, data: unknown) => Promise<void>;
 
   /* The identity's controls, or the session's where there is no database. */
   async function loadPersistentSafety(req: SafetyRequest): Promise<SafetyControls> {
@@ -91,7 +98,7 @@ export function createSafetyState(deps: SafetyStateDeps) {
    * session holds a copy. A copy that cannot be written because the session
    * ended meanwhile does not undo a change that has already committed.
    */
-  async function saveSessionSafetyCopy(req: SafetyRequest, res: unknown): Promise<boolean> {
+  async function saveSessionSafetyCopy(req: SafetyRequest, res: SessionResponse): Promise<boolean> {
     if (!deps.databaseConfigured) { await setSession(req, res, req.session); return true; }
     try { await setSession(req, res, req.session); return true; }
     catch (error) {

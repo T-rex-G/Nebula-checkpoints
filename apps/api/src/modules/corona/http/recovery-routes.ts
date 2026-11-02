@@ -73,9 +73,10 @@ export interface SnapshotDeps extends RecoveryGuards {
   savePersistentSafety(req: Request, patch: unknown): Promise<SafetyState>;
   saveSessionSafetyCopy(req: Request, res: Response): Promise<unknown>;
   /* The identity's other sessions, their revocation, and the live streams they held. */
-  sessionsForIdentity(req: Request): Promise<{ readonly available: boolean; readonly rows: readonly { readonly sid: string; readonly current: boolean }[] }>;
-  revokeContainedSessions(req: Request, sessionIds: readonly string[]): Promise<readonly string[]>;
-  closeLiveSessions(sessionIds: readonly string[], reason: string): unknown;
+  /* The identity's sessions as the inventory read them from the store. */
+  sessionsForIdentity(req: Request): Promise<{ readonly available: boolean; readonly rows: readonly { readonly sid?: unknown; readonly current?: unknown }[] }>;
+  revokeContainedSessions(req: Request, sessionIds: readonly unknown[]): Promise<readonly unknown[]>;
+  closeLiveSessions(sessionIds: readonly unknown[], reason: string): unknown;
   retainedActor(req: Request): unknown;
   /* The mutation gateway's operations so far in this request. */
   executionSnapshot(): { readonly operationIds: readonly unknown[] } | null;

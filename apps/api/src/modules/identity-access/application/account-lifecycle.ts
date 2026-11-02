@@ -23,12 +23,13 @@
  * removes those rows.
  */
 import { randomBytes } from 'node:crypto';
+import { member } from '../../../platform/values/fields.ts';
 import { cleanText } from '../../../platform/values/text.ts';
 import { identityKey, isGithubAccount, providerAuthority, stableProviderIdentityKey, type AccountLike } from '../domain/account-identity.ts';
 import { providerRevocationGuidance } from '../domain/alpha-privacy.ts';
 import { hostedAccountKey } from '../domain/hosted-session-merge.ts';
 import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';
-import { HOSTED_SESSION_BASE, HOSTED_SESSION_REVISION, alphaConnectionRefusal } from './provider-sessions.ts';
+import { HOSTED_SESSION_BASE, HOSTED_SESSION_REVISION, alphaConnectionRefusal, type SignedInSession } from './provider-sessions.ts';
 
 export const RETIRED_CLEANUP = 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED';
 
@@ -39,12 +40,14 @@ type Rows = { readonly rows: readonly Fields[] };
 interface Account extends Omit<AccountLike, 'identityKey'> { identityKey?: unknown; [field: string]: unknown }
 interface Session { accounts: Account[]; active?: unknown; retiredSelection?: unknown; [field: string]: unknown }
 interface Alpha { readonly testerId?: unknown; [field: string]: unknown }
-interface LifecycleRequest {
-  session: Session;
+/* Any request object, as the lifecycle reads it; the session is attached by the session guards before any of this runs. */
+type LifecycleRequest = object & {
+  session?: Session;
   alpha?: Alpha | null;
   gh?: Account | null;
-  [field: symbol]: unknown;
-}
+  [HOSTED_SESSION_BASE]?: unknown;
+  [HOSTED_SESSION_REVISION]?: unknown;
+};
 interface HostedSession { readonly session: Session; readonly revision: unknown }
 
 /* The alpha's privacy store, as the lifecycle uses it. */
@@ -54,7 +57,7 @@ export interface LifecyclePrivacyStore {
   finalizeProviderDisconnect(input: unknown): unknown;
   createCleanupTask(input: unknown): unknown;
   mutateHostedProviderSession(input: { testerId: unknown; sessionId: string; mutate(current: Session): Session }): Promise<HostedSession>;
-  revokeOwnedProviderSessions(input: { testerId: unknown; sessionIds: readonly string[] }): Promise<{ readonly revokedSessionIds: Iterable<string> }>;
+  revokeOwnedProviderSessions(input: { testerId: unknown; sessionIds: readonly unknown[] }): Promise<{ readonly revokedSessionIds: Iterable<unknown> }>;
   connectHostedProviderAccount(input: { testerId: unknown; sessionId: string; account: Account; authority: string; capacity: number }): Promise<HostedSession>;
 }
 
@@ -77,17 +80,17 @@ export interface AccountLifecycleDeps {
   readonly forgetJobs: (account: unknown) => void;
   readonly retainedActor: (req: never) => unknown;
   /* The session, its cookie and its security (provider-sessions.ts, session-security.ts). */
-  readonly sessionOf: (req: never) => Promise<Session | null>;
-  readonly setSession: (req: never, res: never, data: unknown, options?: unknown) => Promise<unknown>;
+  readonly sessionOf: (req: never) => Promise<SignedInSession | null>;
+  readonly setSession: (req: never, res: never, data: unknown, options?: { readonly createNew?: boolean }) => Promise<unknown>;
   readonly sessionIdFromRequest: (req: never) => string;
-  readonly clearStepUpAuthorization: (session: unknown) => void;
-  readonly readCookie: (req: never, name: string) => string | undefined;
+  readonly clearStepUpAuthorization: (session: Session) => void;
+  readonly readCookie: (req: never, name: string) => string | null;
   readonly writeCookie: (res: never, value: string, maxAge?: number) => void;
   readonly seal: (value: unknown) => string;
-  readonly unseal: (sealed: string) => { readonly sid?: unknown; readonly accounts?: unknown } | null | undefined;
+  readonly unseal: (sealed: string) => unknown;
   readonly closeLiveSessions: (sessionIds: readonly string[], reason: string) => unknown;
-  /* The alpha's privacy store. */
-  readonly privacyStore: LifecyclePrivacyStore;
+  /* The alpha's privacy store; none outside the alpha, where nothing here reaches it. */
+  readonly privacyStore: LifecyclePrivacyStore | null;
 }
 
 export function createAccountLifecycle(deps: AccountLifecycleDeps) {
@@ -96,10 +99,11 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     sessionOf(req: LifecycleRequest): Promise<Session | null>;
     setSession(req: LifecycleRequest, res: unknown, data: unknown, options?: unknown): Promise<unknown>;
     sessionIdFromRequest(req: LifecycleRequest): string;
-    readCookie(req: LifecycleRequest, name: string): string | undefined;
+    readCookie(req: LifecycleRequest, name: string): string | null;
     writeCookie(res: unknown, value: string, maxAge?: number): void;
   };
-  const store = deps.privacyStore;
+  /* The alpha's store: every path that reads it runs only in the alpha, where it is always given. */
+  const store = deps.privacyStore!;
 
   async function providerIdentity(acct: Account | null | undefined): Promise<unknown> {
     if (acct && acct.authMethod === 'github-app') {
@@ -136,12 +140,12 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
        * account is chosen, never a retired one -- the same rule the hosted path
        * follows.
        */
-      const before = req.session.accounts;
-      const selected = before[Math.min(Math.max(Number(req.session.active) || 0, 0), Math.max(before.length - 1, 0))];
-      req.session.accounts = before.filter(account => !targetKeys.has(hostedAccountKey(account)));
-      const kept = req.session.accounts.indexOf(selected as Account);
-      req.session.active = kept >= 0 ? kept : Math.max(0, req.session.accounts.findIndex(isGithubAccount));
-      deps.clearStepUpAuthorization(req.session);
+      const before = req.session!.accounts;
+      const selected = before[Math.min(Math.max(Number(req.session!.active) || 0, 0), Math.max(before.length - 1, 0))];
+      req.session!.accounts = before.filter(account => !targetKeys.has(hostedAccountKey(account)));
+      const kept = req.session!.accounts.indexOf(selected as Account);
+      req.session!.active = kept >= 0 ? kept : Math.max(0, req.session!.accounts.findIndex(isGithubAccount));
+      deps.clearStepUpAuthorization(req.session!);
       const manualCleanup = accounts.filter(account => !isGithubAccount(account)).map(account => providerRevocationGuidance(account));
       return Object.freeze({ complete: true, supportedComplete: true, legacy: true, results: Object.freeze([]), manualCleanup: Object.freeze(manualCleanup) });
     }
@@ -282,7 +286,8 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     call.writeCookie(res, '', 0);
   }
 
-  async function revokeContainedSessions(req: LifecycleRequest, sessionIds: readonly string[]): Promise<string[]> {
+  /* Session ids as the inventory read them; the alpha's store checks each before it revokes, and the database compares them as text. */
+  async function revokeContainedSessions(req: LifecycleRequest, sessionIds: readonly unknown[]): Promise<readonly unknown[]> {
     if (!sessionIds.length) return [];
     if (deps.alphaEnabled) {
       const result = await store.revokeOwnedProviderSessions({
@@ -292,7 +297,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
       return [...result.revokedSessionIds];
     }
     await deps.pool().query('DELETE FROM nv_sessions WHERE sid = ANY($1::text[])', [sessionIds]);
-    return sessionIds as string[];
+    return sessionIds;
   }
 
   async function addAccount(req: LifecycleRequest, res: unknown, token: unknown, user: Fields | null | undefined, provider = 'github', baseUrl = '', options: Fields = { authMethod: 'token' }): Promise<void> {
@@ -344,7 +349,8 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     s.accounts.push(account);
     if (deps.alphaEnabled) {
       const current = deps.unseal(call.readCookie(req, 'nv_session') || '');
-      const held = current && typeof current.sid === 'string' && current.sid ? current.sid : '';
+      const heldSid = current ? member(current, 'sid') : undefined;
+      const held = typeof heldSid === 'string' && heldSid ? heldSid : '';
       const connect = (sessionId: string) => store.connectHostedProviderAccount({
         testerId: (req.alpha as Alpha).testerId,
         sessionId,
@@ -389,7 +395,8 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
 
   async function sessionsForIdentity(req: LifecycleRequest) {
     const current = deps.unseal(call.readCookie(req, 'nv_session') || '');
-    const currentSid = current && current.sid ? current.sid : '';
+    const sid = current ? member(current, 'sid') : undefined;
+    const currentSid = sid ? sid : '';
     if (!currentSid || !(await deps.ready())) return { available: false, currentSid: '', rows: [] };
     const login = String((req.gh && req.gh.login) || '');
     const provider = String((req.gh && req.gh.provider) || 'github');
@@ -427,8 +434,9 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
       if (seen.has(row.sid)) continue;
       seen.add(row.sid);
       const decoded = deps.unseal(row.data as string);
-      if (!decoded || !Array.isArray(decoded.accounts)) continue;
-      const matches = (decoded.accounts as Account[]).some(a => identityKey(a) === targetIdentity);
+      const accounts = decoded ? member(decoded, 'accounts') : undefined;
+      if (!decoded || !Array.isArray(accounts)) continue;
+      const matches = (accounts as Account[]).some(a => identityKey(a) === targetIdentity);
       if (matches) rows.push({ sid: row.sid, updated: row.updated, current: row.sid === currentSid, provider });
     }
     return { available: true, currentSid, login, provider, rows };

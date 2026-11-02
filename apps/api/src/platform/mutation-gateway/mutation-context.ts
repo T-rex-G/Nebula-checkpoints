@@ -33,7 +33,8 @@ export interface ContextRequest {
   readonly method?: string;
   readonly path?: string;
   readonly route?: { readonly path?: unknown } | null;
-  readonly gh: { readonly provider?: unknown; readonly baseUrl?: unknown; readonly login?: unknown; [field: string]: unknown };
+  /* Attached by the session guards, which run before a mutation's context on every route that has one. */
+  readonly gh?: { readonly provider?: unknown; readonly baseUrl?: unknown; readonly login?: unknown; [field: string]: unknown };
   readonly alpha?: unknown;
   readonly stepUp?: { readonly action?: unknown; readonly assurance?: unknown; readonly authorizedAt?: unknown } | null;
   authorization?: unknown;
@@ -187,9 +188,9 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
     const createRepository = action === 'repository.create';
     return {
       action,
-      provider: req.gh.provider || 'github',
-      baseUrl: req.gh.baseUrl || '',
-      owner: createRepository ? req.gh.login : (req.params as Fields).owner,
+      provider: req.gh!.provider || 'github',
+      baseUrl: req.gh!.baseUrl || '',
+      owner: createRepository ? req.gh!.login : (req.params as Fields).owner,
       repo: createRepository ? body.name : (req.params as Fields).repo,
       actorIdentityKey: call.identityKey(req.gh),
       actorLogin: call.retainedActor(req),
@@ -208,7 +209,7 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
   async function resolveMutationAuthorization(req: ContextRequest, action: string): Promise<unknown> {
     const body = bodyOf(req);
     const createRepository = action === 'repository.create';
-    const owner = createRepository ? req.gh.login : (req.params as Fields).owner;
+    const owner = createRepository ? req.gh!.login : (req.params as Fields).owner;
     const repo = createRepository ? body.name : (req.params as Fields).repo;
     const input = { account: req.gh, owner, repo, actorIdentityKey: call.identityKey(req.gh) };
     if (createRepository) {

@@ -66,8 +66,8 @@ export function createGovernanceContext(deps: GovernanceContextDeps) {
         const context = assertGovernanceAuthorization({
           authorization,
           scope: {
-            provider: req.gh.provider || 'github',
-            baseUrl: req.gh.baseUrl || '',
+            provider: req.gh!.provider || 'github',
+            baseUrl: req.gh!.baseUrl || '',
             owner: params.owner,
             repo: params.repo
           },
@@ -93,7 +93,7 @@ export function createGovernanceContext(deps: GovernanceContextDeps) {
         descriptor = {
           action,
           provider: req.governance.scope.provider,
-          baseUrl: req.gh.baseUrl || '',
+          baseUrl: req.gh!.baseUrl || '',
           owner: req.governance.scope.owner,
           repo: req.governance.scope.repo,
           actorIdentityKey: req.governance.actor.identityKey,

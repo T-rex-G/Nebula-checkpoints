@@ -33,7 +33,8 @@ export interface InstallationRecord {
   readonly permissions?: unknown;
   readonly suspendedAt?: unknown;
 }
-export interface AuthorizingUser { readonly login: unknown; readonly id: unknown }
+/* The GitHub user who authorized the App, as GitHub answered; either field may be missing. */
+export interface AuthorizingUser { readonly login?: unknown; readonly id?: unknown }
 
 export function createGithubAppRecords(deps: GithubAppRecordsDeps) {
   async function retainedProviderActor(identity: unknown): Promise<string> {

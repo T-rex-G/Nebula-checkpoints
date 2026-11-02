@@ -15,7 +15,8 @@
  * that has ended reads as none, and a write to one is refused.
  */
 import { randomBytes } from 'node:crypto';
-import { githubSession, identityKey, persistedSession, type AccountLike, type SessionAccounts } from '../domain/account-identity.ts';
+import type { Fields } from '../../../platform/values/fields.ts';
+import { githubSession, holdsAccounts, identityKey, persistedSession, type AccountLike, type SessionAccounts } from '../domain/account-identity.ts';
 import { recomputeHostedSessionMutation, type HostedSession } from '../domain/hosted-session-merge.ts';
 
 /* The session the request read in the hosted alpha, and the store's revision of it, kept on the request for its write. */
@@ -23,6 +24,10 @@ export const HOSTED_SESSION_BASE = Symbol('hosted provider session base');
 export const HOSTED_SESSION_REVISION = Symbol('hosted provider session revision');
 
 type Session = SessionAccounts & HostedSession;
+/* A provider session sessionOf answers: one it found holding a list of accounts. */
+export type SignedInSession = Session & { accounts: Fields[] };
+/* The response a session is written to: its cookie is set on it. */
+export interface SessionResponse { setHeader(name: string, value: string): unknown }
 
 interface SessionRequest {
   readonly headers: { readonly cookie?: string | undefined };
@@ -54,7 +59,7 @@ export interface ProviderSessionDeps {
   readonly seal: (value: unknown) => string;
   readonly unseal: (text: string) => unknown;
   readonly readCookie: (req: SessionRequest, name: string) => string | null;
-  readonly writeCookie: (res: unknown, value: string, maxAge?: number) => void;
+  readonly writeCookie: (res: SessionResponse, value: string, maxAge?: number) => void;
   readonly localSessionPolicy: {
     prepare(data: unknown): { readonly lifetime: { readonly expiresAt: number } };
     valid(session: unknown): boolean;
@@ -114,7 +119,7 @@ export function createProviderSessions(deps: ProviderSessionDeps) {
   const { databaseConfigured, config, seal, unseal, readCookie, writeCookie, localSessionPolicy } = deps;
   const cookieOf = (req: SessionRequest) => unseal(readCookie(req, 'nv_session') || '') as { sid?: unknown; [field: string]: unknown } | null;
 
-  async function setSession(req: SessionRequest, res: unknown, input: unknown, { createNew = false } = {}): Promise<void> {
+  async function setSession(req: SessionRequest, res: SessionResponse, input: unknown, { createNew = false } = {}): Promise<void> {
     const data = persistedSession(input) as Session;
     if (databaseConfigured) {
       if (!(await deps.ready())) throw failure('Session database is temporarily unavailable', { status: 503 });
@@ -172,7 +177,7 @@ export function createProviderSessions(deps: ProviderSessionDeps) {
     return current && typeof current.sid === 'string' ? current.sid : '';
   }
 
-  async function destroySession(req: SessionRequest, res: unknown): Promise<void> {
+  async function destroySession(req: SessionRequest, res: SessionResponse): Promise<void> {
     const sid = sessionIdFromRequest(req);
     if (sid && databaseConfigured) {
       if (!(await deps.ready())) throw failure('Session database is temporarily unavailable; sign-out was not completed', { status: 503 });
@@ -183,8 +188,8 @@ export function createProviderSessions(deps: ProviderSessionDeps) {
     writeCookie(res, '', 0);
   }
 
-  async function sessionOf(req: SessionRequest, { retainRetiredAccounts = false } = {}): Promise<Session | null> {
-    const supported = (session: Session | null) => (retainRetiredAccounts && session && Array.isArray(session.accounts) && session.accounts.length
+  async function sessionOf(req: SessionRequest, { retainRetiredAccounts = false } = {}): Promise<SignedInSession | null> {
+    const supported = (session: Session | null) => (retainRetiredAccounts && session && holdsAccounts(session) && session.accounts.length
       ? session
       : githubSession(session));
     const s = cookieOf(req);

@@ -14,6 +14,7 @@
  * for retention and cleanup, and a request cannot act through it.
  */
 import { IDENTITY_KEY } from '../../../../../../packages/contracts/src/ids.ts';
+import type { Fields } from '../../../platform/values/fields.ts';
 import { hashJson } from '../../../platform/values/stable-hash.ts';
 
 /* The parts of an account these rules read. Every one may be missing on an account an old cookie carries. */
@@ -88,8 +89,8 @@ export function stableProviderIdentityKey(account: Account): string {
   return identityKey(account);
 }
 
-/* Refuses an account this server does not serve, as an answer a request can be given. */
-export function assertGithubAccount(account: unknown): void {
+/* Refuses an account this server does not serve, as an answer a request can be given; what it lets through is an account to read. */
+export function assertGithubAccount(account: unknown): asserts account is AccountLike & Readonly<Record<string, unknown>> {
   const value = account as AccountLike | null;
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       (value.provider !== undefined && value.provider !== 'github')) {
@@ -124,14 +125,25 @@ export interface SessionAccounts {
  * account in its place, and any step-up it held is dropped: the person chooses
  * which identity acts.
  */
-export function githubSession<S extends SessionAccounts>(session: S | null | undefined): S | (S & { accounts: unknown[]; active: number; retiredSelection: boolean; security: object }) | null {
-  if (!session || !Array.isArray(session.accounts)) return null;
-  const held: unknown[] = session.accounts;
+/*
+ * Whether a session holds a list of accounts. A session is sealed by this
+ * server or kept in its own store, and only ever holds accounts the server
+ * built, so a list there is a list of accounts.
+ */
+export function holdsAccounts<S extends SessionAccounts>(session: S): session is S & { accounts: Fields[] } {
+  return Array.isArray(session.accounts);
+}
+
+export function githubSession<S extends SessionAccounts>(session: S | null | undefined): (S & { accounts: Fields[] }) | (S & { accounts: Fields[]; active: number; retiredSelection: boolean; security: object }) | null {
+  if (!session || !holdsAccounts(session)) return null;
+  const held: Fields[] = session.accounts;
   const selected = held[Math.min(Math.max(Number(session.active) || 0, 0), held.length - 1)];
   const accounts = held.filter(isGithubAccount);
   if (!accounts.length) return null;
   if (accounts.length === held.length) return session;
-  const index = accounts.indexOf(selected);
+  /* Where the selected account now sits, if it is still among them. */
+  const listed: readonly unknown[] = accounts;
+  const index = listed.indexOf(selected);
   return { ...session, accounts, active: Math.max(0, index), retiredSelection: index < 0, security: { ...(session.security as object), stepUp: null } };
 }
 

@@ -48,8 +48,8 @@ export interface SessionContainmentRouteDeps {
   readonly fail: Fail;
   /* The sessions holding the same identity, when a database can list them. */
   sessionsForIdentity(req: Request): Promise<{ available: boolean; login?: unknown; rows?: readonly Fields[] }>;
-  revokeContainedSessions(req: Request, sessionIds: unknown[]): Promise<unknown[]>;
-  closeLiveSessions(sessionIds: unknown[], reason: string): unknown;
+  revokeContainedSessions(req: Request, sessionIds: readonly unknown[]): Promise<readonly unknown[]>;
+  closeLiveSessions(sessionIds: readonly unknown[], reason: string): unknown;
 }
 
 const sessionOn = (req: Request): ProviderSession => Reflect.get(req, 'session') as ProviderSession;

@@ -127,7 +127,7 @@ export function loadGithubAppConfig(env: Environment = process.env, options: { r
     env.GITHUB_APP_PRIVATE_KEY_BASE64, env.GITHUB_APP_CALLBACK_URL,
     env.GITHUB_APP_WEBHOOK_SECRET
   ].map(value => String(value || '').trim());
-  if (!appSpecificValues.some(Boolean)) return { enabled: false };
+  if (!appSpecificValues.some(Boolean)) return { enabled: false as const };
 
   const appIdText = String(env.GITHUB_APP_ID || '').trim();
   const slug = String(env.GITHUB_APP_SLUG || '').trim().toLowerCase();

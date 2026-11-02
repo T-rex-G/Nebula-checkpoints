@@ -119,7 +119,7 @@ assert(
   'invite-mode cookie authentication must prove tester ownership and return before the legacy raw SID lookup'
 );
 
-const setSessionBlock = nested(sessions, 'async function setSession(req: SessionRequest, res: unknown, input');
+const setSessionBlock = nested(sessions, 'async function setSession(req: SessionRequest, res: SessionResponse, input');
 assert(setSessionBlock.includes('mutateHostedProviderSession({'));
 assert(setSessionBlock.includes('recomputeHostedSessionMutation('));
 assert(setSessionBlock.includes('testerId: req.alpha.testerId'));

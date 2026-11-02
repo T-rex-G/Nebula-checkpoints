@@ -62,7 +62,8 @@ export interface GithubAppRouteDeps extends GithubAppConnectionViewDeps {
   readonly accountAuth: RequestHandler;
   readonly fail: Fail;
   /* The deployment's App configuration, and its broker when the App is configured. */
-  readonly githubApp: { readonly enabled: unknown; readonly webhookConfigured: unknown };
+  /* The App's configuration; one that is off says only that. */
+  readonly githubApp: { readonly enabled: unknown; readonly webhookConfigured?: unknown };
   broker(): GithubAppBrokerOperations | null;
   readonly client: GithubAppClient;
   /* The keys that sign a flow's states and name a spent one. */

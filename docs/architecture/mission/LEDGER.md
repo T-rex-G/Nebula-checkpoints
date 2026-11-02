@@ -2024,3 +2024,27 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   - The field's light test read the field canvas twice the same way, and now reads it through the copy.
   - The landing showcase's effects check polled its canvas the same way, and does too.
 - **Checks:** lint; the three specs on desktop and mobile Chromium; the rotation and field-light tests ten times each.
+
+### D13o, step one — the seams the composition passes, typed
+
+- **Why.** `server.js` is JavaScript, so nothing checked what it hands from one module to another. A draft of it in TypeScript, converted line for line, failed strict checking 230 times. Every failure was at a seam: a dependency one module declared for itself, given a function another module declared for itself. This step makes the modules agree, so the composition written next type-checks with no cast. The draft's own glue is left to that rewrite: the reads of what a guard attached, the alpha's stores that are off outside it, and three untyped files in `src/` (65 of the 230).
+- **The request a guard reads.** A guard is a handler Express calls with its own request, and Express knows nothing of what the guards before it attached. Each guard's view of the request now lists those fields as optional. Where the code read one that an earlier guard on every such route attaches, it says so with `!`, which leaves the JavaScript as it was. A view naming nothing Express's request has is written `object & {…}`: the access, capability, mutation and governance contexts, the lifecycle, the actor label, the safety state and the upload scan.
+- **What a route caught.** `sendFailure` and the envelope's error body take anything thrown, and read it as JavaScript reads a member of it.
+- **The provider account and its transport.**
+  - The REST client takes whatever account a route holds.
+  - `assertGithubAccount` says in its type what it lets through.
+  - The timed fetch takes the address and options a caller holds, often named by a provider's answer.
+  - Uranus's transport is typed as answering with a status and a body, as the repository reader reads it.
+- **The session.**
+  - `sessionOf` answers only sessions it found holding a list of accounts, and its type now says so, through `holdsAccounts`.
+  - A session is written to the response it sets a cookie on.
+  - The seal tries to open whatever was stored or sent.
+  - The lifecycle reads the opened cookie field by field.
+  - Revoked session ids travel as the store read them, until the live hub compares them.
+- **The rest.** Protected paths are matched whatever value names them. The App's configuration, when off, says only that. An account's capability context needs no feature. GitHub's authorizing user may lack a field. The workspace scope is a plain record. The upload scan takes the path and size its routes have. The exposure host's fingerprint key is the Buffer the settings derive. The probes' readiness loss is one of the lifecycle's own.
+- **Behaviour unchanged.** These are types only, except where a typed read replaced a direct one: the envelope, the failure answer, the seal, the session's GitHub view, the lifecycle's cookie reads and the webhook's sealed secret.
+  - The old and new envelope and failure answer were run side by side over 32 values a route can catch: primitives, a symbol, a bigint, a getter, an inherited field, a status written as text, a retry wait that is not a whole number. Body, status, headers and answer were identical every time.
+  - So was `unseal` over 15 inputs, and the session's GitHub view over 10 sessions, down to which session object comes back.
+- **The envelope contract is version 2.** Its error body takes what was thrown rather than a failure's facts, so its recorded shape changed; nothing reads the version at run time.
+- **Tests.** Two source checks find `setSession` by its signature, and now name the response it writes to. The full unit gate found them.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

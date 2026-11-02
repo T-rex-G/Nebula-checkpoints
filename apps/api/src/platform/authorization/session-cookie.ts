@@ -19,8 +19,8 @@ export const SESSION_COOKIE_MAX_AGE = 2592000;
 
 export interface SessionSeal {
   seal(value: unknown): string;
-  /* The value, or null when it does not open. */
-  unseal(text: string): unknown;
+  /* The value, or null when it does not open: whatever was stored or sent is tried, and anything that is not a sealed text fails to open. */
+  unseal(text: unknown): unknown;
 }
 
 export function createSessionSeal(key: Buffer): SessionSeal {
@@ -33,7 +33,8 @@ export function createSessionSeal(key: Buffer): SessionSeal {
     },
     unseal(text) {
       try {
-        const raw = Buffer.from(text, 'base64url');
+        /* Buffer.from as JavaScript calls it on whatever was handed in; what is not a text fails here or below. */
+        const raw: Buffer = Reflect.apply(Buffer.from, Buffer, [text, 'base64url']);
         const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
         decipher.setAuthTag(raw.subarray(12, 28));
         return JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8'));

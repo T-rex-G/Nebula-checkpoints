@@ -30,11 +30,12 @@ export interface PostureGuards {
   readonly fail: (res: Response, error: unknown) => unknown;
 }
 
-interface WorkspaceScope {
+/* Whose workspace: a plain record, as the stores read their input. */
+type WorkspaceScope = {
   readonly provider: string;
   readonly authority: string;
   readonly identityKey: string;
-}
+};
 
 /* What the workspace routes read: the stores, each as the server builds it, and the database's state. */
 export interface WorkspacePostureDeps extends PostureGuards {

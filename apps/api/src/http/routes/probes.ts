@@ -11,6 +11,7 @@
  * otherwise it is ready when the database answers.
  */
 import type { Application, Request, Response } from 'express';
+import type { ReadinessLoss } from '../../platform/persistence/database-lifecycle.ts';
 import { member } from '../../platform/values/fields.ts';
 
 export interface ProbeRouteDeps {
@@ -28,7 +29,7 @@ export interface ProbeRouteDeps {
   readiness(): unknown;
   migration(): string;
   /* Marks the database as needing a fresh readiness check. */
-  invalidateDatabaseReady(state: string): void;
+  invalidateDatabaseReady(state: ReadinessLoss): void;
 }
 
 export function registerProbeRoutes(app: Application, deps: ProbeRouteDeps): void {

@@ -35,9 +35,10 @@ interface Account { readonly provider?: unknown; readonly baseUrl?: unknown; rea
 
 interface Alpha { readonly repositoryScopes?: unknown; [field: string]: unknown }
 
+/* An Express request as these guards read it. The account is attached by providerSessionAccess or auth, which run first on every route these guard. */
 export interface AccessRequest {
   readonly alpha?: Alpha;
-  readonly gh: Account;
+  readonly gh?: Account;
   readonly params: Readonly<Record<string, string | undefined>>;
   readonly body?: unknown;
   readonly query: { readonly q?: unknown; [field: string]: unknown };
@@ -69,7 +70,8 @@ type Fields = Readonly<Record<string, unknown>>;
 export function createRepositoryAccess(deps: RepositoryAccessDeps) {
   const fail = deps.fail as unknown as (res: AccessResponse, error: unknown) => unknown;
 
-  function retainedActor(req: { readonly alpha?: unknown; readonly gh?: Account | null }): string {
+  /* Who acted, as evidence and audit rows keep it: any request object, with what the session guards attached. */
+  function retainedActor(req: object & { readonly alpha?: unknown; readonly gh?: Account | null }): string {
     return deps.alphaEnabled && req.alpha
       ? alphaActorLabel(req.alpha)
       : String(req.gh && req.gh.login || 'unknown');
@@ -173,7 +175,7 @@ export function createRepositoryAccess(deps: RepositoryAccessDeps) {
       deps.validateRepositoryCreation(req.body);
       // Pre-authorized exact names work even before the repository exists.
       // Existing invitations never acquire a broader grant as a side effect.
-      if (deps.alphaEnabled) assertAlphaRepositoryAllowed(req.alpha, req.gh, req.gh.login, (req.body as Fields).name);
+      if (deps.alphaEnabled) assertAlphaRepositoryAllowed(req.alpha, req.gh, req.gh!.login, (req.body as Fields).name);
       next();
     } catch (error) { fail(res, error); }
   }
@@ -205,7 +207,7 @@ export function createRepositoryAccess(deps: RepositoryAccessDeps) {
     try {
       const body = (req.body || {}) as Fields;
       const operation = normalizeStepUpRequest(body.action, body.scope, {
-        provider: req.gh.provider || 'github',
+        provider: req.gh!.provider || 'github',
         identityKey: identityKey(req.gh as Parameters<typeof identityKey>[0])
       });
       const scope = operation.scope as Fields;

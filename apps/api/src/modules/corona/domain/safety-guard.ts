@@ -58,17 +58,18 @@ export function protectedPatternsForReq(req: GuardedRequest): string[] {
   return protectedPatternsForRepository(sf.protected, owner, repo);
 }
 
-export function protectedPathHit(req: GuardedRequest, paths: readonly string[] | null | undefined): string {
+/* The first path a protected pattern covers, as it was handed in; paths come from a request or the provider, so any value is matched as the matcher reads it. */
+export function protectedPathHit(req: GuardedRequest, paths: readonly unknown[] | null | undefined): unknown {
   const list = protectedPatternsForReq(req);
   return (paths || []).find(p => list.some(pattern => pathMatches(pattern, p))) || '';
 }
 
-export function protectedPathError(req: GuardedRequest, paths: readonly string[] | null | undefined): string {
+export function protectedPathError(req: GuardedRequest, paths: readonly unknown[] | null | undefined): string {
   const hit = protectedPathHit(req, paths);
   return hit ? `${hit} is a protected file — unlock it in Safeguards to change it.` : '';
 }
 
-export function enforceProtectedPaths(req: GuardedRequest, paths: readonly string[] | null | undefined): void {
+export function enforceProtectedPaths(req: GuardedRequest, paths: readonly unknown[] | null | undefined): void {
   const error = protectedPathError(req, paths);
   if (error) throw Object.assign(new Error(error), { status: 423, code: 'PROTECTED_PATH' });
 }

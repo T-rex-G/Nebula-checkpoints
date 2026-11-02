@@ -15,8 +15,12 @@ import type { RegistryAnswer } from '../domain/code-audit.ts';
  * published advisories.
  */
 
-/* The guarded transport, as the advisory and registry profiles are asked through it; its answer is read field by field. */
-export type AuditTransport = (input: GuardedFetchInput) => Promise<unknown>;
+/*
+ * The guarded transport, as the advisory and registry profiles are asked
+ * through it: an answer's status and body, either of which may be missing,
+ * each read field by field.
+ */
+export type AuditTransport = (input: GuardedFetchInput) => Promise<{ readonly statusCode?: unknown; readonly body?: unknown } | null | undefined>;
 /* The ids OSV holds for each version asked, keyed by `advisoryKey`. The entries asked are handed back as given. */
 export interface AdvisoryIds<E extends AdvisedVersion = AdvisedVersion> {
   readonly asked: E[];

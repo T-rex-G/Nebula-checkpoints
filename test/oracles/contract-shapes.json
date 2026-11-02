@@ -4,8 +4,8 @@
     "shape": "77fbe629141919095d832b6365160179dde2a3f9352b0007e0ae16c7b869aacd"
   },
   "api-envelope.ts": {
-    "version": 1,
-    "shape": "264684779af56da61f65eb481dd2f614f8e8e38dc791003f104dcf4345a97525"
+    "version": 2,
+    "shape": "99421f31bd1972ee2ea17f7f50c1b17ce33ce87caf976828673c0372b9449125"
   },
   "canonical-json.ts": {
     "version": 1,

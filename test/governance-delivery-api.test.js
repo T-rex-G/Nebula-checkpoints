@@ -48,9 +48,12 @@ const store = {
   const service = createGovernanceApiService({
     store,
     now: () => Date.parse('2026-07-23T10:01:00.000Z'),
-    resolveWebhookAddresses: async hostname => hostname === 'hooks.example.com'
-      ? [{ address: '93.184.216.34', family: 4 }]
-      : [{ address: '127.0.0.1', family: 4 }]
+    resolveWebhookAddresses: async hostname => {
+      if (hostname === 'missing.example.com') throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND' });
+      return hostname === 'hooks.example.com'
+        ? [{ address: '93.184.216.34', family: 4 }]
+        : [{ address: '127.0.0.1', family: 4 }];
+    }
   });
   const authorization = snapshot();
 
@@ -76,6 +79,16 @@ const store = {
     service.createWebhook({ scope, authorization, input: { name: 'bad', url: 'https://127.0.0.1/hook', eventTypes: ['policy.activated'] } }),
     error => error.code === 'GOVERNANCE_WEBHOOK_SSRF_BLOCKED'
   );
+  /* A destination whose name does not resolve is refused as such, before the store is asked, rather than answered as the service failing. */
+  const stored = calls.length;
+  for (const [operation, attempt] of [
+    ['create', () => service.createWebhook({ scope, authorization, input: { name: 'typo', url: 'https://missing.example.com/hook', eventTypes: ['policy.activated'] } })],
+    ['update', () => service.updateWebhook({ scope, authorization, webhookId: '10000000-0000-4000-8000-000000000001', input: { name: 'typo', url: 'https://missing.example.com/hook', eventTypes: ['policy.activated'] } })]
+  ]) {
+    await assert.rejects(attempt(), error => error.code === 'GOVERNANCE_WEBHOOK_DNS_INVALID' && error.status === 422,
+      `a webhook ${operation} to a name that does not resolve is refused as one`);
+  }
+  assert.strictEqual(calls.length, stored, 'and the store is not asked');
   await assert.rejects(
     service.createWebhook({ scope, authorization: snapshot(40), input: { name: 'nope', url: 'https://hooks.example.com/hook', eventTypes: ['policy.activated'] } }),
     error => error.code === 'GOVERNANCE_ROLE_REQUIRED'

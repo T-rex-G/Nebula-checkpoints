@@ -2267,3 +2267,11 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Found on the way.** Connecting the App on a database without invitations always failed. It is fixed in its own commit, *A GitHub App connection that completes*, above.
 - **Forty-two remain:** exposure scanning (8), governance's API (8), its delivery and interface (3), the authorization resolver (4), the mutation gateway (3), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### A governance webhook to a name that does not resolve
+
+- **Found by D14's lifecycle checks.** On the composed server, adding a governance webhook to `https://receiver.invalid/events` answered `500 GOVERNANCE_OPERATION_FAILED` and logged `ENOTFOUND` as the service failing.
+- **Why.** Kepler's governance service (`kepler/application/governance-api.ts`) looks the destination's name up before keeping or changing a webhook. `normalizeWebhookDestination` refuses a lookup that finds nothing as `422 GOVERNANCE_WEBHOOK_DNS_INVALID`. A lookup that throws, as an unresolvable name does, escaped as an error nobody named, and the route answers those as the service failing. The production baseline (`src/governance-api.js`) does the same.
+- **The fix.** A failed lookup counts as one that found nothing, for adding and changing alike. The delivery worker already records a failed lookup as a failed attempt.
+- **Proven.** `test/governance-delivery-api.test.js` refuses both with `422 GOVERNANCE_WEBHOOK_DNS_INVALID`, before the store is asked. `test/composition-postgres.test.js` asks the composed server: refused, and nothing kept. Without the fix each fails.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

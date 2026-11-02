@@ -326,6 +326,25 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     }
 
     /*
+     * ---- A governance webhook to a name that does not resolve is refused as such ----
+     * A webhook's destination is looked up before the webhook is kept. A
+     * lookup that failed -- a typo, a name since removed -- was answered as
+     * the service failing, 500; it is refused as the destination's, 422, as
+     * a lookup that finds nothing already was.
+     */
+    {
+      const page = browser(application);
+      assert.equal((await page.signIn(OCTO)).status, 200);
+      const refused = await page.request('/api/repo/acme/demo/governance/webhooks', {
+        method: 'POST', body: { name: 'Receiver', url: 'https://receiver.invalid/events', eventTypes: ['policy.decision.allow'], enabled: true },
+        headers: { 'x-nv-csrf': await page.csrf(), 'Idempotency-Key': 'composition-webhook-unresolved' }
+      });
+      assert.deepEqual([refused.status, (await bodyOf(refused)).code], [422, 'GOVERNANCE_WEBHOOK_DNS_INVALID'],
+        'a webhook to a name that does not resolve is refused as the destination\'s');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_governance_webhooks')).rows[0].n, 0, 'and nothing is kept');
+    }
+
+    /*
      * ---- Connecting the GitHub App completes, and is recorded ----
      * On a database without invitations, connecting the App added the
      * account to the stored session, but the request kept the session as it

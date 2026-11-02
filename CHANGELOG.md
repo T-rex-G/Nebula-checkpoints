@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### A governance webhook to a name that does not resolve is refused as such
+
+- **Adding or changing a governance webhook whose destination does not
+  resolve** -- a mistyped host, a name since removed -- answered
+  `500 Governance operation failed`, and logged it as the service failing. The
+  destination's name is looked up before the webhook is kept, and a lookup that
+  finds nothing was already refused as the destination's
+  (`422 GOVERNANCE_WEBHOOK_DNS_INVALID`); a lookup that failed outright was not.
+  It now gets the same answer. The production baseline does the same.
+- Pinned in `test/governance-delivery-api.test.js`, for adding and changing a
+  webhook, before the store is asked, and in
+  `test/composition-postgres.test.js`, on the composed server: refused, and
+  nothing kept.
+
 ### Connecting the GitHub App on a database completes
 
 - **The App's setup finds the account it added.** On a deployment with a

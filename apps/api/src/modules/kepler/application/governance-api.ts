@@ -449,6 +449,15 @@ export function createGovernanceApiService(options: GovernanceApiOptions = {}) {
   const resolveWebhookAddresses = typeof options.resolveWebhookAddresses === 'function'
     ? options.resolveWebhookAddresses
     : async (hostname: string) => dnsPromises.lookup(hostname, { all: true, verbatim: true });
+  /*
+   * A destination whose name does not resolve -- a typo, a name since
+   * removed -- is refused as such, with the answer a lookup that finds nothing
+   * gets: GOVERNANCE_WEBHOOK_DNS_INVALID, 422. A lookup that throws is
+   * otherwise an error nobody named, answered as the service failing.
+   */
+  const webhookAddresses = async (hostname: string): Promise<unknown> => {
+    try { return await resolveWebhookAddresses(hostname); } catch { return []; }
+  };
   const authorize = (input: ServiceInput, requiredRole: GovernanceRoleName): GovernanceContext => assertGovernanceAuthorization({
     authorization: input.authorization,
     scope: input.scope,
@@ -499,7 +508,7 @@ export function createGovernanceApiService(options: GovernanceApiOptions = {}) {
       const body = assertDeliveryInputFields(input.input, new Set(['name', 'url', 'eventTypes', 'enabled']));
       const definition = normalizeWebhookDefinition(body);
       const parsed = new URL(definition.url);
-      const addresses = await resolveWebhookAddresses(parsed.hostname);
+      const addresses = await webhookAddresses(parsed.hostname);
       normalizeWebhookDestination(definition.url, addresses);
       return store.createWebhook({ scope: context.scope, actor: context.actor, definition, idempotencyKey: input.idempotencyKey });
     },
@@ -514,7 +523,7 @@ export function createGovernanceApiService(options: GovernanceApiOptions = {}) {
       const body = assertDeliveryInputFields(input.input, new Set(['name', 'url', 'eventTypes', 'enabled']));
       const definition = normalizeWebhookDefinition(body);
       const parsed = new URL(definition.url);
-      const addresses = await resolveWebhookAddresses(parsed.hostname);
+      const addresses = await webhookAddresses(parsed.hostname);
       normalizeWebhookDestination(definition.url, addresses);
       return store.updateWebhook({ scope: context.scope, actor: context.actor, webhookId: input.webhookId, definition, idempotencyKey: input.idempotencyKey });
     },

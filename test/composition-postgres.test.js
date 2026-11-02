@@ -45,7 +45,7 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
   const branches = new Map([['main', 'a'.repeat(40)], ['feature', 'b'.repeat(40)]]);
   const github = standInForOutbound([
     ['GET /user$', (href, options) => {
-      const login = String(new Headers(options.headers || {}).get('authorization')).includes(OCTO) ? 'octo' : 'other';
+      const login = String(new Headers(options.headers || {}).get('authorization')).includes(OTHER) ? 'other' : 'octo';
       return { body: { login, id: login === 'octo' ? 7 : 8, name: login }, headers: { 'x-oauth-scopes': 'repo' } };
     }],
     ['GET /repos/acme/demo/collaborators/(?:octo|other)/permission$', href => {
@@ -59,6 +59,12 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     ['GET /repos/acme/demo/keys\\?', { body: [{ id: 5, title: 'deploy', key: 'ssh-ed25519 AAAA', read_only: false, verified: true }] }],
     ['GET /repos/acme/demo/hooks\\?', { body: [] }],
     ['POST /repos/acme/demo/hooks$', { status: 201, body: { id: 991, active: true } }],
+    /* The GitHub App's side of a connection: the person's grant, the installation they can see, and the App's own view of it. */
+    ['POST //github.com/login/oauth/access_token$', { body: { access_token: `ghu_${'u'.repeat(36)}`, expires_in: 28800, token_type: 'bearer' } }],
+    ['GET /user/installations\\?', { body: { total_count: 1, installations: [{ id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' } }] } }],
+    ['GET /app/installations/42$', {
+      body: { id: 42, app_id: 123, account: { login: 'install-owner', id: 9, type: 'Organization' }, repository_selection: 'selected', permissions: { contents: 'write' } }
+    }],
     ['POST /repos/acme/demo/git/refs$', (href, options) => {
       const { ref, sha } = JSON.parse(options.body);
       branches.set(ref.replace(/^refs\/heads\//, ''), sha);
@@ -308,6 +314,40 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
       assert.deepEqual([surface.available, surface.currentIdentity, surface.currentPermission, (surface.collaborators || []).map(person => person.login)],
         [true, 'octo', 'admin', ['octo']], 'the repository\'s access surface is read for the signed-in identity');
       assert.deepEqual((surface.risk?.reasons || []).map(reason => reason.code), ['WRITABLE_DEPLOY_KEY'], 'and a deploy key that can write is named as a risk');
+    }
+
+    /*
+     * ---- Connecting the GitHub App completes, and is recorded ----
+     * On a database without invitations, connecting the App added the
+     * account to the stored session, but the request kept the session as it
+     * had read it. The setup could not find the account it had just added,
+     * so it answered with an error, and neither the installation's record
+     * nor its audit was written. The request now carries the session as
+     * stored.
+     */
+    {
+      const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const withApp = await composedApplication({
+        ...BASE, DATABASE_URL: database.url, GITHUB_APP_ID: '123', GITHUB_APP_SLUG: 'nebula-composition', GITHUB_APP_CLIENT_ID: 'Iv1.composition',
+        GITHUB_APP_CLIENT_SECRET: 'c'.repeat(40), GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: 'pkcs1', format: 'pem' }),
+        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: 'w'.repeat(32)
+      });
+      try {
+        const person = browser(withApp);
+        assert.equal((await person.signIn(OCTO)).status, 200);
+        const connect = await bodyOf(await person.request('/api/github-app/connect', { method: 'POST', body: {}, headers: { 'x-nv-csrf': await person.csrf() } }));
+        const granted = await person.request(`/api/github-app/oauth/callback?code=granted&state=${encodeURIComponent(new URL(connect.url).searchParams.get('state'))}`);
+        assert.equal(granted.status, 302, 'the person\'s grant is exchanged, and the installation asked for');
+        const install = new URL(String(granted.headers.get('location')));
+        const setup = await person.request(`/api/github-app/setup?installation_id=42&state=${encodeURIComponent(install.searchParams.get('state'))}`);
+        assert.deepEqual([setup.status, setup.headers.get('location')], [302, '/?githubApp=connected'], 'the setup completes');
+        assert.deepEqual((await client.query('SELECT installation_id, account_login, status FROM nv_github_app_installations')).rows,
+          [{ installation_id: '42', account_login: 'install-owner', status: 'connected' }], 'the installation is recorded');
+        assert.deepEqual((await client.query("SELECT event_type, installation_id FROM nv_github_app_audit WHERE event_type <> 'authorization.refreshed'")).rows,
+          [{ event_type: 'installation.connected', installation_id: '42' }], 'and its connection audited');
+      } finally {
+        await withApp.close();
+      }
     }
   } finally {
     await client.end();

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Connecting the GitHub App on a database completes
+
+- **The App's setup finds the account it added.** On a deployment with a
+  database and without invitations, connecting the GitHub App added the
+  installation's account to the stored session. The request still held the
+  session as first read, so the setup could not find the account it had just
+  added:
+  - it answered with an error, though the account was connected;
+  - and neither the installation's record nor its `installation.connected`
+    audit was written.
+
+  Writing a session to the database now leaves the request holding the session
+  as stored, as the other two ways of keeping a session already did. The
+  hosted alpha, which runs invite-only, was not affected.
+- Pinned in `test/provider-sessions.test.js` and in
+  `test/composition-postgres.test.js`, on the composed server: the App's
+  connection completes, and the installation and its connection are recorded.
+
 ### A tester's disconnect removes the webhooks it should
 
 - **Disconnecting GitHub in the invite-only alpha now completes.** Signing

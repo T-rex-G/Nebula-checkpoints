@@ -162,6 +162,12 @@ export function createProviderSessions(deps: ProviderSessionDeps) {
       } else {
         await deps.pool().query('INSERT INTO nv_sessions (sid,data,identity_keys,updated) VALUES ($1,$2,$3::text[],now())', [sid, seal(data), identityKeys]);
       }
+      /*
+       * The request carries what was written, as on the other two paths: a
+       * route that reads its session after writing it -- the App's setup,
+       * finding the account it just added -- reads the session as stored.
+       */
+      req.session = data;
       writeCookie(res, seal({ sid }));
       return;
     }

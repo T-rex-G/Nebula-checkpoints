@@ -90,7 +90,9 @@ async function main() {
   {
     const h = harness();
     const res = h.response();
-    await h.sessions.setSession(h.request(), res, { accounts: [alice, bob, alice], active: 1, retiredSelection: false });
+    const written = h.request();
+    await h.sessions.setSession(written, res, { accounts: [alice, bob, alice], active: 1, retiredSelection: false });
+    assert.deepStrictEqual(written.session, { accounts: [alice, bob, alice], active: 1 }, 'the request carries the session as stored');
     const { sid } = h.cookie();
     assert.match(sid, /^[0-9a-f]{48}$/);
     assert.deepStrictEqual(Object.keys(h.cookie()), ['sid'], 'the cookie carries the id alone');
@@ -98,7 +100,9 @@ async function main() {
     assert.deepStrictEqual(unseal(h.rows.get(sid)), { accounts: [alice, bob, alice], active: 1 }, 'retiredSelection is never stored');
     assert.deepStrictEqual(h.calls.find(call => call[0] === 'identity_keys')[1], [identityKey(alice), identityKey(bob)], 'each identity once');
     assert.deepStrictEqual(h.sessions.sessionIdFromRequest(h.request()), sid);
-    await h.sessions.setSession(h.request(), h.response(), { accounts: [bob], active: 0 });
+    const rewritten = h.request();
+    await h.sessions.setSession(rewritten, h.response(), { accounts: [bob], active: 0 });
+    assert.deepStrictEqual(rewritten.session, { accounts: [bob], active: 0 }, 'and after a rewrite, as rewritten');
     assert.strictEqual(h.cookie().sid, sid, 'the same session, rewritten');
     assert.deepStrictEqual(unseal(h.rows.get(sid)), { accounts: [bob], active: 0 });
     await h.sessions.setSession(h.request(), h.response(), { accounts: [bob], active: 0 }, { createNew: true });

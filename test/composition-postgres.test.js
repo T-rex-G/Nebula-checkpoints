@@ -347,10 +347,11 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
     {
       const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
       const pem = privateKey.export({ type: 'pkcs1', format: 'pem' });
+      const { clientSecret, webhookSecret } = APP_SECRETS;
       const withApp = await composedApplication({
         ...BASE, DATABASE_URL: database.url, GITHUB_APP_ID: '123', GITHUB_APP_SLUG: 'nebula-composition', GITHUB_APP_CLIENT_ID: 'Iv1.composition',
-        GITHUB_APP_CLIENT_SECRET: APP_SECRETS.clientSecret, GITHUB_APP_PRIVATE_KEY: pem,
-        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: APP_SECRETS.webhookSecret
+        GITHUB_APP_CLIENT_SECRET: clientSecret, GITHUB_APP_PRIVATE_KEY: pem,
+        GITHUB_APP_CALLBACK_URL: 'http://127.0.0.1/api/github-app/oauth/callback', GITHUB_APP_WEBHOOK_SECRET: webhookSecret
       });
       /* Everything the server answers in the App's flow, headers and all. */
       const answered = [];

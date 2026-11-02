@@ -3,14 +3,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource, serverLoads } = require('./helpers/server-source');
 const { locations } = require('./oracles/route-policy');
 
 const root = path.join(__dirname, '..');
-const server = serverSource();
 
-assert(serverLoads('apps/api/src/platform/mutation-gateway/mutation-gateway.ts'), 'server must load the central mutation gateway');
-/* That the composed server's provider writes are checked by the gateway is test/composition.test.js's. */
+/* That the composed server's provider writes are checked by the central gateway is test/composition.test.js's. */
 /* The repository mutation context is the platform's (mutation-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
 assert(mutationContextSource.includes('function mutationContext('), 'the platform must expose one mutation route context middleware');
@@ -61,17 +58,15 @@ for (const [route, action] of routes) {
 
 /*
  * The native push and the LFS upload write to the provider outside the API
- * client, so each asks the active gateway context itself: the server hands
- * both the gateway's check, and each calls it before it writes.
+ * client, so each asks the active gateway context itself, before it writes.
+ * That the server hands both the gateway's check -- so that, as composed,
+ * each is refused outside a mutation before GitHub is asked anything -- is
+ * test/composition.test.js's.
  */
-assert(/const assertProviderMutation = \(target: [^)]+\) => core\.mutationGateway\.assertProviderMutation\(target\);/.test(server),
-  'the workbench transports must be handed the active gateway context');
-for (const [factory, file, start] of [
-  ['createNativePush', 'application/native-push.ts', '  async function push('],
-  ['createLfsTransfer', 'application/lfs.ts', '  async function upload(']
+for (const [file, start] of [
+  ['application/native-push.ts', '  async function push('],
+  ['application/lfs.ts', '  async function upload(']
 ]) {
-  const wiring = server.slice(server.indexOf(`${factory}({`), server.indexOf('});', server.indexOf(`${factory}({`)));
-  assert(/\bassertProviderMutation\b/.test(wiring), `${factory} must be given the gateway's check`);
   const source = fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
   const body = source.slice(source.indexOf(start), source.indexOf('\n  }', source.indexOf(start)));
   assert(body.includes('deps.assertProviderMutation('), `${file} must assert the active gateway context`);

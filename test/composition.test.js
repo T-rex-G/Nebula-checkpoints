@@ -15,6 +15,9 @@
  * account for each one.
  */
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
 
 const SECRET = 's'.repeat(48);
@@ -561,6 +564,37 @@ function admitAll(hub, key, limit = 1000) {
       assert.deepEqual([lfs.status, lfs.asked], [502, ['POST https://github.com/acme/demo.git/info/lfs/objects/batch']],
         'and one over that, exactly at NV_UPLOAD_MAX_MB, is taken and goes by Git LFS');
     } finally {
+      github.restore();
+      await application.close();
+    }
+  }
+
+  /*
+   * ---- The workbench's transports write only inside a mutation ----
+   * Replaces the mutation gateway contract's checks that the composition
+   * handed the native push and the LFS upload the gateway's check. Each writes
+   * to GitHub outside its REST client, so each asks the gateway itself before
+   * it writes, and the gateway answers only inside a request's mutation.
+   * Called as composed, outside any request, each is refused before GitHub is
+   * asked anything.
+   */
+  {
+    const application = await composedApplication({ ...BASE }, { listen: false });
+    const github = standInForOutbound([]);
+    const file = path.join(os.tmpdir(), `nv-composition-${process.pid}`);
+    fs.writeFileSync(file, 'outside any mutation');
+    try {
+      const account = { provider: 'github', authMethod: 'token', login: 'octo', baseUrl: '', token: `ghp_${'z'.repeat(36)}` };
+      const { nativePush, lfsTransfer } = application.work.transports;
+      for (const [transport, write] of [
+        ['native push', () => nativePush.push(account, 'acme', 'demo', 'main', 'docs/outside.bin', file, 'Outside any mutation')],
+        ['LFS upload', () => lfsTransfer.upload(account, 'acme', 'demo', 'main', 'docs/outside.bin', file, 'a'.repeat(64), 20, 'Outside any mutation')]
+      ]) {
+        await assert.rejects(write(), error => error.code === 'MUTATION_GATEWAY_REQUIRED', `the ${transport} is refused outside a mutation`);
+      }
+      assert.deepEqual(github.requests, [], 'and GitHub is asked nothing');
+    } finally {
+      fs.rmSync(file, { force: true });
       github.restore();
       await application.close();
     }

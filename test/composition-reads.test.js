@@ -8,6 +8,10 @@
  * tree: a statement reads the composition when it uses a name bound to
  * serverSource() or serverImports(), or calls serverLoads(), serverImports()
  * or serverModules(). A comment that mentions the server reads nothing.
+ * The tests that scan every source file for what it says -- the error codes,
+ * the contracts, the provider-route inventory, the route surface -- take the
+ * composition's files (serverFiles()) among all the others; they are not
+ * reading its wiring, and are weighed with the tests that read the modules.
  *
  * The count is held to the record below, exactly. A new read fails here; a
  * converted one fails here too, until the record is lowered to match, so the
@@ -18,7 +22,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const RECORDED = 36;
+const RECORDED = 20;
 
 const ROOT = path.resolve(__dirname, '..');
 const READERS = new Set(['serverSource', 'serverImports']);

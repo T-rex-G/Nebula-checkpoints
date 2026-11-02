@@ -2300,3 +2300,30 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Found on the way.** Adding a governance webhook whose destination does not resolve answered 500. It is fixed in its own commit, *A governance webhook to a name that does not resolve*, above.
 - **Thirty-six remain:** exposure scanning's route keys (4), governance's API (8) and interface (1), the authorization resolver (4), the mutation gateway (3), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4; the lifecycle test in 40 s.
+
+### D14, step seven — the composed server's guards, asked
+
+- **Why.** Seven statements read how the composition hands out the guards that decide who may write and who may read: the gateway's check to the transports that write to GitHub outside its REST client, Kepler's own-work allowance to the modules whose routes take it, and the resolver and gateway themselves.
+- **The transports write only inside a mutation** (the gateway contract, three). The native push and the LFS upload each ask the gateway before they write. `test/composition.test.js` takes both as the server composed them -- the application now names them, as `work.transports` -- and calls each outside any request: each is refused, `MUTATION_GATEWAY_REQUIRED`, before GitHub is asked anything. That the server loads the gateway at all was already asked of it: its writes are checked.
+- **A public reader is let into their own work, and nowhere else** (the resolver contract, four). `test/composition-postgres.test.js` signs in a person who reads a public repository and is no collaborator on it:
+  - their own exposure scans and audit history of it are answered;
+  - its governance is refused, `GOVERNANCE_COLLABORATORS_ONLY`;
+  - a request whose body claims governance roles, repository access and another identity is refused as the reader GitHub says the person is, `GOVERNANCE_ROLE_REQUIRED`, and nothing is kept.
+
+  That the server loads the resolver at all was already asked of it: its writes resolve the account's access first.
+- **Each check fails when its wiring is broken.** Five mutants: the gateway's check replaced by one that passes everything, for both transports, for the LFS upload alone and for the native push alone; and the own-work allowance replaced by an empty one, for exposure scanning and for audit history.
+- **The census's reach.** It counts the statements that read the composition's wiring. Four tests read the composition's files among every other source file -- the error codes, the contracts, the provider-route inventory and the route surface -- for what each file says, not how the server is wired. They are weighed with the tests that read the modules, next.
+- **Twenty-nine remain:** exposure scanning's route keys (4), governance's API (8) and interface (1), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step eight — a repository's governance, asked
+
+- **Why.** Nine statements read how the composition wires governance: Kepler's index, the host over the durable store, the governance and lifecycle routes, the one guard and the context it attaches, what a request's body may not claim, and Corona's read-only exemption.
+- **`test/composition-governance.test.js`** builds the composed server on a database of its own and asks it as three people: the repository's administrator, a maintainer and a reader, as GitHub says.
+  - **Governance is the server's, behind one guard** (the API contract five, the interface contract one). The administrator creates a policy, drafts it and submits a version; all three read it. The Digital Twin shows each person exactly what GitHub's answer lets them do: everything for the administrator; reading, authoring and reviewing for the maintainer; reading for the reader. Archived, the policy is listed as such.
+  - **A body's claims are not taken** (the API contract two). The reader's request to create a policy, claiming the administrator's roles and identity, is refused as the reader's, `GOVERNANCE_ROLE_REQUIRED`, at the governance guard: no policy decision is recorded for it, and no policy kept. The maintainer's review claimed in the administrator's name is refused, `GOVERNANCE_REVIEWER_IDENTITY_FORBIDDEN`; asked in their own name, the review is theirs.
+  - **Read-only mode lets governance's control plane through, and nothing else of it** (the API contract one). With read-only mode on, validating a policy is let through; adding a governance webhook is refused, 423, like any other write.
+- **Each check fails when its wiring is broken.** Six mutants: the governance routes or the lifecycle routes unregistered; the routes reading a context whose roles are not GitHub's; the guard letting every role through; governance's host never ready; and a blanket read-only exemption for every route under `/governance`.
+- **A guard that the service backs.** Every governance operation is authorized again by the service, so a guard that let every role through still answered the reader's write with the same 403, and the first version of the check let that mutant through. What the guard adds is that it refuses before the mutation gateway is entered, so a refused write leaves no policy decision, and no governance event, behind. The check now holds the server to that.
+- **Twenty remain:** exposure scanning's route keys (4), the public-error sweep (3), the key purposes (3), the security foundation (3), the capability registry and probes (3), safe passage, protected paths, the offline cache and `scripts/verify.js`'s version check.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

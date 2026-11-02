@@ -43,7 +43,7 @@
     "test:exposure-store": "node test/exposure-store.test.js",
     "test:code-audit-history": "node test/code-audit-history.test.js && node test/code-audit-triage-store.test.js && node test/workspace-security-posture-postgres.test.js",
     "test:governance-lifecycle": "node test/governance-lifecycle-postgres.test.js && node test/governance-activation-postgres.test.js",
-    "test:composition-postgres": "node test/composition-postgres.test.js && node test/composition-alpha.test.js && node test/composition-lifecycle.test.js",
+    "test:composition-postgres": "node test/composition-postgres.test.js && node test/composition-alpha.test.js && node test/composition-governance.test.js && node test/composition-lifecycle.test.js",
     "test:staging:gate": "node test/staging-validation.test.js && node test/staging-validation-contract.test.js && node test/staging-validation-cli.test.js && node test/test-matrix.test.js",
     "staging:plan": "node scripts/staging-gate.js plan staging/TASK_20_EVIDENCE_TEMPLATE.json",
     "staging:verify": "node scripts/staging-gate.js verify",

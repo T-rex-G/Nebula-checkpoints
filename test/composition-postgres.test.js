@@ -58,6 +58,9 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
       return { body: { permission: 'admin', role_name: 'admin', user: { login, id: login === 'octo' ? 7 : 8 } } };
     }],
     ['GET /repos/acme/demo$', { body: { full_name: 'acme/demo', default_branch: 'main', private: true, visibility: 'private', permissions: { admin: true } } }],
+    /* A public repository the person reads but is no collaborator on: GitHub says who may push only to those who can. */
+    ['GET /repos/acme/open/collaborators/octo/permission$', { status: 403, body: { message: 'Must have push access to view repository collaborators.' } }],
+    ['GET /repos/acme/open$', { body: { full_name: 'acme/open', default_branch: 'main', private: false, visibility: 'public', permissions: { admin: false, push: false, pull: true } } }],
     ['GET /repos/acme/demo/branches\\?', () => ({ body: [...branches].map(([name, sha]) => ({ name, commit: { sha }, protected: false })) })],
     ['GET /repos/acme/demo/tags\\?', { body: [] }],
     ['GET /repos/acme/demo/collaborators\\?', { body: [{ login: 'octo', id: 7, permissions: { admin: true }, role_name: 'admin' }] }],
@@ -341,6 +344,38 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
       });
       assert.deepEqual([refused.status, (await bodyOf(refused)).code], [422, 'GOVERNANCE_WEBHOOK_DNS_INVALID'],
         'a webhook to a name that does not resolve is refused as the destination\'s');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_governance_webhooks')).rows[0].n, 0, 'and nothing is kept');
+    }
+
+    /*
+     * ---- A public reader is let into their own work, and nowhere else ----
+     * Replaces the authorization resolver contract's checks that the
+     * composition handed Kepler's own-work allowance to each module whose
+     * routes take it, and used it nowhere else, and that it took no governance
+     * roles or repository access from a request's body. Reading a public
+     * repository makes nobody a collaborator on it: the person's own scans and
+     * audits of it are theirs to see, while its governance is its
+     * collaborators'. A body that claims roles and access changes neither.
+     */
+    {
+      const page = browser(application);
+      assert.equal((await page.signIn(OCTO)).status, 200);
+      for (const [work, route] of [['exposure scans', '/api/repo/acme/open/exposure/scans'], ['audit history', '/api/repo/acme/open/code-audit/history?ref=main']]) {
+        const own = await page.request(route);
+        assert.equal(own.status, 200, `a public reader sees their own ${work} of a public repository: ${JSON.stringify(await bodyOf(own))}`);
+      }
+      const shared = await page.request('/api/repo/acme/open/governance/policies');
+      assert.deepEqual([shared.status, (await bodyOf(shared)).code], [403, 'GOVERNANCE_COLLABORATORS_ONLY'], 'and not its governance, which is its collaborators\'');
+      const claimed = await page.request('/api/repo/acme/open/governance/webhooks', {
+        method: 'POST',
+        body: {
+          name: 'Claimed', url: 'https://receiver.invalid/events', eventTypes: ['policy.decision.allow'], enabled: true,
+          governanceRoles: ['administrator'], repositoryAccess: { baseRole: 'admin', source: 'github.collaborator.permission' }, actorIdentityKey: 'a'.repeat(64)
+        },
+        headers: { 'x-nv-csrf': await page.csrf(), 'Idempotency-Key': 'composition-claimed-roles' }
+      });
+      assert.deepEqual([claimed.status, (await bodyOf(claimed)).code], [403, 'GOVERNANCE_ROLE_REQUIRED'],
+        'roles and access a request\'s body claims are not taken: the person is the reader GitHub says, not the administrator the body says');
       assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_governance_webhooks')).rows[0].n, 0, 'and nothing is kept');
     }
 

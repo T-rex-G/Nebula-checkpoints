@@ -106,5 +106,6 @@ export function registerRepositoryWork(app: Application, settings: Settings, cor
     safetyOf, alphaSafetyView, savePersistentSafety: core.safety.savePersistentSafety, saveSessionSafetyCopy: core.safety.saveSessionSafetyCopy,
     appendEvidence: core.evidenceChain.appendEvidence, retainedActor, identityKey
   });
-  return { startTempMaintenance, listRepositories };
+  /* The transports that write to GitHub outside its REST client -- the native push and Git LFS -- as composed, each handed the gateway's check. */
+  return { startTempMaintenance, listRepositories, transports: Object.freeze({ nativePush, lfsTransfer }) };
 }

@@ -11,7 +11,6 @@
  */
 
 const assert = require('assert');
-const { serverSource } = require('./helpers/server-source');
 const crypto = require('crypto');
 const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
@@ -454,13 +453,12 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
     const fs = require('fs');
     const path = require('path');
     const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
-    const server = serverSource();
     const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
-    /* A route where it is registered: in the composition root, or in the workbench's own registrations. */
+    /* A route where it is registered: in the workbench's own registrations. The composition root registers none. */
     const workbenchRoutes = ['content-routes.ts', 'repository-routes.ts', 'history-routes.ts', 'collaboration-routes.ts', 'folder-move-route.ts']
       .map(file => fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', file), 'utf8'));
     const route = (method, routePath) => {
-      for (const [source, end] of [[server, '\n});'], ...workbenchRoutes.map(text => [text, '\n  });'])]) {
+      for (const [source, end] of workbenchRoutes.map(text => [text, '\n  });'])) {
         const start = source.indexOf(`app.${method}('${routePath}'`);
         if (start >= 0) return source.slice(start, source.indexOf(end, start));
       }

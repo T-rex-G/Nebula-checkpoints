@@ -11,10 +11,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 
 const root = path.join(__dirname, '..');
-const server = serverSource();
 const store = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'persistence', 'governance-store.ts'), 'utf8');
 const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
@@ -23,7 +21,8 @@ const { offerSafePassage, ROUTABLE_ACTIONS } = require('../apps/api/src/platform
 
 /* The repository mutation context (mutation-context.ts), composed by the server, consults the safe passage. */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes("import { offerSafePassage, type StepEvaluator } from './safe-passage.ts';") && server.includes('createRepositoryMutationContext({'), 'server must load the safe passage module');
+assert(mutationContextSource.includes("import { offerSafePassage, type StepEvaluator } from './safe-passage.ts';"), 'the mutation context must load the safe passage module');
+/* That the composed server's writes pass through this context is test/composition.test.js's. */
 assert(
   mutationContextSource.includes('const passage = await safePassageFor(req, action, descriptor, error);'),
   'the refusal path must consult safe passage before answering'

@@ -1,28 +1,27 @@
 'use strict';
 /*
- * How many tests still read the server's composition root as source.
+ * No test reads how the server is wired.
  *
- * D14 replaces the checks that read how the server is wired (through
- * test/helpers/server-source.js) with checks that ask the composed server
- * how it behaves. This counts what is left, by statement and by the syntax
- * tree: a statement reads the composition when it uses a name bound to
- * serverSource() or serverImports(), or calls serverLoads(), serverImports()
- * or serverModules(). A comment that mentions the server reads nothing.
- * The tests that scan every source file for what it says -- the error codes,
- * the contracts, the provider-route inventory, the route surface -- take the
- * composition's files (serverFiles()) among all the others; they are not
- * reading its wiring, and are weighed with the tests that read the modules.
+ * D14 replaced every check that read the server's composition root as source
+ * (through test/helpers/server-source.js) with one that asks the composed
+ * server how it behaves, or, for what no request can show, with a rule over
+ * the root's syntax tree (test/composition-root.test.js). Before D14, 118
+ * statements read it; none do now, and this keeps it so.
  *
- * The count is held to the record below, exactly. A new read fails here; a
- * converted one fails here too, until the record is lowered to match, so the
- * record always says how many remain. Before D14 there were 118.
+ * The helper offers the root's file list alone, and nothing else may come
+ * back to it. A statement would read the composition if it used a name bound
+ * to serverSource() or serverImports(), or called serverLoads(),
+ * serverImports() or serverModules() -- the readers the helper used to offer;
+ * every test and script is searched for one, by statement and over the syntax
+ * tree, so a comment that mentions the server reads nothing. The checks that
+ * scan every source file for what it says -- the error codes, the contracts,
+ * the provider-route inventory, the route surface -- take the composition's
+ * files (serverFiles()) among all the others; they read no wiring.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
-
-const RECORDED = 20;
 
 const ROOT = path.resolve(__dirname, '..');
 const READERS = new Set(['serverSource', 'serverImports']);
@@ -81,9 +80,8 @@ const found = [...programs(path.join(ROOT, 'test')), ...programs(path.join(ROOT,
   .filter(file => !file.endsWith(path.join('helpers', 'server-source.js')))
   .flatMap(reads);
 
-assert.equal(found.length, RECORDED,
-  found.length > RECORDED
-    ? `${found.length - RECORDED} more statement(s) read the composition's source than the ${RECORDED} recorded; ask the composed server instead:\n${found.join('\n')}`
-    : `${RECORDED - found.length} fewer statement(s) read the composition's source than recorded: lower RECORDED to ${found.length}`);
+assert.deepEqual(Object.keys(require('./helpers/server-source')), ['serverFiles'],
+  'the helper offers the composition\'s files alone: a reader of its wiring does not come back');
+assert.deepEqual(found, [], `a statement reads the composition's source; ask the composed server instead:\n${found.join('\n')}`);
 
-console.log(`composition reads: ${found.length} remain`);
+console.log('composition reads: none');

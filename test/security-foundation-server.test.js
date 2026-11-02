@@ -7,7 +7,6 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { serverSource: readServerSource } = require('./helpers/server-source');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
@@ -20,7 +19,6 @@ const root = path.resolve(__dirname, '..');
  * that reads req.stepUp.action would write undefined for every field. The
  * mistake leaves no trace at runtime, so it is pinned here at the source.
  */
-const serverSource = readServerSource();
 /* The step-up's consumption and its replay guard are the session's own security's. */
 const sessionSecuritySource = fs.readFileSync(path.join(root, 'apps/api/src/modules/identity-access/application/session-security.ts'), 'utf8');
 let consumePendingStepUpCalls = 0;
@@ -58,8 +56,12 @@ assert.match(
   sessionSecuritySource, /function stepUpReplayStore\(\): unknown \{\s*\n\s*if \(!deps\.databaseConfigured\) return usedStepUpGrants;/,
   'the replay guard must be chosen by configuration, not by database availability'
 );
-assert(serverSource.includes('databaseConfigured: Boolean(settings.databaseUrl)') && serverSource.includes('createSessionSecurity({\n    databaseConfigured, durableSingleUseStore, setSession: sessions.setSession,'),
-  'the server must say whether a database is configured, not whether it is reachable');
+/*
+ * That the composed server says whether a database is configured, not whether
+ * it can be reached, and so gives session security the shared store -- a
+ * grant one instance has claimed is refused by another at once, while the
+ * first is still writing its session -- is test/composition-postgres.test.js's.
+ */
 assert.strictEqual(
   /catch[\s\S]{0,200}usedStepUpGrants/.test(sessionSecuritySource), false,
   'no failure path may fall back to the in-process replay guard'
@@ -112,7 +114,8 @@ assert.match(
   'claiming a recovery authorization must be asynchronous'
 );
 let claimRestoreAuthorizationCalls = 0;
-for (const line of `${serverSource}\n${coronaRoutes}`.split('\n')) {
+/* The composition root makes no such call; the routes do. */
+for (const line of coronaRoutes.split('\n')) {
   if (!line.includes('claimRestoreAuthorization(')) continue;
   assert.match(
     line, /await recovery\.claimRestoreAuthorization\(/,
@@ -145,8 +148,8 @@ assert.strictEqual(
   /catch[\s\S]{0,200}usedAuthorizations/.test(coronaRecovery), false,
   'no failure path may fall back to the in-process recovery guard'
 );
-/* Every call, in the server and in the modules it composes; a declaration (its parameters typed) is not a call. */
-const stepUpSources = [serverSource, ...fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
+/* Every call, in the server's tree -- its composition root among it -- a declaration (its parameters typed) is not a call. */
+const stepUpSources = [...fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
   .filter(file => String(file).endsWith('.ts'))
   .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', String(file)), 'utf8'))];
 let consumeStepUpAuthorizationCalls = 0;

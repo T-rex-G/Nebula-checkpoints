@@ -3,20 +3,19 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource, serverLoads } = require('./helpers/server-source');
 const { EventEmitter } = require('events');
 const { correlationId, structuredLogging } = require('../apps/api/src/http/pipeline/index.ts');
 const { currentRoutePolicy } = require('./oracles/current-route-policy');
 
 const root = path.join(__dirname, '..');
-const server = serverSource();
-assert(serverLoads('apps/api/src/http/errors.ts'));
-/* The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts). */
+/*
+ * The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts).
+ * That the composed server answers a failure under any module's route with
+ * it is test/composition.test.js's; that the composition root hands every
+ * route that takes a failure answer this one, and no other, is
+ * test/composition-root.test.js's, over the root's syntax tree.
+ */
 const httpErrors = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'errors.ts'), 'utf8');
-/* Every route is handed the central failure answer, and nothing else under its name. */
-assert(server.includes('fail: sendFailure'), 'the routes must be handed the central failure answer');
-assert(!/\bfail: (?!sendFailure\b)/.test(server) && !/[{,]\s*fail\s*[,}]/.test(server),
-  'no route may be handed a failure answer of its own');
 assert(httpErrors.includes('publicErrorBody(error'));
 assert(!/function sendFailure[\s\S]{0,900}\.json\(\{ error: (?:e|error)\.message/.test(httpErrors),
   'central fail helper must not expose raw errors');

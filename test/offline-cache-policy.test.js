@@ -1,6 +1,5 @@
 'use strict';
 const assert = require('assert');
-const { serverSource: readServerSource } = require('./helpers/server-source');
 const policy = require('../packages/contracts/src/offline-cache-policy.ts');
 
 assert.strictEqual(policy.TTL_MS, 24 * 60 * 60 * 1000);
@@ -78,7 +77,6 @@ assert(swSource.includes("key === 'nv-api-perm'"), 'service worker must delete t
 assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the earlier unscoped API cache during activation');
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
   'service worker must require a server-verified response binding before caching');
-const serverSource = readServerSource();
 {
   /* The server's no-store step, which decides the binding once the status line is known. */
   const { apiNoStore } = require('../apps/api/src/http/pipeline/index.ts');
@@ -98,8 +96,7 @@ const serverSource = readServerSource();
   res.writeHead(404);
   assert.strictEqual(headers.get('cache-control'), 'no-store');
   assert.strictEqual(headers.get('x-nv-offline-scope'), undefined);
-  assert(serverSource.includes("app.use('/api', apiNoStore(core.security.offlineCacheResponseBinding));"),
-    'server must retain the bounded private offline response middleware');
+  /* That the composed server binds an answer to the offline cache only for the account and repository asked for is test/composition-postgres.test.js's. */
 }
 /* The binding is the session's own security's to decide (identity-access/application/session-security.ts). */
 const sessionSecuritySource = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'session-security.ts'), 'utf8');

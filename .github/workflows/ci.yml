@@ -100,7 +100,9 @@ jobs:
       # the protections an identity sets, what a webhook delivery leaves
       # behind, and the snapshots and restores Corona keeps; the same server
       # invite-only; a repository's governance, asked as its administrator, a
-      # maintainer and a reader; and the server's own life -- the work it
+      # maintainer and a reader; exposure scanning end to end, its findings
+      # fingerprinted with the key the composition derived and verified with
+      # the credential's provider; and the server's own life -- the work it
       # takes up when it starts, and waits for when it stops. Built in the
       # test's process, as test/composition.test.js builds it without one,
       # and started as a deployment starts it.

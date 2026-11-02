@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 const ts = require('typescript');
 /* The server's composition root, as the source checks read it (test/helpers/server-source.js). */
-const { serverFiles, serverLoads } = require('../test/helpers/server-source');
+const { serverFiles } = require('../test/helpers/server-source');
 const { PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
 const renderReleaseTemplate = value => value.replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME);
 /* The browser entry's imports, in order, as root-relative paths. */
@@ -329,7 +329,7 @@ must(securityRoutes.includes("app.post('/api/security/step-up'"), 'Step-up autho
 /* That the composed server answers these routes, and spends a step-up grant the first time it is used, is test/composition.test.js's. */
 must(read('apps/api/src/modules/identity-access/application/session-security.ts').includes('await consumePendingStepUp(')
   && read('apps/api/src/modules/identity-access/application/session-security.ts').includes('if (!deps.databaseConfigured) return usedStepUpGrants;'), 'Single-use step-up replay prevention missing');
-must(serverLoads('apps/api/src/platform/release/version.ts', root), 'server must import the package-backed version module');
+/* That the composed server tells a signed-in account the release package.json names is test/composition.test.js's. */
 
 const render = read('render.yaml');
 must(/\bplan:\s*free\b/.test(render), 'Render web service is not on the free plan');

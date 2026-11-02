@@ -18,7 +18,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
+const { CORRELATION_HEADER } = require('../packages/contracts/src/api-envelope.ts');
 
 const SECRET = 's'.repeat(48);
 const BASE = Object.freeze({ NODE_ENV: 'test', SESSION_SECRET: SECRET, NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn' });
@@ -567,6 +569,95 @@ function admitAll(hub, key, limit = 1000) {
       github.restore();
       await application.close();
     }
+  }
+
+  /*
+   * ---- A failure is answered one way, whichever module's route fails ----
+   * Replaces the public-error contract's checks that the composition loads
+   * the central failure answer and hands it, and nothing else under its name,
+   * to every route that takes one (test/composition-root.test.js holds the
+   * second over the root's syntax tree). GitHub fails under three routes
+   * registered in three places -- the repository list, the workbench's
+   * CODEOWNERS and the platform's rate -- and each failure is answered with
+   * the central public error body: what failed, a code, the request's
+   * correlation id, whether the provider changed, the safe state and the next
+   * action. GitHub's words pass through only when they carry nothing that
+   * looks like a credential; these do, and are not repeated.
+   */
+  {
+    const application = await composedApplication({ ...BASE });
+    const internal = 'stood-in-internal-detail';
+    const github = standInForOutbound([
+      ['GET /user$', { body: { login: 'octo', id: 7, name: 'Octo' }, headers: { 'x-oauth-scopes': 'repo' } }],
+      ['GET /repos/acme/demo/collaborators/octo/permission$', { body: { permission: 'admin', role_name: 'admin', user: { login: 'octo', id: 7 } } }],
+      ['GET /user/repos\\?', { status: 500, body: { message: `authorization: Bearer ${internal}` } }],
+      ['GET /repos/acme/demo/contents/', { status: 500, body: { message: `authorization: Bearer ${internal}` } }],
+      ['GET /rate_limit$', { status: 500, body: { message: `authorization: Bearer ${internal}` } }]
+    ]);
+    try {
+      const page = browser(application);
+      await page.signIn(`ghp_${'z'.repeat(36)}`);
+      const answers = {};
+      for (const route of ['/api/repos', '/api/repo/acme/demo/codeowners', '/api/rate']) {
+        const correlation = `nvx-${crypto.randomBytes(8).toString('hex')}`;
+        const failed = await page.request(route, { headers: { [CORRELATION_HEADER]: correlation } });
+        const body = await bodyOf(failed);
+        answers[route] = [failed.status >= 500, Object.keys(body).sort(), body.correlationId === correlation, JSON.stringify(body).includes(internal)];
+      }
+      const central = [true, ['code', 'correlationId', 'error', 'nextAction', 'providerChanged', 'safeState'], true, false];
+      assert.deepEqual(answers, { '/api/repos': central, '/api/repo/acme/demo/codeowners': central, '/api/rate': central },
+        'each failure is the central answer, for this request, and repeats nothing that looks like a credential');
+    } finally {
+      github.restore();
+      await application.close();
+    }
+  }
+
+  /*
+   * ---- The release and the capabilities the server answers are the package's and the registry's ----
+   * Replaces verify.js's check that the server loads the package-backed
+   * version module, and the capability registry contract's that it loads the
+   * registry and keeps no capability table of its own. A signed-in account is
+   * told the release package.json names; the capabilities answered for GitHub
+   * are the registry document's, as the registry projects them for this
+   * deployment.
+   */
+  {
+    const application = await composedApplication({ ...BASE });
+    const github = standInForOutbound([['GET /user$', { body: { login: 'octo', id: 7, name: 'Octo' }, headers: { 'x-oauth-scopes': 'repo' } }]]);
+    try {
+      const page = browser(application);
+      await page.signIn(`ghp_${'z'.repeat(36)}`);
+      assert.equal((await bodyOf(await page.request('/api/me'))).release, require('../package.json').version, 'the release is the package\'s');
+      const registry = require('../src/capability-registry.js');
+      const { DEPLOYMENT_PROFILE } = require('../apps/api/src/composition/configuration.ts');
+      const document = registry.loadCapabilityDocument(path.join(__dirname, '..', 'config', 'public-alpha-capabilities.json'));
+      const expected = registry.projectCapabilities(document, { provider: 'github', authority: 'github.com', deployment: DEPLOYMENT_PROFILE });
+      assert.deepEqual(await bodyOf(await page.request('/api/capabilities?provider=github')), JSON.parse(JSON.stringify(expected)),
+        'the capabilities are the registry\'s, for this deployment');
+    } finally {
+      github.restore();
+      await application.close();
+    }
+  }
+
+  /*
+   * ---- A production snapshot signing secret that is the session secret is refused ----
+   * Replaces the key derivation test's check that the composition hands the
+   * snapshot signing configuration the session secret as it is: the refusal
+   * compares the two, so it must be given the secret itself, not a key derived
+   * from it. A production deployment is composed as configured; with its
+   * snapshot secret set to its session secret, it is refused.
+   */
+  {
+    const production = {
+      NODE_ENV: 'production', SESSION_SECRET: SECRET, NV_SNAPSHOT_SIGNING_KEY_ID: 'composition-snapshot-key', NV_SNAPSHOT_SIGNING_SECRET: 'k'.repeat(48),
+      DATABASE_URL: 'postgresql://composition@db.nebula.invalid:5432/nv?sslmode=verify-full', PUBLIC_BASE_URL: 'https://nebula.example.com'
+    };
+    const configured = await composedApplication(production, { listen: false });
+    await configured.close();
+    await assert.rejects(composedApplication({ ...production, NV_SNAPSHOT_SIGNING_SECRET: SECRET }, { listen: false }),
+      /NV_SNAPSHOT_SIGNING_SECRET must differ from SESSION_SECRET/, 'a snapshot secret that is the session secret is refused');
   }
 
   /*

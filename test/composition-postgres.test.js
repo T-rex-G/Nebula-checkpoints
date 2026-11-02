@@ -23,6 +23,7 @@ const { disposableDatabase, watchOverlappingQueries } = require('./helpers/dispo
 const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 const { identityKey } = require('../apps/api/src/modules/identity-access/index.ts');
+const OFFLINE_CACHE = require('../packages/contracts/src/offline-cache-policy.ts');
 
 const BASE = Object.freeze({ NODE_ENV: 'test', SESSION_SECRET: 's'.repeat(48), NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn' });
 /* Two people: the token says who signs in. */
@@ -345,6 +346,89 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
       assert.deepEqual([refused.status, (await bodyOf(refused)).code], [422, 'GOVERNANCE_WEBHOOK_DNS_INVALID'],
         'a webhook to a name that does not resolve is refused as the destination\'s');
       assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_governance_webhooks')).rows[0].n, 0, 'and nothing is kept');
+    }
+
+    /*
+     * ---- An answer is bound to the offline cache only for the account and repository asked for ----
+     * Replaces the offline cache contract's check that the composition keeps
+     * the API's no-store step with the session's own binding. Every API answer
+     * is no-store, unless the service worker asks to keep it under the
+     * account's offline scope, for this repository, and is answered: then the
+     * answer names the same scope and repository, and the worker may keep it.
+     * Asked under another scope, it is not bound.
+     */
+    {
+      const page = browser(application);
+      assert.equal((await page.signIn(OCTO)).status, 200);
+      const { offlineCacheScope } = await bodyOf(await page.request('/api/me'));
+      assert(OFFLINE_CACHE.validScope(offlineCacheScope), 'the account is told its offline scope');
+      const asked = async scope => {
+        const headers = scope ? { [OFFLINE_CACHE.OFFLINE_SCOPE_HEADER]: scope, [OFFLINE_CACHE.OFFLINE_REPO_HEADER]: 'github:acme/demo' } : {};
+        const answered = await page.request('/api/repo/acme/demo', { headers });
+        await answered.arrayBuffer();
+        const decision = OFFLINE_CACHE.classifyApiRequest(new URL(`${application.url}/api/repo/acme/demo`), 'GET', new Headers(headers));
+        return [answered.status, answered.headers.get('cache-control'), OFFLINE_CACHE.responseMatchesBinding(answered.headers, decision)];
+      };
+      assert.deepEqual(await asked(null), [200, 'no-store', false], 'unasked, an answer is no-store');
+      const [status, cacheControl, bound] = await asked(offlineCacheScope);
+      assert.deepEqual([status, cacheControl === 'no-store', bound], [200, false, true], 'asked under the account\'s scope, it is bound for the worker to keep');
+      assert.deepEqual(await asked('x'.repeat(32)), [200, 'no-store', false], 'asked under another scope, it is not');
+    }
+
+    /*
+     * ---- A step-up grant is spent once, on whichever instance it is spent ----
+     * Replaces the security foundation test's check that the composition says
+     * whether a database is configured, not whether it can be reached, and so
+     * hands session security the shared single-use store. Two servers share the
+     * database, as a deployment's instances do. A grant is spent on the first,
+     * and held, with the session's row locked, after it has claimed the grant
+     * and before it has written the session: the second still reads the grant
+     * as pending, and only the shared store can know it is spent. Asked to
+     * spend it then, the second refuses at once, as a replay; let go, the
+     * first completes.
+     */
+    {
+      const second = await composedApplication({ ...BASE, DATABASE_URL: database.url, NV_SNAPSHOT_RETENTION_COUNT: '5' });
+      const hold = await database.client();
+      let holding = false;
+      try {
+        assert.equal(await second.core.ready(), true);
+        const page = browser(application);
+        assert.equal((await page.signIn(OCTO)).status, 200);
+        const csrf = await page.csrf();
+        const elsewhere = browser(second);
+        elsewhere.cookie = page.cookie;
+        const sensitive = (on, grant) => on.request('/api/security/revoke-others', { method: 'POST', body: {}, headers: { 'x-nv-csrf': csrf, 'x-nv-step-up': grant } });
+        const stepUp = await page.request('/api/security/step-up', {
+          method: 'POST', body: { action: 'sessions.revoke-others', scope: {}, confirm: 'octo', credential: OCTO }, headers: { 'x-nv-csrf': csrf }
+        });
+        const { grant } = await bodyOf(stepUp);
+        assert.equal(stepUp.status, 200, 'the account proves its credential again, and is granted a step up');
+        const { sid } = application.core.unseal(page.cookieValue('nv_session'));
+        await hold.query('BEGIN');
+        await hold.query('SELECT 1 FROM nv_sessions WHERE sid=$1 FOR UPDATE', [sid]);
+        holding = true;
+        const first = sensitive(page, grant);
+        for (const deadline = Date.now() + 10_000; ;) {
+          const waiting = (await client.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'")).rows[0].n;
+          if (waiting > 0) break;
+          assert(Date.now() < deadline, 'the first spend should reach its session write and wait there');
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        const replayed = await Promise.race([
+          sensitive(elsewhere, grant).then(async answer => [answer.status, (await bodyOf(answer)).code]),
+          new Promise(resolve => setTimeout(() => resolve('let through, and held at its own session write'), 3000))
+        ]);
+        assert.deepEqual(replayed, [403, 'STEP_UP_REPLAY'], 'the second instance refuses the grant at once, as spent by the first');
+        await hold.query('ROLLBACK');
+        holding = false;
+        const spent = await first;
+        assert.deepEqual([spent.status, await bodyOf(spent)], [400, { error: 'Confirmation required' }], 'and the first lets the action through to its own checks');
+      } finally {
+        if (holding) await hold.query('ROLLBACK').catch(() => {});
+        await hold.end();
+        await second.close();
+      }
     }
 
     /*

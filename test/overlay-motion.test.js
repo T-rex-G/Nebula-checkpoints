@@ -23,7 +23,6 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource: readServerSource } = require('./helpers/server-source');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
@@ -32,7 +31,6 @@ const appSource = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'),
 const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
 const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 const { shellImports, builtShell } = require('./helpers/web-shell');
-const serverSource = readServerSource();
 /* OAuth sign-in is identity and access's. */
 const oauthSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');
 

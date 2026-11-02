@@ -4,7 +4,6 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { serverSource: readServerSource } = require('./helpers/server-source');
 
 const root = path.resolve(__dirname, '..');
 const {
@@ -97,22 +96,16 @@ assert.throws(() => deriveKey(SECRET, KEY_PURPOSES.CSRF_TOKEN, 65), /between 16 
 assert.throws(() => deriveKey(SECRET, KEY_PURPOSES.CSRF_TOKEN, 32.5), /between 16 and 64 bytes/);
 
 /*
- * The server must not reintroduce a shared key. These assert the wiring, not
- * the source text: each construction names a purpose-specific constant, and no
- * keyed construction still reaches for the old shared KEY.
- */
-const serverSource = readServerSource();
-assert.doesNotMatch(serverSource, /crypto\.create(?:Hmac|Cipheriv|Decipheriv)\(\s*'[^']+',\s*KEY\b/,
-  'no keyed construction may use the former shared KEY');
-assert.doesNotMatch(serverSource, /const KEY = crypto\.createHash/,
-  'the shared sha256(SECRET) key must not be reintroduced');
-
-/*
+ * The server must not reintroduce a shared key: that the composition root
+ * makes no keyed construction of its own -- every key is one of these,
+ * derived for its purpose -- is test/composition-root.test.js's, over the
+ * root's syntax tree.
+ *
  * SESSION_SECRET reaches the snapshot signing config unchanged on purpose: that
  * value is compared against the operator's snapshot secret to reject reuse, so
- * deriving it there would defeat the check it exists to perform.
+ * deriving it there would defeat the check it exists to perform. That the
+ * composed production server refuses a snapshot secret that is its session
+ * secret is test/composition.test.js's.
  */
-assert.match(serverSource, /loadSnapshotSigningConfig\(env, \{[^}]*sessionSecret: secrets\.secret\b/,
-  'the snapshot reuse check must keep comparing against the raw session secret');
 
 console.log('key derivation tests passed');

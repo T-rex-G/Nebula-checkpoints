@@ -225,4 +225,64 @@ function standInForNames(names) {
   return { restore() { promises.lookup = ownLookup; } };
 }
 
-module.exports = { composedApplication, applicationTree, browser, standInForOutbound, standInForNames, bodyOf };
+/*
+ * The guarded transport (apps/api/src/platform/network/guarded-fetch.ts)
+ * stood in for, in this process: what the server reads and asks of a provider
+ * through it rather than through fetch -- exposure scanning's repository
+ * reads, a credential's verification, a readability probe. The transport
+ * resolves a name to a public address before it connects, so each name given
+ * resolves to the address given; its HTTPS requests are then answered here, by
+ * route, as standInForOutbound answers fetch's, and a request no route matches
+ * is answered 404. Nothing leaves the machine.
+ */
+function standInForGuardedTransport(routes, { names = {} } = {}) {
+  const https = require('node:https');
+  const { syncBuiltinESMExports } = require('node:module');
+  const { PassThrough } = require('node:stream');
+  const { EventEmitter } = require('node:events');
+  const resolving = standInForNames(Object.fromEntries(Object.entries(names).map(([name, address]) => [name, [address]])));
+  const ownRequest = https.request;
+  const requests = [];
+  https.request = (options, respond) => {
+    const request = new EventEmitter();
+    const chunks = [];
+    request.write = chunk => { chunks.push(Buffer.from(chunk)); return true; };
+    request.setTimeout = () => request;
+    request.destroy = () => request;
+    request.end = body => {
+      if (body != null) chunks.push(Buffer.from(body));
+      const method = String(options.method || 'GET').toUpperCase();
+      const href = `https://${options.hostname}${options.path || '/'}`;
+      const authorization = Object.entries(options.headers || {}).find(([name]) => name.toLowerCase() === 'authorization');
+      const sent = { method, url: href, authorization: authorization ? String(authorization[1]) : null, body: Buffer.concat(chunks).toString('utf8') };
+      requests.push(sent);
+      const route = routes.find(([pattern]) => {
+        const [routeMethod, routePattern] = pattern.split(' ');
+        return routeMethod === method && new RegExp(routePattern).test(href);
+      });
+      const answer = route ? (typeof route[1] === 'function' ? route[1](href, sent) : route[1]) : { status: 404, body: { message: 'not stood in for' } };
+      const { status = 200, body: answered = {}, headers = {} } = answer;
+      const text = typeof answered === 'string';
+      setImmediate(() => {
+        const response = new PassThrough();
+        response.statusCode = status;
+        response.headers = { 'content-type': text ? 'text/plain' : 'application/json', ...headers };
+        respond(response);
+        response.end(Buffer.isBuffer(answered) ? answered : Buffer.from(text ? answered : JSON.stringify(answered)));
+      });
+      return request;
+    };
+    return request;
+  };
+  syncBuiltinESMExports();
+  return {
+    requests,
+    restore() {
+      https.request = ownRequest;
+      syncBuiltinESMExports();
+      resolving.restore();
+    }
+  };
+}
+
+module.exports = { composedApplication, applicationTree, browser, standInForOutbound, standInForNames, standInForGuardedTransport, bodyOf };

@@ -10,10 +10,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 
 const root = path.join(__dirname, '..');
-const server = serverSource();
 const coverage = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-coverage.ts'), 'utf8');
 
 const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
@@ -21,7 +19,8 @@ const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-
 
 /* The repository mutation context (mutation-context.ts) builds the metadata the server's context records. */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes("import { pathFactsForAction } from './protected-paths.ts';") && server.includes('createRepositoryMutationContext({'), 'server must load the effective path set module');
+assert(mutationContextSource.includes("import { pathFactsForAction } from './protected-paths.ts';"), 'the mutation context must load the effective path set module');
+/* That the composed server's writes carry their path set, so a protected folder holds, is test/composition-postgres.test.js's. */
 assert(
   mutationContextSource.includes('...pathFactsForAction(action, base)'),
   'every mutation descriptor must carry the effective path set of its action'

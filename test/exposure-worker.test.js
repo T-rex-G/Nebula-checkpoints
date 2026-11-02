@@ -29,7 +29,6 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { SKIP_REASONS } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
@@ -864,12 +863,15 @@ function runnerFor(store, reader, options = {}) {
  * test/quasar-exposure-routes.test.js: their chains as the route policy reads
  * them, the identity in every store call, the explicit words checked before
  * anything is read, the credential recovered from the file and matched by
- * fingerprint, and grants the real verifier and prober accept. What stays
- * here is how the server hands them what they use.
+ * fingerprint, and grants the real verifier and prober accept. That the
+ * server mounts them and hands them the module's own reader, verifier and
+ * prober, and each key under its own name -- so that a scan asked for is run,
+ * a finding's credential is verified and a project probed, and what each key
+ * made is what that key makes -- is asked of the composed server, end to end,
+ * by test/composition-exposure.test.js. What stays here is how the settings
+ * derive those keys.
  */
 {
-  const server = serverSource();
-  assert(server.includes('registerExposureRoutes(app, {'), 'the server mounts the exposure routes');
   /*
    * Each grant has its own key, derived for its own purpose rather than
    * reused: a grant to ask a provider "is this credential yours" is not a
@@ -886,16 +888,9 @@ function runnerFor(store, reader, options = {}) {
     ['EXPOSURE_READABILITY_KEY', 'exposureReadability', 'EXPOSURE_READABILITY_AUTHORIZATION']
   ]) {
     assert.deepStrictEqual(keys[setting], deriveKey(secret, KEY_PURPOSES[purpose]), `${name} is derived for its own purpose`);
-    assert(server.includes(`secrets.keys.${setting}`), `the server takes ${name} from the settings`);
     grants.push(keys[setting].toString('hex'));
   }
   assert.strictEqual(new Set(grants).size, 3, 'no two grants share a key');
-  assert(
-    /keys: \{\s*fingerprint: secrets\.keys\.exposureFingerprint, verification: secrets\.keys\.exposureVerification,\s*verificationSubject: secrets\.keys\.exposureVerificationSubject, readability: secrets\.keys\.exposureReadability\s*\}/.test(server),
-    'and each reaches the routes under its own name'
-  );
-  assert(/reader: exposureReader, verifyCredential: credentialVerifier\.verifyCredential, probeReadability: readabilityProbe\.probeAnonymousReadability/.test(server),
-    'the routes reach the provider through the module\'s own reader, verifier and prober');
   const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
   assert(host.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
 }

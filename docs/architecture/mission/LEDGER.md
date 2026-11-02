@@ -2112,3 +2112,31 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Each check fails when its wiring is broken.** Seventeen mutants of the composition, each caught: a cap read from the wrong setting, a re-added font proxy, the wrong vendor root, a limiter that allows everything, the wrong published boundary or ceiling, readiness told a database is configured, a REST client without the gateway, a resolver that never asks GitHub, the App's configuration unpublished, no broker, resolution around it, its audit dropped, no policy evaluator, a fixed failure mode and a silent event sink.
 - **What stays.** The module-text halves of these checks stay until their own conversion. The other 67 composition-text assertions come next: those that need a signed-in session, then those that need a database.
 - **Checks:** typecheck, lint, the route-policy comparison, the unit gate and every verify-job gate on Node 22.23.4, the composition test against both runtimes.
+
+### D14, step two — a signed-in session, and an upload, asked
+
+- **Why.** Step one asked the composed server what needs no session. The checks here need one: the session's guards and mutation context, the GitHub App's state, what an account can do, and the upload routes.
+- **The harness, as a page.** `browser(application)` signs in the way the page does and carries its cookie, app header and origin. It sends a file's bytes the way the page does, and `declare()` sends a request's headers alone, so a ceiling can be asked about before any body is read. `standInForOutbound(routes)` is whatever lies past this machine: GitHub, a font host, a CDN. Each route answers what the test says, anything else is answered 404, and every request that leaves the application is recorded. Step one's four hand-written stand-ins now use it. A body that is not JSON is read as its first words, so a failed check says what was answered.
+- **Ten assertions, now behaviour.** `test/composition.test.js` names, for each check, the text it replaced:
+  - **A signed-in write** (six): the security-foundation contract's two (the guards; auth's CSRF and step-up), `verify.js`'s two (the security and containment routes; the session's security), and the mutation context in the authorization-resolver and mutation-gateway contracts.
+    - A write without the session's CSRF token, or with another session's, is refused before GitHub is asked anything.
+    - With it, the account's permission is resolved with its own credential and the write is put to policy. Only then does GitHub see it.
+    - A sensitive action needs a step-up grant, earned by proving the credential again and spent the first time it is used.
+  - **The GitHub App's state** (one): a state signed with any other key is refused; the server's own passes, once.
+  - **What an account can do** (one): an installation's account cannot read notifications, and can do everything else a token can.
+  - **Uploads** (two): the hardening contract's scan wiring and the upload-transport contract's four ceilings.
+    - A file carrying a malware signature is refused by both upload routes with `MALWARE_DETECTED`, before GitHub is asked anything.
+    - The four ceilings are set apart from each other and asked from both sides. A declared length one byte over a route's ceiling is refused before it is read; a body exactly at it is taken.
+    - The transport shows in what GitHub is asked first: the Git Data API up to its 40 MB, a native push up to the push ceiling, Git LFS above it.
+- **Each check fails when its wiring is broken.** Twenty-one mutants of the composition, each caught by its check's own message:
+  - CSRF unverified; a step-up grant never spent, or signed with the CSRF key.
+  - The security or containment routes unregistered.
+  - The mutation context resolving nothing, or going around the gateway.
+  - The App's state accepted unverified, or verified with another key.
+  - Every account given a token's capabilities.
+  - The scanner or the upload scan bypassed.
+  - Each of the four ceilings read from another setting (nine).
+- **Step one's checks, on the shared stand-in.** Its outbound mutants were run again: a font proxy put back, the vendor copies missing, a REST client without the gateway, no App broker, and its audit dropped are each caught.
+- **A module-text half goes with them.** The hardening contract read the workbench's upload scan for `MALWARE_DETECTED`; the composed routes now answer it.
+- **What stays.** Fifty-seven composition-text assertions remain. They need a database (sessions, the evidence chain, alpha mode, exposure, governance's context, restore authorization) and come next, against PostgreSQL.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4, the composition test against both runtimes (4.5 s).

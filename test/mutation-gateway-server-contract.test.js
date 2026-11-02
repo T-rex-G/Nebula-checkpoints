@@ -13,7 +13,8 @@ assert(serverLoads('apps/api/src/platform/mutation-gateway/mutation-gateway.ts')
 /* That the composed server's provider writes are checked by the gateway is test/composition.test.js's. */
 /* The repository mutation context is the platform's (mutation-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes('function mutationContext(') && server.includes('const { mutationContext } = createRepositoryMutationContext({'), 'server must expose one mutation route context middleware');
+assert(mutationContextSource.includes('function mutationContext('), 'the platform must expose one mutation route context middleware');
+/* That the composed server's writes pass through it, and through the gateway's policy, is test/composition.test.js's. */
 assert(!mutationContextSource.includes("case 'issue.create': return { title:"), 'mutation descriptors must not retain issue titles or other free-form content');
 
 const routes = new Map([

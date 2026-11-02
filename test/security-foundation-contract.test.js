@@ -3,9 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 const root = path.resolve(__dirname, '..');
-const server = serverSource();
 const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
@@ -13,7 +11,7 @@ const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizat
 for (const guard of ['request-guards.ts', 'session-security.ts', 'repository-access.ts']) {
   assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', guard), 'utf8').includes("/platform/authorization/security-foundation.ts';"), `${guard} must use the centralized security foundation module`);
 }
-assert(server.includes('createRequestGuards({') && server.includes('createSessionSecurity({') && server.includes('createRepositoryAccess({'), 'the server composes the guards');
+/* That the composed server's guards hold a signed-in write to the session's CSRF token and a sensitive one to a single-use step-up grant is test/composition.test.js's. */
 {
   /* The same-origin step itself, on the requests it exists to refuse, and its place in front of every API route. */
   const { apiSameOrigin } = require('../apps/api/src/http/pipeline/index.ts');
@@ -40,8 +38,8 @@ assert(server.includes('createRequestGuards({') && server.includes('createSessio
   assert(routes.some(entry => entry.method === 'POST' && entry.path === '/api/security/step-up'), 'sensitive actions need a step-up grant endpoint');
 }
 /* The guards are identity and access's (application/request-guards.ts), composed by the server. */
-assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'request-guards.ts'), 'utf8'))
-  && server.includes('createRequestGuards({'), 'auth must centrally enforce CSRF and single-use step-up grants');
+assert(/async function auth[\s\S]+verifyRequestCsrf[\s\S]+sensitiveOperationFor[\s\S]+consumeStepUpAuthorization/.test(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'request-guards.ts'), 'utf8')),
+  'auth must centrally enforce CSRF and single-use step-up grants');
 /* Signing in is identity and access's account lifecycle; OAuth is its own route. */
 assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8').includes("options: Fields = { authMethod: 'token' }")
   && fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8').includes("authMethod: 'oauth'"),

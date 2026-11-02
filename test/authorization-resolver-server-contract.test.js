@@ -14,7 +14,8 @@ assert(serverLoads('apps/api/src/platform/authorization/authorization-resolver.t
 /* The mutation contexts are the platform's (mutation-context.ts) and Kepler's (governance-context.ts), composed by the server. */
 const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
 const governanceContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
-assert(mutationContextSource.includes('async function resolveMutationAuthorization(') && server.includes('createRepositoryMutationContext({'), 'server must expose one mutation authorization boundary');
+assert(mutationContextSource.includes('async function resolveMutationAuthorization('), 'the mutation context must resolve one authorization');
+/* That the composed server's writes resolve it, with the account's credential, before GitHub sees them is test/composition.test.js's. */
 assert(mutationContextSource.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
 assert(mutationContextSource.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
 for (const source of [server, mutationContextSource, governanceContextSource]) {

@@ -26,7 +26,8 @@ for (const [method, routePath] of [
 ]) guardsOf(method, routePath);
 assert.deepStrictEqual(guardsOf('GET', '/api/me'), ['accountAuth']);
 assert(appRoutes.includes('findUserInstallation(pending.userToken'), 'setup callback must verify installation ownership with the GitHub App user token');
-assert(appRoutes.includes('client.verifyState(') && server.includes('verifyState: verifyGithubAppState'), 'callbacks must verify signed session and identity-bound state');
+assert(appRoutes.includes('client.verifyState('), 'callbacks must verify signed session and identity-bound state');
+/* That the composed server refuses a state it did not sign, and a second use of one it did, is test/composition.test.js's. */
 assert(appRoutes.includes('consumeGithubAppPending'), 'callback state must be consumed once before provider side effects');
 assert(appRoutes.indexOf("consumeGithubAppPending(sessionOn(req), 'installation'") < appRoutes.indexOf('broker().findUserInstallation('), 'the installation state is spent before GitHub is asked about the installation');
 assert.match(appRoutes, /authMethod:\s*'github-app'/);
@@ -37,7 +38,7 @@ assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workben
 /* The workbench's collaboration routes: notifications, stars and the rest of a person's GitHub. */
 const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
 assert(collaboration.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
-assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
+/* That the composed server tells an installation's account apart from a person's own token is test/composition.test.js's. */
 /* The capability map is the platform's capability access, composed by the server. */
 assert.match(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'authorization', 'capability-access.ts'), 'utf8'), /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
 const notifications = policyRoutes.find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');

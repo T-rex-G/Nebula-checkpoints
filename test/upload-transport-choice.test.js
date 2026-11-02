@@ -26,7 +26,6 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { serverSource } = require('./helpers/server-source');
 
 const planning = require('../packages/contracts/src/upload-planning.ts');
 for (const name of ['TRANSPORT_CHOICES', 'normalizeTransportChoice', 'planUploadTransport']) {
@@ -149,14 +148,15 @@ assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMa
 
 /* ---- 7. the server routes through the planner ---- */
 
-const server = serverSource();
-/* The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts); the server hands it the ceilings. */
+/*
+ * The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts).
+ * Which ceilings the composed server holds an upload to, and which transport
+ * each size goes by, test/composition.test.js asks the server itself.
+ */
 const uploads = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'upload-routes.ts'), 'utf8');
 /* Matched as a pattern: a quoted relative path here would read, to the candidate qualifier, as a file this test loads. */
 assert(/import \{ normalizeTransportChoice, planUploadTransport \} from '(?:\.\.\/)+packages\/contracts\/src\/upload-planning\.ts';/.test(uploads),
   'the upload route must load the shared planner');
-assert(server.includes('limits: { blobMaxBytes: limits.blobMax, uploadMaxBytes: limits.uploadMax, gitPushMaxBytes: limits.gitPushMax, gitDataMaxBytes: limits.contentsMax }'),
-  "the upload route must be given this deployment's real ceilings");
 
 const routeStart = uploads.indexOf("app.post('/api/repo/:owner/:repo/upload'");
 const routeEnd = uploads.indexOf('\n  });', routeStart);

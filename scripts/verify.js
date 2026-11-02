@@ -327,10 +327,9 @@ must(securityRoutes.includes("app.get('/api/security/sessions'"), 'Session inven
 must(securityRoutes.includes("app.post('/api/security/revoke-others'"), 'Session revocation endpoint missing');
 must(securityRoutes.includes("app.get('/api/security/csrf'"), 'CSRF security-context endpoint missing');
 must(securityRoutes.includes("app.post('/api/security/step-up'"), 'Step-up authorization endpoint missing');
-must(server.includes('registerSecurityRoutes(app, {') && server.includes('registerSessionContainmentRoutes(app, {'), 'the server must register the security routes');
+/* That the composed server answers these routes, and spends a step-up grant the first time it is used, is test/composition.test.js's. */
 must(read('apps/api/src/modules/identity-access/application/session-security.ts').includes('await consumePendingStepUp(')
-  && read('apps/api/src/modules/identity-access/application/session-security.ts').includes('if (!deps.databaseConfigured) return usedStepUpGrants;')
-  && server.includes('createSessionSecurity({'), 'Single-use step-up replay prevention missing');
+  && read('apps/api/src/modules/identity-access/application/session-security.ts').includes('if (!deps.databaseConfigured) return usedStepUpGrants;'), 'Single-use step-up replay prevention missing');
 must(serverLoads('apps/api/src/platform/release/version.ts', root), 'server must import the package-backed version module');
 
 const render = read('render.yaml');

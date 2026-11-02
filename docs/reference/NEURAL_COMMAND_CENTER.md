@@ -269,8 +269,10 @@ Safeguards accept:
 ```text
 .github/workflows/deploy.yml   exact file
 .github/workflows              folder and descendants
+.github/workflows/             folder and descendants, written as a folder
 .github/workflows/**           recursive wildcard
 src/*.js                       one directory level
+src/*/                         each folder one level down, and its descendants
 ```
 
 Protected paths block Nebulaverse-X write routes including edits, uploads, deletes, renames, staged commits, and other operations that expose candidate paths to the guard.

@@ -9,7 +9,6 @@ const {
   compareSnapshots, riskForAccessSurface
 } = require('../apps/api/src/modules/corona/index.ts');
 const { stableJson, hashJson, hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
-const { pathMatches } = require('../apps/api/src/platform/values/path-patterns.ts');
 const { referenceSha, normalizeProviderBranches } = require('../apps/api/src/modules/github-provider/index.ts');
 const { verifyGithubSignature, normalizeGithubWebhook, riskForEvent, canAcceptLiveClient } = require('../apps/api/src/modules/pulsar/index.ts');
 const { normalizeDatabaseUrl } = require('../apps/api/src/platform/config/config.ts');
@@ -61,13 +60,7 @@ assert.strictEqual(canAcceptLiveClient(100, 0), false);
 assert.strictEqual(canAcceptLiveClient(4, 5), false);
 
 
-assert(pathMatches('.github/workflows/**', '.github/workflows/deploy.yml'));
-assert(pathMatches('infra', 'infra/prod/main.tf'));
-assert(pathMatches('src/*.js', 'src/app.js'));
-assert(pathMatches('docs/??.md', 'docs/en.md'));
-assert(!pathMatches('src/*.js', 'src/lib/a.js'));
-assert(!pathMatches('../secret', 'secret'));
-assert(!pathMatches('', 'src/a.js'));
+/* What a protected-path pattern covers is test/protected-path-patterns.test.js's, put to the server's matcher and the page's alike. */
 
 
 assert.strictEqual(normalizeRepoPath('\\assets\\release file.zip'), 'assets/release file.zip');

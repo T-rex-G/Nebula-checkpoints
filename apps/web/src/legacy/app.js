@@ -5947,8 +5947,12 @@ function openItemMenu(it) {
 function safetyKey() { return (state.work && state.work.owner) ? `${state.work.owner}/${state.work.repo}` : ''; }
 function protectedList() { return ((state.safety && state.safety.protected) || {})[safetyKey()] || []; }
 function protectedPatternMatch(pattern, value) {
-  const p = String(pattern || '').replace(/\\/g, '/').replace(/^\/+/, '');
-  const v = String(value || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  /* As the server reads it (pathMatches): a pattern ending in `/` names a folder and covers everything beneath it. */
+  const written = String(pattern || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
+  const folder = written.endsWith('/');
+  const p = written.replace(/\/+$/, '') + (folder && /[?*]/.test(written) ? '/**' : '');
+  const v = String(value || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
+  if (!p || !v) return false;
   if (!/[?*]/.test(p)) return v === p || v.startsWith(p + '/');
   let rx = '^';
   for (let i = 0; i < p.length; i++) {

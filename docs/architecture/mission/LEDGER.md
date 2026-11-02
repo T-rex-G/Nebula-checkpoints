@@ -2140,3 +2140,15 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **A module-text half goes with them.** The hardening contract read the workbench's upload scan for `MALWARE_DETECTED`; the composed routes now answer it.
 - **What stays.** Fifty-seven composition-text assertions remain. They need a database (sessions, the evidence chain, alpha mode, exposure, governance's context, restore authorization) and come next, against PostgreSQL.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4, the composition test against both runtimes (4.5 s).
+
+### A protected folder written with its slash
+
+- **Found by D14's database checks.** A push beneath a protected `.github/workflows/` scored no `PROTECTED_PATH_CHANGED`. The matcher (`platform/values/path-patterns.ts`) treats a plain pattern as a prefix followed by `/`, so `docs/` covered only paths beginning `docs//`, and no file does.
+- **What it cost.** Safeguards take "a file, folder or wildcard pattern", and `docs/` is the natural way to write a folder. Written that way, a protection covered nothing:
+  - The write guard (`corona/domain/safety-guard.ts`) let writes beneath it through.
+  - A pushed change beneath it went unscored.
+  - The page, whose matcher mirrors the server's, showed nothing beneath it as protected. The page and the server agreed, so nothing looked wrong.
+- **The fix.** A pattern ending in `/` names a folder. `docs/` covers what `docs` does, and `src/*/` what `src/*/**` does. The server's `pathMatches` and the page's `protectedPatternMatch` both read it so; the page also collapses doubled slashes, as the server always did. Stored protections are unchanged, and those written with a slash now take effect as written.
+- **One table, both readers.** `test/protected-path-patterns.test.js` puts twenty-nine cases to the server's matcher and the page's, and checks that the write guard refuses what a folder protection covers, written either way. The matcher's cases in `test/intelligence.test.js` moved there.
+- **Each part is needed.** Seven mutants, each caught: either matcher reading the slash literally, either not widening a wildcard folder, the page not collapsing doubled slashes in the pattern or in the path, and a guard that ignores protections.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

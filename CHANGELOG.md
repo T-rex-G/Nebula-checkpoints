@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### A protected folder written with its slash protects it
+
+- **`docs/` now protects what `docs` does.** Safeguards take "a file, folder
+  or wildcard pattern". A folder written with its trailing slash covered only
+  the literal `docs/`, which no file is. Writes beneath it went through, a
+  pushed change beneath it scored no `PROTECTED_PATH_CHANGED`, and the page
+  showed nothing beneath it as protected. The server and the page now both read
+  a pattern ending in `/` as a folder: `docs/` covers the folder and everything
+  beneath it, and `src/*/` each folder one level down and its contents. Stored
+  protections are unchanged; those written with a slash now take effect as
+  written. The page also reads doubled slashes as the server does.
+- Pinned in `test/protected-path-patterns.test.js`: one table put to the
+  server's matcher and the page's, and the write guard refusing what a folder
+  protection covers, written either way.
+
 ### The scale-to-zero drill reads Neon's record, not a moment
 
 - **A compute the deployment wakes again at once still counts as suspended.**

@@ -1,7 +1,10 @@
 /*
  * Whether a repository path falls under a pattern a person wrote: a plain
  * path covers itself and everything beneath it; `*` and `?` stay within one
- * segment, and `**` crosses them.
+ * segment, and `**` crosses them. A pattern ending in `/` names a folder and
+ * covers everything beneath it: `docs/` covers what `docs` does, and `src/*\/`
+ * what `src/*\/**` does. The page reads a pattern the same way
+ * (protectedPatternMatch in apps/web/src/legacy/app.js).
  */
 import { cleanPath } from './text.ts';
 
@@ -23,9 +26,11 @@ export function globToRegExp(pattern: unknown): RegExp {
 }
 
 export function pathMatches(pattern: unknown, candidate: unknown): boolean {
-  const p = cleanPath(pattern);
+  const written = cleanPath(pattern);
+  const folder = written.endsWith('/');
+  const p = written.replace(/\/+$/, '');
   const c = cleanPath(candidate);
   if (!p || !c) return false;
   if (!/[?*]/.test(p)) return c === p || c.startsWith(`${p}/`);
-  try { return globToRegExp(p).test(c); } catch { return false; }
+  try { return globToRegExp(folder ? `${p}/**` : p).test(c); } catch { return false; }
 }

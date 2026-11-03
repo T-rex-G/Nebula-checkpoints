@@ -75,8 +75,15 @@ const scanRequest = (fingerprintKey, idempotencyKey) => ({
   try {
     const deliveries = async () => (await client.query('SELECT delivery_id, status, attempt_count FROM nv_governance_webhook_deliveries ORDER BY created_at, delivery_id')).rows;
     const scanOf = async scanId => (await client.query('SELECT state, skipped_reason FROM nv_exposure_scans WHERE scan_id=$1', [scanId])).rows[0];
-    const waitingOnLock = async () => (await client.query(
-      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'"
+    /*
+     * Whether a query of the given kind is waiting on a lock. Not just any
+     * query: the store's retention sweep, which it starts when it opens,
+     * deletes old sessions, and held behind the same lock it would answer
+     * for a worker that had not yet reached it.
+     */
+    const waitingOn = pattern => async () => (await client.query(
+      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query ~ $1",
+      [pattern]
     )).rows[0].n > 0;
 
     /*
@@ -256,7 +263,7 @@ const scanRequest = (fingerprintKey, idempotencyKey) => ({
         await hold.query('BEGIN');
         await hold.query('LOCK TABLE nv_governance_webhook_deliveries IN ACCESS EXCLUSIVE MODE');
         await application.core.governance.bootstrapGovernanceDelivery();
-        await until('the delivery batch to be held', waitingOnLock);
+        await until('the delivery batch to be held', waitingOn('FROM nv_governance_webhook_deliveries'));
         stop = stopping(application);
         await pause(400);
         assert.equal(stop.code, undefined, 'the stopped server does not exit while a delivery batch is in flight');
@@ -292,7 +299,7 @@ const scanRequest = (fingerprintKey, idempotencyKey) => ({
         await hold.query('BEGIN');
         await hold.query('LOCK TABLE nv_sessions IN ACCESS EXCLUSIVE MODE');
         application.core.exposure.nudgeExposureWorker();
-        await until('the scan to be held', waitingOnLock);
+        await until('the scan to be held', waitingOn('SELECT sid, data, session_key_hash FROM nv_sessions'));
         assert.equal((await scanOf(scan.scanId)).state, 'running', 'the worker has claimed the scan');
         stop = stopping(application);
         await pause(400);

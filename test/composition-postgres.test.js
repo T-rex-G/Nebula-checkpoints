@@ -410,7 +410,10 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
         holding = true;
         const first = sensitive(page, grant);
         for (const deadline = Date.now() + 10_000; ;) {
-          const waiting = (await client.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'")).rows[0].n;
+          /* The spend's own session write, not any query: the store's retention sweep may be held as well. */
+          const waiting = (await client.query(
+            "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query ~ '^\\s*UPDATE nv_sessions'"
+          )).rows[0].n;
           if (waiting > 0) break;
           assert(Date.now() < deadline, 'the first spend should reach its session write and wait there');
           await new Promise(resolve => setTimeout(resolve, 25));

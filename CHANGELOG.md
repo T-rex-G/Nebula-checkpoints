@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Without a database, what is kept offline stays kept
+
+- **A session kept in its cookie alone never kept anything offline.** The
+  browser files the API answers it keeps under a scope the account is told,
+  bound to its session and its identity. A session the database keeps is
+  named by its id. Without a database, the session lives in its cookie, and
+  the scope was bound to the cookie itself. The cookie is sealed afresh every
+  time the session is written, and the first answer after signing in writes
+  it. So the scope the account was told stopped matching at once, and no
+  answer was ever bound for the browser to keep.
+- **The fix.** Such a session is named by its security nonce, which lasts
+  exactly as long as the session does. A session with neither an id nor a
+  nonce has no scope, and nothing of it is kept offline; it used to be bound
+  by the digest of an empty cookie. Deployments with a database are
+  unchanged. The production baseline has the same defect where it runs
+  without one.
+- Pinned in `test/session-security.test.js`, the binding for both kinds of
+  session, and in `test/composition.test.js`, on the composed server without
+  a database: the scope the account is told still binds after the first
+  answer and after a step-up grant, each of which writes the session again.
+
 ### A governance webhook to a name that does not resolve is refused as such
 
 - **Adding or changing a governance webhook whose destination does not

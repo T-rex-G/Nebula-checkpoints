@@ -37,7 +37,7 @@ function harness({ database = false, guard = [] } = {}) {
     durableSingleUseStore: () => { opened += 1; return durable; },
     setSession: async (req, res, data) => { writes.push(structuredClone(data)); },
     csrfSecret: CSRF_SECRET, stepUpSecret: STEP_UP_SECRET, safeMethods: SAFE_API_METHODS,
-    offlineCacheScopeKey: OFFLINE_KEY, readCookie,
+    offlineCacheScopeKey: OFFLINE_KEY,
     sessionIdFromRequest: req => { const value = unseal(readCookie(req, 'nv_session') || ''); return value && typeof value.sid === 'string' ? value.sid : ''; }
   });
   return { security, writes, claims, opened: () => opened };
@@ -153,21 +153,33 @@ async function main() {
       error => error.status === 403, 'another scope');
   }
 
-  /* The offline cache's scope: this session (or this cookie) and this identity. */
+  /* The offline cache's scope: this session and this identity. */
   {
     const { security } = harness();
-    const withCookie = (cookie, gh = alice) => ({ headers: cookie ? { cookie } : {}, gh, method: 'GET' });
+    const withCookie = (cookie, gh = alice, session) => ({ headers: cookie ? { cookie } : {}, gh, method: 'GET', ...(session ? { session } : {}) });
+    const scopeOf = (binding, identity = alice) => crypto.createHmac('sha256', OFFLINE_KEY).update(`${binding}|${identityKey(identity)}`).digest('base64url').slice(0, 32);
     const sid = 'f'.repeat(48);
     const sidCookie = `nv_session=${seal({ sid })}`;
-    const expected = crypto.createHmac('sha256', OFFLINE_KEY).update(`${sid}|${identityKey(alice)}`).digest('base64url').slice(0, 32);
-    assert.strictEqual(security.offlineCacheScope(withCookie(sidCookie)), expected);
+    const expected = scopeOf(sid);
+    assert.strictEqual(security.offlineCacheScope(withCookie(sidCookie)), expected, 'a session the database keeps is named by its id');
     assert.notStrictEqual(security.offlineCacheScope(withCookie(sidCookie, { login: 'bob' })), expected, 'another identity, another scope');
-    const whole = `nv_session=${seal({ accounts: [alice] })}`;
-    const digest = crypto.createHash('sha256').update(whole.slice('nv_session='.length)).digest('hex');
-    assert.strictEqual(security.offlineCacheScope(withCookie(whole)),
-      crypto.createHmac('sha256', OFFLINE_KEY).update(`${digest}|${identityKey(alice)}`).digest('base64url').slice(0, 32), 'a cookie naming no session is bound by its digest');
+    /* A session its cookie alone keeps is named by its nonce, however often the cookie is sealed again. */
+    const nonce = 'a'.repeat(48);
+    const kept = { accounts: [alice], security: { sessionNonce: nonce } };
+    const sealed = [seal(kept), seal(kept)];
+    assert.notStrictEqual(sealed[0], sealed[1], 'the cookie is sealed afresh on every write');
+    const scopes = sealed.map(cookie => security.offlineCacheScope(withCookie(`nv_session=${cookie}`, alice, kept)));
+    assert.deepStrictEqual(scopes, [scopeOf(nonce), scopeOf(nonce)], 'a session its cookie keeps is named by its nonce, whichever cookie carries it');
+    assert.strictEqual(security.offlineCacheScope(withCookie(sidCookie, alice, kept)), expected, 'a session id, where there is one, names the session');
+    const other = { accounts: [alice], security: { sessionNonce: 'b'.repeat(48) } };
+    assert.notStrictEqual(security.offlineCacheScope(withCookie(`nv_session=${seal(other)}`, alice, other)), scopes[0], 'another session, another scope');
+    const bare = { accounts: [alice] };
+    assert.strictEqual(security.offlineCacheScope(withCookie(`nv_session=${seal(bare)}`, alice, bare)), '', 'a session with neither an id nor a nonce has no scope');
+    assert.deepStrictEqual(bare, { accounts: [alice] }, 'and asking leaves it as it was');
+    const malformed = { accounts: [alice], security: { sessionNonce: 'not-a-nonce' } };
+    assert.strictEqual(security.offlineCacheScope(withCookie(`nv_session=${seal(malformed)}`, alice, malformed)), '', 'nor does one whose nonce is malformed');
+    assert.strictEqual(security.offlineCacheScope(withCookie('')), '', 'nor a request with no session at all');
     assert.strictEqual(security.offlineCacheScope(withCookie(sidCookie, null)), '', 'no identity, no scope');
-    assert.strictEqual(security.offlineCacheScope(withCookie('')).length, 32, 'even no cookie has a digest');
 
     /* The binding: a private-cache GET whose headers name this scope and the repository in its path. */
     const scope = security.offlineCacheScope(withCookie(sidCookie));

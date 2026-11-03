@@ -83,7 +83,7 @@ export function composeCore(release: Release, settings: Settings, later: Later) 
   });
   const security = createSessionSecurity({
     databaseConfigured, durableSingleUseStore, setSession: sessions.setSession, csrfSecret: secrets.keys.csrf, stepUpSecret: secrets.keys.stepUp,
-    safeMethods: SAFE_API_METHODS, offlineCacheScopeKey: secrets.keys.offlineCacheScope, readCookie, sessionIdFromRequest: sessions.sessionIdFromRequest
+    safeMethods: SAFE_API_METHODS, offlineCacheScopeKey: secrets.keys.offlineCacheScope, sessionIdFromRequest: sessions.sessionIdFromRequest
   });
   const safety = createSafetyState({ databaseConfigured, ready, pool, identityKey, setSession: sessions.setSession });
   const evidenceChain = createEvidenceChain({

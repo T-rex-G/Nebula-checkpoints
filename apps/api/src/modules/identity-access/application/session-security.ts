@@ -16,7 +16,7 @@
  * honest: one process, and it covers everything that process can be replayed
  * against.
  */
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { CSRF_HEADER, STEP_UP_HEADER } from '../../../../../../packages/contracts/src/api-envelope.ts';
 import * as OFFLINE_CACHE_POLICY from '../../../../../../packages/contracts/src/offline-cache-policy.ts';
 import { consumePendingStepUp, verifyCsrfToken, verifyStepUpGrant } from '../../../platform/authorization/security-foundation.ts';
@@ -56,14 +56,12 @@ export interface SessionSecurityDeps {
   /* The methods that change nothing, and so carry no CSRF token. */
   readonly safeMethods: ReadonlySet<string>;
   readonly offlineCacheScopeKey: Buffer;
-  readonly readCookie: (req: never, name: string) => string | null;
   readonly sessionIdFromRequest: (req: never) => string;
 }
 
 export function createSessionSecurity(deps: SessionSecurityDeps) {
   const usedStepUpGrants = new Map();
   const setSession = deps.setSession as (req: SecurityRequest, res: SessionResponse, data: unknown) => Promise<void>;
-  const readCookie = deps.readCookie as (req: SecurityRequest, name: string) => string | null;
   const sessionIdFromRequest = deps.sessionIdFromRequest as (req: SecurityRequest) => string;
 
   function stepUpReplayStore(): unknown {
@@ -129,13 +127,17 @@ export function createSessionSecurity(deps: SessionSecurityDeps) {
   /*
    * The key a signed-in request's cached responses are filed under in the
    * browser: this session and this identity, so a cache written for one is
-   * never read for another. A cookie that names no session is bound by its
-   * own digest.
+   * never read for another. A session the database keeps is named by its id.
+   * One its cookie alone keeps is named by its nonce, which lasts exactly as
+   * long as the session does; the cookie itself names nothing that lasts, as
+   * it is sealed afresh on every write of the session, so a scope bound to
+   * it would change under the browser at the first. A session with neither
+   * has no scope, and nothing of it is kept offline.
    */
   function offlineCacheScope(req: SecurityRequest): string {
-    const sid = sessionIdFromRequest(req);
-    const cookie = readCookie(req, 'nv_session') || '';
-    const sessionBinding = sid || createHash('sha256').update(cookie).digest('hex');
+    const state = req.session && req.session.security && typeof req.session.security === 'object' ? req.session.security as SecurityState : {};
+    const nonce = String(state.sessionNonce || '');
+    const sessionBinding = sessionIdFromRequest(req) || (SESSION_NONCE.test(nonce) ? nonce : '');
     if (!sessionBinding || !req.gh) return '';
     return createHmac('sha256', deps.offlineCacheScopeKey)
       .update(`${sessionBinding}|${identityKey(req.gh)}`)

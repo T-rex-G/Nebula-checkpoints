@@ -21,6 +21,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { composedApplication, browser, standInForOutbound, bodyOf } = require('./helpers/composed-application');
 const { CORRELATION_HEADER } = require('../packages/contracts/src/api-envelope.ts');
+const OFFLINE_CACHE = require('../packages/contracts/src/offline-cache-policy.ts');
 
 const SECRET = 's'.repeat(48);
 const BASE = Object.freeze({ NODE_ENV: 'test', SESSION_SECRET: SECRET, NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn' });
@@ -686,6 +687,58 @@ function admitAll(hub, key, limit = 1000) {
       assert.deepEqual(github.requests, [], 'and GitHub is asked nothing');
     } finally {
       fs.rmSync(file, { force: true });
+      github.restore();
+      await application.close();
+    }
+  }
+
+  /*
+   * ---- A session its cookie alone keeps names one offline scope for as long as it lasts ----
+   * Without a database the session lives in its cookie, sealed afresh each
+   * time the session is written. The scope the account is told binds the
+   * worker's requests for as long as the session lasts: after the first
+   * answer, which gives the session its nonce and so writes it, and after a
+   * step-up grant, which writes it again. Bound to the cookie itself, the
+   * scope changed under the browser at the first write, and nothing was kept
+   * offline without a database.
+   */
+  {
+    const application = await composedApplication(BASE);
+    const token = `ghp_${'y'.repeat(36)}`;
+    const github = standInForOutbound([
+      ['GET /user$', { body: { login: 'octo', id: 7, name: 'Octo' }, headers: { 'x-oauth-scopes': 'repo' } }],
+      ['GET /user/repos', { body: [] }]
+    ]);
+    try {
+      const page = browser(application);
+      assert.equal((await page.signIn(token)).status, 200);
+      const cookies = [page.cookie];
+      const told = async () => {
+        const me = await page.request('/api/me');
+        const { offlineCacheScope } = await bodyOf(me);
+        cookies.push(page.cookie);
+        return [me.status, offlineCacheScope];
+      };
+      const [status, scope] = await told();
+      assert.equal(status, 200);
+      assert(OFFLINE_CACHE.validScope(scope), 'the account is told its offline scope');
+      const kept = async () => {
+        const headers = { [OFFLINE_CACHE.OFFLINE_SCOPE_HEADER]: scope, [OFFLINE_CACHE.OFFLINE_REPO_HEADER]: 'account' };
+        const answered = await page.request('/api/repos', { headers });
+        await answered.arrayBuffer();
+        const decision = OFFLINE_CACHE.classifyApiRequest(new URL(`${application.url}/api/repos`), 'GET', new Headers(headers));
+        return [answered.status, OFFLINE_CACHE.responseMatchesBinding(answered.headers, decision)];
+      };
+      assert.notEqual(cookies[1], cookies[0], 'the first answer wrote the session, and its cookie was sealed again');
+      assert.deepEqual(await kept(), [200, true], 'the scope the account was told binds the worker\'s next request');
+      const stepUp = await page.request('/api/security/step-up', {
+        method: 'POST', body: { action: 'sessions.revoke-others', scope: {}, confirm: 'octo', credential: token }, headers: { 'x-nv-csrf': await page.csrf() }
+      });
+      assert.equal(stepUp.status, 200, JSON.stringify(await bodyOf(stepUp)));
+      assert.notEqual(page.cookie, cookies[1], 'a step-up grant wrote the session again');
+      assert.deepEqual(await kept(), [200, true], 'and the scope still binds');
+      assert.deepEqual(await told(), [200, scope], 'and is the one the account is told');
+    } finally {
       github.restore();
       await application.close();
     }

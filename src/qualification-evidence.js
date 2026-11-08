@@ -278,9 +278,10 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
      *                         test; a committed pointer would leave the branch
      *                         carrying state this proof does not need.
      *
-     * `verified` is absent when the provider offers no verify action, which
-     * the protocol permits. It is recorded when offered so a run cannot skip
-     * it silently.
+     * A verify action the provider offers is called, as the LFS upload calls
+     * it, and its refusal fails the check through `status`. It carries no
+     * field of its own: the protocol leaves it optional, and the proof shape
+     * admits no optional fields.
      */
     {
       key: 'lfs-object-upload',

@@ -43,6 +43,13 @@
  *     finding carries the identity or the worker's claim, or is one of five
  *     stated exceptions. Recording a probe moves no finding, and a row leaves
  *     the store field by field, never spread.
+ *   - The code audits' stores hold the same line. Every statement on an audit
+ *     carries its identity, by key or through the scope and workspace
+ *     fragments, except the findings, components and alerts inserted a
+ *     statement after their audit. Every triage statement names the
+ *     repository it is about. None selects everything or spreads a row; triage
+ *     writes who decided and never reads their key back; and the tester purge
+ *     leaves an audit's findings, components and alerts to its cascade.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -278,6 +285,58 @@ assert.deepEqual(unscoped, [], 'a statement on a scan or a finding carries its i
 assert(probeMethod, 'the probe recorder is found');
 assert.deepEqual(stringsIn(storeSource, probeMethod).filter(text => /UPDATE nv_exposure_findings/.test(text)), [], 'what the anonymous role can read moves no finding');
 assert.deepEqual(spread, [], 'a row leaves the store field by field: spreading one publishes the next column added');
+
+/* ---- Uranus: the code audits' stores ---- */
+const URANUS_STORES = path.join(SOURCE, 'modules', 'uranus', 'persistence');
+const HISTORY_FILES = ['audit-history-rows.ts', 'audit-history-records.ts', 'audit-history-sql.ts', 'audit-history-store.ts', 'audit-workspace-reads.ts']
+  .map(file => path.join(URANUS_STORES, file));
+const TRIAGE_FILE = path.join(URANUS_STORES, 'audit-triage-store.ts');
+const flattened = text => text.replace(/\s+/g, ' ').trim();
+const historyStatements = HISTORY_FILES.flatMap(file => stringsIn(parse(file))).filter(text => /nv_code_audit/.test(text)).map(flattened);
+const triageStatements = stringsIn(parse(TRIAGE_FILE)).filter(text => /nv_code_audit_triage/.test(text)).map(flattened);
+const unscopedAudits = historyStatements.filter(statement => !/identity_key|\$\{SCOPE_SQL\}|\$\{WORKSPACE_SQL\}/.test(statement)
+  /* The findings, components and alerts of an audit inserted under its identity a statement ago. */
+  && !/^INSERT INTO nv_code_audit_(?:findings|components|alerts) /.test(statement));
+const unnamedRepositories = triageStatements.filter(statement => (/^INSERT INTO nv_code_audit_triage(?:_events)? /.test(statement)
+  ? !/provider, authority, owner_login, repo_name/.test(statement)
+  : !statement.includes('${SCOPE_SQL}')));
+const everything = [...historyStatements, ...triageStatements].filter(statement => /SELECT \*/.test(statement));
+const spreadRows = [];
+for (const file of [...HISTORY_FILES, TRIAGE_FILE]) {
+  const source = parse(file);
+  each(source, node => {
+    if (!(ts.isSpreadAssignment(node) || ts.isSpreadElement(node))) return;
+    const spreadOf = bare(node.expression);
+    if ((ts.isIdentifier(spreadOf) && /^row$|Row$/.test(spreadOf.text))
+      || (ts.isElementAccessExpression(spreadOf) && ts.isIdentifier(spreadOf.expression) && spreadOf.expression.text === 'rows')) {
+      spreadRows.push(`${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+    }
+  });
+}
+/* A constant's text, by its name, in one file. */
+const constantIn = (file, name) => {
+  let found = null;
+  each(parse(file), node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name && node.initializer
+      && (ts.isStringLiteral(node.initializer) || ts.isNoSubstitutionTemplateLiteral(node.initializer))) found = node.initializer.text;
+  });
+  return found;
+};
+const PRIVACY_STORE = path.join(SOURCE, 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts');
+const cascadedDeletes = stringsIn(parse(PRIVACY_STORE)).filter(text => /DELETE FROM nv_code_audit_(?:findings|components|alerts)\b/.test(text));
+
+assert(historyStatements.length >= 16, `the audit history's statements are found (${historyStatements.length})`);
+assert.deepEqual(unscopedAudits, [], 'a statement reaches audit rows only under an identity, or as a stated exception');
+assert(triageStatements.length >= 8, `the triage statements are found (${triageStatements.length})`);
+assert.deepEqual(unnamedRepositories, [], 'a triage statement names the repository it is about');
+assert.equal(constantIn(TRIAGE_FILE, 'SCOPE_SQL'), 'provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4', 'and triage\'s scope is the repository, whole');
+assert.deepEqual(everything, [], 'every read names its columns');
+assert.deepEqual(spreadRows, [], 'a row leaves the store field by field');
+for (const [name, key] of [['DECISION_COLUMNS', 'decided_by_key'], ['EVENT_COLUMNS', 'actor_key']]) {
+  const columns = constantIn(TRIAGE_FILE, name);
+  assert(columns && !columns.includes(key), `triage writes ${key} and never reads it back`);
+}
+assert.deepEqual(cascadedDeletes, [], 'the purge leaves an audit\'s findings, components and alerts to its cascade');
 
 assert.deepEqual(strayDisconnects, [], 'only a route that removes an account disconnects one');
 assert.deepEqual([...disconnectingRoutes].sort(), REMOVAL_ROUTES, 'and each of them is found');

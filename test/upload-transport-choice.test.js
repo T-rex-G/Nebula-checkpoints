@@ -146,73 +146,6 @@ for (const size of [-1, NaN, Infinity, 'big', null, undefined]) {
 assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMaxBytes: 0, gitDataMaxBytes: GIT_DATA_MAX }), TypeError);
 assert.throws(() => planUploadTransport({ size: MB, requested: 'auto', gitPushMaxBytes: GIT_PUSH_MAX, gitDataMaxBytes: 0 }), TypeError);
 
-/* ---- 7. the server routes through the planner ---- */
-
-/*
- * The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts).
- * Which ceilings the composed server holds an upload to, and which transport
- * each size goes by, test/composition.test.js asks the server itself.
- */
-const uploads = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'upload-routes.ts'), 'utf8');
-/* Matched as a pattern: a quoted relative path here would read, to the candidate qualifier, as a file this test loads. */
-assert(/import \{ normalizeTransportChoice, planUploadTransport \} from '(?:\.\.\/)+packages\/contracts\/src\/upload-planning\.ts';/.test(uploads),
-  'the upload route must load the shared planner');
-
-const routeStart = uploads.indexOf("app.post('/api/repo/:owner/:repo/upload'");
-const routeEnd = uploads.indexOf('\n  });', routeStart);
-assert(routeStart > 0 && routeEnd > routeStart, 'the upload route must be locatable');
-const route = uploads.slice(routeStart, routeEnd);
-
-/* The choice arrives normalized, so an unknown value can never mean LFS. */
-assert(route.includes('const transportChoice = normalizeTransportChoice(req.query.lfs);'),
-  'the requested transport must be normalized by the shared planner');
-
-/* One plan, made once, from this deployment's real ceilings. */
-assert(route.includes('const plan = planUploadTransport({'), 'the route must plan the transport');
-assert(/gitPushMaxBytes:\s*limits\.gitPushMaxBytes/.test(route), 'the plan must be made against the real native push ceiling');
-assert(/gitDataMaxBytes:\s*limits\.gitDataMaxBytes/.test(route), 'the plan must be made against the real Git Data boundary');
-assert(route.includes('if (plan.refusal) throw Object.assign(new Error(plan.refusal.message), { status: plan.refusal.status });'),
-  'a refusal the plan names must be the refusal the reader is given');
-
-/*
- * And that plan is the ONLY place in the route where a ceiling is consulted.
- *
- * This is the assertion that matters. Naming the old expression would only
- * forbid the old spelling; a second size comparison written any other way is
- * the same defect -- a decision made behind the reader's request. So the
- * ceilings may appear in the route once, as arguments to the planner, and
- * nowhere else.
- */
-const planCall = route.slice(route.indexOf('const plan = planUploadTransport({'), route.indexOf('if (plan.refusal)'));
-assert(planCall.length > 0);
-const outsideThePlan = route.replace(planCall, '');
-for (const ceiling of ['gitPushMaxBytes', 'gitDataMaxBytes', 'maxMegabytes', 'GIT_PUSH_MAX', 'CONTENTS_MAX', 'NATIVE_PUSH_MAX_MB']) {
-  assert(!outsideThePlan.includes(ceiling),
-    `the upload route must consult ${ceiling} only through the shared planner, never a second time on its own`);
-}
-
-/* Every transport the route can take is the one the plan chose. */
-for (const selection of [
-  "if (plan.route === 'git-push') {",
-  "if (plan.route === 'lfs') {\n        deps.enforceProtectedPaths",
-  "else if (plan.route === 'git-push') {"
-]) {
-  assert(route.includes(selection), `the route must select its transport with: ${selection}`);
-}
-
-/* And every upload that lands says how it was carried through the shared response,
- * so a swap is never something the reader has to infer. */
-const landings = route.match(/res\.json\(\{ ok: true[^\n]*\)/g) || [];
-assert.strictEqual(landings.length, 1, 'all GitHub upload strategies must converge on the shared success response');
-for (const landing of landings) {
-  assert(/\btransport\b/.test(landing), `a successful upload must report its transport: ${landing}`);
-}
-
-/* A swap the provider forces at run time is reported too, not only one the
- * plan predicted. */
-assert(/transport\.fallback = transport\.fallback \|\|/.test(route),
-  'the run-time ladder to LFS must report itself as a fallback');
-
 /* ---- 8. the browser routes through the same planner ---- */
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
@@ -280,4 +213,119 @@ assert(projected.features.lfs, 'the lfs capability must exist for GitHub');
 assert(projected.features.lfs.status !== 'Unavailable',
   'the transport choice may only offer Git LFS while GitHub actually has it');
 
-console.log('upload transport choice: ok');
+/* ---- 7. the server routes through the planner ---- */
+
+/*
+ * The route is the workbench's (apps/api/src/modules/workbench/http/upload-routes.ts),
+ * asked here over HTTP with its transports recorded. For every size around
+ * the two ceilings it is handed, every choice a reader can send and either
+ * provider, it answers what the plan says: the refusal the plan names, or the
+ * transport the plan chose and the swap it reports, the Git LFS capability
+ * required exactly when LFS was asked for. A swap the provider forces at run
+ * time -- a push refused, then a blob too large -- is reported too. Which
+ * ceilings the composed server hands it, test/composition.test.js asks the
+ * server itself.
+ */
+const express = require('express');
+const workbench = require('../apps/api/src/modules/workbench/index.ts');
+
+const LIMITS = Object.freeze({ blobMaxBytes: 3000, uploadMaxBytes: 9000, gitPushMaxBytes: 5000, gitDataMaxBytes: 2000 });
+
+async function askRoute() {
+  const state = { provider: 'github', pushRefused: false, blobTooLarge: false };
+  const used = [];
+  const ran = [];
+  const guard = name => (req, res, next) => { ran.push(name); next(); };
+  const app = express();
+  workbench.registerUploadRoutes(app, {
+    providerSessionAccess: guard('providerSessionAccess'),
+    alphaRepositoryAccess: guard('alphaRepositoryAccess'),
+    capabilityAccess: feature => guard(`capabilityAccess('${feature}')`),
+    capabilityAccessWhen: (feature, applies) => (req, res, next) => { if (applies(req)) ran.push(`capabilityAccess('${feature}')`); next(); },
+    auth: guard('auth'),
+    mutationContext: action => guard(`mutationContext('${action}')`),
+    account: () => ({ provider: state.provider, login: 'maya', token: 'tok' }),
+    fail: (res, error) => res.status(error.status >= 400 && error.status < 600 ? error.status : 500).json({ error: error.message }),
+    gh: async (account, apiPath) => {
+      used.push('git-data');
+      if (state.blobTooLarge) throw Object.assign(new Error('Blob too large'), { status: 422 });
+      return { sha: 'b'.repeat(40) };
+    },
+    commits: { commitTree: async () => ({ sha: 'c'.repeat(40) }) },
+    intake: workbench.createUploadIntake({ concurrency: 1, timeoutMs: 60_000 }),
+    nativePush: { push: async () => { used.push('git-push'); if (state.pushRefused) throw Object.assign(new Error('git push rejected'), { status: 502 }); return { commit: 'd'.repeat(40) }; } },
+    lfs: { upload: async (account, owner, repo, branch, repoPath, tmp, oid) => { used.push('lfs'); return { commit: 'e'.repeat(40), oid }; }, downloadStream: async () => null },
+    limits: LIMITS,
+    scanUpload: async () => ({ builtin: { available: true, matches: 0 } }),
+    enforceProtectedPaths: () => {}
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  const upload = async (size, choice) => {
+    used.length = 0;
+    ran.length = 0;
+    const query = new URLSearchParams({ path: 'media/clip.bin', branch: 'main', ...(choice === undefined ? {} : { lfs: choice }) });
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/repo/acme/demo/upload?${query}`, {
+      method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: Buffer.alloc(size, 'x')
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const STRATEGY = { lfs: 'lfs', 'git-push': 'git-push', 'git-data': 'git-data-api' };
+  try {
+    const sizes = [1, 1999, 2000, 2001, 4999, 5000, 5001, 9000];
+    const choices = [undefined, 'auto', 'git', 'lfs', 'force', ' LFS ', 'nonsense'];
+    for (const provider of ['github', 'gitea']) {
+      state.provider = provider;
+      for (const size of sizes) {
+        for (const choice of choices) {
+          const planned = planUploadTransport({
+            size, requested: normalizeTransportChoice(choice), lfsAvailable: provider === 'github',
+            gitPushMaxBytes: LIMITS.gitPushMaxBytes, gitDataMaxBytes: LIMITS.gitDataMaxBytes
+          });
+          const answered = await upload(size, choice);
+          const label = `${provider}, ${size} bytes, lfs=${String(choice)}`;
+          assert.deepStrictEqual(ran, [
+            'providerSessionAccess', 'alphaRepositoryAccess', "capabilityAccess('native-push')", "capabilityAccess('upload-security')",
+            ...(normalizeTransportChoice(choice) === 'lfs' ? ["capabilityAccess('lfs')"] : []), 'auth', "mutationContext('file.upload')"
+          ], label);
+          if (planned.refusal) {
+            assert.deepStrictEqual([answered.status, answered.body.error, used], [planned.refusal.status, planned.refusal.message, []], label);
+            continue;
+          }
+          assert.strictEqual(answered.status, 200, label);
+          assert.deepStrictEqual([answered.body.strategy, used], [STRATEGY[planned.route], [planned.route]], label);
+          assert.deepStrictEqual(answered.body.transport, JSON.parse(JSON.stringify({ requested: planned.requested, fallback: planned.fallback })), label);
+          assert.strictEqual(answered.body.size, size, label);
+        }
+      }
+    }
+    /* The provider refuses the push, then the blob as too large: the file goes by LFS, and the swap is said. */
+    const warnings = [];
+    const consoleError = console.error;
+    console.error = line => warnings.push(JSON.parse(line));
+    try {
+      state.provider = 'github';
+      state.pushRefused = true;
+      state.blobTooLarge = true;
+      const laddered = await upload(4000, 'git');
+      assert.deepStrictEqual([laddered.status, laddered.body.strategy, used], [200, 'lfs (auto-fallback)', ['git-push', 'git-data', 'lfs']]);
+      assert.deepStrictEqual(laddered.body.transport, {
+        requested: 'git', fallback: { from: 'git', to: 'lfs', reason: 'the provider refused the object as too large for an ordinary Git push' }
+      });
+      /* A push refused while the blob is taken is carried by the Git Data API, as asked: no swap of transport to report. */
+      state.blobTooLarge = false;
+      const carried = await upload(4000, 'git');
+      assert.deepStrictEqual([carried.body.strategy, used, carried.body.transport], ['git-data-blob', ['git-push', 'git-data'], { requested: 'git', fallback: null }]);
+    } finally { console.error = consoleError; }
+    assert.deepStrictEqual(warnings.map(warning => [warning.warn, warning.status, warning.err]), [
+      ['native push failed, laddering', 502, 'git push rejected'], ['native push failed, laddering', 502, 'git push rejected']
+    ]);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
+askRoute().then(() => console.log('upload transport choice: ok'), error => {
+  console.error(error);
+  process.exitCode = 1;
+});

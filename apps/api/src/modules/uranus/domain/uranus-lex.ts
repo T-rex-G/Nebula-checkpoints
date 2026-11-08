@@ -162,7 +162,7 @@ export function lexJs(text: string, nesting = 0): Token[] {
     if (tokens.length > MAX_TOKENS) break;
     const char = text.charAt(index);
     if (char === '\n') { line += 1; index += 1; continue; }
-    if (char === ' ' || char === '\t' || char === '\r' || char === '\f' || char === '\v' || char === ' ' || char === '﻿') { index += 1; continue; }
+    if (char === ' ' || char === '\t' || char === '\r' || char === '\f' || char === '\v' || char === '\u00a0' || char === '\ufeff') { index += 1; continue; }
     if (char === '/' && text.charAt(index + 1) === '/') {
       const end = text.indexOf('\n', index);
       index = end === -1 ? length : end;

@@ -19,8 +19,6 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '030_code_audit_triage.sql'), 'utf8');
 const code = sql.replace(/--.*$/gm, '');
-const storeSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'uranus', 'persistence', 'audit-triage-store.ts'), 'utf8');
-const privacySource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8');
 const { SHAPE } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
 
 const TABLES = ['nv_code_audit_triage', 'nv_code_audit_triage_events', 'nv_code_audit_resolutions'];
@@ -62,27 +60,14 @@ for (const [name, regex] of Object.entries(SHAPE)) {
   assert(sql.includes(regex.source), `SHAPE.${name} (${regex.source}) must be the pattern the migration checks`);
 }
 
-/* ---- Every statement names its repository ------------------------------------ */
-{
-  const statements = [...storeSource.matchAll(/`([^`]*nv_code_audit_triage[^`]*)`/g)].map(match => match[1].replace(/\s+/g, ' ').trim());
-  assert(statements.length >= 8, `the statement scan must find statements: ${statements.length}`);
-  for (const statement of statements) {
-    if (/^INSERT INTO nv_code_audit_triage(_events)? /.test(statement)) {
-      assert(/provider, authority, owner_login, repo_name/.test(statement), 'an insert names the repository it is about');
-      continue;
-    }
-    assert(statement.includes('${SCOPE_SQL}'), `a statement reaches decisions without its repository: ${statement.slice(0, 80)}`);
-  }
-  assert(/const SCOPE_SQL = 'provider=\$1 AND authority=\$2 AND owner_login=\$3 AND repo_name=\$4'/.test(storeSource));
-  assert(!/\.\.\.(row|rows\[\d+\])\s*[,})]/.test(storeSource), 'a row must never be spread into an answer');
-  assert(!/SELECT \*/.test(storeSource), 'every read names its columns');
-  /* The identity key is written, never read back out. */
-  assert(!/DECISION_COLUMNS = '[^']*decided_by_key/.test(storeSource) && !/EVENT_COLUMNS = '[^']*actor_key/.test(storeSource));
-}
-
-/* ---- The account purge knows about the tables ------------------------------- */
-assert(/DELETE FROM nv_code_audit_resolutions WHERE identity_key=ANY/.test(privacySource));
-assert(/DELETE FROM nv_code_audit_triage WHERE decided_by_key=ANY/.test(privacySource));
-assert(/DELETE FROM nv_code_audit_triage_events WHERE actor_key=ANY/.test(privacySource));
+/*
+ * Every statement the triage store runs names the repository it is about --
+ * an insert by its columns, everything else through the repository's whole
+ * scope -- none selects everything or spreads a row, and who decided is
+ * written but never read back: test/module-rules.test.js's, over the store's
+ * syntax tree. That the account purge removes every decision, event and
+ * resolution a tester made, and nobody else's, is asked of PostgreSQL by
+ * test/alpha-privacy-purge-postgres.js.
+ */
 
 console.log('code audit triage contract tests passed');

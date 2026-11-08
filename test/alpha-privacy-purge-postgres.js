@@ -85,6 +85,21 @@ async function verifyAlphaPrivacyPurge(connectionString) {
     await pool.query(`INSERT INTO nv_code_audits ${auditColumns}
       VALUES ($1,'github','github.com','other','demo',$2,'main',$3,'2.0.0',now(),71,'C','{}','{}',0,0,0,0,0,0,0,0,0,0,3,3,true,0,0,0)`,
     [crypto.randomUUID(), unrelatedKey, 'd'.repeat(40)]);
+    /*
+     * Triage: a decision, the event that records it and a resolution, each
+     * carrying who made it -- by its decider's, its actor's and its identity's
+     * key -- for the tester and for somebody else, in the same repository.
+     */
+    const triage = async (key, findingId) => {
+      await pool.query(`INSERT INTO nv_code_audit_triage (provider, authority, owner_login, repo_name, finding_id, rule, disposition, reason, decided_by, decided_by_key, decided_at, expires_at)
+        VALUES ('github','github.com','owner','demo',$1,'SEC-011','false-positive','test-code','tester',$2,now(),NULL)`, [findingId, key]);
+      await pool.query(`INSERT INTO nv_code_audit_triage_events (event_id, provider, authority, owner_login, repo_name, finding_id, rule, event, disposition, reason, expires_at, actor, actor_key, occurred_at)
+        VALUES ($1,'github','github.com','owner','demo',$2,'SEC-011','decided','false-positive','test-code',NULL,'tester',$3,now())`, [crypto.randomUUID(), findingId, key]);
+      await pool.query(`INSERT INTO nv_code_audit_resolutions (provider, authority, owner_login, repo_name, identity_key, ref_name, finding_id, rule, severity, first_seen_at, resolved_at)
+        VALUES ('github','github.com','owner','demo',$1,'main',$2,'SEC-011','serious',now() - interval '1 day',now())`, [key, findingId]);
+    };
+    await triage(identityKey, 'b'.repeat(24));
+    await triage(unrelatedKey, 'c'.repeat(24));
     assert.strictEqual((await pool.query('SELECT 1 FROM nv_sessions WHERE session_key_hash=$1', [sessionKeyHash])).rowCount, 0);
     await privacy.completeCleanupTask({ testerId, cleanupId: cleanup.cleanupId });
     await privacy.createDeletionRequest({ testerId });
@@ -112,6 +127,13 @@ async function verifyAlphaPrivacyPurge(connectionString) {
     assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audit_findings WHERE audit_id=$1', [auditId])).rowCount, 0, 'their findings went with them');
     assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audit_components WHERE audit_id=$1', [auditId])).rowCount, 0, 'and their components');
     assert.strictEqual((await pool.query('SELECT 1 FROM nv_code_audits WHERE identity_key=$1', [unrelatedKey])).rowCount, 1, 'another identity keeps its audits');
+    const triageOf = async key => [
+      (await pool.query('SELECT 1 FROM nv_code_audit_triage WHERE decided_by_key=$1', [key])).rowCount,
+      (await pool.query('SELECT 1 FROM nv_code_audit_triage_events WHERE actor_key=$1', [key])).rowCount,
+      (await pool.query('SELECT 1 FROM nv_code_audit_resolutions WHERE identity_key=$1', [key])).rowCount
+    ];
+    assert.deepStrictEqual(await triageOf(identityKey), [0, 0, 0], 'no triage decision, event or resolution a purged tester made is kept');
+    assert.deepStrictEqual(await triageOf(unrelatedKey), [1, 1, 1], 'while another identity\'s triage stays');
   } finally {
     await pool.end();
   }

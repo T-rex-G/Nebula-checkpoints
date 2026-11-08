@@ -8,9 +8,10 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const express = require('express');
 const { pullListItem, MAX_LABELS, MAX_LABEL_LENGTH } = require('../apps/api/src/modules/posture/index.ts');
+const workbench = require('../apps/api/src/modules/workbench/index.ts');
+const { LIST_PAGE } = require('../apps/web/src/features/posture/pull-board');
 
 /* A list entry in the shape GitHub documents for GET /repos/{owner}/{repo}/pulls. */
 const listed = {
@@ -73,15 +74,55 @@ assert(many.labels.every(name => name.length <= MAX_LABEL_LENGTH));
 const twins = pullListItem({ number: 3, labels: [{ name: `${'a'.repeat(MAX_LABEL_LENGTH)}-one` }, { name: `${'a'.repeat(MAX_LABEL_LENGTH)}-two` }, { name: 'b' }] });
 assert.deepStrictEqual(twins.labels, ['a'.repeat(MAX_LABEL_LENGTH), 'b']);
 
-/* The route answers through this function, so the board and the workbench read one shape. */
-const collaboration = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
-const route = collaboration.slice(collaboration.indexOf("app.get('/api/repo/:owner/:repo/pulls',"), collaboration.indexOf("app.get('/api/repo/:owner/:repo/pulls/:num',"));
-assert(route.includes("res.json(listed(pulls, 'pulls.map').map(pullListItem))"), 'the list route maps through pullListItem');
-assert(/capabilityAccess\('pulls\.read'\)/.test(route), 'the list route stays behind pulls.read');
-assert(/alphaRepositoryAccess/.test(route), 'the list route stays inside the repository scope');
-/* The board reads a full page as "at least this many": its page size is the route's. */
-const page = route.match(/per_page=(\d+)/);
-assert(page, 'the list route names its page size');
-assert.strictEqual(Number(page[1]), require('../apps/web/src/features/posture/pull-board').LIST_PAGE, 'the board and the list route disagree about one page');
-
-console.log('pull list tests passed');
+/*
+ * The list route answers through this function, so the board and the
+ * workbench read one shape. It asks GitHub for one page of the board's size,
+ * the most recently updated first, in the state asked for -- open unless
+ * closed or all -- and only once the session, the repository scope and
+ * pulls.read have each let the request through.
+ */
+(async () => {
+  const ran = [];
+  const asked = [];
+  const guard = name => (req, res, next) => { ran.push(name); next(); };
+  const app = express();
+  workbench.registerCollaborationRoutes(app, {
+    providerSessionAccess: guard('providerSessionAccess'),
+    alphaRepositoryAccess: guard('alphaRepositoryAccess'),
+    capabilityAccess: feature => guard(`capabilityAccess('${feature}')`),
+    githubSearchAccess: guard('githubSearchAccess'),
+    auth: guard('auth'),
+    mutationContext: action => guard(`mutationContext('${action}')`),
+    account: () => ({ provider: 'github', login: 'maya', token: 'tok' }),
+    fail: (res, error) => res.status(error.status || 500).json({ error: error.message }),
+    gh: async (account, apiPath) => { asked.push([account.login, apiPath]); return [listed, { ...listed, number: 43, merged_at: '2026-10-10T00:00:00Z' }, null]; },
+    alphaRepositories: () => null,
+    protectedPatternsForReq: () => [],
+    enforceProtectedPaths: () => {}
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  try {
+    for (const [query, state] of [['', 'open'], ['?state=closed', 'closed'], ['?state=all', 'all'], ['?state=merged', 'open']]) {
+      ran.length = 0;
+      asked.length = 0;
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/repo/acme/demo/pulls${query}`);
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(await response.json(),
+        JSON.parse(JSON.stringify([listed, { ...listed, number: 43, merged_at: '2026-10-10T00:00:00Z' }, null].map(pullListItem))));
+      assert.deepStrictEqual(ran, ['providerSessionAccess', 'alphaRepositoryAccess', "capabilityAccess('pulls.read')", 'auth']);
+      assert.strictEqual(asked.length, 1);
+      const [login, apiPath] = asked[0];
+      const url = new URL(apiPath, 'https://api.github.com');
+      assert.deepStrictEqual([login, url.pathname], ['maya', '/repos/acme/demo/pulls']);
+      assert.deepStrictEqual(Object.fromEntries(url.searchParams), { state, per_page: String(LIST_PAGE), sort: 'updated', direction: 'desc' },
+        `one page of the board's size -- it reads a full page as "at least this many" -- newest first, in the state asked for (${query || 'no state'})`);
+    }
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+  console.log('pull list tests passed');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

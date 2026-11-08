@@ -1,6 +1,8 @@
 /*
- * The release gate's secret scan: whether a tracked file carries a
- * credential, by the rules in secret-rules.ts.
+ * The release gate's scan of what the release carries: whether a tracked
+ * file holds a credential, by the rules in secret-rules.ts, and whether its
+ * text hides anything from the review the release relies on -- characters a
+ * reader cannot see, or a file that should be text and cannot be read as such.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -80,14 +82,62 @@ export function discoverReleasableTextFiles(rootDirectory: string): string[] {
   return gitTrackedFiles(root) || walkArchiveFiles(root);
 }
 
+/* The file's text as it is, a leading byte-order mark kept rather than consumed: it is a character no reader sees. */
 function decodeText(buffer: Buffer): string | null {
   if (buffer.includes(0)) return null;
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
   } catch {
     return null;
   }
 }
+
+/*
+ * The types of file the release carries as bytes rather than text: images,
+ * fonts, archives. Every other file must be UTF-8 text the scan can read. One
+ * that is not is refused as undecodable -- a single NUL or stray byte used to
+ * make a file pass unread. A binary file's bytes are still searched for
+ * credentials, which are ASCII whatever carries them.
+ */
+export const BINARY_EXTENSIONS: readonly string[] = Object.freeze([
+  '.avif', '.gif', '.gz', '.ico', '.jpeg', '.jpg', '.otf', '.pdf', '.png', '.tgz', '.ttf', '.wasm', '.webp', '.woff', '.woff2', '.zip'
+]);
+
+/*
+ * Characters a reader of the file cannot see: control characters other than
+ * tab and the line ends; format characters -- the bidirectional controls that
+ * make code read in one order and run in another, zero-width characters, a
+ * byte-order mark, the tags that spell text no one is shown; and the line and
+ * paragraph separators, which end a line where an editor may show none. Each
+ * can hide code, or a credential, from the review; text that needs one writes
+ * its escape.
+ */
+const HIDDEN_CHARACTER = /(?![\t\n\r])[\p{Cc}\p{Cf}\u2028\u2029]/u;
+
+/* The offset of the first byte that is a NUL or not well-formed UTF-8 (Unicode's table 3-7), or -1. */
+function firstUndecodable(bytes: Buffer): number {
+  for (let at = 0; at < bytes.length;) {
+    const lead = bytes[at] ?? 0;
+    if (lead === 0) return at;
+    if (lead < 0x80) { at += 1; continue; }
+    const [length, low, high] = lead >= 0xc2 && lead <= 0xdf ? [2, 0x80, 0xbf]
+      : lead === 0xe0 ? [3, 0xa0, 0xbf]
+        : lead === 0xed ? [3, 0x80, 0x9f]
+          : lead >= 0xe1 && lead <= 0xef ? [3, 0x80, 0xbf]
+            : lead === 0xf0 ? [4, 0x90, 0xbf]
+              : lead >= 0xf1 && lead <= 0xf3 ? [4, 0x80, 0xbf]
+                : lead === 0xf4 ? [4, 0x80, 0x8f] : [0, 0, 0];
+    if (!length) return at;
+    for (let next = 1; next < length; next += 1) {
+      const byte = bytes[at + next];
+      if (byte === undefined || byte < (next === 1 ? low : 0x80) || byte > (next === 1 ? high : 0xbf)) return at;
+    }
+    at += length;
+  }
+  return -1;
+}
+
+const lineOf = (text: string, index: number): number => text.slice(0, index).split('\n').length;
 
 export interface SecretFinding {
   readonly path: string;
@@ -117,15 +167,22 @@ export function scanFiles(options: ScanOptions = {}): readonly SecretFinding[] {
     }
     if (metadata.isSymbolicLink() || !metadata.isFile()) continue;
     if (metadata.size > MAX_FILE_BYTES) fail(`secret scan file exceeds the safe size limit: ${relative}`);
-    const text = decodeText(fs.readFileSync(absolute));
-    if (text === null) continue;
+    const bytes = fs.readFileSync(absolute);
+    const binary = BINARY_EXTENSIONS.includes(path.posix.extname(relative).toLowerCase());
+    const text = binary ? bytes.toString('latin1') : decodeText(bytes);
+    if (text === null) {
+      const at = firstUndecodable(bytes);
+      findings.push(Object.freeze({ path: relative, rule: 'undecodable-text', line: lineOf(bytes.toString('latin1'), at < 0 ? bytes.length : at) }));
+      continue;
+    }
+    if (!binary) {
+      const hidden = HIDDEN_CHARACTER.exec(text);
+      if (hidden) findings.push(Object.freeze({ path: relative, rule: 'hidden-character', line: lineOf(text, hidden.index) }));
+    }
     for (const { rule, regex } of RULES) {
       regex.lastIndex = 0;
       const match = regex.exec(text);
-      if (match) {
-        const line = text.slice(0, match.index).split('\n').length;
-        findings.push(Object.freeze({ path: relative, rule, line }));
-      }
+      if (match) findings.push(Object.freeze({ path: relative, rule, line: lineOf(text, match.index) }));
     }
   }
   return Object.freeze(findings.sort((left, right) =>

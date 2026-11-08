@@ -83,6 +83,16 @@ const route = "const app = require('express')();\napp.get('/a', (req, res) => { 
   assert.strictEqual(matching(grown, 0), 2);
 }
 
+/* ---- Space a file carries that no one typed ------------------------------------ */
+/* A byte-order mark and a no-break space part tokens as a space does: a file saved with either lexes as the code it shows. */
+{
+  const tokens = text => lexJs(text).map(token => [token.t, token.v]);
+  const plain = tokens('const a = f(b);');
+  assert(plain.length > 5);
+  assert.deepStrictEqual(tokens('\ufeffconst a = f(b);'), plain);
+  assert.deepStrictEqual(tokens('const\u00a0a = f(\u00a0b);'), plain);
+}
+
 /* ---- What the bounds stop following is said, and the rest is still traced ------- */
 {
   const text = route + 'const x = ' + 'f('.repeat(3000) + 'req.query.a' + ')'.repeat(3000) +

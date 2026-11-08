@@ -21,10 +21,9 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const sql = fs.readFileSync(path.join(root, 'db', 'migrations', '029_code_audit_history.sql'), 'utf8');
-/* The store and everything it is built from: the rows in, the records out, the SQL fragments and the workspace reads. */
-const persistence = path.join(root, 'apps', 'api', 'src', 'modules', 'uranus', 'persistence');
-const storeSource = ['audit-history-rows.ts', 'audit-history-records.ts', 'audit-history-sql.ts', 'audit-history-store.ts', 'audit-workspace-reads.ts']
-  .map(file => fs.readFileSync(path.join(persistence, file), 'utf8')).join('\n');
+/* The store's vocabularies, as its rows module declares them, and its SQL fragments. */
+const rows = require('../apps/api/src/modules/uranus/persistence/audit-history-rows.ts');
+const fragments = require('../apps/api/src/modules/uranus/persistence/audit-history-sql.ts');
 const coverageMigration = fs.readFileSync(path.join(root, 'db', 'migrations', '032_code_audit_analysis_coverage.sql'), 'utf8').replace(/--.*$/gm, '').trim();
 assert.strictEqual(coverageMigration, 'ALTER TABLE nv_code_audits ADD COLUMN analysis_complete boolean NULL;',
   'analysis proof is additive, nullable for existing rows, and never backfilled as complete');
@@ -70,14 +69,13 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
     const source = regex.source.replace(/\{0,213\}\$$/, '*$');
     assert(inSql(source) || inSql(pattern(regex)) || inSql(regex.source.slice(0, -1)), `SHAPE.${name} (${regex.source}) must be the pattern the migration checks`);
   }
-  /* A vocabulary the store takes from a shared contract is read from the contract itself. */
-  const vocabulary = (constant, column, shared = null) => {
-    const listed = shared ? null : [...storeSource.matchAll(new RegExp(`const ${constant} = Object\\.freeze\\(\\[([^\\]]+)\\](?: as const)?\\)`, 'g'))][0];
-    assert(shared || listed, `missing ${constant}`);
-    const values = shared ? [...shared].sort() : listed[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort();
+  /* Each vocabulary the store writes is the one its column's constraint admits. */
+  const vocabulary = (constant, column) => {
+    const values = rows[constant];
+    assert(Array.isArray(values) && Object.isFrozen(values), `missing ${constant}`);
     const checked = new RegExp(`${column} IN \\(([^)]+)\\)`).exec(sql);
     assert(checked, `missing constraint on ${column}`);
-    assert.deepStrictEqual(checked[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort(), values, `${constant} and the ${column} constraint must agree`);
+    assert.deepStrictEqual(checked[1].match(/'[^']+'/g).map(value => value.slice(1, -1)).sort(), [...values].sort(), `${constant} and the ${column} constraint must agree`);
   };
   vocabulary('ECOSYSTEMS', 'ecosystem');
   vocabulary('SEVERITIES', 'severity');
@@ -86,49 +84,28 @@ for (const table of TABLES) assert(sql.includes(`CREATE TABLE ${table} (`), `mis
   vocabulary('REACH_TIERS', 'reach_tier');
   vocabulary('GRADES', 'grade');
   vocabulary('CAP_REASONS', 'cap_reason');
-  vocabulary('WATCH_STATES', 'watch_state', require('../packages/contracts/src/evidence.ts').AUDIT_WATCH_STATES);
-  assert(/import \{ AUDIT_WATCH_STATES, type AuditWatchState \} from '(?:\.\.\/)+packages\/contracts\/src\/evidence\.ts';/.test(storeSource) && storeSource.includes('export const WATCH_STATES = AUDIT_WATCH_STATES;'),
-    'the store reads its watch states from the evidence contract');
+  vocabulary('WATCH_STATES', 'watch_state');
+  assert.strictEqual(rows.WATCH_STATES, require('../packages/contracts/src/evidence.ts').AUDIT_WATCH_STATES, 'the store reads its watch states from the evidence contract');
   vocabulary('WATCH_KEV', 'watch_kev');
   vocabulary('ALERT_KINDS', 'kind');
 }
 
 /* ---- Every statement is scoped to an identity -------------------------------------- */
-{
-  const statements = [...storeSource.matchAll(/`([^`]*nv_code_audit[^`]*)`/g)].map(match => match[1].replace(/\s+/g, ' ').trim());
-  assert(statements.length >= 16, `the statement scan must find statements: ${statements.length}`);
-  const unscoped = [];
-  for (const statement of statements) {
-    if (/identity_key|\$\{SCOPE_SQL\}|\$\{WORKSPACE_SQL\}/.test(statement)) continue;
-    /*
-     * The findings and components of an audit inserted in the same transaction,
-     * a statement ago, under the identity it was inserted with: the only
-     * statements that name an audit id without re-proving whose it is.
-     */
-    if (/^INSERT INTO nv_code_audit_(findings|components|alerts) /.test(statement)) continue;
-    unscoped.push(statement);
-  }
-  assert.deepStrictEqual(unscoped, [], 'a statement reaches audit rows without an identity or a stated exception');
-  assert(/const SCOPE_SQL = 'provider=\$1 AND authority=\$2 AND owner_login=\$3 AND repo_name=\$4 AND identity_key=\$5'/.test(storeSource));
-  assert(/const WORKSPACE_SQL = `WITH latest AS \([^`]*FROM nv_code_audits\s+WHERE provider=\$1 AND authority=\$2 AND identity_key=\$3\s/.test(storeSource),
-    'the workspace reads start from one identity\'s audits');
-  /* The alert insert is reached only after the audit row was updated under the identity, and returned early if it was not. */
-  assert(/if \(!updated\.rowCount\) return null;[\s\S]*INSERT INTO nv_code_audit_alerts/.test(storeSource));
-}
-
-/* ---- Rows leave field by field --------------------------------------------------- */
-assert(!/\.\.\.(row|rows\[\d+\])\s*[,})]/.test(storeSource), 'a row must never be spread into an answer');
-assert(!/SELECT \*/.test(storeSource), 'every read names its columns');
-
-/* ---- The account purge knows about the tables ---------------------------------- */
-{
-  const privacySource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts'), 'utf8');
-  assert(/DELETE FROM nv_code_audits WHERE identity_key=ANY/.test(privacySource), 'the tester purge must delete nv_code_audits by identity key');
-  /* The other three cascade from their audit; a second delete would make two places responsible for the same rows. */
-  for (const table of TABLES.slice(1)) {
-    assert(new RegExp(`${table} \\([\\s\\S]*?audit_id uuid NOT NULL REFERENCES nv_code_audits \\(audit_id\\) ON DELETE CASCADE`).test(sql), `${table} must cascade from its audit`);
-    assert(!new RegExp(`DELETE FROM ${table}`).test(privacySource), `${table} leaves with its audit`);
-  }
+/*
+ * The scope every statement on an audit carries is the repository and the
+ * identity, whole, and the workspace reads start from one identity's audits.
+ * That each statement carries one of them, or is an insert of an audit's own
+ * rows a statement after the audit; that no read selects everything or spreads
+ * a row; and that the tester purge leaves findings, components and alerts to
+ * their audit's cascade, is test/module-rules.test.js's, over the store's
+ * syntax tree. That the purge takes a tester's audits and their rows is asked
+ * of PostgreSQL by test/alpha-privacy-purge-postgres.js.
+ */
+assert.strictEqual(fragments.SCOPE_SQL, 'provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4 AND identity_key=$5');
+assert.match(fragments.WORKSPACE_SQL, /^WITH latest AS \([^]*FROM nv_code_audits\s+WHERE provider=\$1 AND authority=\$2 AND identity_key=\$3\s/,
+  'the workspace reads start from one identity\'s audits');
+for (const table of TABLES.slice(1)) {
+  assert(new RegExp(`${table} \\([\\s\\S]*?audit_id uuid NOT NULL REFERENCES nv_code_audits \\(audit_id\\) ON DELETE CASCADE`).test(sql), `${table} must cascade from its audit`);
 }
 
 console.log('code audit history contract tests passed');

@@ -94,9 +94,11 @@ try {
     'gitlab-token',
     'gitlab-token',
     'private-key',
-    'slack-token'
+    'slack-token',
+    'undecodable-text'
   ].sort());
-  assert(!findings.some(item => item.path === 'binary.data'));
+  assert.deepStrictEqual(findings.filter(item => item.path === 'binary.data').map(item => [item.rule, item.line]), [['undecodable-text', 1]],
+    'a file that is not of a binary type and does not read as text is refused, not passed unread');
   assert(!findings.some(item => item.path === 'linked-secret'));
   assert(!findings.some(item => item.path === 'harmless.js'));
   assert(findings.every(item => Number.isInteger(item.line) && item.line >= 1),
@@ -265,6 +267,67 @@ try {
     );
   } finally {
     fs.rmSync(compatibilityRoot, { recursive: true, force: true });
+  }
+}
+
+/*
+ * What a reader cannot see. Every character a review would miss is refused
+ * wherever the release carries text, at the line it is on: control
+ * characters but tab and the line ends, format characters -- bidirectional
+ * controls, zero-width characters, a byte-order mark, tags -- and the line
+ * and paragraph separators. A file that should be text and does not decode
+ * is refused at the line of its first bad byte; a file of a binary type is
+ * not read as text, and its bytes are still searched for credentials.
+ */
+{
+  const hiddenRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-secret-hidden-'));
+  try {
+    const hidden = {
+      'control.js': 'const a = 1;\nconst b = "\u0007";\n',
+      'delete.ts': 'x\u007f\n',
+      'c1.css': 'a {}\nb {}\n\u0085\n',
+      'reorder.js': 'if (role !== "admin\u202e") ok();\n',
+      'isolate.ts': 'const a = 1;\n// \u2066note\u2069\n',
+      'zero-width.md': 'one\ntw\u200bo\n',
+      'joiner.js': 'const isAdmin\u200d = true;\n',
+      'byte-order.html': '\ufeff<p>page</p>\n',
+      'tag.txt': 'plain\nhidden \u{e0041}\u{e0042}\n',
+      'separator.js': '// note\u2028run();\n',
+      'soft-hyphen.json': '{"name":"pass\u00adword"}\n'
+    };
+    const lines = { 'control.js': 2, 'delete.ts': 1, 'c1.css': 3, 'reorder.js': 1, 'isolate.ts': 2, 'zero-width.md': 2, 'joiner.js': 1, 'byte-order.html': 1, 'tag.txt': 2, 'separator.js': 1, 'soft-hyphen.json': 1 };
+    const quiet = {
+      'tabs.js': 'if (a) {\r\n\treturn b;\r\n}\n',
+      'escaped.js': "const marks = ['\\u202e', '\\ufeff', '\\u200b'];\n",
+      'spaces.md': 'non\u00a0breaking and emoji \u{1f600}\n'
+    };
+    for (const [relative, content] of Object.entries({ ...hidden, ...quiet })) fs.writeFileSync(path.join(hiddenRoot, relative), content);
+    const undecodable = {
+      'nul.js': [Buffer.from('a\nb\nc'), Buffer.from([0]), Buffer.from('\n')],
+      'stray.ts': [Buffer.from('one\ntwo\n'), Buffer.from([0xc3, 0x28]), Buffer.from('\n')],
+      'overlong.css': [Buffer.from('a\n'), Buffer.from([0xc0, 0x80]), Buffer.from('\nb\n')],
+      'surrogate.md': [Buffer.from('a\n'), Buffer.from([0xed, 0xa0, 0x80]), Buffer.from('\nb\nc\n')],
+      'truncated.txt': [Buffer.from('end\nnear\n'), Buffer.from([0xe2, 0x82])],
+      'beyond.json': [Buffer.from('[\n'), Buffer.from([0xf4, 0x90, 0x80, 0x80]), Buffer.from('\n]\n')]
+    };
+    const badLines = { 'nul.js': 3, 'stray.ts': 3, 'overlong.css': 2, 'surrogate.md': 2, 'truncated.txt': 3, 'beyond.json': 2 };
+    for (const [relative, parts] of Object.entries(undecodable)) fs.writeFileSync(path.join(hiddenRoot, relative), Buffer.concat(parts));
+    const token = `gh${'p'}_${'V'.repeat(36)}`;
+    fs.writeFileSync(path.join(hiddenRoot, 'image.png'), Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0x01, 0x1b]), Buffer.from(`tEXt ${token}`), Buffer.from([0, 0xff])]));
+    fs.writeFileSync(path.join(hiddenRoot, 'font.WOFF2'), Buffer.from([0x77, 0x4f, 0x46, 0x32, 0, 0x01, 0x02, 0xff, 0xfe, 0x80]));
+    fs.writeFileSync(path.join(hiddenRoot, 'image.png.txt'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]));
+
+    const scanned = scanFiles({ root: hiddenRoot, files: fs.readdirSync(hiddenRoot) });
+    const found = Object.fromEntries(scanned.map(item => [item.path, [item.rule, item.line]]));
+    assert.strictEqual(scanned.length, Object.keys(found).length, 'one finding a file');
+    for (const [relative, line] of Object.entries(lines)) assert.deepStrictEqual(found[relative], ['hidden-character', line], relative);
+    for (const [relative, line] of Object.entries(badLines)) assert.deepStrictEqual(found[relative], ['undecodable-text', line], relative);
+    assert.deepStrictEqual(found['image.png'], ['github-token', 1], "a binary type's bytes are searched for credentials");
+    assert.deepStrictEqual(found['image.png.txt'], ['undecodable-text', 1], 'the type is the name\'s last extension');
+    for (const relative of [...Object.keys(quiet), 'font.WOFF2']) assert.strictEqual(found[relative], undefined, relative);
+    assert(!JSON.stringify(scanned).includes(token), 'a finding never echoes what it found');
+  } finally {
+    fs.rmSync(hiddenRoot, { recursive: true, force: true });
   }
 }
 

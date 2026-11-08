@@ -3,7 +3,8 @@
  * object lives, its bytes are fetched from there or sent there, and an upload
  * is verified when storage asks for it. The negotiation names the account's
  * own credentials; every storage address it answers with must be HTTPS and
- * carry no credentials of its own, and no redirect is followed. An upload
+ * carry no credentials of its own, a header it hands back replaces ours of the
+ * same name, and no redirect is followed. An upload
  * commits the pointer in the object's place, and the path's LFS attribute
  * when .gitattributes does not already name it.
  */
@@ -44,6 +45,19 @@ function fromBase64(value: unknown): Buffer {
 function spread(value: unknown): Record<string, unknown> {
   return { ...Object(value) };
 }
+/*
+ * Request headers, each set's over the one before. A name replaces the same
+ * name in any case, so a header storage hands back is sent once, as it said,
+ * rather than joined to ours of the same name.
+ */
+function headersOf(...sets: unknown[]): Record<string, string> {
+  const merged = new Map<string, readonly [string, string]>();
+  for (const set of sets) {
+    for (const [name, value] of Object.entries(spread(set))) merged.set(name.toLowerCase(), [name, String(value)]);
+  }
+  return Object.fromEntries(merged.values());
+}
+const named = (headers: Readonly<Record<string, string>>, name: string): boolean => Object.keys(headers).some(key => key.toLowerCase() === name);
 
 export function requireHttpsLfsActionUrl(raw: unknown, action: string): URL {
   let target: URL;
@@ -110,7 +124,7 @@ export function createLfsTransfer(deps: LfsDeps): LfsTransfer {
       deps.assertProviderMutation({ provider: account.provider || 'github', baseUrl: account.baseUrl, method: 'PUT', owner, repo, transport: 'git-lfs.upload' });
       const up = await deps.fetch(uploadUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(size), ...spread(member(uploadAction, 'header') || {}) },
+        headers: headersOf({ 'Content-Type': 'application/octet-stream', 'Content-Length': String(size) }, member(uploadAction, 'header')),
         body: fs.createReadStream(tmp), duplex: 'half', redirect: 'error'
       }, deps.transferTimeoutMs);
       if (!up.ok) {
@@ -120,12 +134,9 @@ export function createLfsTransfer(deps: LfsDeps): LfsTransfer {
       const verify = member(member(obj, 'actions'), 'verify');
       if (verify) {
         const verifyUrl = requireHttpsLfsActionUrl(member(verify, 'href'), 'verification');
-        const verifyHeaders: Record<string, unknown> = {
-          Accept: 'application/vnd.git-lfs+json',
-          'Content-Type': 'application/vnd.git-lfs+json',
-          ...spread(member(verify, 'header') || {})
-        };
-        if (verifyUrl.hostname === 'github.com' && !verifyHeaders.Authorization) {
+        const verifyHeaders = headersOf({ Accept: 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json' }, member(verify, 'header'));
+        /* The account's credentials go to GitHub's own host alone, and only when the verification brings none of its own. */
+        if (verifyUrl.hostname === 'github.com' && !named(verifyHeaders, 'authorization')) {
           verifyHeaders.Authorization = `Basic ${basic}`;
         }
         deps.assertProviderMutation({ provider: account.provider || 'github', baseUrl: account.baseUrl, method: 'POST', owner, repo, transport: 'git-lfs.verify' });

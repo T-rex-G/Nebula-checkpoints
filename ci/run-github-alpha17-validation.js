@@ -520,8 +520,8 @@ function createGithubClient({ env, fetchImpl }) {
    * These mirror the workbench's LFS upload (apps/api/src/modules/workbench/
    * application/lfs.ts) request for request, because a
    * probe that reached the provider by some other route would prove the
-   * provider works and leave the product's own path unproven. The guard in
-   * test/lfs-probe-contract.test.js holds the two together.
+   * provider works and leave the product's own path unproven.
+   * test/lfs-probe-contract.test.js holds the two together by what each sends.
    */
   const lfsBase = new URL(requireGithubOrigin(env.NV_ALPHA17_GITHUB_LFS_URL || 'https://github.com', 'lfs'));
   const lfsBatchUrl = () => new URL(`${repository}.git/info/lfs/objects/batch`,
@@ -538,6 +538,20 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   /*
+   * Request headers, each set's over the one before, a name replacing the
+   * same name in any case: a header the store hands back is sent once, as it
+   * said, the way the LFS upload merges them.
+   */
+  function headersOf(...sets) {
+    const merged = new Map();
+    for (const set of sets) {
+      for (const [name, value] of Object.entries({ ...Object(set) })) merged.set(name.toLowerCase(), [name, String(value)]);
+    }
+    return Object.fromEntries(merged.values());
+  }
+  const hostOf = href => { try { return new URL(String(href)).hostname; } catch { return ''; } };
+
+  /*
    * The product signs LFS Basic auth with the session's login, so the probe
    * asks the provider who the credential belongs to rather than assuming the
    * repository owner is the actor.
@@ -552,7 +566,7 @@ function createGithubClient({ env, fetchImpl }) {
   }
 
   /* Written out rather than parameterised, so the body is visibly the one
-   * the LFS upload sends and the contract guard can hold them together. */
+   * the LFS upload sends. */
   async function lfsBatch({ login, branch, objects }) {
     return requestJson(fetchImpl, lfsBatchUrl(), {
       method: 'POST',
@@ -575,11 +589,7 @@ function createGithubClient({ env, fetchImpl }) {
     }
     const response = await fetchImpl(parsed, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(bytes.length),
-        ...(action.header || {})
-      },
+      headers: headersOf({ 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length) }, action.header),
       body: bytes,
       redirect: 'error'
     });
@@ -665,7 +675,17 @@ function createGithubClient({ env, fetchImpl }) {
     let verifyRefused = false;
     const verifyAction = firstObject.actions && firstObject.actions.verify;
     if (objectStored && verifyAction && verifyAction.href) {
-      const verifyHeaders = { ...lfsHeaders(login), ...(verifyAction.header || {}) };
+      /*
+       * Signed as the product signs it: the account's credentials go to
+       * GitHub's own host alone, and only when the verification brings none
+       * of its own. A store elsewhere is not handed the mutation credential.
+       */
+      const { Authorization: accountCredentials, ...lfsMedia } = lfsHeaders(login);
+      const verifyHeaders = headersOf(lfsMedia, verifyAction.header);
+      if (hostOf(verifyAction.href) === lfsBase.hostname
+        && !Object.keys(verifyHeaders).some(name => name.toLowerCase() === 'authorization')) {
+        verifyHeaders.Authorization = accountCredentials;
+      }
       /*
        * A refusal here is data, not a transport fault. Demanding 200 made a
        * store that had silently dropped the object fail the run with

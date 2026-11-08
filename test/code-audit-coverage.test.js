@@ -13,12 +13,11 @@
  *     counted honestly in coverage, including when a reader has no batch read;
  *   - the rules run the same on a worker as in process;
  *   - and no source file carries a stray control byte, which is how six
- *     patterns once went blind: a `\b` written as a backspace.
+ *     patterns once went blind: a `\b` written as a backspace. The release
+ *     scan refuses one now, wherever the release carries text.
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const audit = require('../apps/api/src/modules/uranus/index.ts');
 const { scanOffThread } = require('../apps/api/src/modules/uranus/index.ts').auditWorker;
 
@@ -205,28 +204,13 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
     assert.strictEqual(compactAudit(limited).audit.watch_state, 'unavailable', 'no retained versions is not proof of no vulnerable dependencies');
   }
 
-  /* ---- No stray control bytes in the code that ships ---------------------------- */
   /*
-   * The server's code, the CommonJS modules left in src/, the contracts both
-   * sides share, the page's sources and the public files served as they are.
+   * No stray control bytes in the code that ships: the release scan refuses a
+   * character no reader can see in any text the release carries, and a file
+   * that should be text and does not decode (platform/release/secret-scanner.ts,
+   * asked by test/secret-scanner.test.js); `npm run check:secrets` runs it
+   * over the tree.
    */
-  const root = path.join(__dirname, '..');
-  const tree = (directory, pattern) => fs.readdirSync(path.join(root, directory), { recursive: true })
-    .map(name => path.join(directory, String(name)))
-    .filter(file => pattern.test(file) && fs.statSync(path.join(root, file)).isFile());
-  const shipped = [
-    ...fs.readdirSync(path.join(root, 'src')).filter(name => name.endsWith('.js')).map(name => path.join('src', name)),
-    ...fs.readdirSync(path.join(root, 'public')).filter(name => /\.(js|css|html)$/.test(name)).map(name => path.join('public', name)),
-    ...tree(path.join('apps', 'api', 'src'), /\.ts$/),
-    ...tree(path.join('packages', 'contracts', 'src'), /\.ts$/),
-    ...tree(path.join('apps', 'web', 'src'), /\.(?:[cm]?[jt]sx?|css|html)$/)
-  ];
-  assert(shipped.includes(path.join('apps', 'api', 'src', 'main.ts')), 'the server\'s entry point is among the code that ships');
-  for (const file of shipped) {
-    const text = fs.readFileSync(path.join(root, file), 'latin1');
-    const stray = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.exec(text);
-    assert(!stray, `${file} carries control byte 0x${stray && stray[0].charCodeAt(0).toString(16)} at offset ${stray && stray.index}`);
-  }
 
   console.log('code audit coverage tests passed');
 })().catch(error => {

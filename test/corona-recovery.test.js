@@ -46,9 +46,10 @@ function fixture(options = {}) {
     heads.set(branch, input.body.sha);
     return { object: { sha: input.body.sha } };
   };
+  /* With a database, grants are claimed in the store every instance shares; without one, in this instance's memory. */
   const recovery = createRecovery({
-    gh, seal, unseal, identityKey: () => identity, databaseConfigured: false,
-    durableSingleUse: () => assert.fail('without a database the grants are this instance\'s'), manifestMax: 10000
+    gh, seal, unseal, identityKey: () => identity, databaseConfigured: Boolean(options.durable),
+    durableSingleUse: () => options.durable || assert.fail('without a database the grants are this instance\'s'), manifestMax: 10000
   });
   const pass = () => {};
   registerSnapshotRoutes({
@@ -125,6 +126,7 @@ function fixture(options = {}) {
   assert.strictEqual(safePreview.body.canRestore, true, 'create-if-absent recovery remains available');
   const restored = await recreate.call('restore-refs', { confirm: 'RESTORE', authorization: safePreview.body.authorization });
   assert.strictEqual(restored.body.ok, true);
+  assert.strictEqual(restored.body.partialFailure, false, 'all of it went through');
   assert.strictEqual(recreate.heads.get('restored'), C);
   assert.strictEqual(recreate.heads.get('main'), A);
   recreate.heads.delete('restored');
@@ -137,7 +139,40 @@ function fixture(options = {}) {
     confirm: 'RESTORE', authorization: racedCreate.oldGrant([{ name: 'restored', action: 'recreate', from: '', to: C }])
   });
   assert.strictEqual(raced.body.ok, false, 'provider create-if-absent must reject a branch created after preflight');
+  assert.strictEqual(raced.body.partialFailure, false, 'none of it went through, which is no partial failure');
   assert.strictEqual(racedCreate.heads.get('restored'), B, 'a raced branch must never be overwritten');
   assert(!racedCreate.effects.some(([kind, method]) => kind === 'provider' && method === 'PATCH'));
+  /* A preview gone stale is refused before the claim, so its authorization is left unspent for when it is current again. */
+  const stale = fixture();
+  const staleGrant = stale.oldGrant([{ name: 'late', action: 'recreate', from: '', to: C }]);
+  stale.heads.set('late', B);
+  const refusedStale = await stale.call('restore-refs', { confirm: 'RESTORE', authorization: staleGrant });
+  assert.deepStrictEqual([refusedStale.status, refusedStale.body.code], [409, 'RESTORE_PREVIEW_STALE'], 'a branch created since the preview makes it stale');
+  stale.heads.delete('late');
+  const current = await stale.call('restore-refs', { confirm: 'RESTORE', authorization: staleGrant });
+  assert.strictEqual(current.body.ok, true, 'and the authorization was not spent on it');
+
+  /* With a database, the shared store says whether a grant is spent: one that cannot answer refuses, and memory never stands in. */
+  let durableAnswers = [new Error('database blinked')];
+  const outage = fixture({ durable: { consumeOnce: async () => { const next = durableAnswers.shift(); if (next instanceof Error) throw next; return next; } } });
+  const outageGrant = outage.oldGrant([{ name: 'fresh', action: 'recreate', from: '', to: C }]);
+  const unavailable = await outage.call('restore-refs', { confirm: 'RESTORE', authorization: outageGrant });
+  assert.deepStrictEqual([unavailable.status, unavailable.body.code], [503, 'RESTORE_AUTHORIZATION_UNAVAILABLE'], 'a claim that cannot be verified is refused');
+  assert(!outage.effects.some(([kind, method]) => kind === 'provider' && method === 'POST'), 'and nothing is written');
+  durableAnswers = [false];
+  const spentElsewhere = await outage.call('restore-refs', { confirm: 'RESTORE', authorization: outageGrant });
+  assert.strictEqual(spentElsewhere.body.code, 'RESTORE_AUTHORIZATION_REPLAY', 'a grant another instance spent is refused here too');
+  durableAnswers = [true];
+  const claimed = await outage.call('restore-refs', { confirm: 'RESTORE', authorization: outageGrant });
+  assert.strictEqual(claimed.body.ok, true, 'and one the store grants goes through');
+
+  /* A restore some of whose branches are recreated and some refused reports each, and says it was partial. */
+  const mixed = fixture({ raceAfterRead: 'restored' });
+  const partial = await mixed.call('restore-refs', {
+    confirm: 'RESTORE', authorization: mixed.oldGrant([{ name: 'restored', action: 'recreate', from: '', to: C }, { name: 'fresh', action: 'recreate', from: '', to: C }])
+  });
+  assert.deepStrictEqual([partial.body.ok, partial.body.partialFailure], [false, true], 'a restore that went part of the way says so');
+  assert.deepStrictEqual(partial.body.report.map(item => [item.name, item.ok]), [['restored', false], ['fresh', true]], 'and reports each branch');
+  assert.deepStrictEqual([mixed.heads.get('restored'), mixed.heads.get('fresh')], [B, C]);
   console.log('Corona reference recovery and alpha containment regressions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

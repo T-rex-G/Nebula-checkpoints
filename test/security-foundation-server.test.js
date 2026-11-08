@@ -5,7 +5,6 @@ const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
@@ -13,156 +12,28 @@ const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key
 const root = path.resolve(__dirname, '..');
 
 /*
- * Consumption of a step-up grant is asynchronous, because the guard behind it
- * may not live in this process. An un-awaited call assigns a Promise, and a
- * Promise is truthy -- the sensitive action would run, and the audit record
- * that reads req.stepUp.action would write undefined for every field. The
- * mistake leaves no trace at runtime, so it is pinned here at the source.
+ * The single-use guards -- a step-up grant, the GitHub App's OAuth state and a
+ * restore's authorization -- each answer through a promise, because the guard
+ * behind them may not be in this process. An unawaited answer is a truthy
+ * Promise: the request would go on as if the guard had said yes. Each is held
+ * by what it does:
+ *   - every promise in the server and the contracts is awaited, handled or let
+ *     go explicitly (eslint.config.js, nebulaverse/promises, by the type
+ *     checker);
+ *   - a grant the guard says is spent is refused, and a guard that cannot
+ *     answer refuses rather than falling back to this instance's memory; which
+ *     guard answers is the configuration's, not the database's mood
+ *     (test/session-security.test.js);
+ *   - one instance's spent grant, state or authorization is spent on every
+ *     instance (test/multi-instance-contract.test.js, and the composed server
+ *     in test/composition-postgres.test.js), and an App state is spent once
+ *     (test/composition.test.js, test/github-app-configured-server.test.js);
+ *   - a restore's authorization is claimed after its preflight, so a stale
+ *     preview leaves it unspent, and before the first reference is written, so
+ *     a replay writes nothing; the shared store says whether it is spent, and
+ *     one that cannot answer refuses; and no existing branch is force-updated
+ *     (test/corona-recovery.test.js).
  */
-/* The step-up's consumption and its replay guard are the session's own security's. */
-const sessionSecuritySource = fs.readFileSync(path.join(root, 'apps/api/src/modules/identity-access/application/session-security.ts'), 'utf8');
-let consumePendingStepUpCalls = 0;
-for (const line of sessionSecuritySource.split('\n')) {
-  if (!line.includes('consumePendingStepUp(')) continue;
-  if (line.trimStart().startsWith('*') || line.includes('require(') || line.startsWith('import ')) continue;
-  assert.match(
-    line, /await consumePendingStepUp\(/,
-    `every consumePendingStepUp call must be awaited: ${line.trim()}`
-  );
-  consumePendingStepUpCalls += 1;
-}
-/*
- * A loop that finds nothing passes. If these calls ever moved out of the
- * file read -- which an extraction would do -- this file would keep
- * reporting success while checking an empty string, which is the failure
- * mode worth guarding above all the others here. They have moved, to
- * identity-access/application/session-security.ts, and the checks with them.
- */
-assert(consumePendingStepUpCalls > 0, 'no consumePendingStepUp call was found to check: this guard has gone vacuous');
-assert.match(
-  sessionSecuritySource, /async function consumeStepUpAuthorization\(/,
-  'consumeStepUpAuthorization must stay asynchronous so its callers keep awaiting it'
-);
-
-/*
- * Which guard answers is a question about configuration, not about whether the
- * database is reachable this second. A deployment that has a database has one
- * shared guard; when it cannot be reached the claim fails and the action is
- * refused. Falling back to the in-process Map there would be the worst of both,
- * because every instance would answer "unspent" for a grant another instance
- * had already spent -- a replay let through precisely during an outage.
- */
-assert.match(
-  sessionSecuritySource, /function stepUpReplayStore\(\): unknown \{\s*\n\s*if \(!deps\.databaseConfigured\) return usedStepUpGrants;/,
-  'the replay guard must be chosen by configuration, not by database availability'
-);
-/*
- * That the composed server says whether a database is configured, not whether
- * it can be reached, and so gives session security the shared store -- a
- * grant one instance has claimed is refused by another at once, while the
- * first is still writing its session -- is test/composition-postgres.test.js's.
- */
-assert.strictEqual(
-  /catch[\s\S]{0,200}usedStepUpGrants/.test(sessionSecuritySource), false,
-  'no failure path may fall back to the in-process replay guard'
-);
-
-/*
- * The GitHub App OAuth state is the same guard under another kind, and carries
- * the same hazard: an un-awaited claim is a truthy Promise, so the callback
- * would go on to exchange the code with GitHub having verified nothing. The
- * App's flow is identity and access's.
- */
-const githubAppSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
-assert.match(
-  githubAppSource, /async function consumeGithubAppPending\(/,
-  'consuming an OAuth state must be asynchronous: the guard may not be in this process'
-);
-let consumeGithubAppPendingCalls = 0;
-for (const line of githubAppSource.split('\n')) {
-  if (!line.includes('consumeGithubAppPending(')) continue;
-  if (line.includes('async function')) continue;
-  assert.match(
-    line, /await consumeGithubAppPending\(/,
-    `every consumeGithubAppPending call must be awaited: ${line.trim()}`
-  );
-  consumeGithubAppPendingCalls += 1;
-}
-assert(consumeGithubAppPendingCalls > 0, 'no consumeGithubAppPending call was found to check: this guard has gone vacuous');
-assert.strictEqual(
-  /catch[\s\S]{0,200}USED_GITHUB_APP_STATES/.test(githubAppSource), false,
-  'no failure path may fall back to the in-process OAuth state guard'
-);
-
-/*
- * The recovery authorization was not a single-use guard at all. Its check and
- * its record sat either side of `await preflightRestoreActions`, a series of
- * reads against the provider, so two requests carrying one authorization both
- * passed the check while the first was still on the network and both went on
- * to restore the refs. One process was enough for that: an await is all it
- * takes to interleave a read and a write.
- *
- * The claim is now one operation, and where it sits is the fix. After the
- * preflight, so a stale preview still leaves the authorization unspent; before
- * the refs are written, so nothing is restored on an authorization that was
- * not claimed.
- */
-const coronaRecovery = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'corona', 'application', 'recovery.ts'), 'utf8');
-const coronaRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'corona', 'http', 'recovery-routes.ts'), 'utf8');
-assert.match(
-  coronaRecovery, /const claimRestoreAuthorization: Recovery\['claimRestoreAuthorization'\] = async \(/,
-  'claiming a recovery authorization must be asynchronous'
-);
-let claimRestoreAuthorizationCalls = 0;
-/* The composition root makes no such call; the routes do. */
-for (const line of coronaRoutes.split('\n')) {
-  if (!line.includes('claimRestoreAuthorization(')) continue;
-  assert.match(
-    line, /await recovery\.claimRestoreAuthorization\(/,
-    `every claimRestoreAuthorization call must be awaited: ${line.trim()}`
-  );
-  claimRestoreAuthorizationCalls += 1;
-}
-assert(claimRestoreAuthorizationCalls > 0, 'no claimRestoreAuthorization call was found to check: this guard has gone vacuous');
-
-const restoreRoute = coronaRoutes.slice(coronaRoutes.indexOf("app.post('/api/repo/:owner/:repo/restore-refs'"), coronaRoutes.indexOf('\nfunction rowsOf('));
-const preflightAt = restoreRoute.indexOf('await recovery.preflightRestoreActions(');
-const claimAt = restoreRoute.indexOf('await recovery.claimRestoreAuthorization(');
-const writeAt = restoreRoute.indexOf("method: 'POST'");
-assert(!restoreRoute.includes("force: true"), 'reference recovery must never force-update an existing branch');
-assert(preflightAt > -1 && claimAt > -1 && writeAt > -1, 'the restore route must still preflight, claim and write');
-assert(
-  claimAt > preflightAt,
-  'the claim must follow the preflight, so a stale preview leaves the authorization unspent'
-);
-assert(
-  claimAt < writeAt,
-  'the claim must precede the first ref write, so nothing is restored on an unclaimed authorization'
-);
-
-assert.strictEqual(
-  /usedAuthorizations\.(set|has|delete)\(/.test(coronaRecovery), false,
-  'the recovery guard must be reached through the claim contract, never poked directly'
-);
-assert.strictEqual(
-  /catch[\s\S]{0,200}usedAuthorizations/.test(coronaRecovery), false,
-  'no failure path may fall back to the in-process recovery guard'
-);
-/* Every call, in the server's tree -- its composition root among it -- a declaration (its parameters typed) is not a call. */
-const stepUpSources = [...fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
-  .filter(file => String(file).endsWith('.ts'))
-  .map(file => fs.readFileSync(path.join(root, 'apps', 'api', 'src', String(file)), 'utf8'))];
-let consumeStepUpAuthorizationCalls = 0;
-for (const line of stepUpSources.join('\n').split('\n')) {
-  if (!line.includes('consumeStepUpAuthorization(')) continue;
-  if (line.includes('async function') || /consumeStepUpAuthorization\([^)]*:/.test(line)) continue;
-  assert.match(
-    line, /await (?:[\w.]+\.)?consumeStepUpAuthorization\(/,
-    `every consumeStepUpAuthorization call must be awaited: ${line.trim()}`
-  );
-  consumeStepUpAuthorizationCalls += 1;
-}
-assert(consumeStepUpAuthorizationCalls > 0, 'no consumeStepUpAuthorization call was found to check: this guard has gone vacuous');
 const secret = 'security-server-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = ['security', 'server', 'snapshot', 'secret',
   'fedcba9876543210', 'fedcba9876543210'].join('-');

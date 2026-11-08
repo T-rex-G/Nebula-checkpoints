@@ -244,5 +244,53 @@ function world(overrides = {}) {
     stream.req.emit('close');
     assert.equal(deps.hub.count(), 0);
   }
+  /*
+   * The stream's keepalive, and the check it makes of the stream's session
+   * every twentieth tick. A session that is gone closes the stream. A check
+   * whose own handler throws -- the stream it would close already gone --
+   * leaves nothing unhandled, and the next check still runs.
+   */
+  {
+    const intervals = [];
+    const own = { setInterval: global.setInterval, clearInterval: global.clearInterval };
+    const unhandled = [];
+    const onUnhandled = reason => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    global.setInterval = (fn, ms) => { const timer = { fn, ms, unref() {} }; intervals.push(timer); return timer; };
+    global.clearInterval = () => {};
+    try {
+      let sessionRows = 1;
+      let alphaReads = 0;
+      const { call, deps } = world({ alpha: true });
+      const pool = deps.pool;
+      deps.pool = () => ({
+        query: async (sql, params) => /FROM nv_sessions/.test(sql) ? { rows: [], rowCount: sessionRows } : pool().query(sql, params)
+      });
+      deps.readAlphaSession = async () => { alphaReads += 1; throw new Error('alpha session revoked'); };
+      deps.hub = { ...deps.hub, closeAlpha: () => { throw new Error('the stream is already gone'); } };
+      const stream = await call('GET /api/repo/:owner/:repo/live-events/stream');
+      const keepAlive = intervals.find(timer => timer.ms === 15000);
+      assert(keepAlive, 'the stream keeps itself alive every fifteen seconds');
+      const settle = () => new Promise(resolve => setImmediate(resolve));
+      const twentyTicks = async () => { for (let tick = 0; tick < 20; tick += 1) keepAlive.fn(); await settle(); await settle(); };
+
+      await twentyTicks();
+      assert.equal(stream.written.filter(chunk => chunk.startsWith(': keepalive')).length, 20, 'one keepalive a tick');
+      assert.equal(alphaReads, 1, 'every twentieth tick, the session is checked');
+      assert.deepEqual(unhandled, [], 'a check whose handler throws leaves nothing unhandled');
+      await twentyTicks();
+      assert.equal(alphaReads, 2, 'and the next check still runs');
+      assert.deepEqual(unhandled, []);
+
+      sessionRows = 0;
+      deps.readAlphaSession = async () => ({});
+      await twentyTicks();
+      assert(stream.res.writableEnded && /event: session-revoked/.test(stream.written.at(-1)), 'a stream whose session is gone is closed');
+      assert.equal(deps.hub.count(), 0);
+    } finally {
+      Object.assign(global, own);
+      process.off('unhandledRejection', onUnhandled);
+    }
+  }
   console.log('pulsar live-event route tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

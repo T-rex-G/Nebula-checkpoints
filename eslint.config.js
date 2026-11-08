@@ -162,6 +162,25 @@ module.exports = [
     }
   },
   {
+    /*
+     * A promise is awaited, handled, or marked as let go. A single-use guard
+     * -- a step-up grant, an OAuth state, a restore authorization -- answers
+     * through a promise, and one left unawaited is truthy: the request goes on
+     * as if the guard had said yes, and its refusal becomes an unhandled
+     * rejection that ends the process. These rules ask the type checker, so
+     * they hold for every call in the server and the contracts, not for a list
+     * of names. The page is Phase E's.
+     */
+    name: 'nebulaverse/promises',
+    files: ['apps/api/src/**/*.ts', 'packages/contracts/src/**/*.ts'],
+    languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: __dirname } },
+    rules: {
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
+      '@typescript-eslint/await-thenable': 'error'
+    }
+  },
+  {
     name: 'nebulaverse/contracts-boundary',
     files: ['packages/**/*.ts'],
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/apps/**'], message: 'The contracts are shared; they import neither application.' }] }] }

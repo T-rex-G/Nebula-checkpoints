@@ -165,6 +165,7 @@ async function serve(app, run) {
   try { await run(call); } finally { await new Promise(resolve => server.close(resolve)); }
 }
 const writes = calls => calls.filter(entry => entry[0] === 'gh' && entry[1] !== 'GET');
+const { moves } = require('./fixtures/provider-requests');
 
 (async () => {
   /* ---- CODEOWNERS: the first of GitHub's three places, bounded ---- */
@@ -293,9 +294,11 @@ const writes = calls => calls.filter(entry => entry[0] === 'gh' && entry[1] !== 
       assert.equal((await call('POST', '/api/repo/acme/demo/rename', { from: 'nope.txt', to: 'x.txt', branch: 'main' })).status, 404);
       const renamed = await call('POST', '/api/repo/acme/demo/rename', { from: 'src/a.js', to: 'lib/a.js', branch: 'main' });
       assert.deepEqual(renamed.json, { ok: true, commit: 'commit-sha' });
-      assert.deepEqual(writes(calls).filter(entry => entry[2] === '/repos/acme/demo/git/trees').at(-1)[3].tree, [
+      const renamedTree = writes(calls).filter(entry => entry[2] === '/repos/acme/demo/git/trees').at(-1)[3].tree;
+      assert.deepEqual(renamedTree, [
         { path: 'lib/a.js', mode: '100644', type: 'blob', sha: C }, { path: 'src/a.js', mode: '100644', type: 'blob', sha: null }
       ], 'the blob is linked under its new name, never uploaded again');
+      assert(moves(renamedTree, 'src/a.js', 'lib/a.js'), 'the tree moves the path as the probes\' does (test/fixtures/provider-requests.js)');
 
       assert.equal((await call('POST', '/api/repo/acme/demo/batch', { branch: 'main', ops: [{ op: 'delete', path: 'taken.txt' }] })).json.code, 'AGGREGATE_EXPECTED_HEAD_REQUIRED');
       const batch = await call('POST', '/api/repo/acme/demo/batch', { branch: 'main', expectedHeadSha: A, ops: [{ op: 'put', path: 'new.txt', content: 'n' }, { op: 'delete', path: 'taken.txt' }] });

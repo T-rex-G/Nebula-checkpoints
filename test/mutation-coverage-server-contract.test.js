@@ -1,6 +1,5 @@
 'use strict';
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const root = path.join(__dirname, '..');
 const { locations } = require('./oracles/route-policy');
@@ -38,38 +37,23 @@ for (const entry of policyRoutes.filter(route => ['POST', 'PUT', 'PATCH', 'DELET
   }
 }
 /*
- * Every provider write asks the gateway first: the GitHub REST client (wired
- * to the gateway by the composition), and the workbench's two transports that bypass
- * it -- the native Git push and the LFS upload, with each LFS exchange named.
+ * Every provider write asks the gateway first, and is asked of the code that
+ * writes:
+ *   - the GitHub REST client refuses a write outside a mutation before
+ *     anything leaves the server (test/github-rest.test.js), and the composed
+ *     client and the workbench's two transports that bypass it -- the native
+ *     Git push and the LFS upload -- are each refused outside one
+ *     (test/composition.test.js);
+ *   - each transport names itself to the gateway: the push as
+ *     git-receive-pack, each LFS exchange as its batch, upload and verify
+ *     (test/workbench-collaboration-routes.test.js).
+ * A restore's metadata inspects its preview without spending it, and binds the
+ * restore to its batch (test/mutation-context.test.js; the composed server's
+ * in test/composition-postgres.test.js). A folder move names the head its
+ * listing came from (test/workbench-collaboration-routes.test.js). The
+ * reference restore reports each branch, and a restore that went part of the
+ * way as partial (test/corona-recovery.test.js). A content write reports the
+ * provider operations it made (test/workbench-repository-routes.test.js).
  */
-const workbench = file => fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
-const githubRest = fs.readFileSync(path.join(root, 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
-/* That the composed GitHub client asks the mutation gateway before a write is test/composition.test.js's. */
-const bodyOf = (source, start, end, label) => {
-  const at = source.indexOf(start);
-  assert(at >= 0, `missing helper ${label}`);
-  return source.slice(at, source.indexOf(end, at) + end.length);
-};
-const providerWriters = [
-  ['gh', bodyOf(githubRest, '  async function gh(', '\n  }', 'gh'), 'deps.assertProviderMutation'],
-  ['the native push', bodyOf(workbench('application/native-push.ts'), '  async function push(', '\n  }', 'push'), 'deps.assertProviderMutation'],
-  ['the LFS upload', bodyOf(workbench('application/lfs.ts'), '  async function upload(', '\n  }', 'upload'), 'deps.assertProviderMutation']
-];
-for (const [label, body, assertion] of providerWriters) assert(body.includes(assertion), `${label} must assert provider writes`);
-const lfsUpload = providerWriters[2][1];
-assert(providerWriters[1][1].includes("transport: 'git-receive-pack'"));
-assert(lfsUpload.includes("transport: 'git-lfs.batch'"));
-assert(lfsUpload.includes("transport: 'git-lfs.upload'"));
-assert(lfsUpload.includes("transport: 'git-lfs.verify'"));
-/* A restore's metadata inspects its preview without spending it (the platform's mutation context, composed with Corona's recovery). */
-const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes('deps.inspectRestoreAuthorization({ account: req.gh, owner: (req.params as Fields).owner, repo: (req.params as Fields).repo }, body.authorization)'));
-/* That the composed mutation context inspects the grant, binding a restore to its preview, is test/composition-postgres.test.js's. */
-assert(mutationContextSource.includes("case 'recovery.restore-refs':"));
-/* A folder move names the head its listing came from (the workbench's folder move). */
-assert(workbench('http/folder-move-route.ts').includes('requireAggregateExpectedHead(requestedHead)'));
-/* The reference restore reports each branch, a partial failure as one (Corona's recovery routes). */
-assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/corona/http/recovery-routes.ts'), 'utf8').includes('partialFailure: !ok && report.some(item => item.ok)'));
-assert(fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench/http/content-routes.ts'), 'utf8').includes('providerOperationIds: execution ? execution.operationIds : []'));
 
 console.log('mutation coverage server contract tests passed');

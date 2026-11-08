@@ -98,7 +98,5 @@ assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decisi
   assert.strictEqual(headers.get('x-nv-offline-scope'), undefined);
   /* That the composed server binds an answer to the offline cache only for the account and repository asked for is test/composition-postgres.test.js's. */
 }
-/* The binding is the session's own security's to decide (identity-access/application/session-security.ts). */
-const sessionSecuritySource = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'session-security.ts'), 'utf8');
-assert(sessionSecuritySource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
+/* The binding is the session's own security's to decide, holding the scope and the repository both to the request's own: test/session-security.test.js's. */
 console.log('offline cache policy tests passed');

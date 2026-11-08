@@ -8,31 +8,18 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-
-const root = path.join(__dirname, '..');
-const coverage = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-coverage.ts'), 'utf8');
 
 const { ACTION_PATH_SEMANTICS, PATH_COVERAGE } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
 const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 
-/* The repository mutation context (mutation-context.ts) builds the metadata the server's context records. */
-const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes("import { pathFactsForAction } from './protected-paths.ts';"), 'the mutation context must load the effective path set module');
-/* That the composed server's writes carry their path set, so a protected folder holds, is test/composition-postgres.test.js's. */
-assert(
-  mutationContextSource.includes('...pathFactsForAction(action, base)'),
-  'every mutation descriptor must carry the effective path set of its action'
-);
-assert(
-  /function mutationMetadataFor\(req: ContextRequest, action: string\): Record<string, unknown> \{\s*const base = baseMutationMetadataFor\(req, action\);/.test(mutationContextSource),
-  'the path set must be merged for every action, not per switch case, so a new action cannot skip it'
-);
-assert(
-  coverage.includes('summary: { itemCount: items.length, itemIds, batchHash, payloadBytes, paths: batchPaths }'),
-  'a file batch must report the paths it touches'
-);
+/*
+ * The repository mutation context attaches each action's effective path set
+ * to the metadata it records, for every action alike
+ * (test/mutation-context.test.js), and a file batch reports the paths it
+ * touches (test/mutation-coverage.test.js). That the composed server's writes
+ * carry their path set, so a protected folder holds, is
+ * test/composition-postgres.test.js's.
+ */
 
 /* Every action that declares path semantics has to be a real governed route,
  * otherwise the declaration protects nothing. */

@@ -14,7 +14,6 @@
  * unmeasured.
  */
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const { registerWorkspacePostureRoutes, registerBranchProtectionRoutes } = require('../apps/api/src/modules/posture/index.ts');
@@ -30,14 +29,6 @@ const root = path.resolve(__dirname, '..');
   assert.equal(guards.get('GET /api/workspace/findings'), "providerSessionAccess, capabilityAccess('findings.inbox'), auth");
   assert.equal(guards.get('GET /api/repo/:owner/:repo/branch-protection'),
     "providerSessionAccess, alphaRepositoryAccess, capabilityAccess('recovery'), capabilityAccess('branches.read'), auth");
-}
-
-/* The posture route hands the account to the reader; its own body never reads the credential. */
-{
-  const source = fs.readFileSync(path.join(root, 'apps/api/src/modules/posture/http/posture-routes.ts'), 'utf8');
-  const start = source.indexOf("app.get('/api/workspace/posture'");
-  assert(start > 0);
-  assert.doesNotMatch(source.slice(start, source.indexOf('\n  });', start)), /token/, 'the route body never touches the token itself');
 }
 
 (async () => {
@@ -152,8 +143,23 @@ const root = path.resolve(__dirname, '..');
     ready = true;
     configured = true;
 
-    /* The overview's posture: the reader's four readings, uncached. */
+    /*
+     * The overview's posture: the reader's four readings, uncached. The route
+     * hands the account to the reader, which reads the credential's kind and
+     * age; the route reads it no further itself.
+     */
+    const { createPostureReader } = require('../apps/api/src/modules/posture/application/posture-reader.ts');
+    touched.length = 0;
+    await createPostureReader({
+      gh: deps.gh, dbReady: deps.dbReady, pool: deps.pool, identityKey: deps.identityKey, normalizePolicyScope: deps.normalizePolicyScope,
+      exposureStore: () => deps.exposureService(), severityOf: deps.severityOf, databaseConfigured: deps.databaseConfigured,
+      maintenance: deps.maintenance, hostedAlpha: deps.hostedAlpha
+    }).read(account());
+    const byReader = touched.length;
+    assert(byReader > 0, 'the reader reads the credential');
+    touched.length = 0;
     const posture = await ask('/api/workspace/posture');
+    assert.equal(touched.length, byReader, 'and the route, handing it the account, reads it no further');
     assert.equal(posture.status, 200);
     assert.equal(posture.cache, 'no-store');
     assert.deepEqual(Object.keys(posture.body).sort(), ['boundary', 'credential', 'exposure', 'recovery']);

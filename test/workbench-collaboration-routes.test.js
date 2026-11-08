@@ -27,6 +27,7 @@ const express = require('express');
 const workbench = require('../apps/api/src/modules/workbench/index.ts');
 const { githubRepositoryScopes } = require('../apps/api/src/modules/github-provider/index.ts');
 const { locations } = require('./oracles/route-policy');
+const { PROVIDER_REQUESTS, sent, scopedToRepository, moves } = require('./fixtures/provider-requests');
 const inventory = require('../docs/architecture/mission/ROUTE_INVENTORY.json');
 
 const root = path.resolve(__dirname, '..');
@@ -82,6 +83,8 @@ function harness() {
     if (/\/issues\?state=/.test(apiPath)) return [{ number: 1, title: 'Bug', state: 'open', user: { login: 'a' }, labels: [{ name: 'bug', color: 'f00' }] }, { number: 2, title: 'A pull', pull_request: {} }];
     if (/\/issues$/.test(apiPath) && method === 'POST') return { number: 11 };
     if (/\/issues\/\d+$/.test(apiPath) && method === 'PATCH') return {};
+    if (/\/issues\/\d+\/comments$/.test(apiPath) && method === 'POST') return { id: 31 };
+    if (/\/pulls$/.test(apiPath) && method === 'POST') return { number: 6 };
     if (/notifications\?per_page=30$/.test(apiPath)) return [{ id: '1', reason: 'mention', unread: true, subject: { title: 'Ping', type: 'Issue' }, repository: { full_name: apiPath.split('/')[2] + '/' + apiPath.split('/')[3] } }];
     if (apiPath.startsWith('/user/starred/')) { if (method === 'GET') throw refusal(404, 'Not Found'); return {}; }
     if (/\/releases$/.test(apiPath) && method === 'POST') return { id: 9, tag_name: options.body.tag_name };
@@ -299,6 +302,40 @@ function treeEntries(bytes) {
     });
   }
 
+  /*
+   * ---- The requests a capability is made of, as the product sends them ----
+   * Each capability's routes send GitHub the requests in the shared table
+   * (test/fixtures/provider-requests.js) that the qualification's probes are
+   * held to as well (test/capability-probes.test.js), so a claim earned by a
+   * probe is a claim about what the product sends.
+   */
+  {
+    const { app, calls } = harness();
+    await serve(app, async call => {
+      for (const [method, route, body] of [
+        ['POST', '/api/repo/acme/demo/issues', { title: 'Bug', body: 'Steps to see it' }],
+        ['POST', '/api/repo/acme/demo/issues/1/comments', { body: 'Seen' }],
+        ['PATCH', '/api/repo/acme/demo/issues/1', { state: 'closed' }],
+        ['POST', '/api/repo/acme/demo/pulls', { title: 'Feature', head: 'feature', base: 'main', body: 'Adds it' }],
+        ['PUT', '/api/repo/acme/demo/pulls/5/merge', { method: 'merge', expectedHeadSha: A }],
+        ['POST', '/api/repo/acme/demo/releases', { tag: 'v3', name: 'Three', body: 'Notes', target: 'main', prerelease: true }],
+        ['PUT', '/api/repo/acme/demo/star'],
+        ['POST', '/api/repo/acme/demo/actions/123/rerun']
+      ]) {
+        const answered = await call(method, route, body);
+        assert.equal(answered.status, 200, `${method} ${route}: ${JSON.stringify(answered.json)}`);
+      }
+      const requests = calls.filter(entry => entry[0] === 'gh').map(([, method, path, body]) => ({ method, path, body }));
+      for (const expectation of PROVIDER_REQUESTS) {
+        assert(sent(expectation, requests), `the product sends ${expectation.capability} as the probes do: ${JSON.stringify(requests.filter(request => request.method === expectation.method))}`);
+      }
+      calls.length = 0;
+      await call('GET', '/api/repo/Acme/Demo/search?q=needle');
+      const query = new URLSearchParams(calls.find(entry => entry[0] === 'gh' && entry[2].startsWith('/search/code?'))[2].split('?')[1]).get('q');
+      assert(scopedToRepository(query, 'Acme/Demo'), `a code search is held to its repository by GitHub's qualifier: ${query}`);
+    });
+  }
+
   /* ---- Notifications and global search, held to the invitation ---- */
   {
     const { app, calls, state } = harness();
@@ -459,6 +496,7 @@ function treeEntries(bytes) {
       assert.deepEqual(commit.entries.slice(0, 2), [
         { path: 'lib/f0.js', mode: '100755', type: 'blob', sha: B, forceMode: true }, { path: 'src/f0.js', mode: '100755', type: 'blob', sha: null, forceMode: true }
       ]);
+      for (const file of ['f0.js', 'f1.js', 'f2.js']) assert(moves(commit.entries, `src/${file}`, `lib/${file}`), `the move takes src/${file} to lib/${file} as the probes do`);
       assert.match((await call('POST', '/api/repo/acme/demo/move-dir', { from: 'src', to: 'src/inner', branch: 'main', expectedHeadSha: A })).json.error, /inside itself/);
       assert.equal((await call('POST', '/api/repo/acme/demo/move-dir', { from: 'src', to: 'locked', branch: 'main', expectedHeadSha: A })).json.code, 'PROTECTED_PATH');
       state.folder = Array.from({ length: 801 }, (_, i) => ({ path: `src/f${i}.js`, type: 'blob', sha: B, mode: '100644' }));

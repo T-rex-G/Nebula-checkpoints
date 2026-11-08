@@ -26,6 +26,7 @@ assert.strictEqual(batch.items.length, 2);
 assert.strictEqual(batch.itemIds.length, 2);
 assert(/^[0-9a-f]{64}$/.test(batch.batchHash));
 assert(!JSON.stringify(batch.summary).includes('content'));
+assert.deepStrictEqual(batch.summary.paths, ['old.txt', 'src/a.js'], 'a file batch reports the paths it touches, so a path-scoped rule can reach them');
 assert.throws(() => normalizeFileBatch([]), error => error.code === 'MUTATION_BATCH_SIZE');
 assert.throws(() => normalizeFileBatch(Array.from({length:101}, (_,i)=>({op:'delete',path:`p${i}`}))), error => error.code === 'MUTATION_BATCH_SIZE');
 assert.throws(() => normalizeFileBatch([{op:'delete',path:'a'},{op:'put',path:'a',content:'x'}]), error => error.code === 'MUTATION_BATCH_DUPLICATE_TARGET');

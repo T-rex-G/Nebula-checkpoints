@@ -1,8 +1,6 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { createCorrelationId, publicErrorBody } = require('../apps/api/src/http/errors.ts');
 
 assert.strictEqual(
@@ -91,12 +89,9 @@ assert.strictEqual(
 );
 
 /*
- * The classifier has to be attached where the GitHub transport raises failures.
- * It constructs the error from the response; a code that is not
- * set there never reaches the model above.
+ * The classifier has to be attached where the GitHub transport raises
+ * failures, a rate limit carried by a 403 included: that the REST client
+ * classifies what GitHub answers before throwing is test/github-rest.test.js's.
  */
-const rest = fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
-assert(rest.includes("const limit = providerRateLimit(response.status, response.headers, data);\n      error.status = limit ? 429 : response.status; error.body = data;\n      error.code = providerFailureCode(error.status);"),
-  'the GitHub transport must classify failures, a rate limit carried by a 403 included, before throwing');
 
 console.log('public error model tests passed');

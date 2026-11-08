@@ -428,8 +428,12 @@ data: ${JSON.stringify({ repository: `${req.params.owner}/${req.params.repo}`, a
       }
       if (!checks.length) return;
       sessionCheckBusy = true;
-      Promise.all(checks)
-        .finally(() => { sessionCheckBusy = false; });
+      /*
+       * Settled, not all: a check whose own handler throws -- the stream it
+       * closes already gone -- must not become a rejection nothing handles,
+       * which would end the process, nor leave the next check never run.
+       */
+      void Promise.allSettled(checks).then(() => { sessionCheckBusy = false; });
     }, 15000);
     req.on('close', () => {
       clearInterval(keepAlive);

@@ -54,11 +54,7 @@ const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
-assert.match(
-  fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8'),
-  /if \(initial\.body\) await initial\.body\.cancel\(\);\s+const location/,
-  'GitHub archive redirects must release the authenticated response body before validation and codeload'
-);
+/* That a GitHub archive redirect releases the authenticated answer before codeload is asked is test/github-rest.test.js's. */
 const account = {
   provider: 'gitea',
   authMethod: 'token',

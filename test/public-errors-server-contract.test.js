@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { correlationId, structuredLogging } = require('../apps/api/src/http/pipeline/index.ts');
@@ -9,16 +8,14 @@ const { currentRoutePolicy } = require('./oracles/current-route-policy');
 
 const root = path.join(__dirname, '..');
 /*
- * The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts).
- * That the composed server answers a failure under any module's route with
- * it is test/composition.test.js's; that the composition root hands every
- * route that takes a failure answer this one, and no other, is
- * test/composition-root.test.js's, over the root's syntax tree.
+ * The central failure answer is the HTTP layer's (apps/api/src/http/errors.ts):
+ * it answers with the public error body, never an error's raw words
+ * (test/github-rest.test.js). That the composed server answers a failure under
+ * any module's route with it is test/composition.test.js's; that the
+ * composition root hands every route that takes a failure answer this one,
+ * and no other, is test/composition-root.test.js's, over the root's syntax
+ * tree.
  */
-const httpErrors = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'http', 'errors.ts'), 'utf8');
-assert(httpErrors.includes('publicErrorBody(error'));
-assert(!/function sendFailure[\s\S]{0,900}\.json\(\{ error: (?:e|error)\.message/.test(httpErrors),
-  'central fail helper must not expose raw errors');
 
 /* A request as the pipeline sees it, and a response that records what it was told. */
 function exchange(headers = {}) {

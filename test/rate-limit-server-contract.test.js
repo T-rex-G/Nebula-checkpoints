@@ -15,7 +15,6 @@ const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
@@ -171,9 +170,7 @@ async function admissionProperties() {
     if ((await admit('f')).status === 429) localRefusal = sent;
   }
   assert.strictEqual(localRefusal, LIMIT + 1);
-
-  const webhookLimiter = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'pulsar', 'application', 'webhook-limiter.ts'), 'utf8');
-  assert.match(webhookLimiter, /inclusiveReset: true/, 'and the webhook window keeps its own');
+  /* The webhook window keeps its own rule, reopening once sixty seconds have passed: test/pulsar-webhook-intake.test.js's. */
 }
 
 (async () => {

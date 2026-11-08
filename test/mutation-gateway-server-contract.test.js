@@ -1,18 +1,19 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { locations } = require('./oracles/route-policy');
 
 const root = path.join(__dirname, '..');
 
-/* That the composed server's provider writes are checked by the central gateway is test/composition.test.js's. */
-/* The repository mutation context is the platform's (mutation-context.ts), composed by the server. */
-const mutationContextSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-assert(mutationContextSource.includes('function mutationContext('), 'the platform must expose one mutation route context middleware');
-/* That the composed server's writes pass through it, and through the gateway's policy, is test/composition.test.js's. */
-assert(!mutationContextSource.includes("case 'issue.create': return { title:"), 'mutation descriptors must not retain issue titles or other free-form content');
+/*
+ * The repository mutation context is the platform's (mutation-context.ts): the
+ * metadata it records for an issue is its path facts alone, never its title or
+ * any free-form content (test/mutation-context.test.js). That the composed
+ * server's writes pass through it, and through the gateway's policy, and that
+ * its provider writes are checked by the central gateway, is
+ * test/composition.test.js's.
+ */
 
 const routes = new Map([
   ["app.post('/api/repos'", 'repository.create'],
@@ -58,18 +59,11 @@ for (const [route, action] of routes) {
 
 /*
  * The native push and the LFS upload write to the provider outside the API
- * client, so each asks the active gateway context itself, before it writes.
- * That the server hands both the gateway's check -- so that, as composed,
- * each is refused outside a mutation before GitHub is asked anything -- is
+ * client, so each asks the active gateway context itself, before it writes,
+ * naming its transport (test/workbench-collaboration-routes.test.js). That the
+ * server hands both the gateway's check -- so that, as composed, each is
+ * refused outside a mutation before GitHub is asked anything -- is
  * test/composition.test.js's.
  */
-for (const [file, start] of [
-  ['application/native-push.ts', '  async function push('],
-  ['application/lfs.ts', '  async function upload(']
-]) {
-  const source = fs.readFileSync(path.join(root, 'apps/api/src/modules/workbench', file), 'utf8');
-  const body = source.slice(source.indexOf(start), source.indexOf('\n  }', source.indexOf(start)));
-  assert(body.includes('deps.assertProviderMutation('), `${file} must assert the active gateway context`);
-}
 
 console.log('mutation gateway server contract tests passed');

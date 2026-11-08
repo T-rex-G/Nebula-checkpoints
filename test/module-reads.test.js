@@ -10,7 +10,9 @@
  * (test/composition-reads.test.js). This counts what is left of the
  * modules': a statement reads a module when it reads a file of the server's
  * source -- apps/api/src, the CommonJS modules in src, or the contracts in
- * packages/contracts/src -- as text, or uses a name bound to such text.
+ * packages/contracts/src -- as text, uses a name bound to such text, or
+ * calls a function whose body carries it, such as one that slices a route's
+ * block out of its file.
  *
  * Found by the syntax tree, so a comment or a string that merely names a
  * module reads nothing. A file is a module's when the path it is read from
@@ -26,7 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const RECORDED = 369;
+const RECORDED = 355;
 
 const ROOT = path.resolve(__dirname, '..');
 /*
@@ -149,12 +151,15 @@ function reads(source) {
 
   /* The names bound to such text, however it is passed on within the file. */
   const bound = new Set();
+  /* Functions that close over such text: what they return is cut from it, as a route's body is sliced from its file. */
+  const derivers = new Set();
   const carries = node => {
     let found = false;
     const look = inner => {
       if (found) return;
       if (isParse(inner)) return;
-      if (isServerRead(inner) || (ts.isIdentifier(inner) && bound.has(symbolOf(inner)))) found = true;
+      if (isServerRead(inner) || (ts.isIdentifier(inner) && bound.has(symbolOf(inner)))
+        || (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && derivers.has(symbolOf(inner.expression)))) found = true;
       else ts.forEachChild(inner, look);
     };
     look(node);
@@ -176,6 +181,13 @@ function reads(source) {
     const bind = node => {
       if (ts.isVariableDeclaration(node) && node.initializer && !ts.isArrowFunction(node.initializer) && !ts.isFunctionExpression(node.initializer) && carries(node.initializer)) {
         grew = bindName(node.name) || grew;
+      }
+      const fn = ts.isFunctionDeclaration(node) && node.name && node.body ? [node.name, node.body]
+        : ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+          ? [node.name, node.initializer.body] : null;
+      if (fn) {
+        const symbol = symbolOf(fn[0]);
+        if (symbol && !derivers.has(symbol) && !readers.has(symbol) && carries(fn[1])) { derivers.add(symbol); grew = true; }
       }
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left) && carries(node.right)) {
         grew = bindName(node.left) || grew;

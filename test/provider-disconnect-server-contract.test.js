@@ -1,279 +1,177 @@
 'use strict';
-
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-
-const { locations } = require('./oracles/route-policy');
-/* An account's life in a session -- signing in, disconnecting, sessions elsewhere -- is identity and access's, composed by the server. */
-const lifecycle = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
-
-/* A POST route's registration up to the next one, in whichever file the route policy found it. */
-const policyRoutes = locations(path.join(__dirname, '..')).filter(entry => entry.kind === 'route');
-function routeBlock(routePath) {
-  const entry = policyRoutes.find(item => item.method === 'POST' && item.path === routePath);
-  assert(entry, `missing POST ${routePath}`);
-  const file = entry.at.split(':')[0];
-  const text = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-  const marker = `app.post('${routePath}'`;
-  const start = text.indexOf(marker);
-  assert(start >= 0, `missing POST ${routePath} in ${file}`);
-  const next = text.slice(start + marker.length).search(/\n\s*app\./);
-  return next < 0 ? text.slice(start) : text.slice(start, start + marker.length + next);
-}
-
 /*
- * That the server reaches identity and access through its index only is
- * test/module-boundaries.test.js's rule for every module. That invite mode
- * builds the privacy store and hands it to the account lifecycle, which owns
- * a tester's provider session, is asked of the composed invite-only server
- * by test/composition-alpha.test.js.
+ * The provider disconnect's server contract: a route that removes an account
+ * hands the account lifecycle's own disconnect the session as it stands, and
+ * answers with what the disconnect decided -- which accounts remain, which one
+ * stays selected, and what must be revoked by hand. Here identity and access's
+ * routes run over the real lifecycle, outside the alpha, against a recording
+ * provider and database.
+ *
+ * The contract's other halves are asked where they live:
+ *   - each removal route's answers, a pending cleanup included, and that the
+ *     cleanup is asked while the session still holds the account
+ *     (test/identity-account-routes.test.js,
+ *     test/identity-security-routes.test.js);
+ *   - the disconnect itself: the identity's webhooks taken from the inventory
+ *     by their provider ids, each removed through the gateway and read back
+ *     before it counts as gone, a retired account's cleanup task recorded and
+ *     the accounts after it still disconnected, each step through the privacy
+ *     store (test/account-lifecycle.test.js, test/provider-disconnect.test.js),
+ *     and the composed invite-only server end to end
+ *     (test/composition-alpha.test.js);
+ *   - a tester's provider session, read and written through the record the
+ *     tester owns, never the raw session id (test/provider-sessions.test.js);
+ *     its sessions elsewhere found and revoked through that ownership
+ *     (test/account-lifecycle.test.js), by revoking other sessions and by
+ *     emergency containment (test/identity-security-routes.test.js,
+ *     test/corona-routes.test.js);
+ *   - an App connection's identity, the same across testers and authorizers
+ *     (test/account-identity.test.js); its records and audits, the alpha
+ *     keeping no installation metadata and no login
+ *     (test/github-app-records.test.js); its routes, addressed by the
+ *     connection's key in the alpha and never invalidating the shared broker
+ *     there (test/identity-security-routes.test.js, test/github-rest.test.js);
+ *   - no request that carries a credential follows a redirect -- the REST
+ *     client, the OAuth exchange, each LFS exchange -- and LFS storage is
+ *     HTTPS without credentials in its address (test/github-rest.test.js,
+ *     test/identity-security-routes.test.js,
+ *     test/workbench-collaboration-routes.test.js,
+ *     test/workbench-repository-routes.test.js);
+ *   - evidence and audits name the tester's label in the alpha, never a login
+ *     (test/repository-access.test.js, test/upload-scan.test.js,
+ *     test/account-lifecycle.test.js);
+ *   - only the routes that remove an account disconnect one, and only that
+ *     disconnect removes an installation's record (test/module-rules.test.js).
  */
-assert(lifecycle.includes("import { disconnectProviderAccount, type DisconnectResult } from '../domain/provider-disconnect.ts';"));
-assert.match(lifecycle, /async function disconnectAlphaProviderAccount\(req: LifecycleRequest/);
-const alphaSessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'alpha-sessions.ts'), 'utf8');
-const alphaRequestSessionStart = alphaSessions.indexOf('async function readRequestSession(req: Request)');
-assert(alphaRequestSessionStart >= 0, 'missing the access session reader');
-const alphaRequestSessionEnd = alphaSessions.indexOf('\n  }\n', alphaRequestSessionStart) + 4;
-const alphaRequestSessionBlock = alphaSessions.slice(alphaRequestSessionStart, alphaRequestSessionEnd);
-assert(alphaRequestSessionBlock.includes('testerId'));
-assert(alphaRequestSessionBlock.includes('session: { ...sessionView(stored), testerId }'),
-  'the private request context must retain tester ownership while public alpha projections stay redacted');
+const assert = require('node:assert/strict');
+const express = require('express');
+const identity = require('../apps/api/src/modules/identity-access/index.ts');
 
-const removalRoutes = [
-  '/api/accounts/remove',
-  '/api/github-app/disconnect',
-  '/api/logout',
-  '/api/alpha/providers/disconnect-all',
-  '/api/alpha/delete'
-];
-/*
- * The central disconnect, as identity and access's routes are handed it.
- * That signing out, removing the account, disconnecting GitHub and deleting
- * the alpha's data each run it -- removing the tester's webhooks and ending
- * the provider session -- is asked of the composed server by
- * test/composition-alpha.test.js; that the composition calls no disconnect
- * itself is test/composition-root.test.js's.
- */
-const disconnectCall = /await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/;
-for (const routePath of removalRoutes) {
-  const block = routeBlock(routePath);
-  const call = disconnectCall.exec(block);
-  assert(call, `${routePath} must use the central disconnect boundary`);
-  assert(call.index < block.indexOf('providerDisconnectPending('),
-    `${routePath} must return pending cleanup before local completion`);
-  assert(!block.includes('.splice('), `${routePath} must not remove local account state before verified provider cleanup`);
-  assert(!block.includes('removeGithubAppInstallation('), `${routePath} must not reorder installation deletion outside finalization`);
-  assert(!block.includes('markProviderIdentityDisconnected('), `${routePath} must not split the atomic finalization transition`);
-}
-{
-  /* The remove route may call it twice (the account, then retired leftovers); no other route may call it at all. */
-  const identityHttp = path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http');
-  let outside = [lifecycle, ...fs.readdirSync(identityHttp).map(file => fs.readFileSync(path.join(identityHttp, file), 'utf8'))].join('\n');
-  for (const routePath of removalRoutes) outside = outside.replace(routeBlock(routePath), '');
-  assert.strictEqual((outside.match(/await (?:disconnectAlphaProviderAccount|deps\.disconnectProviderAccounts)\(/g) || []).length, 0,
-    'only the five approved routes may invoke the central account disconnect helper');
-}
+const { createAccountLifecycle, registerAccountRoutes, registerSignOutRoute, providerRevocationGuidance } = identity;
 
-/* A function of the lifecycle's factory, up to its closing brace. */
-const nested = (text, start) => {
-  const at = text.indexOf(start);
-  assert(at >= 0, start);
-  return text.slice(at, text.indexOf('\n  }\n', at) + 5);
+const ALICE = { provider: 'github', login: 'alice', token: 'ghp_alice', authMethod: 'token' };
+const BOB = { provider: 'github', login: 'bob', token: 'gho_bob', authMethod: 'oauth' };
+const CAROL = { provider: 'github', login: 'carol', token: 'ghp_carol', authMethod: 'token' };
+const AUTHORIZER = 'c'.repeat(64);
+const ACME = {
+  provider: 'github', login: 'acme', authMethod: 'github-app', installationId: 42, installationAccountId: 9,
+  authorizedByIdentityKey: AUTHORIZER, authorizedByLogin: 'alice'
 };
-const helper = nested(lifecycle, 'async function disconnectAlphaProviderAccount(');
-assert(helper.includes('disconnectProviderAccount({'));
-assert(helper.includes('enumerateProviderWebhooks'));
-assert(helper.includes('removeProviderWebhook'));
-assert(helper.includes('readProviderWebhook'));
-assert(helper.includes('store.prepareProviderDisconnect'));
-assert(helper.includes('store.completeProviderWebhookCleanup'));
-assert(!helper.includes('removeLocalWebhookRecord'),
-  'provider proof and local webhook/evidence completion must not be split across transactions');
-assert(helper.includes('store.finalizeProviderDisconnect'));
-assert(helper.includes('recordPendingEvidence') && helper.includes('store.createCleanupTask'),
-  'a retired account leaves recorded manual-cleanup evidence, not silence');
-assert(helper.includes("result.reasonCode === RETIRED_CLEANUP"),
-  'a retired account does not stop the GitHub accounts after it from being disconnected');
-const logoutBlock = routeBlock('/api/logout');
-assert(logoutBlock.includes('cleanup.supportedComplete') && logoutBlock.includes('cleanup.manualCleanup'),
-  'sign-out completes once supported accounts are disconnected, and names what must be revoked by hand');
-assert(!logoutBlock.includes('githubSession('), 'sign-out sees every account in the session, retired ones included');
-assert(helper.includes('providerHookId: row.provider_hook_id'),
-  'database inventory must be normalized before immutable resource hashing');
-assert(helper.includes('return { verifiedAbsent: false };'),
-  'a successful provider DELETE must still require the supported readback proof');
-
-/*
- * The live-event webhook's alpha lifecycle -- claimed on connect, and on
- * disconnect ownership decided before any provider deletion, with a read-back
- * proving it gone -- is held by test/pulsar-live-event-routes.test.js.
- */
-
-/* The provider session store is identity and access's (application/provider-sessions.ts). */
-const sessions = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'provider-sessions.ts'), 'utf8');
-const sessionOfBlock = nested(sessions, 'async function sessionOf(req: SessionRequest,');
-assert(sessionOfBlock.includes('readHostedProviderSession({'));
-assert(sessionOfBlock.includes('testerId: req.alpha.testerId'));
-assert(
-  sessionOfBlock.indexOf('readHostedProviderSession({')
-    < sessionOfBlock.indexOf("deps.pool().query('SELECT data FROM nv_sessions WHERE sid=$1'"),
-  'invite-mode cookie authentication must prove tester ownership and return before the legacy raw SID lookup'
-);
-
-const setSessionBlock = nested(sessions, 'async function setSession(req: SessionRequest, res: SessionResponse, input');
-assert(setSessionBlock.includes('mutateHostedProviderSession({'));
-assert(setSessionBlock.includes('recomputeHostedSessionMutation('));
-assert(setSessionBlock.includes('testerId: req.alpha.testerId'));
-
-const addBlock = nested(lifecycle, 'async function addAccount(');
-assert(addBlock.includes('connectHostedProviderAccount({'));
-assert(addBlock.includes('? stableProviderIdentityKey(account)'));
-assert(addBlock.indexOf('capacity: deps.accountCap()') < addBlock.indexOf('connectHostedProviderAccount({') + 500,
-  'capacity must be part of the atomic connection transaction');
-
-const accountIdentity = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'account-identity.ts'), 'utf8');
-const stableIdentityStart = accountIdentity.indexOf('export function stableProviderIdentityKey(');
-const stableIdentityEnd = accountIdentity.indexOf('\n}', stableIdentityStart) + 2;
-assert(stableIdentityStart >= 0);
-const stableIdentityBlock = accountIdentity.slice(stableIdentityStart, stableIdentityEnd);
-assert(stableIdentityBlock.includes('installationId'));
-assert(stableIdentityBlock.includes('installationAccountId'));
-assert(stableIdentityBlock.includes("domain: 'nv-alpha-provider-identity/github-app/v1'"));
-assert(!stableIdentityBlock.includes('authorizedById'),
-  'GitHub App identity must be installation-stable across testers and authorizers');
-
-const sessionInventoryBlock = nested(lifecycle, 'async function sessionsForIdentity(req');
-assert(sessionInventoryBlock.includes('nv_alpha_provider_session_ownership'));
-assert(sessionInventoryBlock.includes('(req.alpha as Alpha).testerId'));
-assert(sessionInventoryBlock.includes('session_key_hash'),
-  'hosted-alpha containment must scope sessions through tester-owned session hashes');
-
-for (const routePath of [
-  '/api/repo/:owner/:repo/emergency-manifest',
-  '/api/security/revoke-others'
-]) {
-  const block = routeBlock(routePath);
-  assert(block.includes('revokeContainedSessions'),
-    `${routePath} must release provider-session ownership with hosted session deletion`);
-  assert(!block.includes("pool().query('DELETE FROM nv_sessions"),
-    `${routePath} must not leave active ownership rows behind`);
-}
-const containmentBlock = nested(lifecycle, 'async function revokeContainedSessions(');
-assert(containmentBlock.includes('store.revokeOwnedProviderSessions'));
-assert(containmentBlock.indexOf('deps.alphaEnabled') >= 0 && containmentBlock.indexOf('deps.alphaEnabled')
-  < containmentBlock.indexOf("deps.pool().query('DELETE FROM nv_sessions"),
-  'invite-mode containment must return through the ownership-aware store before legacy deletion');
-
-/* An installation's record and its audit trail are identity and access's GitHub App records, composed with the alpha's flag. */
-const appRecords = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
-const installationPersistenceBlock = nested(appRecords, 'async function persistGithubAppInstallation(');
-assert(installationPersistenceBlock.includes('if (deps.alphaEnabled) return false;'),
-  'invite mode must not copy raw GitHub installation metadata into the legacy table');
-/* That the composed invite-only server, connecting the App, leaves the legacy installation table empty is test/composition-alpha.test.js's. */
-/* The App connection's routes and its view are identity and access's. */
-const appRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
-assert(appRoutes.includes('? connectedAccount.identityKey'));
-assert(appRoutes.includes('? account.identityKey'));
-
-const connectionViewStart = appRoutes.indexOf('return function githubAppConnectionView(');
-const connectionViewEnd = appRoutes.indexOf('\n  };\n', connectionViewStart) + 5;
-assert(connectionViewStart >= 0, 'missing the App connection view');
-const connectionViewBlock = appRoutes.slice(connectionViewStart, connectionViewEnd);
-assert(connectionViewBlock.includes('if (deps.config.enabled)'));
-assert(connectionViewBlock.indexOf('connectionKey: deps.identityKey(account)')
-  < connectionViewBlock.indexOf('installationId: Number(account.installationId)'),
-  'invite-mode App responses must return the stable connection key before the legacy raw provider view');
-/*
- * That the composed server shows an App connection through this view --
- * invite-only, by its connection key and nothing raw; otherwise, the
- * installation's own view -- is test/composition-alpha.test.js's and
- * test/composition-postgres.test.js's.
- */
-const addressing = appRoutes.slice(appRoutes.indexOf('const addressed = (req: Request) => {'), appRoutes.indexOf("app.post('/api/github-app/connect'"));
-assert(addressing.includes('deps.identityKey(item) === requestedConnectionKey'),
-  'invite-mode App state must be addressed by the stable hashed connection key');
-for (const routePath of ['/api/github-app/refresh', '/api/github-app/disconnect']) {
-  const block = routeBlock(routePath);
-  assert(block.includes('addressed(req)'), `${routePath} must address invite-mode App state by the stable hashed connection key`);
-}
-
-/* GitHub's REST client is the provider's (github-provider/client/github-rest.ts); the server says whether this is the alpha. */
-const rest = fs.readFileSync(path.join(__dirname, '..', 'apps/api/src/modules/github-provider/client/github-rest.ts'), 'utf8');
-const ghStart = rest.indexOf('  async function gh(');
-const ghEnd = rest.indexOf('\n  }\n', ghStart) + 4;
-assert(ghStart >= 0);
-const ghBlock = rest.slice(ghStart, ghEnd);
-assert(ghBlock.includes("!deps.alphaEnabled && acct.authMethod === 'github-app'"),
-  'invite-mode provider fallback must not invalidate shared broker state');
-/* That the composed invite-only server, refused by GitHub, keeps the installation's token rather than minting another is test/composition-alpha.test.js's. */
-assert(ghBlock.includes("options.redirect === 'manual' ? 'manual' : 'error'"));
-assert(!ghBlock.includes("'follow'"), 'credential-bearing provider requests must never follow redirects');
-/* OAuth sign-in is identity and access's; its callback is the last route in its file. */
-const oauthRoutes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');
-const oauthCallbackStart = oauthRoutes.indexOf("app.get('/api/oauth/callback'");
-assert(oauthCallbackStart >= 0, 'missing GET /api/oauth/callback');
-const oauthCallbackBlock = oauthRoutes.slice(oauthCallbackStart);
-assert(oauthCallbackBlock.includes("redirect: 'error'"), 'OAuth token exchange must reject redirects');
-/* Both LFS exchanges, the URL validator, the download and the upload are the workbench's LFS transfer. */
-const lfsTransfer = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'lfs.ts'), 'utf8');
-/* That the composition names no provider endpoint, LFS's among them, is test/composition-root.test.js's. */
-assert.strictEqual(
-  (lfsTransfer.match(/info\/lfs\/objects\/batch[\s\S]{0,700}redirect: 'error'/g) || []).length,
-  2,
-  'both authenticated LFS batch negotiations must reject redirects'
-);
-const lfsUrlHelperStart = lfsTransfer.indexOf('export function requireHttpsLfsActionUrl(');
-const lfsUrlHelperEnd = lfsTransfer.indexOf('\n}', lfsUrlHelperStart) + 2;
-assert(lfsUrlHelperStart >= 0, 'missing HTTPS-only LFS action URL validator');
-const lfsUrlHelper = lfsTransfer.slice(lfsUrlHelperStart, lfsUrlHelperEnd);
-assert(lfsUrlHelper.includes("target.protocol !== 'https:'"));
-assert(lfsUrlHelper.includes('target.username || target.password'));
-const lfsBlock = (start, label) => {
-  const at = lfsTransfer.indexOf(start);
-  assert(at >= 0, `missing the LFS ${label}`);
-  return lfsTransfer.slice(at, lfsTransfer.indexOf('\n  }', at) + 4);
+const DAVE = { provider: 'gitlab', login: 'dave', token: 't4', baseUrl: 'https://gitlab.example.com/api/v4' };
+/* What a retired account leaves to be revoked by hand, as the routes answer it. */
+const byHand = account => {
+  const guidance = providerRevocationGuidance(account);
+  return { label: guidance.label, url: guidance.url || null, automatic: false };
 };
-const lfsDownloadBlock = lfsBlock('async function downloadStream(', 'download');
-assert(lfsDownloadBlock.includes("requireHttpsLfsActionUrl(member(act, 'href'), 'download')"));
-assert(lfsDownloadBlock.includes('deps.fetch(downloadUrl,'));
-const lfsUploadBlock = lfsBlock('async function upload(', 'upload');
-for (const expected of [
-  "requireHttpsLfsActionUrl(member(uploadAction, 'href'), 'upload')",
-  "requireHttpsLfsActionUrl(member(verify, 'href'), 'verification')",
-  'deps.fetch(uploadUrl,',
-  'deps.fetch(verifyUrl,'
-]) assert(lfsUploadBlock.includes(expected), `LFS upload boundary missing ${expected}`);
-const refreshBlock = routeBlock('/api/github-app/refresh');
-assert(refreshBlock.includes('if (!deps.config.enabled) broker().invalidate(installationId);'),
-  'invite-mode refresh must not invalidate shared broker state');
 
-/* The ledger's actor is identity and access's repository access, composed by the server with the alpha's flag. */
-assert.match(
-  fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'repository-access.ts'), 'utf8'),
-  /function retainedActor\(req[^)]*\)[^{]*\{[\s\S]+deps\.alphaEnabled && req\.alpha[\s\S]+alphaActorLabel\(req\.alpha\)[\s\S]+req\.gh && req\.gh\.login/
-);
-/*
- * That the composed invite-only server records a write under the tester's
- * label, and keeps no GitHub login in any column of any table, is
- * test/composition-alpha.test.js's.
- */
+async function start() {
+  const calls = [];
+  const state = { session: null };
+  const lifecycle = createAccountLifecycle({
+    alphaEnabled: false, databaseConfigured: true, accountCap: () => 5, ready: async () => true,
+    pool: () => ({
+      async query(text, values) { calls.push(['query', String(text).replace(/\s+/g, ' ').trim(), values]); return { rows: [] }; }
+    }),
+    gh: async (account, apiPath) => { calls.push(['gh', account.login, apiPath]); return {}; },
+    resolveAccount: async account => account,
+    runProviderMutation: async (req, target, work) => work(),
+    appBroker: { invalidate(id) { calls.push(['invalidate', id]); } },
+    removeGithubAppInstallation: async (key, installationId) => { calls.push(['removeInstallation', key, installationId]); },
+    recordGithubAppAudit: async (key, eventType, installationId, details) => { calls.push(['audit', key, eventType, installationId, details]); },
+    forgetJobs: account => { calls.push(['forget', account.login]); },
+    retainedActor: req => req.gh && req.gh.login,
+    sessionOf: async () => null,
+    setSession: async () => { throw new Error('outside the alpha, the disconnect leaves the session to the route'); },
+    sessionIdFromRequest: () => '',
+    clearStepUpAuthorization: session => { calls.push(['clearStepUp']); delete session.stepUp; },
+    readCookie: () => undefined,
+    writeCookie: () => {},
+    seal: JSON.stringify,
+    unseal: () => null,
+    closeLiveSessions: () => 0,
+    privacyStore: null
+  });
+  const isGithubAccount = account => !!account && (account.provider || 'github') === 'github' && !account.baseUrl;
+  const accountAuth = (req, res, next) => {
+    req.session = structuredClone(state.session);
+    req.sessionAccount = req.session.accounts[Math.min(Number(req.session.active) || 0, req.session.accounts.length - 1)];
+    req.gh = { ...req.sessionAccount };
+    next();
+  };
+  const deps = {
+    accountAuth, isGithubAccount,
+    config: { enabled: false, mode: 'off' },
+    fail: (res, error) => res.status(error.status || 500).json({ error: error.message, code: error.code }),
+    retainedActor: req => req.gh && req.gh.login,
+    clearStepUpAuthorization: session => { delete session.stepUp; },
+    setSession: async (req, res, session) => { calls.push(['setSession', structuredClone(session)]); },
+    sessionOf: async () => { throw new Error('outside the alpha, a removal does not read the session again'); },
+    destroySession: async () => { calls.push(['destroySession']); },
+    /* The lifecycle's own disconnect, as the composition hands it to these routes. */
+    disconnectProviderAccounts: lifecycle.disconnectAlphaProviderAccount,
+    clearProviderSessionCookie: () => { calls.push(['clearProviderCookie']); }
+  };
+  const app = express();
+  app.use(express.json());
+  registerAccountRoutes(app, deps);
+  registerSignOutRoute(app, deps);
+  const server = await new Promise(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)); });
+  const send = async (url, body = {}) => {
+    calls.length = 0;
+    const response = await fetch(`http://127.0.0.1:${server.address().port}${url}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  return { state, calls, send, close: () => new Promise(resolve => server.close(resolve)) };
+}
+const called = (calls, name) => calls.filter(call => call[0] === name).map(call => call.slice(1));
+const logins = session => session.accounts.map(account => account.login);
 
-/* What an audit detail may keep is identity and access's domain rule. */
-const githubAuditFields = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'identity-access', 'domain', 'github-app-audit.ts'), 'utf8');
-assert(!githubAuditFields.includes("'accountLogin'"), 'GitHub App audits must not persist provider login');
-assert(githubAuditFields.includes("'actor'"), 'GitHub App audits must retain only a pseudonymous actor when available');
-for (const forbidden of [
-  'accountLogin: installation.account.login',
-  'accountLogin: removed.login',
-  'accountLogin: account.login'
-]) assert(!appRecords.includes(forbidden), `GitHub App lifecycle audit retains provider login: ${forbidden}`);
-/* That no audit the composed server writes for an App connection keeps the account's login is test/composition-postgres.test.js's and test/composition-alpha.test.js's. */
-
-/* Evidence a request leaves -- a disconnected installation, a blocked upload -- names the invite actor label. */
-const uploadScan = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'upload-scan.ts'), 'utf8');
-/* That a blocked upload's evidence names the tester's label, as its hash shows, is test/composition-alpha.test.js's. */
-assert(lifecycle.includes('actor: call.retainedActor(req)') && uploadScan.includes('actor: actorOf(req)'), 'retained evidence must use the invite actor label');
-assert(appRecords.includes('retainedProviderActor('), 'background GitHub App audits need an identity-to-alpha-actor boundary');
-
-console.log('provider disconnect server contract tests passed');
+(async () => {
+  const t = await start();
+  try {
+    /* An account before the selected one leaves: the selected identity stays selected. */
+    {
+      t.state.session = { accounts: [ALICE, BOB, CAROL], active: 1 };
+      const removed = await t.send('/api/accounts/remove', { idx: 0 });
+      assert.deepEqual([removed.status, removed.body], [200, { ok: true, removed: 'alice', active: 'bob' }]);
+      const [[written]] = called(t.calls, 'setSession');
+      assert.deepEqual([logins(written), written.active], [['bob', 'carol'], 0], 'the session keeps the identity it had selected');
+    }
+    /* The selected account leaves: a GitHub account is chosen, never a retired one. */
+    {
+      t.state.session = { accounts: [ALICE, DAVE, BOB], active: 0 };
+      const removed = await t.send('/api/accounts/remove', { idx: 0 });
+      assert.deepEqual(removed.body, { ok: true, removed: 'alice', active: 'bob' });
+      const [[written]] = called(t.calls, 'setSession');
+      assert.deepEqual([logins(written), written.active], [['dave', 'bob'], 1]);
+    }
+    /* The last GitHub account leaves: the retired ones go with it, named for revoking by hand, and the session ends. */
+    {
+      t.state.session = { accounts: [ALICE, DAVE], active: 0 };
+      const last = await t.send('/api/accounts/remove', { idx: 0 });
+      assert.deepEqual(last.body, { ok: true, removed: 'alice', empty: true, revocationGuidance: [byHand(DAVE)] });
+      assert.deepEqual(called(t.calls, 'forget'), [['alice'], ['dave']], 'each account is disconnected, the retired one after');
+      assert.deepEqual(called(t.calls, 'destroySession'), [[]]);
+      assert.deepEqual(called(t.calls, 'setSession'), [], 'nothing is written for a session that ends');
+    }
+    /* Signing out disconnects every account: an App's installation is forgotten and its record removed, audited under who acted. */
+    {
+      t.state.session = { accounts: [ALICE, ACME, DAVE], active: 0 };
+      const out = await t.send('/api/logout');
+      assert.deepEqual([out.status, out.body], [200, { ok: true, revocationGuidance: [byHand(DAVE)] }]);
+      assert.deepEqual(called(t.calls, 'forget'), [['alice'], ['acme'], ['dave']], 'retired accounts too');
+      assert.deepEqual(called(t.calls, 'invalidate'), [[42]], 'the broker forgets the installation');
+      assert.deepEqual(called(t.calls, 'removeInstallation'), [[AUTHORIZER, 42]], 'its record is removed under the user who connected it');
+      assert.deepEqual(called(t.calls, 'audit'), [[AUTHORIZER, 'installation.disconnected', 42, { actor: 'alice', status: 'disconnected' }]]);
+      assert.deepEqual(called(t.calls, 'destroySession'), [[]]);
+    }
+  } finally {
+    await t.close();
+  }
+  console.log('provider disconnect server contract tests passed');
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

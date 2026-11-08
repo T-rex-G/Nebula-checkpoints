@@ -28,7 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const RECORDED = 355;
+const RECORDED = 212;
 
 const ROOT = path.resolve(__dirname, '..');
 /*

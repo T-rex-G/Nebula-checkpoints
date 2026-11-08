@@ -52,6 +52,7 @@ const OAUTH = { provider: 'github', login: 'bob', avatar: 'b.png', token: 't2', 
 const APP = { provider: 'github', login: 'acme', avatar: 'c.png', authMethod: 'github-app', installationId: '42', repositorySelection: 'all', authorizedByLogin: 'carol' };
 const RETIRED = { provider: 'gitlab', login: 'dave', token: 't4', baseUrl: 'https://gitlab.example.com/api/v4' };
 const TESTER = '0f9e8d7c-6b5a-4c3d-8e2f-1a2b3c4d5e6f';
+const OTHER_TESTER = '11111111-2222-4333-8444-555555555555';
 const GUIDE = { label: 'Revoke on GitLab', url: 'https://gitlab.example.com/-/profile/applications' };
 const done = (results = []) => ({ complete: true, supportedComplete: true, results, manualCleanup: [] });
 
@@ -92,6 +93,7 @@ async function start({ alpha = false } = {}) {
     disconnectProviderAccounts: async (req, accounts) => {
       const gone = new Set([accounts].flat().map(account => account.login));
       calls.push(['disconnect', [...gone]]);
+      calls.push(['heldWhenAsked', req.session.accounts.map(account => account.login)]);
       const cleanup = state.cleanups.shift() || done();
       if (cleanup.supportedComplete) req.session = { ...req.session, accounts: req.session.accounts.filter(account => !gone.has(account.login)), active: 0 };
       return cleanup;
@@ -184,12 +186,14 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
     assert.equal(pending.status, 202);
     assert.deepEqual(pending.body, { ok: false, status: 'pending', results: [{ reasonCode: 'PENDING' }] });
     assert.deepEqual(called(t.calls, 'setSession'), [], 'nothing is written while the cleanup is pending');
+    assert.deepEqual(called(t.calls, 'heldWhenAsked'), [['heldWhenAsked', ['alice', 'dave', 'bob']]], 'the cleanup is asked while the session still holds the account');
     t.state.cleanups = [done()];
     const removed = await t.send('POST', '/api/accounts/remove', { idx: 0 });
     assert.deepEqual(removed.body, { ok: true, removed: 'alice', active: 'bob' }, 'the selected account left: a GitHub account is chosen');
     t.state.session = { accounts: [RETIRED, TOKEN, OAUTH], active: 1 };
     t.state.cleanups = [{ ...done(), manualCleanup: [GUIDE, GUIDE, { label: 'Remove the token' }, { label: '' }] }];
     const reselected = await t.send('POST', '/api/accounts/remove', { idx: 1 });
+    assert.deepEqual(called(t.calls, 'heldWhenAsked'), [['heldWhenAsked', ['dave', 'alice', 'bob']]], 'and the selection it decides from');
     assert.equal(reselected.body.active, 'bob', 'the selection moves past the retired account');
     assert.deepEqual(reselected.body.revocationGuidance, [{ label: GUIDE.label, url: GUIDE.url, automatic: false }, { label: 'Remove the token', url: null, automatic: false }]);
     assert.deepEqual(called(t.calls, 'setSession')[0][1].active, 1, 'a GitHub account is selected, never a retired one');
@@ -260,10 +264,10 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
   {
     const privacy = await a.send('GET', '/api/alpha/privacy');
     assert.equal(privacy.cache, 'no-store');
-    assert.equal(privacy.body.termsVersion, '2026-07-30');
-    assert.deepEqual(privacy.body.retention, identity.alphaRetentionPolicy());
-    assert.equal(privacy.body.sourceContentUsedForAnalytics, false);
-    for (const body of [{ feature: 'upload', description: 'my repository' }, [], [{ feature: 'upload' }]]) {
+    assert.deepEqual(privacy.body, {
+      termsVersion: '2026-07-30', retention: identity.alphaRetentionPolicy(), retainedIntegrityMetadata: true, sourceContentUsedForAnalytics: false
+    }, 'the notice: the alpha\'s terms and retention, integrity metadata kept, source content never analysed');
+    for (const body of [{ feature: 'upload', description: 'my repository' }, { feature: 'upload', testerId: OTHER_TESTER }, [], [{ feature: 'upload' }]]) {
       const refused = await a.send('POST', '/api/alpha/feedback', body);
       assert.deepEqual([refused.status, refused.body.code], [400, 'ALPHA_FEEDBACK_FIELDS_REJECTED'], `${JSON.stringify(body)} is refused, never stripped`);
     }
@@ -276,6 +280,7 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
     assert.deepEqual([sent.status, sent.body], [201, { ok: true, createdAt: 'now' }]);
     const [[, recorded]] = called(a.calls, 'recordFeedback');
     assert.equal(recorded.testerId, TESTER);
+    assert(Math.abs(Date.parse(recorded.occurredAt) - Date.now()) < 60_000, 'feedback is dated when it is sent');
     assert.equal(recorded.releaseVersion, APP_VERSION);
     assert.equal(recorded.correlationId, 'nvx-0123456789abcdef');
     assert(!('description' in recorded));
@@ -298,6 +303,10 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
   }
   {
     a.state.session = { accounts: [TOKEN, RETIRED], active: 0 };
+    a.state.cleanups = [{ complete: false, supportedComplete: false, results: [{ reasonCode: 'PENDING' }], manualCleanup: [] }];
+    const waiting = await a.send('POST', '/api/alpha/providers/disconnect-all');
+    assert.deepEqual([waiting.status, waiting.body, waiting.cookies], [202, { ok: false, status: 'pending', results: [{ reasonCode: 'PENDING' }] }, []],
+      'disconnecting every provider keeps the session until each is disconnected');
     a.state.cleanups = [done([{ revocationGuidance: { label: 'Signed out', url: null, automatic: true } }, { revocationGuidance: GUIDE }])];
     const all = await a.send('POST', '/api/alpha/providers/disconnect-all');
     assert.deepEqual(all.body, { ok: true, revocationGuidance: [{ label: 'Signed out', url: null, automatic: true }, GUIDE] });
@@ -310,21 +319,22 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
     const confirm = { confirm: 'DELETE ALPHA DATA' };
     a.state.cleanups = [{ complete: false, supportedComplete: true, results: [{ reasonCode: 'PROVIDER_RETIRED_MANUAL_CLEANUP_REQUIRED' }], manualCleanup: [GUIDE] }];
     assert.equal((await a.send('POST', '/api/alpha/delete', confirm)).status, 202, 'deletion waits for every provider, retired ones included');
-    a.state.deletion = { status: 'blocked', cleanupBlocks: [{ code: 'PROVIDER_HOOK_PENDING', count: 5000 }, { code: 'bad code', count: 1 }, null, ...Array.from({ length: 30 }, (_, i) => ({ code: `BLOCK_${i}`, count: -i }))] };
+    a.state.deletion = { status: 'blocked', cleanupBlocks: [{ code: 'PROVIDER_HOOK_PENDING', count: 5000, cleanupId: 'cleanup-1' }, { code: 'bad code', count: 1 }, null, ...Array.from({ length: 30 }, (_, i) => ({ code: `BLOCK_${i}`, count: -i }))] };
     const blocked = await a.send('POST', '/api/alpha/delete', confirm);
     assert.equal(blocked.status, 409);
     assert.equal(blocked.body.code, 'ALPHA_DELETION_BLOCKED');
     assert.equal(blocked.body.cleanupBlocks.length, 20);
-    assert.deepEqual(blocked.body.cleanupBlocks.slice(0, 2), [{ code: 'PROVIDER_HOOK_PENDING', count: 1000 }, { code: 'BLOCK_0', count: 0 }]);
+    assert.deepEqual(blocked.body.cleanupBlocks.slice(0, 2), [{ code: 'PROVIDER_HOOK_PENDING', count: 1000 }, { code: 'BLOCK_0', count: 0 }], 'each block by its code and count, never its cleanup');
     assert.deepEqual(called(a.calls, 'purgeTester'), [], 'a blocked request is not purged');
     a.state.deletion = { status: 'recorded' };
     a.state.purge = { status: 'complete', providerCleanupVerified: false };
     assert.equal((await a.send('POST', '/api/alpha/delete', confirm)).status, 409, 'an unverified provider cleanup blocks the deletion');
     a.state.purge = { status: 'complete', providerCleanupVerified: true, removedRows: 3 };
-    const deleted = await a.send('POST', '/api/alpha/delete', confirm);
+    const deleted = await a.send('POST', '/api/alpha/delete', { ...confirm, testerId: OTHER_TESTER });
     assert.deepEqual(deleted.body, { ok: true, status: 'complete', providerCleanupVerified: true, removedRows: 3 });
     assert.deepEqual(deleted.cookies, ['nv_session=; Max-Age=0', 'nv_alpha_access=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0']);
-    assert.deepEqual(called(a.calls, 'createDeletionRequest'), [['createDeletionRequest', { testerId: TESTER }]]);
+    assert.deepEqual(called(a.calls, 'createDeletionRequest'), [['createDeletionRequest', { testerId: TESTER }]], 'the session\'s tester is deleted, whatever the body names');
+    assert.deepEqual(called(a.calls, 'purgeTester'), [['purgeTester', { testerId: TESTER }]], 'and purged');
     /* An ended session: the boundary admitted the sealed tester alone, and deletion goes on without the account guard. */
     a.state.alpha = Object.freeze({ testerId: TESTER, deletionRecovery: true });
     a.state.refuse = true;

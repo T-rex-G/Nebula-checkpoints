@@ -192,6 +192,7 @@ const pendingIn = (calls, slot) => (called(calls, 'setSession').at(-1) || [, {}]
     t.state.user = { id: 1, login: 'alice' };
     const connected = await t.send('POST', '/api/github-app/connect', { body: {} });
     assert.equal(connected.cache, 'no-store');
+    assert.deepEqual(Object.keys(connected.body), ['url'], 'the answer is where to go, and nothing the session holds');
     const state = new URL(connected.body.url).searchParams.get('state');
     const claims = verifyGithubAppState(SECRET, state, { sessionBinding: NONCE, identityKey: keyOf(TOKEN), purpose: 'user-auth' });
     const pending = pendingIn(t.calls, 'userAuth');
@@ -271,6 +272,18 @@ const pendingIn = (calls, slot) => (called(calls, 'setSession').at(-1) || [, {}]
     }
     t.state.addedKey = 'e'.repeat(64);
     t.state.visible = { account: { id: 70, login: 'ACME' } };
+    /* A claim is accepted only by a state signed for the claim, this session and this identity, before GitHub is asked anything. */
+    for (const [query, code] of [
+      [t.signed('user-auth', 'i-9'), 'GITHUB_APP_STATE_CONTEXT'],
+      [t.signed('installation-claim', 'i-9', { identityKey: 'f'.repeat(64) }), 'GITHUB_APP_STATE_CONTEXT'],
+      [t.signed('installation-claim', 'i-9', { binding: 'c'.repeat(48) }), 'GITHUB_APP_STATE_CONTEXT'],
+      [`${t.signed('installation-claim', 'i-9').slice(0, -2)}xx`, 'GITHUB_APP_STATE_INVALID']
+    ]) {
+      begin('i-9');
+      const refused = await t.send('GET', `/api/github-app/setup?state=${query}&installation_id=42`);
+      assert.equal(refused.location, `/?githubApp=error&code=${code}`);
+      assert.deepEqual([called(t.calls, 'findUserInstallation'), called(t.calls, 'getInstallation'), called(t.calls, 'addAccount')], [[], [], []], 'and GitHub is asked nothing');
+    }
   }
 
   /* What the session holds; a refresh and a disconnect, by installation locally. */
@@ -283,6 +296,7 @@ const pendingIn = (calls, slot) => (called(calls, 'setSession').at(-1) || [, {}]
     assert.equal(refreshed.body.connection.accountLogin, 'acme');
     assert.equal(refreshed.body.connection.active, true);
     assert.deepEqual(called(t.calls, 'invalidate'), [['invalidate', 42]], 'locally the broker forgets the old credential');
+    assert.deepEqual(called(t.calls, 'persist'), [['persist', keyOf(TOKEN), 'connected']], 'locally a refresh is recorded under the user who connected it');
     assert.equal(called(t.calls, 'setSession')[0][1].security.stepUp, null, 'a refresh clears the step-up');
     t.state.installation = new GithubAppError('suspended', 'GITHUB_APP_INSTALLATION_SUSPENDED', 403);
     const suspended = await t.send('POST', '/api/github-app/refresh', { body: { installationId: 7 } });
@@ -396,6 +410,7 @@ const pendingIn = (calls, slot) => (called(calls, 'setSession').at(-1) || [, {}]
     assert.equal((await a.send('POST', '/api/github-app/refresh', { body: { installationId: 42 } })).status, 404, 'an alpha connection is not addressed by its installation');
     const refreshed = await a.send('POST', '/api/github-app/refresh', { body: { connectionKey: 'c'.repeat(64) } });
     assert.equal(refreshed.body.connection.connectionKey, 'c'.repeat(64));
+    assert.deepEqual(called(a.calls, 'persist'), [['persist', 'c'.repeat(64), 'connected']], 'in the alpha, under the connection\'s own key, never the user who connected it');
     assert.equal(refreshed.body.connection.active, true);
     const other = await a.send('POST', '/api/github-app/refresh', { body: { connectionKey: 'd'.repeat(64) } });
     assert.equal(other.body.connection.active, false, 'a refreshed connection is active only when it is the selected one');

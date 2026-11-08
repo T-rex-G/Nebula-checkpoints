@@ -11,7 +11,8 @@
  *
  *   - No module takes who is acting, or what they may do, from a request's
  *     body: governance roles, repository access, an actor's or a reviewer's
- *     identity, or an authorization. They are the server's to resolve.
+ *     identity, a tester, or an authorization. They are the server's to
+ *     resolve.
  *   - Kepler's routes hand the governance service only the governance
  *     context's authorization, the one the server resolved for this request.
  *     (Other modules' authorizations are other things: a restore's signed
@@ -19,6 +20,15 @@
  *   - Kepler's own-work allowance, which lets a public reader into their own
  *     scans and audits, is handed to routes as an allowance and used nowhere
  *     else.
+ *   - An account is disconnected -- its webhooks removed and read back, its
+ *     provider session ended -- only by the routes that remove one: removing
+ *     an account, signing out, disconnecting the GitHub App, disconnecting
+ *     every provider and deleting the alpha's data. What each of them does is
+ *     asked of it (test/identity-account-routes.test.js,
+ *     test/identity-security-routes.test.js); that no other route does it is
+ *     held here.
+ *   - An installation's record is removed only by that disconnect, after the
+ *     provider is cleaned up.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -37,7 +47,7 @@ function sources(directory) {
 const files = sources(SOURCE);
 assert(files.length > 100, 'the server\'s source must be found');
 
-const CLAIMED = new Set(['governanceRoles', 'repositoryAccess', 'actorIdentityKey', 'reviewerIdentityKey', 'authorization']);
+const CLAIMED = new Set(['governanceRoles', 'repositoryAccess', 'actorIdentityKey', 'reviewerIdentityKey', 'testerId', 'authorization']);
 /* An expression with its parentheses, casts and assertions taken off: `(req.body as Fields)!` is `req.body`. */
 const bare = node => {
   let at = node;
@@ -58,9 +68,34 @@ const KEPLER_HTTP = path.join(SOURCE, 'modules', 'kepler', 'http');
 const isRoute = file => path.dirname(file) === KEPLER_HTTP && path.basename(file) !== 'governance-context.ts';
 const OWN_WORK_HOME = new Set([path.join(SOURCE, 'modules', 'kepler', 'http', 'governance-context.ts'), path.join(SOURCE, 'modules', 'kepler', 'index.ts')]);
 
+/* The account disconnect, by the name the routes are handed it or by the account lifecycle's own. */
+const DISCONNECT = new Set(['disconnectProviderAccounts', 'disconnectAlphaProviderAccount']);
+const REMOVAL_ROUTES = ['/api/accounts/remove', '/api/alpha/delete', '/api/alpha/providers/disconnect-all', '/api/github-app/disconnect', '/api/logout'];
+const calledName = node => {
+  const callee = bare(node.expression);
+  return ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+};
+/* The route a node is registered under: the path of the nearest enclosing `app.post('/api/…', …)`. */
+const routeOf = node => {
+  for (let at = node.parent; at; at = at.parent) {
+    if (ts.isCallExpression(at) && ts.isPropertyAccessExpression(at.expression) && ts.isIdentifier(at.expression.expression)
+      && at.expression.expression.text === 'app' && /^(get|post|put|patch|delete)$/.test(at.expression.name.text)
+      && at.arguments.length && ts.isStringLiteralLike(at.arguments[0])) return at.arguments[0].text;
+  }
+  return null;
+};
+/* The function a node is written in, by its declared name. */
+const functionOf = node => {
+  for (let at = node.parent; at; at = at.parent) if (ts.isFunctionDeclaration(at) && at.name) return at.name.text;
+  return null;
+};
+
 const claimed = [];
 const handed = [];
 const allowance = [];
+const strayDisconnects = [];
+const disconnectingRoutes = new Set();
+const strayRemovals = [];
 let routesHandingAuthorization = 0;
 let ownWorkAllowances = 0;
 for (const file of files) {
@@ -78,6 +113,11 @@ for (const file of files) {
     /* req.body.governanceRoles, req.body['authorization'], body.actorIdentityKey */
     if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && fromBody(node.expression) && CLAIMED.has(nameOf(node))) {
       claimed.push(`${where(node)} reads ${nameOf(node)} from a request's body`);
+    }
+    /* member(req.body, 'testerId'), read(body, 'authorization'): a field reader handed the body; bodyField(req, 'testerId'), one handed the request. */
+    if (ts.isCallExpression(node) && node.arguments.length >= 2 && ts.isStringLiteralLike(node.arguments[1]) && CLAIMED.has(node.arguments[1].text)
+      && (fromBody(node.arguments[0]) || (ts.isIdentifier(node.expression) && node.expression.text === 'bodyField'))) {
+      claimed.push(`${where(node)} reads ${node.arguments[1].text} from a request's body`);
     }
     /* const { governanceRoles } = req.body */
     if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && fromBody(node.initializer)) {
@@ -102,6 +142,15 @@ for (const file of files) {
       if (asAllowance) ownWorkAllowances += 1;
       else if (!declared && !passedOn) allowance.push(`${where(node)} uses OWN_WORK other than as a route's allowance`);
     }
+    if (ts.isCallExpression(node) && DISCONNECT.has(calledName(node))) {
+      const route = routeOf(node);
+      if (REMOVAL_ROUTES.includes(route)) disconnectingRoutes.add(route);
+      else strayDisconnects.push(`${where(node)} disconnects an account${route ? ` in ${route}` : ''}, which removes none`);
+    }
+    if (ts.isCallExpression(node) && calledName(node) === 'removeGithubAppInstallation'
+      && !(path.basename(file) === 'account-lifecycle.ts' && functionOf(node) === 'disconnectAlphaProviderAccount')) {
+      strayRemovals.push(`${where(node)} removes an installation's record outside the account disconnect`);
+    }
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -112,5 +161,8 @@ assert.deepEqual(handed, [], 'Kepler\'s routes hand on only the authorization th
 assert(routesHandingAuthorization > 20, `the routes that hand on an authorization are found (${routesHandingAuthorization})`);
 assert.deepEqual(allowance, [], 'the own-work allowance is a route\'s allowance, and nothing else');
 assert(ownWorkAllowances > 10, `the routes that take it are found (${ownWorkAllowances})`);
+assert.deepEqual(strayDisconnects, [], 'only a route that removes an account disconnects one');
+assert.deepEqual([...disconnectingRoutes].sort(), REMOVAL_ROUTES, 'and each of them is found');
+assert.deepEqual(strayRemovals, [], 'an installation\'s record is removed only by the account disconnect');
 
 console.log('module rules: ok');

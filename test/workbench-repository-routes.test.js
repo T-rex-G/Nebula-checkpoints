@@ -268,6 +268,9 @@ const { moves } = require('./fixtures/provider-requests');
       state.lfsHref = 'http://lfs.example/object';
       const plain = await call('GET', '/api/repo/acme/demo/raw?path=model.bin&ref=main');
       assert.notEqual(plain.text, 'lfs bytes!!', 'storage over plain HTTP is refused');
+      state.lfsHref = 'https://reader:secret@lfs.example/object';
+      const embedded = await call('GET', '/api/repo/acme/demo/raw?path=model.bin&ref=main');
+      assert.notEqual(embedded.text, 'lfs bytes!!', 'and so is storage with credentials in its address');
     });
   }
 

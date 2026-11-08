@@ -461,6 +461,7 @@ function treeEntries(bytes) {
       assert.deepEqual(JSON.parse(batch[4]), { operation: 'upload', transfers: ['basic'], ref: { name: 'refs/heads/main' }, objects: [{ oid, size: 6000 }] });
       assert(put[4].equals(bytes), 'storage receives the file itself');
       assert.deepEqual([put[3]['Content-Length'], put[3].Authorization, put[5]], ['6000', 'RemoteAuth up', 'error']);
+      assert.deepEqual([batch[5], verify[5]], ['error', 'error'], 'neither the negotiation nor the verification follows a redirect');
       assert.equal(verify[3].Authorization, undefined, "storage's own host is not sent the account's credentials");
       const [commit] = state.commits;
       assert.equal(commit.acct, 'token:tok');
@@ -476,6 +477,8 @@ function treeEntries(bytes) {
       assert.equal(calls.filter(entry => entry[0] === 'fetch').at(-1)[3].Authorization, `Basic ${Buffer.from('alice:tok').toString('base64')}`, "GitHub's own verification is sent the account's credentials");
       state.lfsHref = 'http://lfs.example/store';
       assert.equal((await call('POST', '/api/repo/acme/demo/upload?path=big/clip.mp4&branch=main', undefined, bytes)).status, 502, 'storage over plain HTTP is refused');
+      state.lfsHref = 'https://reader:secret@lfs.example/store';
+      assert.equal((await call('POST', '/api/repo/acme/demo/upload?path=big/clip.mp4&branch=main', undefined, bytes)).status, 502, 'and so is storage with credentials in its address');
       state.lfsHref = 'https://lfs.example/store';
       assert.equal((await call('POST', '/api/repo/acme/demo/upload?path=locked/clip.mp4&branch=main', undefined, bytes)).json.code, 'PROTECTED_PATH');
       state.provider = 'gitea';

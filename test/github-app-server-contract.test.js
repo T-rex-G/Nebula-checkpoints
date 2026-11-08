@@ -1,17 +1,37 @@
 'use strict';
-
+/*
+ * The GitHub App connection, as the server registers it: its routes and their
+ * guards, as the route policy reads them from the composition root and the
+ * modules' registrations, and what an installation's account may not do.
+ *
+ * What each part does is asked of it where it lives:
+ *   - the server loads the App's configuration, tells the page, builds the
+ *     broker, and resolves an App account to the installation's token
+ *     (test/github-app-configured-server.test.js, test/composition.test.js);
+ *   - the callbacks accept only a state signed for their purpose, this session
+ *     and this identity, spend it once before GitHub is asked anything, and
+ *     claim an installation only for an owner the user can see with their own
+ *     token; the account they add is an App account and holds no token; the
+ *     sign-in answer is where to go and nothing the session holds; a refresh
+ *     or a disconnect outside the alpha makes the broker forget the
+ *     installation's token (test/identity-security-routes.test.js,
+ *     test/account-lifecycle.test.js,
+ *     test/provider-disconnect-server-contract.test.js);
+ *   - an installation's record and its audit trail, kept outside the alpha
+ *     without a login (test/github-app-records.test.js), and the composed
+ *     server's, with a database (test/composition-postgres.test.js);
+ *   - an installation lists the repositories it was granted, never a
+ *     person's (test/workbench-repository-routes.test.js), cannot star or
+ *     unstar for a person, refused before GitHub is asked
+ *     (test/workbench-collaboration-routes.test.js), and is offered no
+ *     notifications (test/capability-access.test.js).
+ */
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
-const root = path.resolve(__dirname, '..');
-/* The App connection's routes are identity and access's; the server builds the broker and hands it in. */
-const appRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'github-app-routes.ts'), 'utf8');
-
-assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'config', 'server-settings.ts'), 'utf8').includes('loadGithubAppConfig(env, { production })'),
-  'server must load optional GitHub App configuration');
-/* What the composed server tells the page, the broker it builds and the credentials an App account resolves to are test/composition.test.js's. */
-/* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
+const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
+
+const root = path.resolve(__dirname, '..');
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const guardsOf = (method, routePath) => {
   const entry = policyRoutes.find(item => item.method === method && item.path === routePath);
@@ -23,39 +43,8 @@ for (const [method, routePath] of [
   ['GET', '/api/github-app/status'], ['POST', '/api/github-app/refresh'], ['POST', '/api/github-app/disconnect']
 ]) guardsOf(method, routePath);
 assert.deepStrictEqual(guardsOf('GET', '/api/me'), ['accountAuth']);
-assert(appRoutes.includes('findUserInstallation(pending.userToken'), 'setup callback must verify installation ownership with the GitHub App user token');
-assert(appRoutes.includes('client.verifyState('), 'callbacks must verify signed session and identity-bound state');
-/* That the composed server refuses a state it did not sign, and a second use of one it did, is test/composition.test.js's. */
-assert(appRoutes.includes('consumeGithubAppPending'), 'callback state must be consumed once before provider side effects');
-assert(appRoutes.indexOf("consumeGithubAppPending(sessionOn(req), 'installation'") < appRoutes.indexOf('broker().findUserInstallation('), 'the installation state is spent before GitHub is asked about the installation');
-assert.match(appRoutes, /authMethod:\s*'github-app'/);
-assert.match(appRoutes, /installationId:/);
-assert(appRoutes.includes("await deps.addAccount(req, res, '', {"), 'GitHub App session accounts must remain tokenless');
-assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(appRoutes), 'GitHub App session accounts must remain tokenless');
-/* That the composed server's stored App account carries no token, with a database and invite-only, is test/composition-postgres.test.js's and test/composition-alpha.test.js's. */
-assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'application', 'repository-list.ts'), 'utf8').includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
-/* The workbench's collaboration routes: notifications, stars and the rest of a person's GitHub. */
-const collaboration = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'collaboration-routes.ts'), 'utf8');
-assert(collaboration.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
-/* That the composed server tells an installation's account apart from a person's own token is test/composition.test.js's. */
-/* The capability map is the platform's capability access, composed by the server. */
-assert.match(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'authorization', 'capability-access.ts'), 'utf8'), /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
-const notifications = policyRoutes.find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/notifications');
-assert.deepStrictEqual(notifications && notifications.guards, ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
+assert.deepStrictEqual(guardsOf('GET', '/api/notifications'), ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
   'notification connection support must be checked before credential resolution');
-const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
 assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifications').code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
-assert(collaboration.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
-/* Disconnecting is identity and access's account lifecycle, handed the server's App broker. */
-const accountLifecycle = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'account-lifecycle.ts'), 'utf8');
-assert(accountLifecycle.includes('deps.appBroker.invalidate(account.installationId)')
-  && appRoutes.includes('broker().invalidate(installationId)'), 'disconnect or provider rejection must invalidate broker state');
-/* That disconnecting an App account on the composed server drops its token from the broker is test/composition-postgres.test.js's. */
-/* An installation's record and its audit trail are identity and access's GitHub App records, composed by the server. */
-const appRecords = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'application', 'github-app-records.ts'), 'utf8');
-/* That the composed server records an installation and audits its connection through these records is test/composition-postgres.test.js's. */
-assert(appRecords.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
-assert(appRecords.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
-assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken|userToken)/.test(appRoutes), 'server JSON must not expose GitHub App secrets');
-/* That nothing the composed server answers in the App's flow holds a secret or credential is test/composition-postgres.test.js's. */
+
 console.log('github app server contract tests passed');

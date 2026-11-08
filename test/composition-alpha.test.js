@@ -79,13 +79,13 @@ const INSTALLATION_TOKEN = `ghs_${'i'.repeat(36)}`;
   const client = await database.client();
   const ownLog = console.log;
   let testers = 0;
-  /* A tester admitted by an invitation, signed in to GitHub as a login of its own. */
-  const admitted = async () => {
+  /* A tester admitted by an invitation, signed in to GitHub as a login of its own, or as another tester's. */
+  const admitted = async ({ as } = {}) => {
     testers += 1;
     const page = browser(application);
     const invite = await application.core.alphaStore.issueInvite({ testerLabel: `composition tester ${testers}`, termsVersion: TERMS, repositoryScopes: [SCOPE] });
     assert.equal((await page.request('/api/alpha/redeem', { method: 'POST', body: { code: invite.code, acceptedTermsVersion: TERMS } })).status, 200);
-    assert.equal((await page.signIn(tokenOf(testers))).status, 200);
+    assert.equal((await page.signIn(tokenOf(as || testers))).status, 200);
     return { page, csrf: await page.csrf(), testerId: (await client.query('SELECT tester_id FROM nv_alpha_testers WHERE tester_label=$1', [`composition tester ${testers}`])).rows[0].tester_id };
   };
   try {
@@ -246,6 +246,22 @@ const INSTALLATION_TOKEN = `ghs_${'i'.repeat(36)}`;
       assert.equal((await client.query('SELECT count(*)::int AS n FROM nv_webhooks')).rows[0].n, 0, 'and the server\'s record of the webhook goes');
       const signedOut = await page.request('/api/me');
       assert.equal(signedOut.status, 401, `after ${route}, the provider session is over`);
+    }
+
+    /*
+     * ---- A tester's sessions elsewhere are the tester's own ----
+     * Two testers signed in to the same GitHub account share the identity, not
+     * its sessions: each finds, and could revoke, only the sessions it owns.
+     */
+    {
+      const testersOfOneAccount = [await admitted({ as: 77 }), await admitted({ as: 77 })];
+      const keys = await client.query("SELECT DISTINCT identity_key FROM nv_alpha_provider_session_ownership WHERE tester_id = ANY($1::uuid[]) AND released_at IS NULL",
+        [testersOfOneAccount.map(tester => tester.testerId)]);
+      assert.equal(keys.rows.length, 1, 'the two testers are signed in to one GitHub identity');
+      for (const { page } of testersOfOneAccount) {
+        const listed = await bodyOf(await page.request('/api/security/sessions'));
+        assert.deepEqual([listed.available, listed.sessions.map(session => session.current)], [true, [true]], 'each tester finds its own session, and no other tester\'s');
+      }
     }
 
     /*

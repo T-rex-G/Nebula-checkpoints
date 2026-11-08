@@ -232,7 +232,8 @@ const refusal = (code, message) => Object.assign(new AlphaAccessError(message, c
       ['/api/alpha/delete', { confirm: 'delete alpha data' }, { testerId: TESTER }],
       ['/api/alpha/delete', {}, { testerId: TESTER }],
       ['/api/alpha/feedback', { confirm: 'DELETE ALPHA DATA' }, { testerId: TESTER }],
-      ['/api/alpha/delete', { confirm: 'DELETE ALPHA DATA' }, { testerId: '0f9e8d7c-6b5a-6c3d-8e2f-1a2b3c4d5e6f' }]
+      ['/api/alpha/delete', { confirm: 'DELETE ALPHA DATA' }, { testerId: '0f9e8d7c-6b5a-6c3d-8e2f-1a2b3c4d5e6f' }],
+      ['/api/alpha/delete', { confirm: 'DELETE ALPHA DATA', testerId: TESTER }, {}]
     ]) {
       const refused = await t.send('POST', url, { cookie: seal(sealed), body });
       assert.equal(refused.status, 401, `${url} with ${JSON.stringify(body)} is not a deletion recovery`);

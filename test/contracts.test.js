@@ -218,11 +218,11 @@ for (const action of ['constructor', '__proto__']) {
     error => error.code === 'SIMULATION_ACTION_UNKNOWN');
 }
 
-/* A step-up action is required where the catalogue says, and its timestamp must be real. */
-assert.throws(() => mutation.normalizeMutationSecurity({}, mutation.MUTATION_ACTIONS['pull.merge']), error => error.code === 'MUTATION_STEP_UP_REQUIRED');
-assert.deepEqual(mutation.normalizeMutationSecurity({ stepUpAction: 'pull.merge', assurance: 'credential', authorizedAt: 5 }, mutation.MUTATION_ACTIONS['pull.merge']),
-  { stepUpAction: 'pull.merge', assurance: 'credential', authorizedAt: 5 });
-assert.deepEqual(mutation.normalizeMutationSecurity(null, mutation.MUTATION_ACTIONS['file.write']), { stepUpAction: null, assurance: null, authorizedAt: null });
+/*
+ * A step-up action is required where the catalogue says, and its timestamp
+ * must be real: a descriptor's security is normalized with the descriptor, and
+ * test/mutation-gateway.test.js asks the gateway's descriptor for each case.
+ */
 
 /* The capability document refuses through its caller, with the original messages. */
 assert.throws(() => capability.validateCapabilityDocument({ schemaVersion: '2' }, message => { throw new TypeError(message); }),

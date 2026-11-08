@@ -22,7 +22,7 @@ import type { AuthorizationSnapshot } from './actor.ts';
 import { normalizePolicyScope } from './scope.ts';
 import type { Provider, RepositoryScope } from './scope.ts';
 
-export const MUTATION_CONTRACT_VERSION = 2;
+export const MUTATION_CONTRACT_VERSION = 3;
 
 export const MUTATING_METHODS = Object.freeze(['POST', 'PUT', 'PATCH', 'DELETE'] as const);
 export type MutatingMethod = (typeof MUTATING_METHODS)[number];
@@ -279,7 +279,7 @@ export function normalizeMutationMetadata(input: unknown, refuse: Refuse = refus
 }
 
 /* The step-up an action consumed before it reached the gateway, which an action that needs one cannot lack. */
-export function normalizeMutationSecurity(input: unknown, definition: MutationActionDefinition, refuse: Refuse = refuseWithContractError): MutationSecurity {
+function normalizeMutationSecurity(input: unknown, definition: MutationActionDefinition, refuse: Refuse = refuseWithContractError): MutationSecurity {
   const security = input == null ? {} : input;
   if (!isObjectLiteral(security)) return refuse('Mutation security context is invalid', 'MUTATION_SECURITY_INVALID', 400);
   const stepUpAction = String(security.stepUpAction || '').trim();

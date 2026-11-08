@@ -161,6 +161,7 @@ assert.throws(
   error => error.code === 'MUTATION_AUTHORIZATION_ACTOR_MISMATCH',
   'governance mutations must be bound to the verified human actor, not the installation identity'
 );
+assert.deepStrictEqual(descriptor.security, { stepUpAction: null, assurance: null, authorizedAt: null }, 'a write that needs no step-up carries none');
 assert.throws(
   () => normalizeMutationDescriptor({ ...base, security: { authorizedAt: 'not-a-number' } }),
   error => error.code === 'MUTATION_SECURITY_INVALID'

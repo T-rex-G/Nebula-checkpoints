@@ -1,24 +1,23 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
-const governanceRoutes = fs.readFileSync('apps/api/src/modules/kepler/http/governance-routes.ts', 'utf8');
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(process.cwd()).filter(entry => entry.kind === 'route');
-const coverage = fs.readFileSync('apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'utf8');
+/* The routes the mutation gateway's coverage inventory holds to an action. */
+const { MUTATION_ROUTE_INVENTORY } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 /* The gateway's action catalogue is the mutation contract's (packages/contracts/src/mutation.ts). */
 const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const registered = action => Object.hasOwn(MUTATION_ACTIONS, action);
 
 /*
- * Delivery's worker is started by Kepler's governance host. That the server
- * starts it at boot, so a delivery queued before the start is attempted, and
- * waits for its batch before the pool closes, is asked of the server itself by
- * test/composition-lifecycle.test.js.
+ * Delivery's worker is started by Kepler's governance host, which hands back
+ * the batch in flight when it is stopped (test/governance-host.test.js). That
+ * the server starts it at boot, so a delivery queued before the start is
+ * attempted, and waits for its batch before the pool closes, is asked of the
+ * server itself by test/composition-lifecycle.test.js. That an export is
+ * downloaded as a named attachment is test/kepler-governance-routes.test.js's.
  */
-const host = fs.readFileSync('apps/api/src/modules/kepler/application/governance-host.ts', 'utf8');
-assert(host.includes('worker = startWebhookWorker({'));
 const route = (method, routePath) => {
   const entry = policyRoutes.find(candidate => candidate.method === method && candidate.path === routePath);
   assert(entry, `missing ${method} ${routePath}`);
@@ -44,9 +43,7 @@ for (const [method, routePath, action] of [
   const { guards } = route(method, routePath);
   if (!action) continue;
   assert(registered(action), `gateway missing ${action}`);
-  assert(coverage.includes(`'${action}'`), `coverage missing ${action}`);
+  assert(MUTATION_ROUTE_INVENTORY.some(entry => entry.method === method && entry.route === routePath && entry.action === action), `coverage missing ${method} ${routePath} as ${action}`);
   assert(guards.includes(`governanceMutationContext('${action}')`), `${method} ${routePath} missing gateway context ${action}`);
 }
-assert(governanceRoutes.includes("res.setHeader('Content-Disposition'"), 'an export download must name its attachment');
-assert(host.includes('return worker ? worker.stop() : null;'), 'stopping delivery hands back the batch in flight');
 console.log('governance delivery server contract tests passed');

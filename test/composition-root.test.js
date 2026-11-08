@@ -45,6 +45,7 @@ const calls = [];
 const endpoints = [];
 const keyed = [];
 const failures = [];
+const handed = { fail: 0, publicErrorBody: 0 };
 for (const file of files) {
   const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const where = node => `${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
@@ -60,6 +61,7 @@ for (const file of files) {
     if (central && ts.isPropertyAssignment(node) && !(ts.isIdentifier(node.initializer) && node.initializer.text === central)) {
       failures.push(`${where(node)} hands over ${node.initializer.getText()} as ${node.name.text}`);
     }
+    if (central && (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))) handed[node.name.text] += 1;
     const literal = ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node);
     const specifier = node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent));
     if (literal && !specifier && PROVIDER_ENDPOINT.test(node.text)) endpoints.push(`${where(node)} holds ${JSON.stringify(node.text)}`);
@@ -72,7 +74,7 @@ assert.deepEqual(calls, [], 'the composition root calls no account disconnect: i
 assert.deepEqual(endpoints, [], 'the composition root names no provider host or Git, LFS or REST path: provider exchanges are the modules\'');
 assert.deepEqual(keyed, [], 'the composition root makes no keyed construction of its own: every key is the settings\', derived for its purpose');
 assert.deepEqual(failures, [], 'every failure answer the composition root hands a route is the central sendFailure, and every public error body the central publicErrorBody');
-assert(files.some(file => /\bfail: sendFailure\b/.test(fs.readFileSync(file, 'utf8'))), 'and it does hand routes the central failure answer');
-assert(files.some(file => /\bpublicErrorBody\b[,\s}]/.test(fs.readFileSync(file, 'utf8'))), 'and the central public error body');
+assert(handed.fail > 0, 'and it does hand routes the central failure answer');
+assert(handed.publicErrorBody > 0, 'and the central public error body');
 
 console.log('composition root: ok');

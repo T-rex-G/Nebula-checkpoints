@@ -1,44 +1,34 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { locations } = require('./oracles/route-policy');
 const root = path.join(__dirname, '..');
-const gateway = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-gateway.ts'), 'utf8');
 
-/* The composed resolver, and the credential it asks GitHub with, are test/composition.test.js's. */
-/* The mutation contexts are the platform's (mutation-context.ts) and Kepler's (governance-context.ts), composed by the server. */
-const mutationContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'mutation-context.ts'), 'utf8');
-const governanceContextSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8');
-assert(mutationContextSource.includes('async function resolveMutationAuthorization('), 'the mutation context must resolve one authorization');
-/* That the composed server's writes resolve it, with the account's credential, before GitHub sees them is test/composition.test.js's. */
-assert(mutationContextSource.includes('req.authorization = await resolveMutationAuthorization(req, action)'), 'mutation context must resolve trusted authorization evidence');
-assert(mutationContextSource.includes('authorization: req.authorization'), 'mutation descriptor must carry the credential-free authorization snapshot');
-/* That the composed server takes no roles or access from a request's body is test/composition-postgres.test.js's. */
-for (const source of [mutationContextSource, governanceContextSource]) {
-  assert(!source.includes('req.body.governanceRoles'), 'browser-supplied governance roles must never be trusted');
-  assert(!source.includes('req.body.repositoryAccess'), 'browser-supplied repository access must never be trusted');
-}
-
-assert(gateway.includes("from '../authorization/authorization-resolver.ts'"), 'mutation gateway must validate authorization snapshots');
-/* The descriptor's guard is the mutation contract's; the gateway hands it the resolver's snapshot guard. */
-const descriptorContract = fs.readFileSync(path.join(root, 'packages', 'contracts', 'src', 'mutation.ts'), 'utf8');
-assert(gateway.includes('normalizeAuthorization: normalizeAuthorizationSnapshot'), 'gateway descriptor must normalize authorization evidence');
+/*
+ * A mutation resolves one authorization, from the server's own evidence, and
+ * carries it into the gateway's descriptor without the credential
+ * (test/mutation-context.test.js); the gateway normalizes it and keeps it
+ * (test/mutation-gateway.test.js), and refuses evidence it cannot read, below.
+ * The composed resolver, and the credential it asks GitHub with, are
+ * test/composition.test.js's. No module takes governance roles or repository
+ * access from a request's body (test/module-rules.test.js); that the composed
+ * server refuses such a claim as the person GitHub says they are is
+ * test/composition-postgres.test.js's and test/composition-governance.test.js's.
+ */
 assert.throws(() => require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts').normalizeMutationDescriptor({
   action: 'file.write', provider: 'github', owner: 'acme', repo: 'demo', actorIdentityKey: 'a'.repeat(64), actorLogin: 'alice',
   method: 'PUT', route: '/api/repo/acme/demo/file', authorization: {}
 }), error => error.name === 'AuthorizationResolverError' && error.code === 'AUTHORIZATION_SCHEMA_UNSUPPORTED', 'gateway descriptor must normalize authorization evidence');
-assert(descriptorContract.includes('security: normalizeMutationSecurity(input.security, definition, refuse),\n    authorization'), 'gateway descriptor must retain normalized authorization evidence');
 
 /*
  * Reading a public repository makes nobody its collaborator. The reader
  * access everyone has on one is accepted only by routes whose data is the
  * reader's own -- their audits and scans, keyed by identity -- and refused by
- * everything the repository's collaborators share.
+ * everything the repository's collaborators share: governance's guard refuses
+ * a public reader unless the route opts in, and says why
+ * (test/governance-context.test.js).
  */
-assert(/if \(isPublicReaderAccess\(context\.authorization\) && options\.publicRepositories !== true\)/.test(governanceContextSource), 'governance access must refuse public readers unless the route opts in');
-assert(governanceContextSource.includes("code: 'GOVERNANCE_COLLABORATORS_ONLY'"), 'the refusal must say why');
 /* Read from the route policy, so a route counts wherever it is registered: the composition root or a module's routes. */
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 const ownWork = policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => `${entry.method} ${entry.path}`).sort();
@@ -60,21 +50,15 @@ assert.deepStrictEqual(ownWork, [
 ], 'exactly the identity-scoped routes accept a public reader');
 /*
  * OWN_WORK is used nowhere else. Its routes are the two modules', and no
- * route registered anywhere else takes it. In each such module's routes: the
- * field that receives it, the binding that names it, and its routes. That the
- * composition hands Kepler's allowance to each of them -- so a public reader
- * is let into their own scans and audits of a public repository, and refused
- * its governance -- is asked of the composed server by
+ * route registered anywhere else takes it; within the modules it is a route's
+ * allowance and nothing else (test/module-rules.test.js). That the composition
+ * hands Kepler's allowance to each of them -- so a public reader is let into
+ * their own scans and audits of a public repository, and refused its
+ * governance -- is asked of the composed server by
  * test/composition-postgres.test.js.
  */
-const ownWorkIn = file => policyRoutes.filter(entry => entry.at.startsWith(`${file}:`) && entry.guards.includes("governanceAccess('reader', OWN_WORK)")).length;
 const moduleFiles = [...new Set(policyRoutes.filter(entry => entry.guards.includes("governanceAccess('reader', OWN_WORK)")).map(entry => entry.at.split(':')[0]))];
 assert.deepStrictEqual(moduleFiles.sort(), ['apps/api/src/modules/quasar/http/exposure-routes.ts', 'apps/api/src/modules/uranus/http/code-audit-routes.ts']);
-for (const file of moduleFiles) {
-  const text = fs.readFileSync(path.join(root, file), 'utf8');
-  assert.strictEqual((text.match(/OWN_WORK/g) || []).length, ownWorkIn(file) + 2, `OWN_WORK is used nowhere else in ${file}`);
-}
-assert.strictEqual(moduleFiles.reduce((sum, file) => sum + ownWorkIn(file), 0), ownWork.length, 'and no other file registers a route with it');
 for (const entry of policyRoutes.filter(item => item.path.startsWith('/api/repo/:owner/:repo/governance'))) {
   assert(!entry.guards.some(guard => guard.includes('OWN_WORK')), `governance is collaborators' business: ${entry.method} ${entry.path}`);
 }

@@ -1,6 +1,5 @@
 'use strict';
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
@@ -26,6 +25,6 @@ for (const [routePath, action, role] of [
   if (role) assert(guards.includes(`governanceAccess('${role}')`), 'decisions and revocation must require administrator');
 }
 
-assert.match(fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'kepler', 'domain', 'governance-mutation-metadata.ts'), 'utf8'), /case 'governance\.exception\.request':[\s\S]*ruleIds:[\s\S]*target:[\s\S]*ruleCount:/, 'exception request gateway metadata must bind the targeted rule set');
+/* That an exception request's gateway metadata binds the rules it targets, their count and the target is test/governance-context.test.js's. */
 
 console.log('governance exception server contract tests passed');

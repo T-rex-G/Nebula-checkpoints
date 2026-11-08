@@ -1,9 +1,7 @@
 'use strict';
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const governanceRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-routes.ts'), 'utf8');
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
 const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
@@ -17,13 +15,15 @@ for (const [method, routePath] of [
   assert(entry, `missing ${method} ${routePath}`);
   assert(entry.guards.includes("governanceAccess('reader')"), `${method} ${routePath} must be reader authorized`);
 }
-assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-context.ts'), 'utf8').includes("res.setHeader('Cache-Control', 'no-store')"), 'governance answers are never cached (Kepler\'s governance context)');
-assert(governanceRoutes.includes('const readRepositoryFacts = async (req: Request)'));
-assert(governanceRoutes.includes('const repositoryFacts = await readRepositoryFacts(req);'));
-
-assert(fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'corona', 'domain', 'safety-guard.ts'), 'utf8').includes("new RegExp('^/api/repo/[^/]+/[^/]+/governance/baselines/generate$')"),
-  'read-only safeguards must exempt only the exact baseline generation route');
-assert(governanceRoutes.includes('deps.gh(account(req), `${repositoryPath(req)}/branches?per_page=100`)'),
-  'branch facts must use GitHub pagination');
+/*
+ * What these routes do is asked of them where they are built: that a
+ * governance answer is never cached, of Kepler's governance context
+ * (test/governance-context.test.js); that a baseline is generated from the
+ * repository's own facts -- its default branch, its visibility and its
+ * protected branches, read a page of a hundred at a time -- of Kepler's
+ * routes (test/kepler-governance-routes.test.js); and that read-only mode lets
+ * exactly baseline generation through, of Corona's safety guard
+ * (test/corona-safety-guard.test.js).
+ */
 
 console.log('governance template and Digital Twin server contract tests passed');

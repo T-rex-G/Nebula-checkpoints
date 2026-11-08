@@ -323,6 +323,18 @@ function freshState(level = 50) {
         assert.equal(odd.status, 500, 'a status outside 4xx and 5xx becomes 500');
         assert.equal(odd.json.code, 'POLICY_ODD');
         assert.equal(logged.length, 1, 'a governance error is not logged as a failure');
+
+        /* Each family a governance answer may come from keeps its code; a code that only begins like one is a failure. */
+        for (const family of ['GOVERNANCE', 'MUTATION', 'AUTHORIZATION', 'SIMULATION', 'POLICY']) {
+          state.storeFails = Object.assign(new Error(`${family.toLowerCase()} refused`), { code: `${family}_REFUSED`, status: 422 });
+          const answer = await call('GET', '/policies');
+          assert.deepEqual([answer.status, answer.json], [422, { error: `${family.toLowerCase()} refused`, code: `${family}_REFUSED` }], `a ${family} answer keeps its code and words`);
+        }
+        assert.equal(logged.length, 1, 'and none is logged as a failure');
+        state.storeFails = Object.assign(new Error('near miss'), { code: 'GOVERNANCEX_REFUSED', status: 422 });
+        const near = await call('GET', '/policies');
+        assert.deepEqual([near.status, near.json], [500, { error: 'Governance operation failed', code: 'GOVERNANCE_OPERATION_FAILED' }], 'a code that only begins like a family is not one');
+        assert.equal(logged.length, 2, 'and is logged as a failure');
       });
     } finally {
       console.error = errors;

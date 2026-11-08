@@ -1,15 +1,16 @@
 'use strict';
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const governanceRoutes = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'kepler', 'http', 'governance-routes.ts'), 'utf8');
 /* Every route with its guard chain, as the route policy reads them from the composition root and the modules' registrations. */
 const { locations } = require('./oracles/route-policy');
-assert(/import \{ projectGovernanceInterfaceAccess \} from '\.\.\/domain\/governance-interface\.ts'/.test(governanceRoutes), 'the governance routes must load the bounded governance interface access projection');
-assert(governanceRoutes.includes('projectGovernanceInterfaceAccess(governance(req).authorization)'), 'Digital Twin route must derive access from the server authorization snapshot');
-/* That the composed server's Digital Twin shows each person what their governance context lets them do is test/composition-governance.test.js's. */
-assert(governanceRoutes.includes('res.json({ digitalTwin, access })'), 'Digital Twin route must return the read model and bounded access envelope');
+/*
+ * That the Digital Twin answers its read model with the access its reader's
+ * governance context allows, projected by the governance interface, is Kepler's
+ * routes' (test/kepler-governance-routes.test.js); that the composed server
+ * shows each person what GitHub's answer lets them do is
+ * test/composition-governance.test.js's.
+ */
 const digitalTwin = locations(root).find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/repo/:owner/:repo/governance/digital-twin');
 assert(digitalTwin, 'Digital Twin route must remain repository scoped');
 assert(digitalTwin.guards.includes("governanceAccess('reader')"), 'Digital Twin route must remain reader authorized');

@@ -2365,3 +2365,38 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **The fix.** Each hold now waits for its own query: the delivery batch's read of `nv_governance_webhook_deliveries`, the worker's session read, and the spend's session write. The product is unchanged; the sweep running beside them is correct.
 - **Proven.** Twelve runs, four at once, all pass. The drain mutants (delivery and scans not drained) and the shared-store mutant (session security told there is no database) are still caught.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step ten — the modules' text, counted; governance's, asked
+
+- **Why.** The composition's wiring is read nowhere now; the modules' code still is. D14's first step left "the module-text halves of these checks … until their own conversion". This step counts them, and converts governance's.
+- **The census.** `test/module-reads.test.js` counts the statements in every test and script that read a file of the server's source as text: `apps/api/src`, the CommonJS modules in `src`, and the contracts in `packages/contracts/src`. It finds them over the syntax tree, with names resolved by the TypeScript checker, so a name is the declaration it means in its own scope.
+  - It follows a read through a reader function, a constant path, a loop over paths and a callback handed the text.
+  - A read that is never used still counts.
+  - Text handed to the parser is not counted; a rule over that syntax tree is what D14 converts to.
+  - `require()` reads nothing: that is asking the module.
+  - The page's own source (`apps/web/src`) is Phase E's.
+
+  It found 431 statements in 53 files and holds the count exactly, like the composition's census did.
+- **The root's last two.** Two checks in `test/composition-root.test.js` that the root hands routes the central failure answer and error body read its files as text. They now count those handovers in its syntax tree. 429.
+- **Governance, asked (60 statements in ten tests).** Each property is now asked of the code that does it:
+  - Kepler's governance host builds one service over the durable store under the audit secret, starts the delivery worker beside it, hands back the batch in flight when stopped, builds the runtime under the deployment's failure mode and logs what it cannot evaluate with that mode (`test/governance-host.test.js`).
+  - The governance guard resolves the reader's authorization, holds it to the route's role, refuses a public reader outside their own work and says why, never lets an answer be cached, and describes a change from the server's evidence (`test/governance-context.test.js`), which also binds an exception's metadata to the rules it targets.
+  - The routes read a repository's facts a page of a hundred at a time, show the Digital Twin with its reader's projected access, name an export's attachment, hand the service the request's idempotency key and keep a refusal's code (`test/kepler-governance-routes.test.js`).
+  - Read-only mode lets exactly governance's control plane through (`test/corona-safety-guard.test.js`).
+  - A mutation resolves one authorization and carries it into the descriptor; it surfaces the policy's outcome in bounded headers; it offers safe passage for an approval refusal of a write with its content in hand, and for nothing else, a failed offer meaning no offer (`test/mutation-context.test.js`).
+  - The gateway normalizes and keeps the evidence (`test/mutation-gateway.test.js`), and the central failure answer sends an offer beside the unchanged body (`test/github-rest.test.js`).
+  - The service simulates with Kepler's simulation (`test/governance-simulation-api.test.js`). The server reads the failure mode from its environment and announces each evaluation (`test/composition.test.js`).
+- **New checks, where none answered.**
+  - A governance refusal keeps its code for each of its five families, and a code that only begins like one is a failure (`test/kepler-governance-routes.test.js`). The routes test had covered two of the five.
+  - The active policy set that safe passage asks for is read and nothing written. The store is asked through a pool whose every statement is seen: it runs one read-only transaction, writes nothing, takes no lock and mints no identifier, and every governance table holds what it held (`test/governance-lifecycle-postgres.test.js`). Before, a slice of the store's text was searched for `READ ONLY`.
+  - The webhook routes are found in the mutation coverage inventory as data, by method, route and action, not by their action's name in its text.
+  - **`test/module-rules.test.js`** holds three rules over the server's syntax tree, for defence in depth that no request can show, because a guard refuses first:
+    - no module takes governance roles, repository access, an actor's or a reviewer's identity, or an authorization from a request's body, however the body is cast or named;
+    - Kepler's routes hand the service only the authorization the governance context resolved;
+    - the own-work allowance is a route's allowance and nothing else.
+- **Each check fails when what it guards is broken.**
+  - Thirty-five mutants of the modules, one for each removed text check, are each caught by the test named.
+  - Seven planted violations of the rules are caught. The first version of the body rule missed a body cast with `as`, which TypeScript routes always do; it now sees through casts, assertions and parentheses.
+- **Found on the way: an export only a text check named.** The mutation contract exported `normalizeMutationSecurity`. Its only use outside its own file was the text check that read the contract for it, which the contract test counted as a consumer. With the check gone, `test/contracts.test.js` reported the export unconsumed, rightly: it is used only inside the contract, by the descriptor normalizer. It is no longer exported, and the mutation contract is version 3 for the change of shape. A descriptor that needs no step-up carries none (`test/mutation-gateway.test.js`); that test already asked the gateway's descriptor for every other case the contract test had called the function for directly.
+- **369 remain.**
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

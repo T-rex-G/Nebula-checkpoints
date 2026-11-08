@@ -27,8 +27,6 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
@@ -86,11 +84,14 @@ function authorizationFor(overrides = {}) {
   });
 }
 
+/* Every request any probe in this file sends, whichever transport carried it. */
+const everyRequest = [];
 function transportReturning(...answers) {
   const calls = [];
   const queue = answers.slice();
   const transport = async request => {
     calls.push(request);
+    everyRequest.push(request);
     const answer = queue.length > 1 ? queue.shift() : queue[0];
     if (typeof answer === 'function') return answer(request);
     if (answer instanceof Error) throw answer;
@@ -124,13 +125,7 @@ function probe(overrides = {}) {
    */
   {
     assert.strictEqual(DEFAULT_TRANSPORT, guardedFetch);
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'anonymous-readability-probe.ts'), 'utf8'
-    ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    assert(source.includes('function discoverProject'), 'the comment strip must leave the code behind');
-    for (const forbidden of [/require\('https'\)/, /require\('http'\)/, /from '(?:node:)?https?'/, /\bfetch\s*\(/, /https\.request/]) {
-      assert.strictEqual(forbidden.test(source), false, `must not reach the network itself: ${forbidden}`);
-    }
+    /* That the module loads no network module and calls no fetch of its own is test/module-rules.test.js's, over its syntax tree. */
 
     const found = discoverProject(`const url = "${ORIGIN}";\n`);
     assert.strictEqual(found.projectRef, PROJECT_REF);
@@ -510,16 +505,7 @@ function probe(overrides = {}) {
   /* ---- Nothing is ever written --------------------------------------- */
 
   {
-    const source = fs.readFileSync(
-      path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'anonymous-readability-probe.ts'), 'utf8'
-    );
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-      assert.strictEqual(
-        source.includes(`'${method}'`), false,
-        `a readability probe never writes: ${method}`
-      );
-    }
-    /* And the profile it uses cannot write even if somebody tried. */
+    /* Every request a probe here sent only reads: asked at the end, of all of them. And the profile it uses cannot write even if somebody tried. */
     await assert.rejects(
       guardedFetch({
         url: `${ORIGIN}/rest/v1/public_posts`, profile: PROFILES.PROVIDER_READ, method: 'POST',
@@ -579,6 +565,10 @@ function probe(overrides = {}) {
       assert.strictEqual(result.reason, REASONS.AUTHORIZATION_INVALID, JSON.stringify(signature));
     }
   }
+
+  assert(everyRequest.length > 10, `the probes' requests are seen (${everyRequest.length})`);
+  assert.deepStrictEqual([...new Set(everyRequest.map(request => request.method))].filter(method => method !== 'GET' && method !== 'HEAD'), [],
+    'a readability probe never writes');
 
   console.log('anonymous readability probe tests passed');
 })().catch(error => {

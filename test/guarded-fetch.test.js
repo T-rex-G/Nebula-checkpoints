@@ -16,8 +16,6 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const https = require('https');
 const {
   PROFILES, CODES, MAX_RESPONSE_BYTES, GuardedFetchError,
@@ -28,30 +26,21 @@ const {
 
 /*
  * CODES is what callers translate against, so it has to be the whole truth
- * about what this module can raise -- checked both ways against the source.
- * A code thrown but unregistered leaves a caller silently falling back to a
- * generic; a code registered but never thrown lets a caller believe it has
- * handled something that cannot happen. Reading the source is the only way to
- * check this without running every failure path, and the two directions
- * together mean neither list can drift.
+ * about what this module can raise. A code raised but unregistered leaves a
+ * caller silently falling back to a generic; a code registered but never
+ * raised lets a caller believe it has handled something that cannot happen.
+ * So every failure this test provokes is seen as it is raised, and at the end
+ * the codes it carried must be exactly the registry: each failure path is run,
+ * rather than its code being found somewhere in the source.
  */
+const raisedCodes = new Set();
+const seen = error => { if (error instanceof GuardedFetchError) raisedCodes.add(error.code); throw error; };
 {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'network', 'guarded-fetch.ts'), 'utf8');
-  /* The registry's own literals are the declaration, not a use of a code. */
-  const withoutRegistry = source.replace(/const CODES = Object\.freeze\(\{[\s\S]*?\n\} as const\);/, '');
-  assert.notStrictEqual(withoutRegistry, source, 'the registry declaration must be found, or every code reads as thrown');
-  const thrown = new Set((withoutRegistry.match(/'GUARDED_FETCH_[A-Z_]+'/g) || []).map(text => text.slice(1, -1)));
-  const registered = new Set(Object.values(CODES));
-
-  assert(thrown.size > 0, 'the source scan must find codes, or this check proves nothing');
-  assert.deepStrictEqual(
-    [...thrown].filter(code => !registered.has(code)), [],
-    'every code this module throws must be registered in CODES for callers to translate'
-  );
-  assert.deepStrictEqual(
-    [...registered].filter(code => !thrown.has(code)), [],
-    'every registered code must actually be reachable: a code that cannot happen invites handling that never runs'
-  );
+  const ownRejects = assert.rejects;
+  const ownThrows = assert.throws;
+  assert.rejects = (promised, ...rest) => ownRejects.call(assert,
+    Promise.resolve().then(() => (typeof promised === 'function' ? promised() : promised)).catch(seen), ...rest);
+  assert.throws = (run, ...rest) => ownThrows.call(assert, () => { try { return run(); } catch (error) { return seen(error); } }, ...rest);
   /* And the registry is frozen, since a caller builds its own table from it. */
   assert(Object.isFrozen(CODES));
 }
@@ -413,6 +402,23 @@ function fakeRequestImpl(behaviour) {
     const rendered = `${thrown.message}\n${thrown.stack || ''}\n${JSON.stringify(thrown)}`;
     assert.strictEqual(rendered.includes(secret), false, 'an error must not carry the credential it was sent with');
     assert.strictEqual(rendered.includes('Bearer'), false, 'nor the scheme that framed it');
+  }
+
+  /*
+   * A socket that goes quiet for longer than its timeout is destroyed, and the
+   * failure says it timed out -- which the deadline, a total, does not cover:
+   * a request that is still waiting for its first byte has made no progress.
+   */
+  {
+    let issued = null;
+    const quiet = fakeRequestImpl(({ listeners }) => { for (const fn of listeners.timeout || []) fn(); });
+    const requestImpl = (options, onResponse) => (issued = quiet(options, onResponse));
+    await assert.rejects(guardedFetch({
+      url: 'https://api.github.com/user', profile: PROFILES.PROVIDER_READ, method: 'GET', timeoutMs: 1000,
+      resolveAddresses: async () => [{ address: '140.82.121.6', family: 4 }], requestImpl
+    }), error => error instanceof GuardedFetchError && error.code === CODES.TIMEOUT);
+    assert.strictEqual(quiet.calls[0].timeout, 1000, 'the socket is given the timeout asked for');
+    assert(issued.destroyed instanceof GuardedFetchError, 'and destroyed when it passes');
   }
 
   /* An over-size request body is refused before anything is opened. */
@@ -1095,6 +1101,13 @@ function fakeRequestImpl(behaviour) {
       await assert.rejects(guardedTxt(bad, { resolveTxt: async () => [] }), error => error.code === 'GUARDED_FETCH_URL_INVALID', bad);
     }
   }
+
+  /* Every code a failure here carried is registered, and every registered code is one a failure here carried. */
+  const registered = Object.values(CODES);
+  assert.deepStrictEqual([...raisedCodes].filter(code => !registered.includes(code)), [],
+    'every code this module raises must be registered in CODES for callers to translate');
+  assert.deepStrictEqual(registered.filter(code => !raisedCodes.has(code)), [],
+    'every registered code must actually be reachable: a code that cannot happen invites handling that never runs');
 
   console.log('guarded fetch tests passed');
 })().catch(error => {

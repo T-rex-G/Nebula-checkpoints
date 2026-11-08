@@ -52,14 +52,10 @@ export { EXPOSURE_RULES, PATH_RULES };
 
 /*
  * Both versions are part of a finding's identity, so both are stated rather
- * than derived. The rule-set digest below is checked by this module's test:
- * changing a rule without moving RULES_VERSION would leave two different
- * detections claiming to be the same one, and a finding from each comparing as
- * unchanged.
- *
- * Rule set digest (sha256 over rule name, source and flags, gate rules then
- * scan rules, then each path rule's name and extensions):
- *   a96561b4616b0f5422d6835e1198c8c48cca85650d70d09987f6d77fc9763dcb
+ * than derived. The rule set RULES_VERSION names is recorded beside it as
+ * RULES_DIGEST, and this module's test computes it afresh: changing a rule
+ * without moving RULES_VERSION would leave two different detections claiming
+ * to be the same one, and a finding from each comparing as unchanged.
  */
 /*
  * 3: the scan's own catalogue -- cloud, CI, AI, payments, messaging, key files
@@ -73,6 +69,8 @@ export { EXPOSURE_RULES, PATH_RULES };
  * that says what they are.
  */
 export const RULES_VERSION = 4;
+/* The rule set this version is: sha256 over each rule's name, source and flags, gate rules then scan rules, then each path rule's name and extensions. */
+export const RULES_DIGEST = 'a96561b4616b0f5422d6835e1198c8c48cca85650d70d09987f6d77fc9763dcb';
 /*
  * 2: base64 runs are decoded and scanned, and a commit's hunks can be scanned
  * for what that commit added.

@@ -20,8 +20,6 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { adapterForCandidate } = require('../apps/api/src/modules/quasar/index.ts').credentialVerifier;
@@ -423,13 +421,22 @@ function findingsFor(text, overrides = {}) {
 
 {
   assert(Number.isInteger(FINGERPRINT_KEY_VERSION) && FINGERPRINT_KEY_VERSION >= 1);
-  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'exposure-findings.ts'), 'utf8');
-  for (const forbidden of [/\.normalize\(/, /\.toLowerCase\(\)/, /\.toUpperCase\(\)/]) {
-    assert.strictEqual(
-      forbidden.test(source), false,
-      `identity must not fold anything: ${forbidden}`
-    );
-  }
+  /*
+   * Identity folds nothing: values that differ only in case, or in their
+   * Unicode form, are different findings -- in the repository's names, the
+   * path, the rule and the credential itself.
+   */
+  const composed = 'caf\u00e9/config.js';
+  const decomposed = 'cafe\u0301/config.js';
+  for (const [label, one, other] of [
+    ['owner', print({ scope: { ...scope, owner: 'acme' } }), print()],
+    ['repository', print({ scope: { ...scope, repo: 'DEMO' } }), print()],
+    ['authority', print({ scope: { ...scope, authority: 'GitHub.com' } }), print()],
+    ['path', print({ path: 'APP/config.js' }), print()],
+    ['path form', print({ path: composed }), print({ path: decomposed })],
+    ['rule', print({ rule: 'GitHub-Token' }), print()],
+    ['credential', print({ secret: TOKEN_A.toLowerCase() }), print()]
+  ]) assert.notStrictEqual(one, other, `identity must not fold the ${label}`);
 }
 
 console.log('exposure findings tests passed');

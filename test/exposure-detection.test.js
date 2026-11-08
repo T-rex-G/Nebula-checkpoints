@@ -23,8 +23,6 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const {
   DETECTION_ENGINE_VERSION,
@@ -411,11 +409,9 @@ function rulesFor(text) {
     .map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`);
   for (const rule of PATH_RULES) parts.push(`${rule.rule}\u0000${rule.extensions.join(',')}`);
   const digest = crypto.createHash('sha256').update(parts.join('\u0001')).digest('hex');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'exposure-detection.ts'), 'utf8');
-  assert(
-    source.includes(digest),
-    `the rule set changed without RULES_VERSION moving: record ${digest} and raise the version`
-  );
+  const { RULES_DIGEST } = require('../apps/api/src/modules/quasar/domain/exposure-detection.ts');
+  assert.strictEqual(digest, RULES_DIGEST,
+    `the rule set changed without RULES_VERSION moving: record ${digest} as RULES_DIGEST and raise the version`);
 }
 
 /* ---- Encoded credentials ------------------------------------------------- */

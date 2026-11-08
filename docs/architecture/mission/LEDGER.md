@@ -2451,3 +2451,29 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Nothing found broken.** Every survivor was a gap in the tests, not the product: each property held, unasked.
 - **212 remain.**
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step thirteen — exposure's text, asked
+
+- **Why.** Exposure scanning's checks read 70 statements in eleven tests: the background worker and its host, the exposure store's statements, the routes that use a found credential, narration, a finding's identity, the credential verifier, the readability probe, the repository reader, the guarded fetch's codes, the rule-set digest and the CODEOWNERS route.
+- **Rules over the syntax tree** (`test/module-rules.test.js`), for what no request can show:
+  - Quasar's scanning code -- the worker, the repository reader, the verifier and the readability probe -- loads no file system, network or process module and calls no fetch or child process of its own. The worker, followed through every module it loads, cannot load the verifier at all, and names no way to resolve a ref.
+  - Exposure evidence is append-only: an observation changes only to reconcile its deduplicated history count; a verification or a probe is never edited; none of the three is deleted anywhere in the server. Every statement on a scan or a finding carries the identity or the worker's claim, or is one of five stated exceptions; recording a probe moves no finding; a row leaves the store field by field, never spread.
+  - Eleven planted violations are each caught.
+- **Asked** of the code that does it:
+  - the host's wiring, gate and stop (`test/exposure-host.test.js`), and shutdown waiting for the scan before the pool closes (`test/graceful-shutdown.test.js`);
+  - the tester purge taking a tester's scans and findings (`test/migrations-postgres.test.js`, through the privacy purge against PostgreSQL);
+  - the narration table, one sentence per rule the scan runs, from its own export; and narration a pure function of the record, asked again while the clock, the random source and the environment each refuse to be read (`test/exposure-narration.test.js`);
+  - a finding's identity folds nothing: values that differ only in case or Unicode form give different fingerprints (`test/exposure-findings.test.js`);
+  - the readability probe only reads, over every request its tests send (`test/anonymous-readability-probe.test.js`).
+- **Where no check answered, a new one.**
+  - The stored-session resolver, through which a scan reads, had no test of its own: a text check held it. Now, against PostgreSQL (`test/exposure-store.test.js`), the identity comes from the scan's own row, for the repository it names, through the session of the very account that asked, though another sharing the identity was used more recently; and resolving only reads. In the alpha (`test/exposure-worker.test.js`), the session is the asking tester's own, an access session that is no longer that tester's authorizes nothing, and a scan that no tester asked for reads nothing.
+  - A verification's answer carrying part of the credential went unnoticed: only the whole value was searched for. Now every six-character run of it is, in the answer and in the record. The verifier and the prober are each handed exactly their fields: a candidate, its grant and, for the prober, a validated project reference and the question -- never an address to send the key to.
+  - The CODEOWNERS answer is held whole: patterns and owners, and nothing else of the file, not even its comments.
+  - The guarded fetch's socket timeout had never been run. Its code counted as reachable because it appeared in the source. A quiet socket is now destroyed and reported as timed out (`test/guarded-fetch.test.js`), and the registry is held to the codes the test's failures actually raise, both ways.
+  - The verifier's reasons are held the same way: every declared reason is one a verification in the test produced, and the vocabulary is the domain's own (`test/credential-verification.test.js`).
+  - The rule-set digest moves from a comment into `RULES_DIGEST`, beside `RULES_VERSION`, and the test compares the digest it computes with it.
+- **Found on the way: the release test's margin.** The qualification's `automated` job failed once, on 969d8f7: `test/package-release.test.js` ran past the matrix's 45 s. It had been measured at 37–39 s in CI. Two of its packager runs refuse for something git alone can say -- git is unavailable, or a releasable path is untracked -- and each paid for the whole foundation gate first. The packager now settles both before the gate, as it already did the output directory and the generated documents, and reads the whole manifest again after it. Those two refusals take a tenth of a second instead of two and a half; the test takes 26 s instead of 32 here.
+- **Each check fails when what it guards is broken.** 47 mutants of the server are each caught by the test named; the release test still holds every refusal, now earlier.
+- **Nothing in the product was found broken.** The survivors were gaps in the tests: the timeout path unrun, the resolver unasked, a credential's fragment unsearched.
+- **142 remain.**
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

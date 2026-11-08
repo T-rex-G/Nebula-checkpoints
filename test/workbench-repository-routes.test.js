@@ -175,11 +175,15 @@ const { moves } = require('./fixtures/provider-requests');
       const none = await call('GET', '/api/repo/acme/demo/codeowners');
       assert.deepEqual(none.json, { path: null, rules: [], tooLarge: false });
       assert.equal(none.headers.get('cache-control'), 'no-store');
-      state.contents.set('CODEOWNERS', { type: 'file', size: 20, content: b64('* @acme/core\n') });
+      const owned = '# ask carol@acme.example before touching these\n* @acme/core\n/docs/ @acme/docs\n';
+      state.contents.set('CODEOWNERS', { type: 'file', size: owned.length, content: b64(owned) });
       state.contents.set('docs/CODEOWNERS', { type: 'file', size: 20, content: b64('* @acme/docs\n') });
       const found = await call('GET', '/api/repo/acme/demo/codeowners');
       assert.equal(found.json.path, 'CODEOWNERS', 'the second place wins over the third');
-      assert.equal(JSON.stringify(found.json.rules).includes('@acme/core'), true);
+      const codeowners = require('../packages/contracts/src/codeowners.ts');
+      assert.deepEqual(found.json, { path: 'CODEOWNERS', rules: codeowners.serialize(codeowners.parse(owned)), tooLarge: false },
+        'patterns and owners leave the server, and nothing else of the file');
+      assert(!JSON.stringify(found.json).includes('carol@'), 'not even its comments');
       state.contents.set('.github/CODEOWNERS', { type: 'file', size: 300 * 1024, content: 'eA==' });
       const big = await call('GET', '/api/repo/acme/demo/codeowners');
       assert.deepEqual(big.json, { path: '.github/CODEOWNERS', rules: [], tooLarge: true });

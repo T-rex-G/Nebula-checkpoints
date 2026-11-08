@@ -123,10 +123,7 @@ const finding = Object.freeze({
    * assume is reachable.
    */
   const ruleNames = new Set(RULES.map(entry => entry.rule));
-  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'exposure-narration.ts'), 'utf8');
-  const table = source.match(/export const RULE_NARRATION: Readonly<Record<string, RuleNarration>> = Object\.freeze\(\{[\s\S]*?\n\}\);/);
-  assert(table, 'the narration table must be declared in one place');
-  const declared = [...table[0].matchAll(/^\s{2}'([a-z][a-z0-9-]*)':/gm)].map(match => match[1]);
+  const declared = Object.keys(RULE_NARRATION);
   assert.strictEqual(declared.length, RULES.length, `the table must have one entry per rule: ${declared.join(', ')}`);
   assert.deepStrictEqual(
     declared.filter(name => !ruleNames.has(name)), [],
@@ -298,18 +295,29 @@ const finding = Object.freeze({
 
   /* Finding and location narration remain independent of the clock. Only
      observations depend on the explicit/default evaluation time. */
-  const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'domain', 'exposure-narration.ts'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-  assert(source.includes('function describeFinding'), 'the comment strip must leave the code behind');
   const findingSource = [describeFinding, describeLocation, narrationForRule, safeDisplayPath]
     .map(fn => fn.toString()).join('\n');
   assert.doesNotMatch(findingSource, /Date\.now|new Date/);
-  for (const forbidden of [/Math\.random/, /process\.env/, /require\('crypto'\)/, /from '(?:node:)?crypto'/]) {
-    assert.strictEqual(
-      forbidden.test(source), false,
-      `narration must be a pure function of the record: ${forbidden}`
-    );
+  /*
+   * And nothing but the record decides the words: asked again while the clock,
+   * the random source and the environment each refuse to be read, a finding,
+   * its rule and its path are described exactly as before.
+   */
+  {
+    const own = { Date: global.Date, random: Math.random, env: process.env };
+    const refuse = what => () => { throw new Error(`narration read ${what}`); };
+    let again;
+    try {
+      global.Date = new Proxy(own.Date, { construct: refuse('the clock'), apply: refuse('the clock'), get: (target, key) => (key === 'now' ? refuse('the clock') : target[key]) });
+      Math.random = refuse('a random number');
+      process.env = new Proxy({}, { get: (target, key) => { if (typeof key === 'symbol') return undefined; throw new Error(`narration read ${String(key)} from the environment`); } });
+      again = [describeFinding(finding), narrationForRule('github-token'), safeDisplayPath('app/config.js')];
+    } finally {
+      global.Date = own.Date;
+      Math.random = own.random;
+      process.env = own.env;
+    }
+    assert.deepStrictEqual(again, [first, narrationForRule('github-token'), safeDisplayPath('app/config.js')], 'the record alone decides the words');
   }
 
   /* The location is stated, and the placeholder rather than the credential. */

@@ -15,7 +15,6 @@
  * stored and never answered; and failures through the public error body.
  */
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const quasar = require('../apps/api/src/modules/quasar/index.ts');
@@ -58,22 +57,15 @@ const BASE = '/api/repo/:owner/:repo/exposure/';
   assert(!chain('POST', 'findings/:fingerprint/accept-risk').some(guard => guard.includes('allowExperimental')));
 }
 
-/* ---- What the module's own source must never do ---- */
-{
-  const source = fs.readFileSync(path.join(root, 'apps/api/src/modules/quasar/http/exposure-routes.ts'), 'utf8');
-  /* A finding is read back where it is, through one reader function, in both routes that use a credential. */
-  assert.equal((source.match(/deps\.reader\.readFileAtCommit\(/g) || []).length, 2);
-  assert(!/readTree\(/.test(source), 'no route re-reads a tree by hand');
-  /* The project's address is rebuilt by the prober from a validated reference, never here. */
-  assert(!/https:\/\/\$\{|\.supabase\.co/.test(source), 'the routes never build a provider address');
-  /* The bytes leave their wrapper through the one documented exit, once per route that uses them. */
-  assert.equal((source.match(/revealForVerification\(/g) || []).length, 2);
-  assert(!/probe\.secret|found\.secret|\.reveal\(\)/.test(source), 'and nowhere else');
-  /* Nothing puts an error message into a response itself. */
-  assert(!/error\.message|String\(error\)/.test(source));
-  /* The worker cannot reach the resolver: the ref is resolved once, on the request path. */
-  assert(!/resolveCommit/.test(fs.readFileSync(path.join(root, 'apps/api/src/modules/quasar/application/exposure-worker.ts'), 'utf8')));
-}
+/*
+ * What the routes do with a credential is asked of them below: each route that
+ * uses one reads the finding back through the reader, at its commit; the
+ * project's address is the prober's to build from a validated reference; the
+ * credential goes to the verifier or the prober and to nothing else -- no part
+ * of it reaches a response or a record -- and no error's message reaches a
+ * response. The reader handed to the routes holds no way to read a tree, by its
+ * type, and the worker cannot resolve a ref at all (test/module-rules.test.js).
+ */
 
 /* ---- The routes, exercised ---- */
 const MASTER = 'q'.repeat(64);
@@ -96,6 +88,8 @@ const built = quasar.buildFindings({ detection: quasar.detectInText({ text: TEXT
 const fingerprintOf = rule => built.findings.find(finding => finding.rule === rule).fingerprint;
 const GITHUB = fingerprintOf('github-token');
 const ANON = fingerprintOf('supabase-anon-key');
+/* Every six-character run of a secret: a part of one is a lead to the rest. */
+const fragmentsOf = secret => Array.from({ length: Math.max(0, secret.length - 5) }, (_, at) => secret.slice(at, at + 6));
 const storedFinding = (fingerprint, rule, extra = {}) => ({
   fingerprint, rule, path: FILE, commit: COMMIT, fingerprintKeyVersion: 1, disposition: 'open',
   placeholder: `<${rule}-1>`, occurrences: [{ line: 3, column: 13 }], occurrenceCount: 1, ...extra
@@ -111,6 +105,8 @@ const storedFinding = (fingerprint, rule, extra = {}) => ({
   const verifierRequests = [];
   const proberRequests = [];
   const grants = [];
+  /* What the routes hand the verifier and the prober, by field. */
+  const handed = [];
   const store = new Proxy({}, {
     get: (_target, name) => async input => {
       calls.push([String(name), input]);
@@ -142,10 +138,10 @@ const storedFinding = (fingerprint, rule, extra = {}) => ({
       resolveCommit: async input => { calls.push(['resolveCommit', input]); return { ref: 'refs/heads/main', commitSha: COMMIT }; },
       readFileAtCommit: async input => { calls.push(['readFileAtCommit', input]); return blob; }
     },
-    verifyCredential: input => (grants.push(input.authorization), quasar.credentialVerifier.verifyCredential)({
+    verifyCredential: input => (grants.push(input.authorization), handed.push(['verifier', Object.keys(input).sort()]), quasar.credentialVerifier.verifyCredential)({
       ...input, transport: async request => { verifierRequests.push(request); return { statusCode: 401, body: '{}' }; }
     }),
-    probeReadability: input => (grants.push(input.authorization), quasar.readabilityProbe.probeAnonymousReadability)({
+    probeReadability: input => (grants.push(input.authorization), handed.push(['prober', Object.keys(input).sort()]), quasar.readabilityProbe.probeAnonymousReadability)({
       ...input, transport: async request => { proberRequests.push(request); return { statusCode: 200, body: '[{"id":1}]' }; }
     })
   });
@@ -344,6 +340,9 @@ const storedFinding = (fingerprint, rule, extra = {}) => ({
       assert.equal(verified.body.narration, quasar.describeVerification(recorded.record));
       assert.equal(verified.body.finding.dispositionNarration, quasar.describeDisposition('open'));
       assert(!verified.text.includes(PAT) && !JSON.stringify(recorded).includes(PAT), 'the credential reaches neither the response nor the record');
+      assert.deepEqual(fragmentsOf(PAT).filter(part => verified.text.includes(part) || JSON.stringify(recorded).includes(part)), [], 'nor any part of it');
+      assert.deepEqual(handed.filter(([to]) => to === 'verifier').at(-1)[1], ['actorLogin', 'authorization', 'authorizationKey', 'candidate', 'now', 'subjectKey'],
+        'the verifier is handed the candidate and its grant, never an address');
       const grant = grants.at(-1);
       assert.equal(Date.parse(grant.expiresAt) - Date.parse(grant.issuedAt), 60_000, 'the grant is spent now or not at all');
       assert.deepEqual([grant.candidateFingerprint, grant.commit, grant.actorLogin], [GITHUB, COMMIT, 'alice']);
@@ -394,9 +393,13 @@ const storedFinding = (fingerprint, rule, extra = {}) => ({
       assert.deepEqual(recorded.record.projection, ['id', 'name']);
       assert.equal(probed.body.narration, quasar.describeProbe(recorded.record));
       assert(!probed.text.includes(ANON_KEY) && !JSON.stringify(recorded).includes(ANON_KEY), 'the key reaches neither the response nor the record');
+      assert.deepEqual(fragmentsOf(ANON_KEY.split('.')[2]).filter(part => probed.text.includes(part) || JSON.stringify(recorded).includes(part)), [], 'nor any part of its signature');
       const grant = grants.at(-1);
       assert.equal(Date.parse(grant.expiresAt) - Date.parse(grant.issuedAt), 60_000, 'the grant is spent now or not at all');
       assert.deepEqual([grant.projectRef, grant.relation, grant.projection], [PROJECT_REF, 'profiles', ['id', 'name']], 'bound to the project in the file and the question the operator asked');
+      assert.deepEqual(handed.filter(([to]) => to === 'prober').at(-1)[1],
+        ['actorLogin', 'anonKey', 'authorization', 'authorizationKey', 'candidate', 'now', 'projectRef', 'projection', 'relation'],
+        'the prober is handed a validated reference and the question, never an address to send the key to');
       everyCallCarriesTheIdentity('probe');
     }
 

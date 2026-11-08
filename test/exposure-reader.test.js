@@ -20,8 +20,6 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 
 const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const {
@@ -77,25 +75,11 @@ function blobEntry(entryPath, overrides = {}) {
   {
     assert.strictEqual(DEFAULT_TRANSPORT, guardedFetch, 'the default transport is the guarded one itself');
     /*
-     * Comments stripped first. This module's own comment explains why `git
-     * clone` is not an option here, and a scan that read prose as code would
-     * fail on the sentence describing the thing it forbids -- which is how a
-     * guard like this turns into one somebody deletes.
+     * That the reader runs nothing -- no git, no child process -- and loads no
+     * file system or network module of its own is test/module-rules.test.js's,
+     * over its syntax tree, where its own comment explaining why `git clone`
+     * is not an option reads as the comment it is.
      */
-    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'client', 'exposure-reader.ts'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '');
-    assert(source.includes('function readTree'), 'the comment strip must leave the code behind');
-    for (const forbidden of [
-      /require\('child_process'\)/, /\bspawn\w*\(/, /\bexec\w*\(/, /\bfork\(/,
-      /require\('https'\)/, /require\('fs'\)/, /from '(?:node:)?(?:child_process|fs|fs\/promises|https?|net)'/,
-      /\bfetch\s*\(/, /\bgit\s+(?:clone|fetch|checkout)/
-    ]) {
-      assert.strictEqual(
-        forbidden.test(source), false,
-        `this module must not run anything or reach the network itself: ${forbidden}`
-      );
-    }
   }
 
   /* ---- The tree is read at a commit, never at a ref -------------------- */

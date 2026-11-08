@@ -9,7 +9,6 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
 const { buildInbox, INBOX_STATES: STATES, EXPOSURE_KIND } = require('../apps/api/src/modules/posture/index.ts');
 
@@ -133,16 +132,16 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
 
 /* The inbox's route -- gated, uncached, credential-free, provider-free, paths masked -- is held in test/posture-routes.test.js. */
 {
-  /* The workbench registers the CODEOWNERS route (apps/api/src/modules/workbench/http/codeowners-route.ts). */
-  const routes = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'workbench', 'http', 'codeowners-route.ts'), 'utf8');
-  const slice = name => {
-    const start = routes.indexOf(name);
-    assert(start > 0, `${name} must exist`);
-    return routes.slice(start, routes.indexOf('\n  });', start));
-  };
-  const owners = slice("app.get('/api/repo/:owner/:repo/codeowners'");
-  assert.match(owners, /providerSessionAccess, alphaRepositoryAccess, capabilityAccess\('file\.read'\), auth,/);
-  assert.match(owners, /codeowners\.serialize\(codeowners\.parse\(text\)\)/, 'patterns and owners only leave the server');
+  /*
+   * The workbench's CODEOWNERS route reads with the file permission, behind
+   * the session and repository guards, as the route policy reads its chain;
+   * that only patterns and owners leave the server is asked of the route in
+   * test/workbench-repository-routes.test.js.
+   */
+  const { locations } = require('./oracles/route-policy');
+  const route = locations(path.join(__dirname, '..')).find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/repo/:owner/:repo/codeowners');
+  assert(route, 'the CODEOWNERS route is registered');
+  assert.deepEqual(route.guards, ['providerSessionAccess', 'alphaRepositoryAccess', "capabilityAccess('file.read')", 'auth']);
 }
 
 console.log('findings inbox tests passed');

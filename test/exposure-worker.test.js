@@ -27,8 +27,6 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { SKIP_REASONS } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
@@ -158,21 +156,12 @@ function runnerFor(store, reader, options = {}) {
 (async () => {
   /* ---- Nothing runs, nothing is written to disk ------------------------ */
 
+  /*
+   * The worker loads no file system, network or process module and calls no
+   * fetch or child process of its own (test/module-rules.test.js, over its
+   * syntax tree): what it reads, it reads through the reader it is handed.
+   */
   {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-worker.ts'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '');
-    assert(source.includes('function createExposureRunner'), 'the comment strip must leave the code behind');
-    for (const forbidden of [
-      /require\('child_process'\)/, /require\('fs'\)/, /require\('https'\)/,
-      /from '(?:node:)?(?:child_process|fs|fs\/promises|https?)'/,
-      /\bspawn\w*\(/, /\bexec\w*\(/, /mkdtemp/, /writeFile/, /\bfetch\s*\(/
-    ]) {
-      assert.strictEqual(
-        forbidden.test(source), false,
-        `a scan runs nothing and keeps nothing: ${forbidden}`
-      );
-    }
     assert(Number.isInteger(EXPOSURE_BUDGET_VERSION) && EXPOSURE_BUDGET_VERSION >= 1);
   }
 
@@ -691,11 +680,7 @@ function runnerFor(store, reader, options = {}) {
     await runnerFor(store, reader).runOnce();
     assert.strictEqual(store.recorded.length, 1);
     assert.strictEqual(store.recorded[0].verification, undefined);
-    const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-worker.ts'), 'utf8');
-    assert.strictEqual(
-      /credential-verification/.test(source), false,
-      'a background job must not be able to reach the verifier at all'
-    );
+    /* That a background job cannot even load the verifier is test/module-rules.test.js's. */
   }
 
   /* ---- The loop ------------------------------------------------------- */
@@ -774,85 +759,57 @@ function runnerFor(store, reader, options = {}) {
     assert.strictEqual(store.finalized.state, 'complete');
   }
 
-/* ---- How the server wires it --------------------------------------- */
+/* ---- How the server wires it, and the session a scan reads through ---- */
 
 /*
- * The worker is gated on the capability document: it starts only where the
- * document says `exposure.scan` is Supported or Experimental. It is worth
- * asserting both halves: that the gate exists, and that it reads the document
- * rather than a separate flag somebody would have to remember to set in two
- * places.
+ * Quasar's exposure host wires the worker through the module's reader, over a
+ * guarded connection pool, gated on the capability document -- started only
+ * where `exposure.scan` is Supported or Experimental, with a database, before
+ * shutdown begins, and once -- and hands shutdown the scan in flight
+ * (test/exposure-host.test.js). Shutdown waits for that scan before the pool
+ * closes (test/graceful-shutdown.test.js), and the composed server starts the
+ * worker at boot and drains it (test/composition-lifecycle.test.js).
  *
- * These read Quasar's exposure host as text; test/exposure-host.test.js runs
- * the host itself. That the server starts the worker at boot, with the
- * release's capability document, and drains it before the pool closes, is
- * asked of the server itself by test/composition-lifecycle.test.js.
+ * The session a scan reads through is resolved when the scan runs: from the
+ * identity the scan's own row records, for the repository it names, through a
+ * live session that holds the very account that asked -- and resolving writes
+ * nothing (test/exposure-store.test.js, against PostgreSQL). In the alpha, the
+ * session is the asking tester's own, through an access session that is still
+ * that tester's:
  */
 {
-  const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
-
-  assert(host.includes('worker = startExposureWorker({'), 'the worker must be wired in');
-  assert(host.includes('      reader: exposureReader,'), 'with the reader it reads through');
-
-  const gate = host.match(/function exposureScanningAvailable\(\)[\s\S]*?\n  }/);
-  assert(gate, 'the capability gate must exist');
-  assert(
-    gate[0].includes('deps.capabilityDocument'),
-    'the gate must read the capability document, not a second source of truth'
+  const { resolveExposureSession } = require('../apps/api/src/modules/quasar/index.ts');
+  const { alphaActorLabel } = require('../apps/api/src/modules/identity-access/index.ts');
+  const ASKING = '0b5e3c6a-1d2f-4a3b-8c4d-5e6f7a8b9c0d';
+  const OTHER = '1c6f4d7b-2e3a-4b4c-9d5e-6f7a8b9c0d1e';
+  const login = { [ASKING]: 'alice', [OTHER]: 'mallory' };
+  /* The database's answers, as each statement would get them: the other tester owns the session first. */
+  const pool = {
+    query: async statement => {
+      const sql = String(statement);
+      if (/FROM nv_exposure_scans/.test(sql)) return { rows: [{ identity_key: IDENTITY }] };
+      if (/FROM nv_sessions/.test(sql)) return { rows: [{ sid: 'shared', data: 'sealed', session_key_hash: 'f'.repeat(64) }] };
+      if (/nv_alpha_provider_session_ownership/.test(sql)) {
+        return { rows: [{ tester_id: OTHER, session_id: 'access-of-other' }, { tester_id: ASKING, session_id: 'access-of-asking' }] };
+      }
+      return { rows: [] };
+    }
+  };
+  const resolve = (requestedBy, readAlphaSession = async sessionId => ({ testerId: sessionId === 'access-of-asking' ? ASKING : OTHER })) => resolveExposureSession(
+    { scope, scanId: 'scan-1', requestedBy },
+    {
+      pool, unseal: () => null, identityKey: account => account.identityKey, providerAuthority: () => 'github.com',
+      resolveAccount: async account => account.login, alphaEnabled: true, readAlphaSession,
+      readOwnedSession: async ({ testerId }) => ({ session: { accounts: [{ login: login[testerId], provider: 'github', identityKey: IDENTITY }] } }),
+      repositoryAllowed: () => true
+    }
   );
-  assert(
-    /Supported|Experimental/.test(gate[0]),
-    'and must treat Unavailable as not available'
-  );
-
-  const ensure = host.match(/function ensureExposureWorker\(\)[\s\S]*?\n  }/);
-  assert(ensure, 'the worker must be started through one function');
-  for (const condition of ['worker ||', 'deps.databaseConfigured', 'deps.shuttingDown()', 'exposureScanningAvailable()']) {
-    assert(
-      ensure[0].includes(condition),
-      `starting the worker must be conditional on ${condition}`
-    );
-  }
-
-  /*
-   * Drained on shutdown, and awaited before the pool closes. A scan that loses
-   * its database mid-write leaves a leased row, which is recoverable -- but
-   * recovering it means reading the repository again, and finishing the batch
-   * in hand is cheaper.
-   */
-  const shutdown = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'lifecycle', 'graceful-shutdown.ts'), 'utf8');
-  assert(
-    host.includes('return worker ? worker.stop() : null;'),
-    'the worker must be drained on shutdown'
-  );
-  assert(
-    /for \(const work of drained\) \{\s*try \{ await work; \} catch \{\}/.test(shutdown)
-      && shutdown.indexOf('await work;') < shutdown.indexOf('await deps.closeDatabase()'),
-    'and awaited before the pool closes, or draining it is a statement with no effect'
-  );
-
-  /*
-   * The session is resolved at execution and the resolver reads a live session
-   * rather than anything stored on the job. The token must not be written
-   * anywhere: asserted by requiring the resolver to return it and nothing else.
-   */
-  assert(host.includes('resolveStoredExposureSession(input'), 'the server uses the owned-session resolver');
-  const resolver = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-session.ts'), 'utf8')
-    .match(/async function resolveExposureSession[<(][\s\S]*?\n}/);
-  assert(resolver, 'the session resolver must exist');
-  assert(resolver[0].includes('nv_sessions'), 'it must read a live session');
-  assert(
-    resolver[0].includes("read(account, 'login')") && resolver[0].includes('requestedBy'),
-    'and match the actor who asked for the scan, not merely somebody sharing the identity'
-  );
-  assert.strictEqual(
-    /INSERT|UPDATE nv_exposure/.test(resolver[0]), false,
-    'a resolver must not write anything: a token that reaches a row outlives its consent'
-  );
-  assert(
-    /SELECT identity_key FROM nv_exposure_scans\s+WHERE scan_id=\$1/.test(resolver[0]),
-    'the identity comes from the row rather than being carried on the scan object'
-  );
+  (async () => {
+    assert.strictEqual(await resolve(alphaActorLabel({ testerId: ASKING })), 'alice', 'the asking tester\'s own session, though another tester owns one first');
+    assert.strictEqual(await resolve(alphaActorLabel({ testerId: ASKING }), async () => ({ testerId: OTHER })), null,
+      'an access session that is no longer the tester\'s authorizes nothing');
+    assert.strictEqual(await resolve('alice'), null, 'in the alpha, a scan that no tester asked for reads nothing');
+  })().catch(error => { console.error(error); process.exitCode = 1; });
 }
 
 /* ---- The routes ----------------------------------------------------- */
@@ -891,8 +848,7 @@ function runnerFor(store, reader, options = {}) {
     grants.push(keys[setting].toString('hex'));
   }
   assert.strictEqual(new Set(grants).size, 3, 'no two grants share a key');
-  const host = fs.readFileSync(path.join(__dirname, '..', 'apps', 'api', 'src', 'modules', 'quasar', 'application', 'exposure-host.ts'), 'utf8');
-  assert(host.includes('createTransport: () => createGuardedSession({'), 'and each scan reads through a pinned connection pool');
+  /* That each scan reads through a pinned, guarded connection pool is test/exposure-host.test.js's. */
 }
 
   /* ---- History ------------------------------------------------------------ */

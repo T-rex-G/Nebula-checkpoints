@@ -26,6 +26,7 @@ import type {
 } from '../client/exposure-reader.ts';
 import { EXPOSURE_CONFIG_VERSION, MAX_FINDINGS_PER_SCAN, type ScanRecord } from '../persistence/exposure-store.ts';
 import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 /*
  * Running a scan: one process, one free web service, repositories nobody here
@@ -144,11 +145,6 @@ const SKIP_BINARY = 'binary';
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
 /* A Git object id: SHA-1 or SHA-256, lower-case hex. */
 function isObjectId(value: string): boolean {
   return isCommitSha(value) || isSha256Hex(value);
@@ -196,7 +192,7 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 function errorCode(error: unknown): string {
-  return String((error && read(error, 'code')) || '');
+  return String((error && property(error, 'code')) || '');
 }
 
 /* What the worker needs of the store: a claim, its renewal, the writes, and the end of a scan. */

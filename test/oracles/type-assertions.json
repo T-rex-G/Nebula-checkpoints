@@ -1,0 +1,382 @@
+{
+ "total": 516,
+ "double": 18,
+ "files": {
+  "apps/api/src/composition/access.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/composition/core.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/composition/record-routes.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/composition/request-context.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/composition/session-routes.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/http/errors.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/corona/application/evidence-chain.ts": {
+   "assertions": 3,
+   "double": 1
+  },
+  "apps/api/src/modules/corona/application/safety-state.ts": {
+   "assertions": 11,
+   "double": 0
+  },
+  "apps/api/src/modules/corona/domain/safety-controls.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/corona/domain/safety-guard.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/github-provider/client/github-app.ts": {
+   "assertions": 11,
+   "double": 0
+  },
+  "apps/api/src/modules/github-provider/client/github-rest.ts": {
+   "assertions": 6,
+   "double": 0
+  },
+  "apps/api/src/modules/github-provider/domain/github-account-operations.ts": {
+   "assertions": 9,
+   "double": 0
+  },
+  "apps/api/src/modules/github-provider/domain/provider-credentials.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/application/account-lifecycle.ts": {
+   "assertions": 23,
+   "double": 2
+  },
+  "apps/api/src/modules/identity-access/application/alpha-privacy-retention.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/application/github-app-records.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/application/provider-sessions.ts": {
+   "assertions": 17,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/application/repository-access.ts": {
+   "assertions": 12,
+   "double": 1
+  },
+  "apps/api/src/modules/identity-access/application/request-guards.ts": {
+   "assertions": 7,
+   "double": 1
+  },
+  "apps/api/src/modules/identity-access/application/session-security.ts": {
+   "assertions": 14,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/account-identity.ts": {
+   "assertions": 4,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/alpha-access.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/alpha-privacy.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/github-app-audit.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/hosted-session-merge.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/domain/provider-disconnect.ts": {
+   "assertions": 6,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/account-routes.ts": {
+   "assertions": 10,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/alpha-lifecycle-routes.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/alpha-sessions.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/disconnect-answers.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/github-app-routes.ts": {
+   "assertions": 12,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/oauth-routes.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/http/security-routes.ts": {
+   "assertions": 7,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/persistence/alpha-access-store.ts": {
+   "assertions": 19,
+   "double": 0
+  },
+  "apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts": {
+   "assertions": 15,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/application/governance-api.ts": {
+   "assertions": 8,
+   "double": 1
+  },
+  "apps/api/src/modules/kepler/application/governance-host.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/delivery/governance-delivery.ts": {
+   "assertions": 19,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts": {
+   "assertions": 6,
+   "double": 1
+  },
+  "apps/api/src/modules/kepler/domain/code-audit-policy.ts": {
+   "assertions": 14,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/control-catalog.ts": {
+   "assertions": 16,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-digital-twin.ts": {
+   "assertions": 6,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-enforcement.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-exceptions.ts": {
+   "assertions": 7,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-model.ts": {
+   "assertions": 16,
+   "double": 1
+  },
+  "apps/api/src/modules/kepler/domain/governance-mutation-metadata.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-simulation.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/domain/governance-templates.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "apps/api/src/modules/kepler/http/governance-context.ts": {
+   "assertions": 11,
+   "double": 3
+  },
+  "apps/api/src/modules/kepler/persistence/governance-store.ts": {
+   "assertions": 16,
+   "double": 0
+  },
+  "apps/api/src/modules/pulsar/application/webhook-intake.ts": {
+   "assertions": 4,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/application/exposure-host.ts": {
+   "assertions": 5,
+   "double": 1
+  },
+  "apps/api/src/modules/quasar/application/exposure-session.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/application/exposure-worker.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/client/credential-verification.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/client/exposure-reader.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/domain/exposure-archives.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/domain/exposure-detection.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/domain/exposure-findings.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/domain/exposure-narration.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/domain/supabase-key-kinds.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/quasar/persistence/exposure-store.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/modules/workbench/application/upload-scan.ts": {
+   "assertions": 2,
+   "double": 1
+  },
+  "apps/api/src/platform/authorization/authorization-resolver.ts": {
+   "assertions": 7,
+   "double": 0
+  },
+  "apps/api/src/platform/authorization/capability-access.ts": {
+   "assertions": 5,
+   "double": 2
+  },
+  "apps/api/src/platform/authorization/local-session-policy.ts": {
+   "assertions": 11,
+   "double": 0
+  },
+  "apps/api/src/platform/authorization/security-foundation.ts": {
+   "assertions": 8,
+   "double": 0
+  },
+  "apps/api/src/platform/config/config.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/crypto/key-derivation.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/files/file-security.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/platform/mutation-gateway/mutation-context.ts": {
+   "assertions": 25,
+   "double": 1
+  },
+  "apps/api/src/platform/mutation-gateway/mutation-coverage.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "apps/api/src/platform/mutation-gateway/mutation-gateway.ts": {
+   "assertions": 11,
+   "double": 0
+  },
+  "apps/api/src/platform/mutation-gateway/protected-paths.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/platform/network/guarded-fetch.ts": {
+   "assertions": 9,
+   "double": 0
+  },
+  "apps/api/src/platform/network/public-address.ts": {
+   "assertions": 3,
+   "double": 1
+  },
+  "apps/api/src/platform/network/timed-fetch.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "apps/api/src/platform/persistence/database-lifecycle.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/persistence/hosted-readiness.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/persistence/migrations.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/persistence/queryable.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/rate-limit/rate-limit-identity.ts": {
+   "assertions": 3,
+   "double": 0
+  },
+  "apps/api/src/platform/release/release-fingerprint.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "apps/api/src/platform/release/secret-scanner.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "packages/contracts/src/actor.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "packages/contracts/src/api-envelope.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "packages/contracts/src/capability.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "packages/contracts/src/codeowners.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "packages/contracts/src/evidence.ts": {
+   "assertions": 1,
+   "double": 0
+  },
+  "packages/contracts/src/mutation.ts": {
+   "assertions": 5,
+   "double": 0
+  },
+  "packages/contracts/src/offline-cache-policy.ts": {
+   "assertions": 2,
+   "double": 0
+  },
+  "packages/contracts/src/scope.ts": {
+   "assertions": 3,
+   "double": 1
+  },
+  "packages/contracts/src/upload-planning.ts": {
+   "assertions": 1,
+   "double": 0
+  }
+ }
+}

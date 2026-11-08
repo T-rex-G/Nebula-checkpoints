@@ -1,3 +1,4 @@
+import { trimmedText } from '../../../platform/values/fields.ts';
 /*
  * What kind of Supabase key a string is, and nothing else.
  *
@@ -39,10 +40,6 @@ export const KEY_PATTERN = /(?<![A-Za-z0-9_.-])(?:sb_(?:publishable|secret)_[A-Z
    long is not one, and the decode is skipped rather than attempted. */
 export const MAX_KEY_LENGTH = 8 * 1024;
 
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function claimsOf(token: string): Readonly<Record<string, unknown>> | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -71,7 +68,7 @@ export interface KeyClassification {
 }
 
 export function classifyKey(key: unknown): KeyClassification {
-  const token = text(key);
+  const token = trimmedText(key);
   if (!token || token.length > MAX_KEY_LENGTH) return Object.freeze({ kind: KEY_KINDS.UNKNOWN, usable: false });
   if (/^sb_secret_/.test(token)) return Object.freeze({ kind: KEY_KINDS.SECRET, usable: false });
   if (/^sb_publishable_[A-Za-z0-9_-]{8,}$/.test(token)) {
@@ -81,8 +78,8 @@ export function classifyKey(key: unknown): KeyClassification {
   if (!claims) return Object.freeze({ kind: KEY_KINDS.UNKNOWN, usable: false });
   /* A subject means a person. Whatever its role says, it is somebody's
      session and not the anonymous role. */
-  if (text(claims.sub)) return Object.freeze({ kind: KEY_KINDS.USER_SESSION, usable: false });
-  const role = text(claims.role);
+  if (trimmedText(claims.sub)) return Object.freeze({ kind: KEY_KINDS.USER_SESSION, usable: false });
+  const role = trimmedText(claims.role);
   if (role === 'service_role') return Object.freeze({ kind: KEY_KINDS.SERVICE_ROLE, usable: false });
   if (role === 'anon') return Object.freeze({ kind: KEY_KINDS.ANON, usable: true });
   if (role) return Object.freeze({ kind: KEY_KINDS.USER_SESSION, usable: false });

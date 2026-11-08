@@ -4,6 +4,7 @@ import { stableJson } from '../../../../../../packages/contracts/src/canonical-j
 import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
 import type { Row } from '../../../platform/persistence/queryable.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 export const MAX_HISTORY_LIMIT = 200;
 
@@ -29,11 +30,6 @@ function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const item of Object.values(value)) deepFreeze(item);
   return Object.freeze(value);
-}
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
 }
 
 /* The rows the store read for one part of the twin; anything that is not a list is no rows. */
@@ -361,12 +357,12 @@ export function buildPolicyDigitalTwinReadModel(input: unknown = {}): DigitalTwi
   }));
   const reported = source.completeness;
   const completeness: TwinCompleteness = {
-    policies: reported && read(reported, 'policies') === true,
-    versions: reported && read(reported, 'versions') === true,
-    drafts: reported && read(reported, 'drafts') === true,
-    exceptions: reported && read(reported, 'exceptions') === true,
-    activations: reported && read(reported, 'activations') === true,
-    decisions: reported && read(reported, 'decisions') === true
+    policies: reported && property(reported, 'policies') === true,
+    versions: reported && property(reported, 'versions') === true,
+    drafts: reported && property(reported, 'drafts') === true,
+    exceptions: reported && property(reported, 'exceptions') === true,
+    activations: reported && property(reported, 'activations') === true,
+    decisions: reported && property(reported, 'decisions') === true
   };
   const complete = Object.values(completeness).every(Boolean);
   const totals: Fields = source.totals && typeof source.totals === 'object' ? source.totals as Fields : {};

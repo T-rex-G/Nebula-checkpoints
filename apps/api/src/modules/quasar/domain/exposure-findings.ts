@@ -3,13 +3,9 @@ import { inspect } from 'node:util';
 
 import { DETECTION_ENGINE_VERSION, RULES_VERSION, sanitizeCandidate } from './exposure-detection.ts';
 import type { DetectedCandidate, Location } from './exposure-detection.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 type Fields = Readonly<Record<string, unknown>>;
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
 
 /*
  * What makes two sightings of a credential the same finding.
@@ -83,10 +79,10 @@ function fingerprintMessage(input: FingerprintParts): string {
     String(input.keyVersion),
     String(input.rulesVersion),
     String(input.engineVersion),
-    String(input.scope && read(input.scope, 'provider') || ''),
-    String(input.scope && read(input.scope, 'authority') || ''),
-    String(input.scope && read(input.scope, 'owner') || ''),
-    String(input.scope && read(input.scope, 'repo') || ''),
+    String(input.scope && property(input.scope, 'provider') || ''),
+    String(input.scope && property(input.scope, 'authority') || ''),
+    String(input.scope && property(input.scope, 'owner') || ''),
+    String(input.scope && property(input.scope, 'repo') || ''),
     String(input.path || ''),
     String(input.rule || ''),
     String(input.secret == null ? '' : input.secret)
@@ -194,7 +190,7 @@ export interface RevealedProbe {
 }
 
 export function revealForVerification(probe: unknown): RevealedProbe {
-  if (!probe || !(read(probe, 'secret') instanceof CandidateSecret)) {
+  if (!probe || !(property(probe, 'secret') instanceof CandidateSecret)) {
     throw new TypeError('revealForVerification expects a probe produced by buildFindings');
   }
   /* Only buildFindings makes a probe holding a CandidateSecret, as just checked. */
@@ -261,10 +257,10 @@ export function buildFindings(input: BuildFindingsInput = {}): BuiltFindings {
   const filePath = String(input.path || '');
   const commit = String(input.commit || '');
   const scope = Object.freeze({
-    provider: String(input.scope && read(input.scope, 'provider') || ''),
-    authority: String(input.scope && read(input.scope, 'authority') || ''),
-    owner: String(input.scope && read(input.scope, 'owner') || ''),
-    repo: String(input.scope && read(input.scope, 'repo') || '')
+    provider: String(input.scope && property(input.scope, 'provider') || ''),
+    authority: String(input.scope && property(input.scope, 'authority') || ''),
+    owner: String(input.scope && property(input.scope, 'owner') || ''),
+    repo: String(input.scope && property(input.scope, 'repo') || '')
   });
   const keyVersion = versionOr(input.keyVersion, FINGERPRINT_KEY_VERSION);
 
@@ -321,7 +317,7 @@ export function buildFindings(input: BuildFindingsInput = {}): BuiltFindings {
  * reason. Choosing the majority version would silently resolve the minority.
  */
 function versionsOf(findings: readonly unknown[], field: string): Set<unknown> {
-  return new Set(findings.map(finding => finding && read(finding, field)));
+  return new Set(findings.map(finding => finding && property(finding, field)));
 }
 
 export interface Reconciliation {

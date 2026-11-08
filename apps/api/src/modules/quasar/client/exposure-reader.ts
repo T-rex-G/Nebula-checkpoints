@@ -2,6 +2,7 @@ import { PROFILES, guardedFetch, type GuardedFetchInput } from '../../../platfor
 import { MAX_ARCHIVE_BYTES, archiveKind, openArchive, type ArchiveKind, type ArchiveMember, type NamedMember } from '../domain/exposure-archives.ts';
 import { PATH_RULES } from '../domain/exposure-rules.ts';
 import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { listOf, property, trimmedText } from '../../../platform/values/fields.ts';
 
 /*
  * Reading a repository without having a copy of it.
@@ -126,23 +127,9 @@ export class ExposureReaderError extends Error {
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-/* A list from an answer, or none. */
-function listOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
 /* A Git object id: SHA-1 or SHA-256, lower-case hex. */
 function isObjectId(value: string): boolean {
   return isCommitSha(value) || isSha256Hex(value);
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
 }
 
 /*
@@ -179,8 +166,8 @@ export interface TreeEntryClass {
 
 export function classifyTreeEntry(entry: unknown): TreeEntryClass {
   const source: Fields = entry && typeof entry === 'object' ? entry as Fields : {};
-  const type = text(source.type);
-  const mode = text(source.mode);
+  const type = trimmedText(source.type);
+  const mode = trimmedText(source.mode);
 
   /* Order matters. A gitlink is a submodule whether or not the provider also
      labelled it a commit, and a symlink is a symlink whatever its type says. */
@@ -189,7 +176,7 @@ export function classifyTreeEntry(entry: unknown): TreeEntryClass {
   if (type !== 'blob') return { skip: SKIP_REASONS.NOT_A_FILE };
   if (!FILE_MODES.includes(mode)) return { skip: SKIP_REASONS.UNREADABLE };
   if (!safePath(source.path)) return { skip: SKIP_REASONS.UNSAFE_PATH };
-  if (!isObjectId(text(source.sha))) return { skip: SKIP_REASONS.UNREADABLE };
+  if (!isObjectId(trimmedText(source.sha))) return { skip: SKIP_REASONS.UNREADABLE };
   /*
    * An entry with no size is not a small file. The tree endpoint reports a
    * size for every blob, so its absence means this entry is not what it
@@ -263,12 +250,12 @@ const READERS: Readonly<Record<string, Reader>> = Object.freeze({
 
 /* Only a provider this module names: an inherited key is not a reader. */
 export function readerFor(provider: unknown): Reader | null {
-  const key = text(provider);
+  const key = trimmedText(provider);
   return (Object.hasOwn(READERS, key) && READERS[key]) || null;
 }
 
 function requireReader(scope: unknown): Reader {
-  const reader = readerFor(scope && read(scope, 'provider'));
+  const reader = readerFor(scope && property(scope, 'provider'));
   if (!reader) {
     throw new ExposureReaderError(
       'No exposure reader is implemented for this provider',
@@ -281,8 +268,8 @@ function requireReader(scope: unknown): Reader {
 
 function requireScope(scope: unknown): ReaderScope {
   const source: Fields = scope && typeof scope === 'object' ? scope as Fields : {};
-  const owner = text(source.owner);
-  const repo = text(source.repo);
+  const owner = trimmedText(source.owner);
+  const repo = trimmedText(source.repo);
   if (!owner || !repo) throw new ExposureReaderError('A read requires an owner and a repository', 'EXPOSURE_SCOPE_INVALID', 400);
   return { owner, repo };
 }
@@ -295,7 +282,7 @@ function requireScope(scope: unknown): ReaderScope {
  * arrives here is the answer.
  */
 function requireCommit(commitSha: unknown): string {
-  const value = text(commitSha).toLowerCase();
+  const value = trimmedText(commitSha).toLowerCase();
   if (!isObjectId(value)) {
     throw new ExposureReaderError('A tree must be read at an immutable commit', 'EXPOSURE_COMMIT_INVALID', 400);
   }
@@ -394,7 +381,7 @@ function parsed(response: ReaderResponse | null | undefined, maxBytes: number): 
 const REF_PATTERN = /^(?!-)[A-Za-z0-9][A-Za-z0-9._\/-]{0,254}$/;
 
 function requireRef(ref: unknown): string {
-  const value = text(ref);
+  const value = trimmedText(ref);
   if (!value || value.endsWith('/') || !REF_PATTERN.test(value) || value.split('/').some(part => part === '' || part === '.' || part === '..')) {
     throw new ExposureReaderError('A scan ref must be a branch, tag or object id', 'EXPOSURE_REF_INVALID', 400);
   }
@@ -435,7 +422,7 @@ export async function resolveCommit(input: ReadInput & { readonly ref?: unknown 
   if (statusOf(response) !== 200) {
     throw new ExposureReaderError('That ref could not be resolved', 'EXPOSURE_REF_UNRESOLVED', 404);
   }
-  const sha = text(response && response.body).toLowerCase();
+  const sha = trimmedText(response && response.body).toLowerCase();
   if (!isObjectId(sha)) {
     throw new ExposureReaderError('That ref did not resolve to a commit', 'EXPOSURE_REF_UNRESOLVED', 502);
   }
@@ -503,7 +490,7 @@ export async function readTree(input: ReadInput & { readonly commitSha?: unknown
     if (!skip) {
       /* A file this scan may read: classifyTreeEntry has checked its path is a string and its size an integer. */
       entries.push(Object.freeze({
-        path: String(read(entry, 'path')), sha: text(read(entry, 'sha')).toLowerCase(), size: Number(read(entry, 'size')),
+        path: String(property(entry, 'path')), sha: trimmedText(property(entry, 'sha')).toLowerCase(), size: Number(property(entry, 'size')),
         ...(archive ? { archive } : {})
       }));
       continue;
@@ -515,9 +502,9 @@ export async function readTree(input: ReadInput & { readonly commitSha?: unknown
      * file can be an exposure without being read: a committed keystore is one
      * whatever its bytes say, and its identity is the blob, not a string in it.
      */
-    const entryPath = read(entry, 'path');
+    const entryPath = property(entry, 'path');
     const safe = skip !== SKIP_REASONS.UNSAFE_PATH && safePath(entryPath);
-    const sha = text(read(entry, 'sha')).toLowerCase();
+    const sha = trimmedText(property(entry, 'sha')).toLowerCase();
     skipped.push(Object.freeze({
       path: safe ? entryPath : '',
       reason: skip,
@@ -582,7 +569,7 @@ export async function readBlob(input: ReadInput & { readonly sha?: unknown; read
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const token = requireToken(input.token);
-  const sha = text(input.sha).toLowerCase();
+  const sha = trimmedText(input.sha).toLowerCase();
   if (!isObjectId(sha)) {
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
@@ -596,7 +583,7 @@ export async function readBlob(input: ReadInput & { readonly sha?: unknown; read
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
   const body = parsed(response, MAX_BLOB_RESPONSE_BYTES);
-  if (!body || text(body.encoding) !== 'base64' || typeof body.content !== 'string') {
+  if (!body || trimmedText(body.encoding) !== 'base64' || typeof body.content !== 'string') {
     return Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE });
   }
 
@@ -720,14 +707,14 @@ export async function readBlobTexts(input: ReadInput & { readonly commitSha?: un
   assertAuthorized(statusOf(response));
   const body = statusOf(response) === 200 ? parsed(response, MAX_TEXTS_RESPONSE_BYTES) : null;
   const data = body && body.data;
-  const found = data && read(data, 'repository');
+  const found = data && property(data, 'repository');
   const repository = found && typeof found === 'object' ? found : null;
   paths.forEach((filePath, index) => {
-    const blob = repository ? read(repository, `f${index}`) : null;
+    const blob = repository ? property(repository, `f${index}`) : null;
     if (!blob || typeof blob !== 'object') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.UNREADABLE }));
-    const blobText = read(blob, 'text');
-    if (read(blob, 'isBinary') === true || typeof blobText !== 'string') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
-    if (read(blob, 'isTruncated') === true || Number(read(blob, 'byteSize')) > MAX_BLOB_BYTES) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.OVERSIZE }));
+    const blobText = property(blob, 'text');
+    if (property(blob, 'isBinary') === true || typeof blobText !== 'string') return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
+    if (property(blob, 'isTruncated') === true || Number(property(blob, 'byteSize')) > MAX_BLOB_BYTES) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.OVERSIZE }));
     if (blobText.includes('\u0000')) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.BINARY }));
     if (blobText.startsWith(LFS_POINTER_PREFIX)) return out.set(filePath, Object.freeze({ text: null, skip: SKIP_REASONS.LFS_POINTER }));
     return out.set(filePath, Object.freeze({ text: blobText, skip: null }));
@@ -768,7 +755,7 @@ export async function readArchive(input: ReadInput & { readonly sha?: unknown; r
   const reader = requireReader(input.scope);
   const scope = requireScope(input.scope);
   const token = requireToken(input.token);
-  const sha = text(input.sha).toLowerCase();
+  const sha = trimmedText(input.sha).toLowerCase();
   const archivePath = typeof input.path === 'string' ? input.path : '';
   const kind = archiveKind(archivePath);
   if (!kind || !isObjectId(sha)) {
@@ -786,7 +773,7 @@ export async function readArchive(input: ReadInput & { readonly sha?: unknown; r
   assertAuthorized(statusOf(response));
   if (statusOf(response) !== 200) return archiveSkip(SKIP_REASONS.UNREADABLE);
   const body = parsed(response, MAX_ARCHIVE_RESPONSE_BYTES);
-  if (!body || text(body.encoding) !== 'base64' || typeof body.content !== 'string') {
+  if (!body || trimmedText(body.encoding) !== 'base64' || typeof body.content !== 'string') {
     return archiveSkip(SKIP_REASONS.UNREADABLE);
   }
   const bytes = Buffer.from(body.content, 'base64');
@@ -878,13 +865,13 @@ function assertNotThrottled(statusCode: number): void {
 }
 
 function commitDate(item: unknown): string | null {
-  const found = item && read(item, 'commit');
+  const found = item && property(item, 'commit');
   const commit = found && typeof found === 'object' ? found : {};
-  const committer = read(commit, 'committer');
-  const committed = Date.parse(text(committer && read(committer, 'date')));
+  const committer = property(commit, 'committer');
+  const committed = Date.parse(trimmedText(committer && property(committer, 'date')));
   if (Number.isFinite(committed)) return new Date(committed).toISOString();
-  const author = read(commit, 'author');
-  const authored = Date.parse(text(author && read(author, 'date')));
+  const author = property(commit, 'author');
+  const authored = Date.parse(trimmedText(author && property(author, 'date')));
   return Number.isFinite(authored) ? new Date(authored).toISOString() : null;
 }
 
@@ -941,14 +928,14 @@ export async function listCommits(input: HistoryInput = {}): Promise<{ readonly 
       throw new ExposureReaderError('The repository history response was not a list', 'EXPOSURE_HISTORY_INVALID', 502);
     }
     for (const item of items) {
-      const sha = text(item && read(item, 'sha')).toLowerCase();
+      const sha = trimmedText(item && property(item, 'sha')).toLowerCase();
       if (!isObjectId(sha) || seen.has(sha)) continue;
       if (commits.length >= maxCommits) { truncated = true; break; }
       seen.add(sha);
       commits.push(Object.freeze({
         sha,
         committedAt: commitDate(item),
-        parents: listOf(item && read(item, 'parents')).length
+        parents: listOf(item && property(item, 'parents')).length
       }));
     }
     if (truncated || items.length < COMMIT_PAGE_SIZE) break;
@@ -1070,13 +1057,13 @@ export async function readCommitChanges(input: ReadInput & { readonly sha?: unkn
     }
     const changed = listOf(body.files);
     for (const file of changed) {
-      const filename = file && read(file, 'filename');
+      const filename = file && property(file, 'filename');
       const filePath = typeof filename === 'string' ? filename : '';
-      const status = text(file && read(file, 'status'));
+      const status = trimmedText(file && property(file, 'status'));
       if (status === 'removed') continue;
       if (!safePath(filePath)) { unsafePaths += 1; continue; }
-      const blobSha = text(file && read(file, 'sha')).toLowerCase();
-      const found = file && read(file, 'patch');
+      const blobSha = trimmedText(file && property(file, 'sha')).toLowerCase();
+      const found = file && property(file, 'patch');
       const patch = typeof found === 'string' ? found : null;
       files.push(Object.freeze({
         path: filePath,

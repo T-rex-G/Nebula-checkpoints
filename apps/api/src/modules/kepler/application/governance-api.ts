@@ -22,6 +22,7 @@ import {
   normalizeWebhookDefinition,
   normalizeWebhookDestination
 } from '../delivery/governance-delivery.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -47,11 +48,6 @@ function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const item of Object.values(value)) deepFreeze(item);
   return Object.freeze(value);
-}
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
 }
 
 function isRoleName(value: string): value is GovernanceRoleName {
@@ -337,8 +333,8 @@ interface VersionInput {
 }
 
 function normalizedVersionInput(input: unknown = {}): VersionInput {
-  const document = normalizePolicyDocument(read(input, 'document'));
-  const approvalPolicy = normalizeApprovalPolicy(read(input, 'approvalPolicy'));
+  const document = normalizePolicyDocument(property(input, 'document'));
+  const approvalPolicy = normalizeApprovalPolicy(property(input, 'approvalPolicy'));
   return deepFreeze({ document, documentHash: policyDocumentHash(document), approvalPolicy });
 }
 

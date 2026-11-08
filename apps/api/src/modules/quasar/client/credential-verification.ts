@@ -9,6 +9,7 @@ import {
   type VerificationReason,
   type VerificationState
 } from '../domain/verification-outcomes.ts';
+import { fieldsOf, listOf, property, trimmedText } from '../../../platform/values/fields.ts';
 
 export { REASONS, VERIFICATION_FRESHNESS_MS, VERIFICATION_STATES, verificationFreshness };
 export type { VerificationReason, VerificationState };
@@ -82,25 +83,6 @@ const SUBJECT_DIGEST_CHARS = 32;
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-/* An object's fields, or none when it is not an object. */
-function fieldsOf(value: unknown): Fields {
-  return value && typeof value === 'object' ? value as Fields : {};
-}
-
-/* A list from an input, or none. */
-function listOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function parseJsonObject(body: unknown, maxBytes = PROBE_MAX_RESPONSE_BYTES): Fields | null {
   if (typeof body !== 'string' || body.length > maxBytes) return null;
   let parsed: unknown;
@@ -123,7 +105,7 @@ function parseJson(body: unknown, maxBytes: number): unknown {
  * rather than trusted as an absolute instant -- their clock is not ours.
  */
 function retryAfterMs(headers: unknown, now: number): number | null {
-  const raw = text(headers && (read(headers, 'retry-after') || read(headers, 'Retry-After')));
+  const raw = trimmedText(headers && (property(headers, 'retry-after') || property(headers, 'Retry-After')));
   if (!raw) return null;
   let ms: number | null = null;
   if (/^\d+$/.test(raw)) ms = Number(raw) * 1000;
@@ -168,7 +150,7 @@ function githubInterpretation(response: ProbeAnswer, now: number): Verdict {
   const { statusCode } = response;
   if (statusCode === 200) {
     const body = parseJsonObject(response.body);
-    const login = body && text(body.login);
+    const login = body && trimmedText(body.login);
     const id = body && body.id;
     if (!login || !Number.isInteger(id)) {
       return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.MALFORMED_IDENTITY_RESPONSE };
@@ -195,7 +177,7 @@ function githubInterpretation(response: ProbeAnswer, now: number): Verdict {
    */
   if (statusCode === 403) {
     const refusal = parseJsonObject(response.body);
-    const message = text(refusal && refusal.message).toLowerCase();
+    const message = trimmedText(refusal && refusal.message).toLowerCase();
     const throttled = /rate limit|secondary rate|abuse detection|too many requests/.test(message);
     return {
       state: VERIFICATION_STATES.UNVERIFIABLE,
@@ -210,7 +192,7 @@ function gitlabInterpretation(response: ProbeAnswer, now: number): Verdict {
   const { statusCode } = response;
   if (statusCode === 200) {
     const body = parseJsonObject(response.body);
-    const username = body && text(body.username);
+    const username = body && trimmedText(body.username);
     const id = body && body.id;
     if (!username || !Number.isInteger(id)) {
       return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.MALFORMED_IDENTITY_RESPONSE };
@@ -271,8 +253,8 @@ function slackInterpretation(response: ProbeAnswer, now: number): Verdict {
     return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.MALFORMED_IDENTITY_RESPONSE };
   }
   if (body.ok) {
-    const userId = text(body.user_id);
-    const teamId = text(body.team_id);
+    const userId = trimmedText(body.user_id);
+    const teamId = trimmedText(body.team_id);
     if (!userId || !teamId) {
       return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.MALFORMED_IDENTITY_RESPONSE };
     }
@@ -283,7 +265,7 @@ function slackInterpretation(response: ProbeAnswer, now: number): Verdict {
     };
   }
 
-  const error = text(body.error).toLowerCase();
+  const error = trimmedText(body.error).toLowerCase();
   if (!error) return { state: VERIFICATION_STATES.UNVERIFIABLE, reason: REASONS.MALFORMED_IDENTITY_RESPONSE };
   if (SLACK_DEFINITE_REFUSALS.includes(error)) {
     return { state: VERIFICATION_STATES.REJECTED, reason: REASONS.CREDENTIAL_REFUSED };
@@ -376,7 +358,7 @@ function identityInterpretation(options: InterpretationOptions = {}): Interpreta
 
 const field = (...keys: string[]) => (body: unknown): string => {
   let value = body;
-  for (const key of keys) value = value && typeof value === 'object' ? read(value, key) : undefined;
+  for (const key of keys) value = value && typeof value === 'object' ? property(value, key) : undefined;
   return (typeof value === 'string' && value.trim()) || (Number.isInteger(value) ? String(value) : '');
 };
 const bearer = (secret: string): Readonly<Record<string, string>> => ({ authorization: `Bearer ${secret}` });
@@ -678,7 +660,7 @@ const PROVIDER_ADAPTERS: readonly Adapter[] = [
     interpret: identityInterpretation({
       refusedStatuses: [],
       ambiguousStatuses: [403],
-      refusedWhen: body => body && read(body, 'valid') === false
+      refusedWhen: body => body && property(body, 'valid') === false
     })
   }),
   adapter({
@@ -778,10 +760,10 @@ function adapterForRule(rule: string): Adapter | null {
 const INCOMPLETE_RULES: readonly string[] = Object.freeze(['aws-access-key']);
 
 export function adapterForCandidate(candidate: unknown): Adapter | null {
-  const rule = text(candidate && read(candidate, 'rule'));
+  const rule = trimmedText(candidate && property(candidate, 'rule'));
   const adapter = adapterForRule(rule);
   if (!adapter) return null;
-  const secret = text(read(candidate, 'secret'));
+  const secret = trimmedText(property(candidate, 'secret'));
   return adapter.supports.test(secret) ? adapter : null;
 }
 
@@ -793,22 +775,22 @@ export function adapterForCandidate(candidate: unknown): Adapter | null {
  * not sign the same bytes as the reverse.
  */
 function authorizationMessage(grant: unknown): string {
-  const scope = read(grant, 'scope');
+  const scope = property(grant, 'scope');
   const parts = [
     'nvexpauth.v1',
     'verify-credential',
-    text(read(grant, 'authorizationId')),
-    text(read(grant, 'actorLogin')),
-    text(scope && read(scope, 'provider')),
-    text(scope && read(scope, 'authority')),
-    text(scope && read(scope, 'owner')),
-    text(scope && read(scope, 'repo')),
-    text(read(grant, 'commit')),
-    text(read(grant, 'candidateFingerprint')),
-    text(read(grant, 'adapter')),
-    text(read(grant, 'targetId')),
-    text(read(grant, 'issuedAt')),
-    text(read(grant, 'expiresAt'))
+    trimmedText(property(grant, 'authorizationId')),
+    trimmedText(property(grant, 'actorLogin')),
+    trimmedText(scope && property(scope, 'provider')),
+    trimmedText(scope && property(scope, 'authority')),
+    trimmedText(scope && property(scope, 'owner')),
+    trimmedText(scope && property(scope, 'repo')),
+    trimmedText(property(grant, 'commit')),
+    trimmedText(property(grant, 'candidateFingerprint')),
+    trimmedText(property(grant, 'adapter')),
+    trimmedText(property(grant, 'targetId')),
+    trimmedText(property(grant, 'issuedAt')),
+    trimmedText(property(grant, 'expiresAt'))
   ];
   return parts.map(part => `${Buffer.byteLength(part, 'utf8')}:${part}`).join('|');
 }
@@ -847,20 +829,20 @@ export function signVerificationAuthorization(input: AuthorizationInput = {}): V
   }
   const scope = input.scope;
   const grant = {
-    authorizationId: text(input.authorizationId),
-    actorLogin: text(input.actorLogin),
+    authorizationId: trimmedText(input.authorizationId),
+    actorLogin: trimmedText(input.actorLogin),
     scope: Object.freeze({
-      provider: text(scope && read(scope, 'provider')),
-      authority: text(scope && read(scope, 'authority')),
-      owner: text(scope && read(scope, 'owner')),
-      repo: text(scope && read(scope, 'repo'))
+      provider: trimmedText(scope && property(scope, 'provider')),
+      authority: trimmedText(scope && property(scope, 'authority')),
+      owner: trimmedText(scope && property(scope, 'owner')),
+      repo: trimmedText(scope && property(scope, 'repo'))
     }),
-    commit: text(input.commit),
-    candidateFingerprint: text(input.candidateFingerprint),
-    adapter: text(input.adapter),
-    targetId: text(input.targetId),
-    issuedAt: text(input.issuedAt),
-    expiresAt: text(input.expiresAt)
+    commit: trimmedText(input.commit),
+    candidateFingerprint: trimmedText(input.candidateFingerprint),
+    adapter: trimmedText(input.adapter),
+    targetId: trimmedText(input.targetId),
+    issuedAt: trimmedText(input.issuedAt),
+    expiresAt: trimmedText(input.expiresAt)
   };
   const signature = createHmac('sha256', hmacKey)
     .update(authorizationMessage(grant), 'utf8')
@@ -884,8 +866,8 @@ interface RefusalInput {
 
 function authorizationRefusal({ authorization, hmacKey, adapter, candidate, actorLogin, now }: RefusalInput): VerificationReason | null {
   if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
-  const signature = text(read(authorization, 'signature'));
-  if (!signature && !text(read(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
+  const signature = trimmedText(property(authorization, 'signature'));
+  if (!signature && !trimmedText(property(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
   if (!isSha256Hex(signature)) return REASONS.AUTHORIZATION_INVALID;
 
   const expected = createHmac('sha256', hmacKey)
@@ -895,33 +877,33 @@ function authorizationRefusal({ authorization, hmacKey, adapter, candidate, acto
   if (presented.length !== expected.length) return REASONS.AUTHORIZATION_INVALID;
   if (!timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
 
-  const issuedAt = Date.parse(text(read(authorization, 'issuedAt')));
-  const expiresAt = Date.parse(text(read(authorization, 'expiresAt')));
+  const issuedAt = Date.parse(trimmedText(property(authorization, 'issuedAt')));
+  const expiresAt = Date.parse(trimmedText(property(authorization, 'expiresAt')));
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= issuedAt) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt - issuedAt > MAX_AUTHORIZATION_LIFETIME_MS) return REASONS.AUTHORIZATION_INVALID;
   if (issuedAt > now) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= now) return REASONS.AUTHORIZATION_EXPIRED;
-  if (!text(read(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
+  if (!trimmedText(property(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
 
   /*
    * Bound to this candidate in this repository at this commit, for this
    * adapter against this target. A grant for any other combination is a grant
    * for a different question.
    */
-  const scope = fieldsOf(read(authorization, 'scope'));
+  const scope = fieldsOf(property(authorization, 'scope'));
   const asked = candidate.scope;
   const bound: [string, string][] = [
-    [text(scope.provider), text(asked && read(asked, 'provider'))],
-    [text(scope.authority), text(asked && read(asked, 'authority'))],
-    [text(scope.owner), text(asked && read(asked, 'owner'))],
-    [text(scope.repo), text(asked && read(asked, 'repo'))],
-    [text(read(authorization, 'commit')), text(candidate.commit)],
-    [text(read(authorization, 'candidateFingerprint')), text(candidate.fingerprint)],
-    [text(read(authorization, 'adapter')), adapter.id],
-    [text(read(authorization, 'targetId')), adapter.targetId]
+    [trimmedText(scope.provider), trimmedText(asked && property(asked, 'provider'))],
+    [trimmedText(scope.authority), trimmedText(asked && property(asked, 'authority'))],
+    [trimmedText(scope.owner), trimmedText(asked && property(asked, 'owner'))],
+    [trimmedText(scope.repo), trimmedText(asked && property(asked, 'repo'))],
+    [trimmedText(property(authorization, 'commit')), trimmedText(candidate.commit)],
+    [trimmedText(property(authorization, 'candidateFingerprint')), trimmedText(candidate.fingerprint)],
+    [trimmedText(property(authorization, 'adapter')), adapter.id],
+    [trimmedText(property(authorization, 'targetId')), adapter.targetId]
   ];
-  if (actorLogin != null) bound.push([text(read(authorization, 'actorLogin')), text(actorLogin)]);
+  if (actorLogin != null) bound.push([trimmedText(property(authorization, 'actorLogin')), trimmedText(actorLogin)]);
   for (const [granted, required] of bound) {
     if (!granted || granted !== required) return REASONS.AUTHORIZATION_MISMATCH;
   }
@@ -978,7 +960,7 @@ function record(input: RecordInput): VerificationRecord {
     adapter: input.adapter ? input.adapter.id : null,
     adapterVersion: input.adapter ? input.adapter.version : null,
     authorizationId: input.authorizationId || null,
-    candidateFingerprint: text(input.candidate.fingerprint) || null,
+    candidateFingerprint: trimmedText(input.candidate.fingerprint) || null,
     deduplicated: Boolean(input.deduplicated),
     freshnessDeadline: new Date(input.now + VERIFICATION_FRESHNESS_MS).toISOString(),
     observedAt,
@@ -996,7 +978,7 @@ function record(input: RecordInput): VerificationRecord {
  * to send and the request carries the credential.
  */
 function transportRefusal(error: unknown): VerificationReason {
-  const code = text(error && read(error, 'code'));
+  const code = trimmedText(error && property(error, 'code'));
   if (code === 'GUARDED_FETCH_TIMEOUT' || code === 'GUARDED_FETCH_DEADLINE') return REASONS.TRANSPORT_TIMEOUT;
   if (code === 'GUARDED_FETCH_RESPONSE_TOO_LARGE') return REASONS.MALFORMED_IDENTITY_RESPONSE;
   return REASONS.TRANSPORT_REFUSED;
@@ -1031,7 +1013,7 @@ export interface VerifyInput {
 async function verifyOne(input: VerifyInput): Promise<{ readonly probed: boolean; readonly record: VerificationRecord }> {
   const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
   const candidate = fieldsOf(input.candidate);
-  const rule = text(candidate.rule);
+  const rule = trimmedText(candidate.rule);
 
   /*
    * Classification first, and it is not a shortcut past consent: none of these
@@ -1090,7 +1072,7 @@ async function verifyOne(input: VerifyInput): Promise<{ readonly probed: boolean
       })
     };
   }
-  const authorizationId = text(read(input.authorization, 'authorizationId'));
+  const authorizationId = trimmedText(property(input.authorization, 'authorizationId'));
 
   /*
    * The URL is assembled from the adapter's own constants. A candidate can
@@ -1172,8 +1154,8 @@ export async function verifyCandidates(input: VerifyCandidatesInput = {}): Promi
   let probes = 0;
 
   for (const request of requests) {
-    const candidate = fieldsOf(request && read(request, 'candidate'));
-    const fingerprint = text(candidate.fingerprint);
+    const candidate = fieldsOf(request && property(request, 'candidate'));
+    const fingerprint = trimmedText(candidate.fingerprint);
     const adapter = adapterForCandidate(candidate);
 
     const earlier = fingerprint ? seen.get(fingerprint) : null;
@@ -1210,7 +1192,7 @@ export async function verifyCandidates(input: VerifyCandidatesInput = {}): Promi
 
     const { record: attempt, probed } = await verifyOne({
       candidate,
-      authorization: request && read(request, 'authorization'),
+      authorization: request && property(request, 'authorization'),
       authorizationKey: input.authorizationKey,
       subjectKey: input.subjectKey,
       actorLogin: input.actorLogin,

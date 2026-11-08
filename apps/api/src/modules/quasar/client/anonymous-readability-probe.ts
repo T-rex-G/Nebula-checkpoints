@@ -3,6 +3,7 @@ import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 import { PROFILES, guardedFetch, type GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
 import { KEY_KINDS, classifyKey } from '../domain/supabase-key-kinds.ts';
 import { PROBE_STATES, REASONS, type ProbeReason, type ProbeState } from '../domain/readability-outcomes.ts';
+import { fieldsOf, listOf, property, trimmedText } from '../../../platform/values/fields.ts';
 
 export { KEY_KINDS, PROBE_STATES, REASONS, classifyKey };
 export type { ProbeReason, ProbeState };
@@ -67,25 +68,6 @@ export type ProbeOperation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-/* An object's fields, or none when it is not an object. */
-function fieldsOf(value: unknown): Fields {
-  return value && typeof value === 'object' ? value as Fields : {};
-}
-
-/* A list from an input, or none. */
-function listOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 /* ---- Discovery --------------------------------------------------------- */
 
 /*
@@ -135,7 +117,7 @@ export function discoverProject(source: unknown): { readonly projectRef: string;
  * because of what it contains, not what it starts with.
  */
 function relationRefused(relation: unknown): boolean {
-  const value = text(relation);
+  const value = trimmedText(relation);
   return !value || !RELATION_PATTERN.test(value);
 }
 
@@ -157,29 +139,29 @@ function projectionRefused(projection: unknown): boolean {
 /* ---- The grant --------------------------------------------------------- */
 
 function authorizationMessage(grant: unknown): string {
-  const projection = listOf(read(grant, 'projection'));
-  const scope = read(grant, 'scope');
+  const projection = listOf(property(grant, 'projection'));
+  const scope = property(grant, 'scope');
   const parts = [
     'nvexpread.v1',
-    text(read(grant, 'operation')),
-    text(read(grant, 'authorizationId')),
-    text(read(grant, 'actorLogin')),
-    text(scope && read(scope, 'provider')),
-    text(scope && read(scope, 'authority')),
-    text(scope && read(scope, 'owner')),
-    text(scope && read(scope, 'repo')),
-    text(read(grant, 'commit')),
-    text(read(grant, 'candidateFingerprint')),
-    text(read(grant, 'projectRef')),
-    text(read(grant, 'relation')),
+    trimmedText(property(grant, 'operation')),
+    trimmedText(property(grant, 'authorizationId')),
+    trimmedText(property(grant, 'actorLogin')),
+    trimmedText(scope && property(scope, 'provider')),
+    trimmedText(scope && property(scope, 'authority')),
+    trimmedText(scope && property(scope, 'owner')),
+    trimmedText(scope && property(scope, 'repo')),
+    trimmedText(property(grant, 'commit')),
+    trimmedText(property(grant, 'candidateFingerprint')),
+    trimmedText(property(grant, 'projectRef')),
+    trimmedText(property(grant, 'relation')),
     /*
      * The projection is signed in order and as one part with its own length
      * prefix, so a grant for `id,title` is not a grant for `title,id` and a
      * column containing the separator cannot forge another field.
      */
-    projection.map(column => text(column)).join(','),
-    text(read(grant, 'issuedAt')),
-    text(read(grant, 'expiresAt'))
+    projection.map(column => trimmedText(column)).join(','),
+    trimmedText(property(grant, 'issuedAt')),
+    trimmedText(property(grant, 'expiresAt'))
   ];
   return parts.map(part => `${Buffer.byteLength(part, 'utf8')}:${part}`).join('|');
 }
@@ -222,22 +204,22 @@ export function signReadabilityAuthorization(input: ReadabilityAuthorizationInpu
   }
   const scope = input.scope;
   const grant = {
-    operation: text(input.operation) || OPERATIONS.PROBE,
-    authorizationId: text(input.authorizationId),
-    actorLogin: text(input.actorLogin),
+    operation: trimmedText(input.operation) || OPERATIONS.PROBE,
+    authorizationId: trimmedText(input.authorizationId),
+    actorLogin: trimmedText(input.actorLogin),
     scope: Object.freeze({
-      provider: text(scope && read(scope, 'provider')),
-      authority: text(scope && read(scope, 'authority')),
-      owner: text(scope && read(scope, 'owner')),
-      repo: text(scope && read(scope, 'repo'))
+      provider: trimmedText(scope && property(scope, 'provider')),
+      authority: trimmedText(scope && property(scope, 'authority')),
+      owner: trimmedText(scope && property(scope, 'owner')),
+      repo: trimmedText(scope && property(scope, 'repo'))
     }),
-    commit: text(input.commit),
-    candidateFingerprint: text(input.candidateFingerprint),
-    projectRef: text(input.projectRef),
-    relation: text(input.relation),
-    projection: Object.freeze(listOf(input.projection).map(column => text(column))),
-    issuedAt: text(input.issuedAt),
-    expiresAt: text(input.expiresAt)
+    commit: trimmedText(input.commit),
+    candidateFingerprint: trimmedText(input.candidateFingerprint),
+    projectRef: trimmedText(input.projectRef),
+    relation: trimmedText(input.relation),
+    projection: Object.freeze(listOf(input.projection).map(column => trimmedText(column))),
+    issuedAt: trimmedText(input.issuedAt),
+    expiresAt: trimmedText(input.expiresAt)
   };
   const signature = createHmac('sha256', hmacKey)
     .update(authorizationMessage(grant), 'utf8')
@@ -259,8 +241,8 @@ interface RefusalInput {
 
 function authorizationRefusal({ authorization, hmacKey, operation, projectRef, relation, projection, candidate, actorLogin, now }: RefusalInput): ProbeReason | null {
   if (!authorization || typeof authorization !== 'object') return REASONS.AUTHORIZATION_MISSING;
-  const signature = text(read(authorization, 'signature'));
-  if (!signature && !text(read(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
+  const signature = trimmedText(property(authorization, 'signature'));
+  if (!signature && !trimmedText(property(authorization, 'authorizationId'))) return REASONS.AUTHORIZATION_MISSING;
   if (!isSha256Hex(signature)) return REASONS.AUTHORIZATION_INVALID;
 
   const expected = createHmac('sha256', hmacKey)
@@ -270,34 +252,34 @@ function authorizationRefusal({ authorization, hmacKey, operation, projectRef, r
   if (presented.length !== expected.length) return REASONS.AUTHORIZATION_INVALID;
   if (!timingSafeEqual(presented, expected)) return REASONS.AUTHORIZATION_INVALID;
 
-  const issuedAt = Date.parse(text(read(authorization, 'issuedAt')));
-  const expiresAt = Date.parse(text(read(authorization, 'expiresAt')));
+  const issuedAt = Date.parse(trimmedText(property(authorization, 'issuedAt')));
+  const expiresAt = Date.parse(trimmedText(property(authorization, 'expiresAt')));
   if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= issuedAt) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt - issuedAt > MAX_AUTHORIZATION_LIFETIME_MS) return REASONS.AUTHORIZATION_INVALID;
   if (issuedAt > now) return REASONS.AUTHORIZATION_INVALID;
   if (expiresAt <= now) return REASONS.AUTHORIZATION_EXPIRED;
-  if (!text(read(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
+  if (!trimmedText(property(authorization, 'actorLogin'))) return REASONS.AUTHORIZATION_INVALID;
 
-  const granted = listOf(read(authorization, 'projection')).map(column => text(column));
-  const required = listOf(projection).map(column => text(column));
-  const scope = read(authorization, 'scope');
+  const granted = listOf(property(authorization, 'projection')).map(column => trimmedText(column));
+  const required = listOf(projection).map(column => trimmedText(column));
+  const scope = property(authorization, 'scope');
   const asked = candidate.scope;
   const bound: [string, string][] = [
-    [text(read(authorization, 'operation')), operation],
-    [text(scope && read(scope, 'provider')), text(asked && read(asked, 'provider'))],
-    [text(scope && read(scope, 'authority')), text(asked && read(asked, 'authority'))],
-    [text(scope && read(scope, 'owner')), text(asked && read(asked, 'owner'))],
-    [text(scope && read(scope, 'repo')), text(asked && read(asked, 'repo'))],
-    [text(read(authorization, 'commit')), text(candidate.commit)],
-    [text(read(authorization, 'candidateFingerprint')), text(candidate.fingerprint)],
-    [text(read(authorization, 'projectRef')), text(projectRef)],
+    [trimmedText(property(authorization, 'operation')), operation],
+    [trimmedText(scope && property(scope, 'provider')), trimmedText(asked && property(asked, 'provider'))],
+    [trimmedText(scope && property(scope, 'authority')), trimmedText(asked && property(asked, 'authority'))],
+    [trimmedText(scope && property(scope, 'owner')), trimmedText(asked && property(asked, 'owner'))],
+    [trimmedText(scope && property(scope, 'repo')), trimmedText(asked && property(asked, 'repo'))],
+    [trimmedText(property(authorization, 'commit')), trimmedText(candidate.commit)],
+    [trimmedText(property(authorization, 'candidateFingerprint')), trimmedText(candidate.fingerprint)],
+    [trimmedText(property(authorization, 'projectRef')), trimmedText(projectRef)],
     /* Order included: a grant for two columns is a grant for those two
        columns in that order, because the request is built from it. */
     [granted.join(','), required.join(',')]
   ];
-  if (operation === OPERATIONS.PROBE) bound.push([text(read(authorization, 'relation')), text(relation)]);
-  if (actorLogin != null) bound.push([text(read(authorization, 'actorLogin')), text(actorLogin)]);
+  if (operation === OPERATIONS.PROBE) bound.push([trimmedText(property(authorization, 'relation')), trimmedText(relation)]);
+  if (actorLogin != null) bound.push([trimmedText(property(authorization, 'actorLogin')), trimmedText(actorLogin)]);
   for (const [supplied, needed] of bound) {
     if (supplied !== needed) return REASONS.AUTHORIZATION_MISMATCH;
   }
@@ -414,9 +396,9 @@ export interface ProbeInput {
 export async function probeAnonymousReadability(input: ProbeInput = {}): Promise<ReadabilityObservation> {
   const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
   const candidate = fieldsOf(input.candidate);
-  const projectRef = text(input.projectRef);
-  const relation = text(input.relation);
-  const projection = listOf(input.projection).map(column => text(column));
+  const projectRef = trimmedText(input.projectRef);
+  const relation = trimmedText(input.relation);
+  const projection = listOf(input.projection).map(column => trimmedText(column));
   const base = { now, projectRef, relation, projection };
 
   /*
@@ -461,7 +443,7 @@ export async function probeAnonymousReadability(input: ProbeInput = {}): Promise
 
   let response: ProbeResponse | null | undefined;
   try {
-    response = await send({ url, anonKey: text(input.anonKey), transport: input.transport, maxResponseBytes: MAX_RESPONSE_BYTES });
+    response = await send({ url, anonKey: trimmedText(input.anonKey), transport: input.transport, maxResponseBytes: MAX_RESPONSE_BYTES });
   } catch {
     /* No message crosses this boundary: a transport error can quote the
        request, and the request carries the key. */
@@ -535,7 +517,7 @@ export interface ServiceDescription {
 export async function describeService(input: Omit<ProbeInput, 'relation' | 'projection'> = {}): Promise<ServiceDescription> {
   const now = typeof input.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
   const candidate = fieldsOf(input.candidate);
-  const projectRef = text(input.projectRef);
+  const projectRef = trimmedText(input.projectRef);
   const empty = { relations: Object.freeze<string[]>([]), observedAt: new Date(now).toISOString() };
 
   if (!PROJECT_REF_PATTERN.test(projectRef)) {
@@ -563,7 +545,7 @@ export async function describeService(input: Omit<ProbeInput, 'relation' | 'proj
   try {
     response = await send({
       url: `https://${projectRef}.supabase.co/rest/v1/`,
-      anonKey: text(input.anonKey),
+      anonKey: trimmedText(input.anonKey),
       transport: input.transport,
       maxResponseBytes: DESCRIBE_MAX_RESPONSE_BYTES
     });
@@ -580,7 +562,7 @@ export async function describeService(input: Omit<ProbeInput, 'relation' | 'proj
   } catch {
     return Object.freeze({ ...empty, coverage: 'partial', reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
   }
-  const found = document && read(document, 'paths');
+  const found = document && property(document, 'paths');
   const paths = found && typeof found === 'object' ? found : null;
   if (!paths) return Object.freeze({ ...empty, coverage: 'partial', reason: REASONS.PROVIDER_UNEXPECTED_RESPONSE });
 

@@ -19,6 +19,7 @@ import { deriveControlMapping, normalizeControlMapping, normalizeControlRefs, CO
 import type { ControlMapping } from './control-catalog.ts';
 import { applyPolicyExceptions } from './governance-exceptions.ts';
 import type { ExceptionApplication } from './governance-exceptions.ts';
+import { listOf, property } from '../../../platform/values/fields.ts';
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -55,11 +56,6 @@ function isPlainObject(value: unknown): value is Fields {
   return proto === Object.prototype || proto === null;
 }
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
 function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -92,11 +88,6 @@ function isPolicyOutcome(value: string): value is PolicyOutcome {
 
 function isEnforcementMode(value: string): value is EnforcementMode {
   return Object.hasOwn(MODE_RANK, value);
-}
-
-/* The list a field holds, or none when it holds something else. */
-function listOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
 }
 
 export function normalizeEnforcementMode(input: unknown): EnforcementMode {
@@ -281,7 +272,7 @@ export function evaluateActivePolicySet(input: ActivePolicySetInput = {}): Polic
   const policies = listOf(input.activePolicies)
     .map(normalizeActivePolicy)
     .sort((a, b) => a.policyKey.localeCompare(b.policyKey) || a.policyId.localeCompare(b.policyId));
-  const governanceActor = read(descriptor.authorization, 'governanceActor');
+  const governanceActor = property(descriptor.authorization, 'governanceActor');
   const policyEvaluations: PolicyEvaluationEntry[] = policies.map(policy => {
     const evaluation = evaluatePolicyDocument(policy.document, {
       schemaVersion: 1,
@@ -315,8 +306,8 @@ export function evaluateActivePolicySet(input: ActivePolicySetInput = {}): Polic
       evaluationHash: evaluation.evaluationHash
     };
     const applied = applyPolicyExceptions(base, activeExceptions, action, evaluatedAt, {
-      actorIdentityKey: governanceActor && read(governanceActor, 'verified')
-        ? read(governanceActor, 'identityKey')
+      actorIdentityKey: governanceActor && property(governanceActor, 'verified')
+        ? property(governanceActor, 'identityKey')
         : null,
       metadata: descriptor.metadata
     });
@@ -613,10 +604,10 @@ export function normalizePolicyDecision(input: unknown, descriptor: unknown = nu
     recorded = { ...output, decisionId, previousHash, recordHash: hash(input.recordHash, 'Policy decision record hash') };
   }
   if (descriptor) {
-    const actorLogin = read(descriptor, 'actorLogin');
-    if (mutationId !== read(descriptor, 'mutationId') || scope.scopeKey !== read(descriptor, 'scopeKey') || action !== read(descriptor, 'action') ||
+    const actorLogin = property(descriptor, 'actorLogin');
+    if (mutationId !== property(descriptor, 'mutationId') || scope.scopeKey !== property(descriptor, 'scopeKey') || action !== property(descriptor, 'action') ||
         recorded.descriptorHash !== descriptorEvidenceHash(descriptor) ||
-        normalizedActor.identityKey !== read(descriptor, 'actorIdentityKey') ||
+        normalizedActor.identityKey !== property(descriptor, 'actorIdentityKey') ||
         typeof actorLogin !== 'string' || normalizedActor.login.toLowerCase() !== actorLogin.toLowerCase()) {
       fail('Policy decision does not match the active mutation', 'MUTATION_POLICY_DECISION_MISMATCH', 500);
     }
@@ -724,7 +715,7 @@ export function createGovernanceRuntime({ store, failureMode = 'warn', now = () 
         });
         return normalizePolicyDecision(decision, descriptor);
       } catch (error) {
-        const code = read(error, 'code');
+        const code = property(error, 'code');
         try {
           onError(Object.freeze({
             code: String(error && code || 'POLICY_EVALUATION_FAILED').slice(0, 100),

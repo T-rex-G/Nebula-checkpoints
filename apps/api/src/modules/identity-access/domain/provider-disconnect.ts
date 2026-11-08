@@ -2,17 +2,13 @@ import { createHash } from 'node:crypto';
 import { providerRevocationGuidance } from './alpha-privacy.ts';
 import type { RevocationGuidance } from './alpha-privacy.ts';
 import { isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Historical identifiers are needed to hash retained cleanup evidence.
 const HISTORICAL_PROVIDERS = new Set(['github', 'gitlab', 'gitea']);
 
 type Fields = Readonly<Record<string, unknown>>;
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
 
 function hashDomain(domain: string, parts: readonly unknown[]): string {
   const hash = createHash('sha256');
@@ -63,14 +59,14 @@ function webhookReference(webhook: unknown): string {
 
 function isAbsent(value: unknown): boolean {
   return !!value && (
-    read(value, 'verifiedAbsent') === true
-    || read(value, 'absent') === true
-    || Number(read(value, 'status')) === 404
+    property(value, 'verifiedAbsent') === true
+    || property(value, 'absent') === true
+    || Number(property(value, 'status')) === 404
   );
 }
 
 function is404(error: unknown): boolean {
-  return Number(error && (read(error, 'status') || read(error, 'statusCode'))) === 404;
+  return Number(error && (property(error, 'status') || property(error, 'statusCode'))) === 404;
 }
 
 interface CleanupTask {
@@ -83,16 +79,16 @@ function cleanupTaskValue(value: unknown): CleanupTask {
   if (!value || typeof value !== 'object') {
     throw new TypeError('cleanup task registration returned invalid evidence');
   }
-  const cleanupId = String(read(value, 'cleanupId') || '');
+  const cleanupId = String(property(value, 'cleanupId') || '');
   if (!UUID_RX.test(cleanupId)) {
     throw new TypeError('cleanup task registration returned an invalid cleanupId');
   }
-  const status = read(value, 'status') === 'verified' ? 'verified' : 'pending';
+  const status = property(value, 'status') === 'verified' ? 'verified' : 'pending';
   return { cleanupId: cleanupId.toLowerCase(), status };
 }
 
 function requirePreparedHash(value: unknown, label: string): string {
-  const hash = String(value && read(value, 'resourceKeyHash') || '');
+  const hash = String(value && property(value, 'resourceKeyHash') || '');
   if (!isSha256Hex(hash)) {
     throw new TypeError(`${label} preparation returned an invalid resource hash`);
   }
@@ -190,7 +186,7 @@ export async function disconnectProviderAccount(options: DisconnectOptions): Pro
     throw new TypeError('disconnect options must be an object');
   }
   const account = options.account;
-  const testerId = String(read(options.tester, 'testerId') || '').toLowerCase();
+  const testerId = String(property(options.tester, 'testerId') || '').toLowerCase();
   if (!account || typeof account !== 'object' || !UUID_RX.test(testerId)) {
     throw new TypeError('disconnect account and tester context are required');
   }
@@ -304,8 +300,8 @@ export async function disconnectProviderAccount(options: DisconnectOptions): Pro
       resourceKeyHash,
       cleanupId: task.cleanupId,
       status: task.status,
-      requesterOwned: read(item, 'requesterOwned') === true,
-      shared: read(item, 'shared') === true,
+      requesterOwned: property(item, 'requesterOwned') === true,
+      shared: property(item, 'shared') === true,
       webhook: inventoryByHash.get(resourceKeyHash) || null
     };
   });
@@ -383,7 +379,7 @@ export async function disconnectProviderAccount(options: DisconnectOptions): Pro
         resourceKeyHash: item.resourceKeyHash,
         providerVerifiedAbsent: providerAbsent
       });
-      if (!(completion && read(completion, 'verified') === true)) {
+      if (!(completion && property(completion, 'verified') === true)) {
         pendingIds.push(item.cleanupId);
       }
     } catch {
@@ -402,11 +398,11 @@ export async function disconnectProviderAccount(options: DisconnectOptions): Pro
         cleanupId: item.cleanupId
       }))
     });
-    if (!(finalized === true || (finalized && read(finalized, 'finalized') === true))) {
+    if (!(finalized === true || (finalized && property(finalized, 'finalized') === true))) {
       return pendingResult(account, sessionTasks.map(item => item.cleanupId));
     }
     const sharedProviderState = !!(
-      finalized && typeof finalized === 'object' && read(finalized, 'sharedProviderState') === true
+      finalized && typeof finalized === 'object' && property(finalized, 'sharedProviderState') === true
     );
     if (!sharedProviderState && typeof options.invalidateBroker === 'function') {
       options.invalidateBroker(account);

@@ -19,6 +19,16 @@ export function read(value: unknown, key: string): unknown {
 }
 
 /*
+ * A property as JavaScript reads `value?.[key]`: nothing from null or
+ * undefined, and from anything else what the language finds there -- a
+ * primitive's members and inherited ones included. For values that may be
+ * anything; `read` is the form that reads objects alone.
+ */
+export function property(value: unknown, key: string): unknown {
+  return value === null || value === undefined ? undefined : Reflect.get(Object(value), key, value);
+}
+
+/*
  * A member, read as JavaScript reads `value.key`: reading one off null or
  * undefined is a TypeError, and anything else is boxed and read, inherited
  * members included. For code whose failures on such a value are part of what
@@ -41,6 +51,11 @@ export function iterable(value: unknown, expression: string): Iterable<unknown> 
 /* The value as an object to read fields from; an empty one when it is not an object. */
 export function fieldsOf(value: unknown): Fields {
   return isFields(value) ? value : {};
+}
+
+/* A text without its surrounding space, or an empty one when the value is not a text. */
+export function trimmedText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /* The entries of an array, or none when the value is not one. */

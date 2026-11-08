@@ -4,6 +4,7 @@ import { REASONS as VERIFICATION_REASONS, VERIFICATION_STATES, verificationFresh
 import { REASONS as PROBE_REASONS, PROBE_STATES } from './readability-outcomes.ts';
 import { detectInText } from './exposure-detection.ts';
 import { shannonEntropy } from './exposure-rules.ts';
+import { property, trimmedText } from '../../../platform/values/fields.ts';
 
 /*
  * Saying what a finding means, in words, without a model.
@@ -685,15 +686,6 @@ export const DISPOSITION_NARRATION: Readonly<Record<string, string>> = Object.fr
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 /* A table's own entry: an inherited key is not a sentence. */
 function entryOf<T>(table: Readonly<Record<string, T>>, key: string): T | null {
   return (Object.hasOwn(table, key) && table[key]) || null;
@@ -718,7 +710,7 @@ export function exposureSeverityOf(rule: unknown): Severity {
    rolls impossible dates into a later month, which would make corrupt
    observations appear fresh or reflect arbitrary text into the report. */
 function observationTimestamp(value: unknown): string | null {
-  const timestamp = text(value);
+  const timestamp = trimmedText(value);
   const parts = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/.exec(timestamp);
   if (!parts) return null;
   const parsed = Date.parse(timestamp);
@@ -737,8 +729,8 @@ export interface ObservationFreshness {
 }
 
 export function observationFreshness(record: unknown, now: number = Date.now()): ObservationFreshness {
-  const observedAt = observationTimestamp(record && read(record, 'observedAt'));
-  const freshnessDeadline = observationTimestamp(record && read(record, 'freshnessDeadline'));
+  const observedAt = observationTimestamp(record && property(record, 'observedAt'));
+  const freshnessDeadline = observationTimestamp(record && property(record, 'freshnessDeadline'));
   /* Date.parse of null is NaN, which the checks below refuse, as they always did. */
   const observed = observedAt === null ? NaN : Date.parse(observedAt);
   const deadline = freshnessDeadline === null ? NaN : Date.parse(freshnessDeadline);
@@ -764,8 +756,8 @@ function describeObservation(sentence: string | null, record: unknown, now: numb
 
 export function describeVerification(record: unknown, now: number = Date.now()): string | null {
   if (!record || typeof record !== 'object') return null;
-  const reason = text(read(record, 'reason'));
-  const state = text(read(record, 'state'));
+  const reason = trimmedText(property(record, 'reason'));
+  const state = trimmedText(property(record, 'state'));
   /*
    * The reason is more specific than the state, so it wins when there is one.
    * A verified credential and a rejected one also have a sentence keyed by
@@ -776,8 +768,8 @@ export function describeVerification(record: unknown, now: number = Date.now()):
 
 export function describeProbe(record: unknown, now: number = Date.now()): string | null {
   if (!record || typeof record !== 'object') return null;
-  const reason = text(read(record, 'reason'));
-  const state = text(read(record, 'state'));
+  const reason = trimmedText(property(record, 'reason'));
+  const state = trimmedText(property(record, 'state'));
   return describeObservation(entryOf(PROBE_NARRATION, reason) || entryOf(PROBE_NARRATION, state), record, now);
 }
 
@@ -799,7 +791,7 @@ const MONTHS = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', '
    no clock, no locale and no date arithmetic, so the sentence is the same
    wherever and whenever it is read. */
 function spokenDate(value: unknown): string {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})T/.exec(text(value));
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T/.exec(trimmedText(value));
   if (!parts) return '';
   const month = Number(parts[2]);
   const day = Number(parts[3]);
@@ -820,7 +812,7 @@ export function describeLocation(finding: NarrationInput): string {
   const occurrences: readonly unknown[] = Array.isArray(finding.occurrences) ? finding.occurrences : [];
   const recorded = finding.occurrenceCount;
   const count = typeof recorded === 'number' && Number.isInteger(recorded) ? recorded : occurrences.length;
-  const path = text(finding.path);
+  const path = trimmedText(finding.path);
   const where = safeDisplayPath(path);
   const notes: string[] = [];
   if (path && where !== path) notes.push(`Part of the file's path is not shown, because it is itself credential-shaped.`);
@@ -828,10 +820,10 @@ export function describeLocation(finding: NarrationInput): string {
   if (archive > 0) {
     notes.push(`That is a file inside the archive ${safeDisplayPath(path.slice(0, archive))}, which anyone who can read the repository can download and open.`);
   }
-  if (text(finding.decodedFrom) === 'base64') {
+  if (trimmedText(finding.decodedFrom) === 'base64') {
     notes.push('It is written base64-encoded, so the line shows an encoded run rather than the credential as it is used.');
   }
-  const introduced = isCommitSha(text(finding.introducedCommit)) ? text(finding.introducedCommit) : '';
+  const introduced = isCommitSha(trimmedText(finding.introducedCommit)) ? trimmedText(finding.introducedCommit) : '';
   if (introduced) {
     const when = spokenDate(finding.introducedAt);
     const added = `commit ${introduced.slice(0, 7)}${when ? ` on ${when}` : ''}`;
@@ -914,9 +906,9 @@ export interface FindingNarration {
 export function describeFinding(finding: unknown): FindingNarration | null {
   if (!finding || typeof finding !== 'object') return null;
   const record = finding as NarrationInput;
-  const rule = text(record.rule);
+  const rule = trimmedText(record.rule);
   const explained = narrationForRule(rule);
-  const placeholder = text(record.placeholder) || `<${rule || 'credential'}>`;
+  const placeholder = trimmedText(record.placeholder) || `<${rule || 'credential'}>`;
 
   if (!explained) {
     /*

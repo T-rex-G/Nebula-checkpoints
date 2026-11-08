@@ -18,6 +18,7 @@ import type { JsonObject } from '../../../../../packages/contracts/src/guards.ts
 import type { IdentityKey } from '../../../../../packages/contracts/src/ids.ts';
 import type { RepositoryScope } from '../../../../../packages/contracts/src/scope.ts';
 import { normalizeRepositoryScope } from './repository-scope.ts';
+import { property } from '../values/fields.ts';
 
 export { AUTHORIZATION_SCHEMA_VERSION, GOVERNANCE_ROLE_NAMES } from '../../../../../packages/contracts/src/actor.ts';
 
@@ -40,11 +41,6 @@ export class AuthorizationResolverError extends Error {
 
 function fail(message: string, code: string, status = 400): never {
   throw new AuthorizationResolverError(message, code, status);
-}
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as JsonObject)[key];
 }
 
 function normalizeText(value: unknown, label: string, max = 200, allowEmpty = false): string {
@@ -183,8 +179,8 @@ export interface UnavailableSnapshotInput {
 
 export function createUnavailableAuthorizationSnapshot(input: UnavailableSnapshotInput = {}): AuthorizationSnapshot {
   const scope = normalizeRepositoryScope({
-    provider: read(input.account, 'provider') || input.provider,
-    baseUrl: read(input.account, 'baseUrl') || input.baseUrl,
+    provider: property(input.account, 'provider') || input.provider,
+    baseUrl: property(input.account, 'baseUrl') || input.baseUrl,
     owner: input.owner,
     repo: input.repo
   });
@@ -217,7 +213,7 @@ function githubAccess(response: unknown, expectedLogin: string, source: string):
   if (!isPlainObject(response)) return null;
   const permission = String(response.permission || '').trim().toLowerCase();
   const role = sanitizeProviderRole(response.role_name || permission);
-  const returnedLogin = String(read(response.user, 'login') || '').trim().toLowerCase();
+  const returnedLogin = String(property(response.user, 'login') || '').trim().toLowerCase();
   if (!['admin', 'write', 'read', 'none'].includes(permission) || returnedLogin !== expectedLogin.toLowerCase()) return null;
   const access = (baseRole: BaseRole, providerRole: string): RepositoryAccess => ({ baseRole, providerRole, level: ACCESS_LEVEL_BY_ROLE[baseRole], source, complete: true });
   if (permission === 'admin') return access('admin', role);
@@ -244,8 +240,8 @@ function publicRepositoryAccess(repository: unknown, scope: RepositoryScope): Re
   return { baseRole: 'read', providerRole: 'public', level: ACCESS_LEVEL_BY_ROLE.read, source: 'github.repository.public', complete: true };
 }
 export function isPublicReaderAccess(snapshot: unknown): boolean {
-  const access = read(snapshot, 'repositoryAccess');
-  return Boolean(snapshot && access && PUBLIC_ACCESS_SOURCES.includes(read(access, 'source') as string));
+  const access = property(snapshot, 'repositoryAccess');
+  return Boolean(snapshot && access && PUBLIC_ACCESS_SOURCES.includes(property(access, 'source') as string));
 }
 
 function sanitizeProviderPermissions(value: unknown): Record<string, InstallationPermission> {
@@ -261,12 +257,12 @@ function sanitizeProviderPermissions(value: unknown): Record<string, Installatio
 }
 
 function reasonFromError(error: unknown): string {
-  const status = Number(read(error, 'status'));
+  const status = Number(property(error, 'status'));
   if (status === 401) return 'AUTHORIZATION_PROVIDER_UNAUTHENTICATED';
   if (status === 403) return 'AUTHORIZATION_PROVIDER_FORBIDDEN';
   if (status === 404) return 'AUTHORIZATION_SCOPE_NOT_FOUND';
   if (status === 429) return 'AUTHORIZATION_PROVIDER_RATE_LIMITED';
-  if (error && (read(error, 'name') === 'AbortError' || read(error, 'code') === 'ABORT_ERR')) return 'AUTHORIZATION_PROVIDER_TIMEOUT';
+  if (error && (property(error, 'name') === 'AbortError' || property(error, 'code') === 'ABORT_ERR')) return 'AUTHORIZATION_PROVIDER_TIMEOUT';
   return 'AUTHORIZATION_PROVIDER_UNAVAILABLE';
 }
 
@@ -353,14 +349,14 @@ export function createAuthorizationResolver(options: AuthorizationResolverOption
       if (context.executionPrincipal.kind === 'installation') {
         const installation = account.installation;
         if (!isPlainObject(installation) || Number(installation.id) !== context.executionPrincipal.installationId ||
-            String(read(installation.account, 'login') || '').trim().toLowerCase() !== String(account.login).trim().toLowerCase() ||
-            Number(read(installation.account, 'id')) !== Number(account.installationAccountId)) {
+            String(property(installation.account, 'login') || '').trim().toLowerCase() !== String(account.login).trim().toLowerCase() ||
+            Number(property(installation.account, 'id')) !== Number(account.installationAccountId)) {
           return unavailableFromContext(context, scope, 'AUTHORIZATION_INSTALLATION_EVIDENCE_UNAVAILABLE', now, cacheTtlMs);
         }
         const capabilities = installationCapabilitiesOf(installation);
         const repoPath = `/repos/${encodeURIComponent(scope.owner)}/${encodeURIComponent(scope.repo)}`;
         const repository = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath: repoPath });
-        const fullName = String(read(repository, 'full_name') || '').trim().toLowerCase();
+        const fullName = String(property(repository, 'full_name') || '').trim().toLowerCase();
         if (fullName !== `${scope.owner}/${scope.repo}`.toLowerCase()) {
           return unavailableFromContext(context, scope, 'AUTHORIZATION_PROVIDER_RESPONSE_INCOMPLETE', now, cacheTtlMs, 'partial', capabilities);
         }
@@ -384,7 +380,7 @@ export function createAuthorizationResolver(options: AuthorizationResolverOption
          * itself is asked whether it is public; if it is, the answer is the
          * reader access everyone has, marked as such.
          */
-        if (Number(read(error, 'status')) !== 403) throw error;
+        if (Number(property(error, 'status')) !== 403) throw error;
         const repository = await request({ account, provider: scope.provider, baseUrl: account.baseUrl || '', apiPath: repoPath }).catch(() => null);
         const access = publicRepositoryAccess(repository, scope);
         if (!access) throw error;
@@ -406,8 +402,8 @@ export function createAuthorizationResolver(options: AuthorizationResolverOption
   async function resolve(input: ResolveInput = {}): Promise<AuthorizationSnapshot> {
     const account = input.account;
     const scope = normalizeRepositoryScope({
-      provider: read(account, 'provider'),
-      baseUrl: read(account, 'baseUrl'),
+      provider: property(account, 'provider'),
+      baseUrl: property(account, 'baseUrl'),
       owner: input.owner,
       repo: input.repo
     });

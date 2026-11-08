@@ -37,6 +37,7 @@ import {
 import { isIdentityKey, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 import type { PoolClient, QueryOutcome, Queryable, Row, TransactionalPool } from '../../../platform/persistence/queryable.ts';
 import type { RepositoryScope } from '../../../../../../packages/contracts/src/scope.ts';
+import { property } from '../../../platform/values/fields.ts';
 
 const REVIEW_SENSITIVE_TEXT_RX = /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|(?:bearer|token|password|secret)\s*[:=]\s*[A-Za-z0-9._~+/-]{16,}|-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/i;
 
@@ -92,11 +93,6 @@ export interface GovernanceStoreOptions {
   readonly now?: () => Date;
   readonly saltFactory?: () => unknown;
   readonly simulate?: typeof simulatePolicyImpact;
-}
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
 }
 
 /* A date from a stored or supplied value, by JavaScript's own reading of it; callers check the result is finite. */
@@ -377,8 +373,8 @@ function activationSimulationEvidenceOf(input: unknown, expectedSimulationHash: 
     throw new GovernanceError('Simulation evidence version is unsupported', 'GOVERNANCE_SIMULATION_INVALID', 400);
   }
   const readiness = fields.activationReadiness;
-  const blockers = read(readiness, 'blockers');
-  if (!readiness || read(readiness, 'eligible') !== true ||
+  const blockers = property(readiness, 'blockers');
+  if (!readiness || property(readiness, 'eligible') !== true ||
       !Array.isArray(blockers) || blockers.length !== 0) {
     throw new GovernanceError('Simulation evidence contains activation blockers', 'GOVERNANCE_SIMULATION_BLOCKED', 409);
   }
@@ -608,9 +604,9 @@ function exportRowEnvelope(row: Row) {
 
 export function translateDatabaseError(error: unknown): unknown {
   if (error instanceof GovernanceError) return error;
-  const code = read(error, 'code');
+  const code = property(error, 'code');
   if (error && code === '23505') {
-    const constraint = String(read(error, 'constraint') || '');
+    const constraint = String(property(error, 'constraint') || '');
     if (/exception_one_decision/i.test(constraint)) return new GovernanceError('This exception already has an approval decision', 'GOVERNANCE_EXCEPTION_DECISION_EXISTS', 409);
     if (/exception_one_revoke/i.test(constraint)) return new GovernanceError('This exception is already revoked', 'GOVERNANCE_EXCEPTION_REVOKED', 409);
     if (/approvals.*version.*actor|approvals_assignment_once/i.test(constraint)) return new GovernanceError('This identity already recorded a decision for the version', 'GOVERNANCE_DECISION_EXISTS', 409);
@@ -1292,7 +1288,7 @@ export class GovernanceStore {
         const recorded = await client.query(
           `SELECT scenario_set_hash FROM nv_governance_activation_evidence
            WHERE activation_id=$1 AND policy_id=$2 AND version_id=$3 AND scope_key=$4`,
-          [read(response, 'activationId'), policyId, versionId, scope.scopeKey]
+          [property(response, 'activationId'), policyId, versionId, scope.scopeKey]
         );
         const evidenceRow = rowsOf(recorded)[0];
         if (!evidenceRow || evidenceRow.scenario_set_hash !== sha256Stable(simulationRequest)) {
@@ -2075,7 +2071,7 @@ export class GovernanceStore {
   async evaluateAndAppendPolicyDecision(input: Fields = {}) {
     const scope = normalizePolicyScope(input.scope);
     const descriptor = input.descriptor;
-    if (!descriptor || read(descriptor, 'scopeKey') !== scope.scopeKey) {
+    if (!descriptor || property(descriptor, 'scopeKey') !== scope.scopeKey) {
       throw new GovernanceError('Mutation descriptor does not match the governance scope', 'POLICY_DESCRIPTOR_INVALID', 500);
     }
     const decisionId = normalizeUuid(this.idFactory(), 'policy decision id');
@@ -2122,14 +2118,14 @@ export class GovernanceStore {
            AND r.expires_at > $4 AND e.created_at <= $4 AND revoked.event_id IS NULL
          ORDER BY r.policy_id ASC,r.exception_id ASC
          LIMIT 101`,
-        [scope.scopeKey, read(descriptor, 'action'), activePolicies.map(item => item.versionId), createdAt]
+        [scope.scopeKey, property(descriptor, 'action'), activePolicies.map(item => item.versionId), createdAt]
       ) : { rows: [] };
       if (rowsOf(exceptionRows).length > 100) {
         throw new GovernanceError(
           'Repository active-exception limit is exceeded for this mutation action',
           'GOVERNANCE_ACTIVE_EXCEPTION_LIMIT_EXCEEDED',
           503,
-          { maximum: 100, action: read(descriptor, 'action') }
+          { maximum: 100, action: property(descriptor, 'action') }
         );
       }
       const activeExceptions = rowsOf(exceptionRows).map(row => ({

@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, sign, timingSafeEqual } from 'node:crypto';
 import type { KeyLike } from 'node:crypto';
+import { property } from '../../../platform/values/fields.ts';
 
 const API_VERSION = '2022-11-28';
 const STATE_VERSION = 1;
@@ -18,11 +19,6 @@ export class GithubAppError extends Error {
 }
 
 type Fields = Readonly<Record<string, unknown>>;
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
 
 /* What the server's configuration says about its GitHub App when one is enabled. */
 export interface GithubAppConfig {
@@ -70,7 +66,7 @@ function hmac(secret: unknown, encoded: string): string {
 }
 
 function requireEnabledConfig(config: unknown): GithubAppConfig {
-  if (!config || !read(config, 'enabled')) throw new GithubAppError('GitHub App authentication is not configured', 'GITHUB_APP_DISABLED', 404);
+  if (!config || !property(config, 'enabled')) throw new GithubAppError('GitHub App authentication is not configured', 'GITHUB_APP_DISABLED', 404);
   return config as GithubAppConfig;
 }
 
@@ -98,9 +94,9 @@ export interface StateContext {
 }
 
 function requireStateContext(context: unknown): StateContext {
-  const purpose = String(read(context, 'purpose') || '').trim();
-  const sessionBinding = String(read(context, 'sessionBinding') || '').trim();
-  const identityKey = String(read(context, 'identityKey') || '').trim();
+  const purpose = String(property(context, 'purpose') || '').trim();
+  const sessionBinding = String(property(context, 'sessionBinding') || '').trim();
+  const identityKey = String(property(context, 'identityKey') || '').trim();
   if (!purpose || !sessionBinding || !identityKey) throw new TypeError('GitHub App state requires purpose, session, and identity bindings');
   return { purpose, sessionBinding, identityKey };
 }
@@ -193,8 +189,8 @@ export interface Installation {
 }
 
 function assertInstallationAccount(account: unknown, installation: Installation): Installation {
-  const expectedLogin = String(read(account, 'login') || '').trim().toLowerCase();
-  const expectedAccountId = Number(read(account, 'installationAccountId'));
+  const expectedLogin = String(property(account, 'login') || '').trim().toLowerCase();
+  const expectedAccountId = Number(property(account, 'installationAccountId'));
   if (!expectedLogin || !Number.isSafeInteger(expectedAccountId) || expectedAccountId <= 0) {
     throw new GithubAppError('GitHub App account ownership metadata is invalid', 'GITHUB_APP_ACCOUNT_INVALID', 401);
   }
@@ -206,12 +202,12 @@ function assertInstallationAccount(account: unknown, installation: Installation)
 }
 
 export function sanitizeInstallation(value: unknown, expectedAppId: unknown): Installation {
-  const installationId = cleanInstallationId(read(value, 'id'));
-  const appId = Number(read(value, 'app_id'));
+  const installationId = cleanInstallationId(property(value, 'id'));
+  const appId = Number(property(value, 'app_id'));
   if (appId !== Number(expectedAppId)) {
     throw new GithubAppError('The installation does not belong to this GitHub App', 'GITHUB_APP_INSTALLATION_MISMATCH');
   }
-  const owner = read(value, 'account');
+  const owner = property(value, 'account');
   const account: Fields = owner && typeof owner === 'object' ? owner as Fields : {};
   const login = String(account.login || '').trim();
   const accountId = Number(account.id);
@@ -336,8 +332,8 @@ export class GithubAppBroker {
   async mintInstallationToken(installationId: unknown, auditContext: { readonly identityKey?: unknown } = {}): Promise<CredentialRecord> {
     const installation = await this.getInstallation(installationId);
     const data = await this.appJson(`/app/installations/${installation.id}/access_tokens`, { method: 'POST' });
-    const token = String(data && read(data, 'token') || '');
-    const expiresAt = new Date((data && read(data, 'expires_at') || 0) as string | number).getTime();
+    const token = String(data && property(data, 'token') || '');
+    const expiresAt = new Date((data && property(data, 'expires_at') || 0) as string | number).getTime();
     if (!token || token.length > 4096 || !Number.isFinite(expiresAt) || expiresAt <= this.now() + TOKEN_REFRESH_MARGIN_MS) {
       throw new GithubAppError('GitHub returned an invalid installation credential', 'GITHUB_APP_TOKEN_INVALID', 503);
     }
@@ -369,7 +365,7 @@ export class GithubAppBroker {
   }
 
   async resolveInstallationAccount(account: unknown): Promise<Record<string, unknown>> {
-    if (!account || read(account, 'provider') !== 'github' || read(account, 'authMethod') !== 'github-app') {
+    if (!account || property(account, 'provider') !== 'github' || property(account, 'authMethod') !== 'github-app') {
       throw new GithubAppError('A valid GitHub App account is required', 'GITHUB_APP_ACCOUNT_INVALID', 401);
     }
     const fields = account as Fields;
@@ -462,11 +458,11 @@ export class GithubAppBroker {
       throw new GithubAppError('GitHub App authorization exchange is unavailable', 'GITHUB_APP_UPSTREAM_UNAVAILABLE', 503);
     }
     const data = await readJson(response);
-    const token = String(data && read(data, 'access_token') || '');
+    const token = String(data && property(data, 'access_token') || '');
     if (!response.ok || !token || token.length > 4096) {
       throw new GithubAppError('GitHub App authorization exchange was rejected', 'GITHUB_APP_AUTHORIZATION_REJECTED', 401);
     }
-    const expiresIn = read(data, 'expires_in');
+    const expiresIn = property(data, 'expires_in');
     return {
       token,
       expiresIn: Number.isFinite(Number(expiresIn)) ? Math.max(0, Number(expiresIn)) : 0
@@ -498,19 +494,19 @@ export class GithubAppBroker {
 
   async getAuthorizedUser(userToken: unknown): Promise<{ readonly id: number; readonly login: string; readonly name: string; readonly avatarUrl: string }> {
     const user = await this.userJson(userToken, '/user');
-    const id = Number(user && read(user, 'id'));
-    const login = String(user && read(user, 'login') || '').trim();
+    const id = Number(user && property(user, 'id'));
+    const login = String(user && property(user, 'login') || '').trim();
     if (!Number.isSafeInteger(id) || id <= 0 || !login) throw new GithubAppError('GitHub returned incomplete user identity data', 'GITHUB_APP_USER_INVALID', 502);
-    return { id, login, name: String(read(user, 'name') || ''), avatarUrl: String(read(user, 'avatar_url') || '') };
+    return { id, login, name: String(property(user, 'name') || ''), avatarUrl: String(property(user, 'avatar_url') || '') };
   }
 
   async findUserInstallation(userToken: unknown, installationId: unknown): Promise<Installation> {
     const id = cleanInstallationId(installationId);
     for (let page = 1; page <= 10; page += 1) {
       const data = await this.userJson(userToken, `/user/installations?per_page=100&page=${page}`);
-      const listed = data && read(data, 'installations');
+      const listed = data && property(data, 'installations');
       const installations: readonly unknown[] = Array.isArray(listed) ? listed : [];
-      const found = installations.find(item => Number(item && read(item, 'id')) === id);
+      const found = installations.find(item => Number(item && property(item, 'id')) === id);
       if (found) return sanitizeInstallation(found, this.config.appId);
       if (installations.length < 100) break;
     }

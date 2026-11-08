@@ -35,6 +35,7 @@ import { EXPOSURE_COVERAGE as COVERAGE } from '../../../../../../packages/contra
 import type { Severity } from '../../../../../../packages/contracts/src/findings.ts';
 import { isCommitSha, isSha256Hex } from '../../../../../../packages/contracts/src/ids.ts';
 import { errorCode, type PoolClient, type QueryOutcome, type Row, type TransactionalPool } from '../../../platform/persistence/queryable.ts';
+import { fieldsOf, listOf, property, trimmedText } from '../../../platform/values/fields.ts';
 
 export { COVERAGE, SCAN_STATES, TERMINAL_STATES };
 
@@ -109,21 +110,6 @@ export interface ExposureScope {
   readonly repo: string;
 }
 
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-/* An object's fields, or none when it is not an object. */
-function fieldsOf(value: unknown): Fields {
-  return value && typeof value === 'object' ? value as Fields : {};
-}
-
-/* A list from an input or an answer, or none. */
-function listOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
 /* A row inside an aggregate the database built: an object, or nothing to read. */
 function isRow(value: unknown): value is Row {
   return Boolean(value) && typeof value === 'object';
@@ -161,7 +147,7 @@ function findingsFilters(input: Fields): FindingsFilters {
   const dispositions = asked.length
     ? [...new Set(asked.map(value => requireMember(value, DISPOSITIONS, 'Disposition')))].sort()
     : DISPOSITIONS.slice().sort();
-  const query = text(input.query).toLowerCase().replace(/\s+/g, ' ');
+  const query = trimmedText(input.query).toLowerCase().replace(/\s+/g, ' ');
   if (query.length > 512) throw new TypeError('Finding query must be at most 512 characters');
   return {
     dispositions, query,
@@ -216,11 +202,11 @@ function signedPayload(value: unknown, key: Buffer, invalid: string): unknown {
 
 function decodeFindingsCursor(value: unknown, key: Buffer, binding: string): FindingsCursor {
   const cursor = signedPayload(value, key, 'That findings cursor is not valid');
-  const snapshot = read(cursor, 'snapshot');
-  const at = read(cursor, 'at');
-  const fingerprint = read(cursor, 'fingerprint');
-  const revision = read(cursor, 'revision');
-  if (!cursor || read(cursor, 'version') !== 1 || read(cursor, 'binding') !== binding
+  const snapshot = property(cursor, 'snapshot');
+  const at = property(cursor, 'at');
+  const fingerprint = property(cursor, 'fingerprint');
+  const revision = property(cursor, 'revision');
+  if (!cursor || property(cursor, 'version') !== 1 || property(cursor, 'binding') !== binding
       || typeof snapshot !== 'string' || !Number.isFinite(Date.parse(snapshot))
       || typeof at !== 'string' || !Number.isFinite(Date.parse(at))
       || typeof fingerprint !== 'string' || !isSha256Hex(fingerprint)
@@ -232,10 +218,10 @@ function decodeFindingsCursor(value: unknown, key: Buffer, binding: string): Fin
 
 function decodeReportCursor(value: unknown, key: Buffer, binding: string): ReportCursor {
   const cursor = signedPayload(value, key, 'That report cursor is not valid');
-  const snapshot = read(cursor, 'snapshot');
-  const fingerprint = read(cursor, 'fingerprint');
-  const revision = read(cursor, 'revision');
-  if (!cursor || read(cursor, 'version') !== 1 || read(cursor, 'binding') !== binding
+  const snapshot = property(cursor, 'snapshot');
+  const fingerprint = property(cursor, 'fingerprint');
+  const revision = property(cursor, 'revision');
+  if (!cursor || property(cursor, 'version') !== 1 || property(cursor, 'binding') !== binding
     || typeof snapshot !== 'string' || !Number.isFinite(Date.parse(snapshot))
     || typeof fingerprint !== 'string' || !isSha256Hex(fingerprint)
     || typeof revision !== 'string' || !/^[0-9a-f]{32}$/.test(revision)) {
@@ -263,12 +249,8 @@ function fail(message: string, code?: string, status?: number): never {
   throw new ExposureStoreError(message, code, status);
 }
 
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
 function requireText(value: unknown, label: string, max: number): string {
-  const out = text(value);
+  const out = trimmedText(value);
   if (!out || out.length > max) throw new TypeError(`${label} is required and must be at most ${max} characters`);
   return out;
 }
@@ -291,13 +273,13 @@ function requireScope(scope: unknown): ExposureScope {
 }
 
 function requireDigest(value: unknown, label: string): string {
-  const out = text(value).toLowerCase();
+  const out = trimmedText(value).toLowerCase();
   if (!isSha256Hex(out)) throw new TypeError(`${label} must be a sha-256 digest`);
   return out;
 }
 
 function requireCommit(value: unknown): string {
-  const out = text(value).toLowerCase();
+  const out = trimmedText(value).toLowerCase();
   if (!isCommitSha(out)) throw new TypeError('Scan commit must be a 40-character object id');
   return out;
 }
@@ -308,7 +290,7 @@ function requireVersion(value: unknown, label: string): number {
 }
 
 function requireMember<Word extends string>(value: unknown, allowed: readonly Word[], label: string): Word {
-  const out = text(value);
+  const out = trimmedText(value);
   const member = allowed.find(word => word === out);
   if (member === undefined) throw new TypeError(`${label} must be one of ${allowed.join(', ')}`);
   return member;
@@ -536,8 +518,8 @@ function normalizeFinding(finding: unknown) {
   const lines: number[] = [];
   const columns: number[] = [];
   for (const occurrence of occurrences) {
-    const line = occurrence && read(occurrence, 'line');
-    const column = occurrence && read(occurrence, 'column');
+    const line = occurrence && property(occurrence, 'line');
+    const column = occurrence && property(occurrence, 'column');
     if (typeof line !== 'number' || !Number.isInteger(line) || line < 1
       || typeof column !== 'number' || !Number.isInteger(column) || column < 1) {
       throw new TypeError('A location must be a positive line and column');
@@ -610,20 +592,20 @@ function normalizeVerification(verification: unknown) {
   if (verification == null) return null;
   const source = fieldsOf(verification);
   const state = requireMember(source.state, ['verified', 'rejected', 'unverifiable'], 'Verification state');
-  const reason = text(source.reason);
+  const reason = trimmedText(source.reason);
   if (!/^[a-z][a-z0-9-]{2,63}$/.test(reason)) throw new TypeError('Verification reason must be a bounded reason code');
-  const adapter = text(source.adapter);
+  const adapter = trimmedText(source.adapter);
   if (adapter && !/^[a-z][a-z0-9-]{2,63}$/.test(adapter)) throw new TypeError('Verification adapter must be a bounded identifier');
-  const subjectDigest = text(source.subjectDigest);
+  const subjectDigest = trimmedText(source.subjectDigest);
   if (subjectDigest && !/^[0-9a-f]{32}$/.test(subjectDigest)) throw new TypeError('Verification subject must arrive already digested');
   return {
     state,
     reason,
     adapter: adapter || null,
     subjectDigest: subjectDigest || null,
-    observedAt: instant(Date.parse(text(source.observedAt)) || source.observedAt, 'Verification time'),
+    observedAt: instant(Date.parse(trimmedText(source.observedAt)) || source.observedAt, 'Verification time'),
     freshnessDeadline: source.freshnessDeadline
-      ? instant(Date.parse(text(source.freshnessDeadline)) || source.freshnessDeadline, 'Verification deadline')
+      ? instant(Date.parse(trimmedText(source.freshnessDeadline)) || source.freshnessDeadline, 'Verification deadline')
       : null,
     retryAfterMs: typeof source.retryAfterMs === 'number' && Number.isFinite(source.retryAfterMs)
       ? Math.min(Math.max(Math.round(source.retryAfterMs), 1000), 3_600_000)
@@ -647,16 +629,16 @@ function normalizeReadabilityProbe(observation: unknown) {
   if (observation == null) return null;
   const source = fieldsOf(observation);
   const state = requireMember(source.state, ['readable', 'denied', 'unverifiable'], 'Probe state');
-  const reason = text(source.reason);
+  const reason = trimmedText(source.reason);
   if (!/^[a-z][a-z0-9-]{2,63}$/.test(reason)) throw new TypeError('Probe reason must be a bounded reason code');
-  const projectRef = text(source.projectRef);
+  const projectRef = trimmedText(source.projectRef);
   if (projectRef && !/^[a-z]{20}$/.test(projectRef)) throw new TypeError('Probe project reference must be twenty lowercase letters');
-  const relation = text(source.relation);
+  const relation = trimmedText(source.relation);
   const relationStorable = /^[a-z_][a-z0-9_]{0,62}$/.test(relation);
-  const projection = listOf(source.projection).map(column => text(column));
+  const projection = listOf(source.projection).map(column => trimmedText(column));
   const projectionStorable = projection.length > 0 && projection.length <= 8
     && projection.every(column => /^[a-z_][a-z0-9_]{0,62}$/.test(column));
-  const testedRole = text(source.testedRole);
+  const testedRole = trimmedText(source.testedRole);
   if (testedRole && !['anon', 'publishable'].includes(testedRole)) {
     throw new TypeError('Probe tested role must be the anonymous role');
   }
@@ -678,9 +660,9 @@ function normalizeReadabilityProbe(observation: unknown) {
     projection: projectionStorable ? projection.join(',') : null,
     testedRole: testedRole || null,
     rowCount,
-    observedAt: instant(Date.parse(text(source.observedAt)) || source.observedAt, 'Probe time'),
+    observedAt: instant(Date.parse(trimmedText(source.observedAt)) || source.observedAt, 'Probe time'),
     freshnessDeadline: source.freshnessDeadline
-      ? instant(Date.parse(text(source.freshnessDeadline)) || source.freshnessDeadline, 'Probe deadline')
+      ? instant(Date.parse(trimmedText(source.freshnessDeadline)) || source.freshnessDeadline, 'Probe deadline')
       : null
   };
 }
@@ -759,7 +741,7 @@ export class ExposureStore {
     const keyId = input.fingerprintKeyId == null ? null : requireDigest(input.fingerprintKeyId, 'Fingerprint key id');
     const idempotencyKey = requireText(input.idempotencyKey, 'Scan idempotency key', 200);
     if (idempotencyKey.length < 8) throw new TypeError('Scan idempotency key must be at least 8 characters');
-    const scanId = text(input.scanId) || randomUUID();
+    const scanId = trimmedText(input.scanId) || randomUUID();
     const now = instant(input.now == null ? Date.now() : input.now, 'Scan time');
     const retainUntil = input.retainUntil == null
       ? new Date(now.getTime() + DEFAULT_RETENTION_MS)
@@ -1071,7 +1053,7 @@ export class ExposureStore {
     const filesScanned = boundedInteger(input.filesScanned, 0, 0, 2_000_000_000);
     const bytes = input.bytesScanned;
     const bytesScanned = typeof bytes === 'number' && Number.isFinite(bytes) ? Math.max(0, Math.round(bytes)) : 0;
-    const parentScanId = text(input.parentScanId) || null;
+    const parentScanId = trimmedText(input.parentScanId) || null;
     const count = (value: unknown): number | null => (Number.isInteger(value) ? boundedInteger(value, 0, 0, 2_000_000_000) : null);
     const filesTotal = count(input.filesTotal);
     const filesSkippedBinary = count(input.filesSkippedBinary);
@@ -1284,10 +1266,10 @@ export class ExposureStore {
     const requestedBy = requireText(input.requestedBy, 'Verification actor', 255);
     const attempt = normalizeVerification(input.record);
     if (!attempt) throw new TypeError('A verification attempt requires a record');
-    const verificationId = text(input.verificationId) || randomUUID();
+    const verificationId = trimmedText(input.verificationId) || randomUUID();
     const adapterVersion = Number.isInteger(input.adapterVersion) ? input.adapterVersion : null;
-    const targetId = text(input.targetId) || null;
-    const authorizationId = text(input.authorizationId) || null;
+    const targetId = trimmedText(input.targetId) || null;
+    const authorizationId = trimmedText(input.authorizationId) || null;
     /*
      * A record without a deadline gets the store's own, rather than being
      * written with none: an attempt that never goes stale would read as
@@ -1451,8 +1433,8 @@ export class ExposureStore {
     const requestedBy = requireText(input.requestedBy, 'Probe actor', 255);
     const attempt = normalizeReadabilityProbe(input.record);
     if (!attempt) throw new TypeError('A readability probe requires an observation');
-    const probeId = text(input.probeId) || randomUUID();
-    const authorizationId = text(input.authorizationId) || null;
+    const probeId = trimmedText(input.probeId) || randomUUID();
+    const authorizationId = trimmedText(input.authorizationId) || null;
     const freshnessDeadline = attempt.freshnessDeadline
       || new Date(attempt.observedAt.getTime() + DEFAULT_PROBE_FRESHNESS_MS);
 
@@ -1506,7 +1488,7 @@ export class ExposureStore {
     const identityKey = requireDigest(input.identityKey, 'Answer identity');
     const fingerprints = [...new Set(
       (Array.isArray(input.fingerprints) ? input.fingerprints : [])
-        .map(value => text(value).toLowerCase())
+        .map(value => trimmedText(value).toLowerCase())
         .filter(isSha256Hex)
     )].slice(0, MAX_LIST_LIMIT);
     if (!fingerprints.length) {
@@ -1551,7 +1533,7 @@ export class ExposureStore {
     const identityKey = requireDigest(input.identityKey, 'Location identity');
     const fingerprints = [...new Set(
       (Array.isArray(input.fingerprints) ? input.fingerprints : [])
-        .map(value => text(value).toLowerCase())
+        .map(value => trimmedText(value).toLowerCase())
         .filter(isSha256Hex)
     )].slice(0, MAX_LIST_LIMIT);
     if (!fingerprints.length) return Object.freeze({});
@@ -1927,7 +1909,7 @@ export class ExposureStore {
       total: row.total, counts: { all: row.all_count, byRule, bySeverity, byDisposition: row.by_disposition || {} },
       hasMore,
       nextCursor: hasMore ? encodeFindingsCursor({ version: 1, binding, revision: row.revision,
-        snapshot: cursor ? cursor.snapshot : new Date().toISOString(), at: read(last, 'cursor_at'), fingerprint: read(last, 'fingerprint') }, this.cursorKey) : null
+        snapshot: cursor ? cursor.snapshot : new Date().toISOString(), at: property(last, 'cursor_at'), fingerprint: property(last, 'fingerprint') }, this.cursorKey) : null
     };
   }
 
@@ -1968,8 +1950,8 @@ export class ExposureStore {
      * mistake and says so, instead of surfacing as a server error.
      */
     if (before) {
-      const at = Date.parse(text(read(before, 'createdAt')));
-      const id = text(read(before, 'scanId')).toLowerCase();
+      const at = Date.parse(trimmedText(property(before, 'createdAt')));
+      const id = trimmedText(property(before, 'scanId')).toLowerCase();
       if (!Number.isFinite(at) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
         fail('That history cursor is not valid', 'EXPOSURE_CURSOR_INVALID', 400);
       }
@@ -2005,7 +1987,7 @@ export class ExposureStore {
     const scope = requireScope(input.scope);
     const identityKey = requireDigest(input.identityKey, 'Scan identity');
     const scanIds = [...new Set((Array.isArray(input.scanIds) ? input.scanIds : [])
-      .map(value => text(value))
+      .map(value => trimmedText(value))
       .filter(value => /^[0-9a-f-]{36}$/i.test(value)))].slice(0, MAX_LIST_LIMIT);
     if (!scanIds.length) return Object.freeze([]);
     const found = await this.#query(

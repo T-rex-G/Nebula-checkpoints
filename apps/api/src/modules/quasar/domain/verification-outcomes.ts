@@ -1,3 +1,4 @@
+import { property, trimmedText } from '../../../platform/values/fields.ts';
 /*
  * What a credential verification can conclude, and how long a conclusion
  * holds. The verifier produces these; narration and the store read them, so
@@ -5,15 +6,6 @@
  */
 
 type Fields = Readonly<Record<string, unknown>>;
-
-/* A field of something that may not be an object, read as plain JavaScript would. */
-function read(value: unknown, key: string): unknown {
-  return value == null ? undefined : (value as Fields)[key];
-}
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 export const VERIFICATION_STATES = Object.freeze({
   VERIFIED: 'verified',
@@ -62,7 +54,7 @@ export const VERIFICATION_FRESHNESS_MS = 24 * 60 * 60 * 1000;
  * findings by waiting.
  */
 export function verificationFreshness(attempt: unknown, now: number): 'fresh' | 'stale' {
-  const deadline = Date.parse(text(attempt && read(attempt, 'freshnessDeadline')));
+  const deadline = Date.parse(trimmedText(attempt && property(attempt, 'freshnessDeadline')));
   if (!Number.isFinite(deadline)) return 'stale';
   return now < deadline ? 'fresh' : 'stale';
 }

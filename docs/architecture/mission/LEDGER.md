@@ -2497,3 +2497,20 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Each check fails when what it guards is broken.** 76 mutants of the server, the probe and the release scan are each caught by the test named. One cannot fail: the upload route's own normalization of the choice, which the planner repeats.
 - **84 remain.**
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### D14, step fifteen — the last of the modules' text, asked: none remain
+
+- **Why.** 84 statements still checked the server by reading its source: the hardening contract and the build verification held most of them, with the staging validation, the route surface, the package, the OAuth callback, the contracts, the configuration registry and the code catalogue holding the rest.
+- **Asked first, then removed.** Each check became a mutant of the code it described, run against the behavioural tests already there. 46 of 55 were caught as they stood; the text check was then a second, weaker copy, and it is gone, with a comment naming the test that holds the property.
+- **Where no test answered, a new one.**
+  - every account route that writes or ends the session answers the session store's refusal, rather than leaving it unhandled (`test/identity-account-routes.test.js`);
+  - a restore preview grants nothing while read-only mode or a protected path is on, and only the product's own snapshot kinds are recovered from, refused before the provider is read (`test/corona-recovery.test.js`);
+  - the database pool binds its credentials to the channel, within its budgets (`test/database-lifecycle.test.js`); an evidence export holds a thousand events and refuses one more (`test/governance-delivery-model.test.js`); staging evidence is refused, in its own words, without its subject or a way to verify its artifacts (`test/staging-validation.test.js`).
+- **Rules over the syntax tree**, for what no request shows: the server names no third-party font host and no proxy for one (`test/module-rules.test.js`); the security routes' chains are read from the route policy and held exactly, every registration a module exports is called with the application, and the entry point's lines are counted from its syntax tree (`test/route-surface.test.js`); configuration reads, and the names that consume a contract, are found in syntax trees, so a comment naming one no longer counts (`test/config-registry.test.js`, `test/contracts.test.js`).
+- **Found and fixed on the way.**
+  - Stored events are written to the microsecond and paged by a cursor that names its event to the millisecond. Each page after the first began with the event the last one ended on, and a page of one never moved past it. Pages are ordered and continued by the millisecond and then the event's id, the order the page itself sorts them in; against PostgreSQL, every event is read once, in order, at pages of one, two and four, where several share a microsecond (`test/composition-postgres.test.js`).
+  - The offline cache's list of what is never kept matched anywhere in a path, so a repository or an owner called `governance`, `evidence`, `raw` or `activity` was never cached. The list now reads past a repository's owner and name. Every read the server registers is decided against the route policy: the sixteen a reader browses offline are kept, every other is not (`test/offline-cache-policy.test.js`).
+- **What is left reading text** is not the server's: the page's source, which Phase E dissolves, and the scripts, workflows and migrations read as the data they are.
+- **Each check fails when what it guards is broken.** 79 mutants are each caught. One cannot fail: the account routes' entry in the never-kept list repeats what the list of kept reads already decides.
+- **None remain.** `test/module-reads.test.js` holds the count at zero, as `test/composition-reads.test.js` holds the composition's.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

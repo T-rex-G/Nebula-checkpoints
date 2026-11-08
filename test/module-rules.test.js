@@ -50,6 +50,8 @@
  *     repository it is about. None selects everything or spreads a row; triage
  *     writes who decided and never reads their key back; and the tester purge
  *     leaves an audit's findings, components and alerts to its cascade.
+ *   - Typefaces are this origin's: no string, template or name in the server
+ *     names Google's font hosts or the proxy that once fetched from them.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -337,6 +339,18 @@ for (const [name, key] of [['DECISION_COLUMNS', 'decided_by_key'], ['EVENT_COLUM
   assert(columns && !columns.includes(key), `triage writes ${key} and never reads it back`);
 }
 assert.deepEqual(cascadedDeletes, [], 'the purge leaves an audit\'s findings, components and alerts to its cascade');
+
+const FONT_PROXY = /fonts\.googleapis|fonts\.gstatic|\bgfonts|GFONTS_ALLOWLIST/i;
+const fontProxies = [];
+for (const file of files) {
+  const source = parse(file);
+  each(source, node => {
+    const said = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text
+      : ts.isTemplateExpression(node) ? node.getText(source) : ts.isIdentifier(node) ? node.text : null;
+    if (said !== null && FONT_PROXY.test(said)) fontProxies.push(`${path.relative(ROOT, file)}: ${said.slice(0, 80)}`);
+  });
+}
+assert.deepEqual(fontProxies, [], 'the server names no third-party font host and no proxy for one');
 
 assert.deepEqual(strayDisconnects, [], 'only a route that removes an account disconnects one');
 assert.deepEqual([...disconnectingRoutes].sort(), REMOVAL_ROUTES, 'and each of them is found');

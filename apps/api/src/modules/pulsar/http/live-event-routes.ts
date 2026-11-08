@@ -347,15 +347,22 @@ export function registerLiveEventRoutes(app: Application, deps: LiveEventRouteDe
       const after = decodeEventCursor(req.query.after);
       const session = account(req);
       const values: unknown[] = [member(session, 'provider') || 'github', req.params.owner, req.params.repo, deps.identityKey(session), limit + 1];
+      /*
+       * An event is stored to the microsecond, and a cursor names it to the
+       * millisecond, as its time is given to the reader. Pages are ordered and
+       * continued by that millisecond and then the event's id -- the order the
+       * page sorts them in -- so a page starts after its cursor's event, never on it.
+       */
+      const at = "date_trunc('milliseconds', created_at)";
       let where = 'provider=$1 AND lower(owner)=lower($2) AND lower(repo)=lower($3) AND identity_key=$4';
       if (after) {
         values.push(after.createdAt, after.eventId);
-        where += ` AND (created_at > $${values.length - 1} OR (created_at = $${values.length - 1} AND event_id > $${values.length}))`;
+        where += ` AND (${at} > $${values.length - 1} OR (${at} = $${values.length - 1} AND event_id > $${values.length}))`;
       }
       const order = after ? 'ASC' : 'DESC';
       const r = await deps.pool().query(
         `SELECT event_id,event_type,action,actor,target_type,target_id,ref,before_sha,after_sha,severity,risk_score,reasons,summary,paths,metadata,delivery_id,created_at
-       FROM nv_intelligence_events WHERE ${where} ORDER BY created_at ${order}, event_id ${order} LIMIT $5`, values
+       FROM nv_intelligence_events WHERE ${where} ORDER BY ${at} ${order}, event_id ${order} LIMIT $5`, values
       );
       const found = rowsOf(r);
       const hasMore = !!after && found.length > limit;

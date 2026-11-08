@@ -249,6 +249,41 @@ const carriedSession = application => `nv_session=${application.core.seal(withLi
       const streamed = await next();
       assert.match(streamed, new RegExp(`^id: ${event[0].event_id}\nevent: intelligence\n`), 'and the delivery is sent to the identity\'s open stream');
       stopped.abort();
+
+      /*
+       * The stored events, a page at a time: every event once, in the order the
+       * page sorts them, each page starting after the last one's final event --
+       * though events are stored to the microsecond, several share one, and a
+       * cursor names its event to the millisecond.
+       */
+      const stamps = ['2026-10-01T09:00:00.123456Z', '2026-10-01T09:00:00.123456Z', '2026-10-01T09:00:00.123900Z', '2026-10-01T09:00:00.124001Z', '2026-10-01T09:00:01.000000Z'];
+      for (const [index, stamp] of stamps.entries()) {
+        await client.query(
+          `INSERT INTO nv_intelligence_events(event_id, provider, owner, repo, identity_key, event_type, created_at) VALUES($1, 'github', 'acme', 'demo', $2, 'push', $3)`,
+          [`paged-${'edcba'[index]}`, octoKey, stamp]
+        );
+      }
+      const all = (await client.query(
+        `SELECT event_id FROM nv_intelligence_events WHERE owner='acme' AND repo='demo' AND identity_key=$1 ORDER BY date_trunc('milliseconds', created_at), event_id`, [octoKey]
+      )).rows.map(row => row.event_id);
+      assert.equal(all.length, 6);
+      for (const limit of [1, 2, 4]) {
+        const seen = [];
+        let after = encodeURIComponent('2026-01-01T00:00:00.000Z');
+        for (let pages = 0; pages < 10; pages += 1) {
+          const listed = await bodyOf(await page.request(`/api/repo/acme/demo/intelligence/events?limit=${limit}&after=${after}`));
+          seen.push(...listed.events.map(item => item.id));
+          if (!listed.hasMore) break;
+          assert.notEqual(listed.cursor, after, 'a page with more after it moves its cursor on');
+          after = listed.cursor;
+        }
+        assert.deepEqual(seen, all, `pages of ${limit}: every event once, in order`);
+      }
+      const newest = await bodyOf(await page.request('/api/repo/acme/demo/intelligence/events?limit=2'));
+      assert.deepEqual(newest.events.map(item => item.id), all.slice(-2), 'without a cursor, the newest page, oldest first');
+      const caughtUp = await bodyOf(await page.request(`/api/repo/acme/demo/intelligence/events?limit=2&after=${newest.cursor}`));
+      assert.deepEqual([caughtUp.events, caughtUp.hasMore], [[], false], 'and its cursor is caught up');
+      await client.query("DELETE FROM nv_intelligence_events WHERE event_id LIKE 'paged-%'");
     }
 
     /*

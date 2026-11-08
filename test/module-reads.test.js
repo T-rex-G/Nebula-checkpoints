@@ -21,14 +21,15 @@
  *
  * The count is held to the record below, exactly. A new read fails here; a
  * converted one fails here too, until the record is lowered to match, so the
- * record always says how many remain.
+ * record always says how many remain. D14's fifteenth step brought it to none,
+ * so the record now holds that no check of the server reads its text again.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 
-const RECORDED = 84;
+const RECORDED = 0;
 
 const ROOT = path.resolve(__dirname, '..');
 /*

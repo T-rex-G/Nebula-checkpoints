@@ -50,6 +50,7 @@ const required = [
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js',
   'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'apps/api/src/platform/release/secret-scanner.ts', 'apps/api/src/platform/release/secret-rules.ts', 'scripts/check-secrets.js',
+  'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts',
   'apps/api/src/platform/release/release-fingerprint.ts', 'test/release-fingerprint.test.js',
   'src/qualification-evidence.js', 'src/public-alpha-qualification.js',
   'scripts/public-alpha-gate.js', 'scripts/qualify-candidate-archive.js',
@@ -243,8 +244,13 @@ must(html.includes('data-act="neural"'), 'Mobile Neural entry missing');
 for (const id of ['tab-governance', 'govRoot', 'govLive']) must(ids.includes(id), `Missing #${id}`);
 must(html.includes('data-tab="governance"') && html.includes('data-act="governance"'), 'Governance desktop/mobile navigation missing');
 must(shellImports().includes('apps/web/src/features/governance/governance-ui.js'), 'Governance renderer must be loaded and precached');
-must(/\/governance/.test(read('packages/contracts/src/offline-cache-policy.ts')), 'Governance APIs must remain network-only');
-must(read('apps/api/src/modules/kepler/http/governance-routes.ts').includes('projectGovernanceInterfaceAccess(governance(req).authorization)') && read('apps/api/src/modules/kepler/http/governance-routes.ts').includes('res.json({ digitalTwin, access })'), 'Digital Twin access projection is not wired');
+/*
+ * The server's half of these is asked of the server: governance's answers
+ * are sent to the network only, as is every read but the sixteen a reader
+ * browses offline (test/offline-cache-policy.test.js); the digital twin
+ * answers with what the caller may do, a reader's and an administrator's
+ * differing (test/kepler-governance-routes.test.js).
+ */
 
 
 const pkg = JSON.parse(read('package.json'));
@@ -320,15 +326,13 @@ for (const destination of ['Neural', 'Governance', 'Pull requests', 'Issues', 'R
   must(app.includes(`label: '${destination}'`), `Command palette entry missing for ${destination}`);
 }
 
-/* A session's own security routes are identity and access's (apps/api/src/modules/identity-access/http/security-routes.ts). */
-const securityRoutes = read('apps/api/src/modules/identity-access/http/security-routes.ts');
-must(securityRoutes.includes("app.get('/api/security/sessions'"), 'Session inventory endpoint missing');
-must(securityRoutes.includes("app.post('/api/security/revoke-others'"), 'Session revocation endpoint missing');
-must(securityRoutes.includes("app.get('/api/security/csrf'"), 'CSRF security-context endpoint missing');
-must(securityRoutes.includes("app.post('/api/security/step-up'"), 'Step-up authorization endpoint missing');
-/* That the composed server answers these routes, and spends a step-up grant the first time it is used, is test/composition.test.js's. */
-must(read('apps/api/src/modules/identity-access/application/session-security.ts').includes('await consumePendingStepUp(')
-  && read('apps/api/src/modules/identity-access/application/session-security.ts').includes('if (!deps.databaseConfigured) return usedStepUpGrants;'), 'Single-use step-up replay prevention missing');
+/*
+ * A session's own security routes -- its sessions, revoking the others, the
+ * CSRF token and the step-up -- answer with the chains test/route-surface.test.js
+ * holds them to; a step-up grant is spent once, in the database when there
+ * is one (test/session-security.test.js), and the composed server answers
+ * them (test/composition.test.js).
+ */
 /* That the composed server tells a signed-in account the release package.json names is test/composition.test.js's. */
 
 const render = read('render.yaml');
@@ -347,24 +351,18 @@ must(!/fromDatabase:/.test(render), 'Render must not provision or bind a managed
 
 const sw = read('apps/web/src/offline/sw.js');
 must(/const PRECACHE = __NV_PRECACHE__;/.test(sw), 'The shell list must be the one the build writes in');
-/* Optional private repository caching must be explicit, scoped and bounded. */
-const offlinePolicy = read('packages/contracts/src/offline-cache-policy.ts');
+/* Optional private repository caching must be explicit, scoped and bounded: its limits, lifetime and versioned names are test/offline-cache-policy.test.js's. */
 must(sw.includes("import * as POLICY from '../../../../packages/contracts/src/offline-cache-policy.ts';"), 'Service worker must load the audited offline cache policy');
 must(sw.includes('POLICY.classifyApiRequest') && sw.includes('privateNetworkFirst'), 'Service worker must use the scoped cache classifier');
-must(offlinePolicy.includes('MAX_ENTRIES = 100') && offlinePolicy.includes('MAX_RESPONSE_BYTES = 1024 * 1024') && offlinePolicy.includes('MAX_TOTAL_BYTES = 25 * 1024 * 1024'), 'Private cache limits are missing');
-must(offlinePolicy.includes('TTL_MS = 24 * 60 * 60 * 1000'), 'Private cache TTL is missing');
 must(/startsWith\('nv-api-'\)/.test(read('apps/web/src/legacy/app.js')), 'Identity boundaries must purge scoped API caches');
 must(sw.includes("cache: 'no-store'"), 'Network-only API responses must not use browser HTTP caches');
 must(!sw.includes("const API = 'nv-api-perm'"), 'A shared persistent API cache must not exist');
-must(offlinePolicy.includes("const CACHE_SCHEMA = 'v1'") && offlinePolicy.includes('nv-api-${CACHE_SCHEMA}-${scope}'), 'Private cache namespaces must be schema-versioned');
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');
-/* The platform's own routes (apps/api/src/http/routes). */
-const platformRoute = name => read(`apps/api/src/http/routes/${name}`);
-/* Pulsar's webhook intake and limiter, which the server composes. */
-const webhookIntake = read('apps/api/src/modules/pulsar/application/webhook-intake.ts');
-const webhookLimiter = read('apps/api/src/modules/pulsar/application/webhook-limiter.ts');
-/* The composed server's intake, its route and its limiter are asked of the server in test/composition.test.js. */
-must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && webhookIntake.includes('verifyGithubSignature(secret, raw,'), 'Verified GitHub webhook intake is missing');
+/*
+ * A delivery is accepted only signed, and a sender held to the delivery
+ * rate (test/pulsar-webhook-intake.test.js); the composed server's intake,
+ * its route and its limiter are asked of the server (test/composition.test.js).
+ */
 {
   const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
   must([true, false].every(production => {
@@ -372,33 +370,18 @@ must(platformRoute('webhook-intake.ts').includes('/hooks/github/:hookId') && web
     return directives.includes("object-src 'none'") && directives.includes("base-uri 'none'");
   }), 'CSP active-content restrictions are incomplete');
 }
-const vendorRoute = platformRoute('vendor.ts');
-must(vendorRoute.includes('!VENDOR_ALLOWLIST.has(p)'), 'The vendor proxy allowlist is missing');
 /*
- * Typefaces were proxied from Google through an allowlisted route, so every
- * reader's address reached a third party, an offline session lost the faces,
- * and the proxied bytes were absent from the archive whose fingerprint the
- * hosted gate verifies. They are served from this origin now, so the stronger
- * property is that no font proxy exists at all: no file of the server's names
- * Google's font hosts or the routes that proxied them. test/composition.test.js
- * asks the composed server for both former routes.
+ * The vendor route serves only its allowlist, its own copy first, and a
+ * fallback bounded (test/platform-routes.test.js); the interface's own faces
+ * are served from this origin (test/server-smoke.test.js), and the server
+ * names no third-party font host and no proxy for one (test/module-rules.test.js);
+ * the composed server answers neither former font route, serves pinned
+ * libraries and answers readiness (test/composition.test.js, test/platform-routes.test.js).
+ * The store is opened on DATABASE_URL as settings normalize it
+ * (test/server-settings.test.js), on a pool that binds its credentials to the
+ * channel within its budgets (test/database-lifecycle.test.js), and migrated
+ * (test/composition-postgres.test.js).
  */
-const serverTree = fs.readdirSync(path.join(root, 'apps', 'api', 'src'), { recursive: true })
-  .map(name => path.posix.join('apps/api/src', String(name).split(path.sep).join('/')))
-  .filter(file => file.endsWith('.ts'))
-  .map(file => [file, read(file)]);
-const naming = pattern => serverTree.filter(([, text]) => pattern.test(text)).map(([file]) => file);
-must(!naming(/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/).length, `A stylesheet font proxy has returned: ${naming(/gfonts|GFONTS_ALLOWLIST|fonts\.googleapis/).join(', ')}`);
-must(!naming(/\/gstatic|fonts\.gstatic/).length, `A font-file proxy has returned: ${naming(/\/gstatic|fonts\.gstatic/).join(', ')}`);
-must(vendorRoute.includes("'fonts/public-sans-variable-latin.woff2'"), 'Self-hosted interface faces are not served');
-/* That the composed server serves pinned libraries from its own copy, holds senders to the webhook rate and answers readiness is test/composition.test.js's. */
-must(vendorRoute.includes('Exact allowlisted CDN fallback only'), 'Pinned local vendor assets are not served first');
-must(webhookIntake.includes('Webhook delivery rate exceeded') && webhookLimiter.includes('export const WEBHOOK_RATE_LIMIT = 120;'), 'Webhook abuse limiter is missing');
-must(platformRoute('probes.ts').includes("app.get('/readyz'"), 'Readiness endpoint is missing');
-/* That the composed server opens its store on DATABASE_URL, migrated, is test/composition-postgres.test.js's. */
-must(read('apps/api/src/platform/config/server-settings.ts').includes("normalizeDatabaseUrl(env.DATABASE_URL || ''")
-  && read('apps/api/src/platform/persistence/database-lifecycle.ts').includes('deps.openPool(databaseUrl,')
-  && read('apps/api/src/platform/persistence/database-pool.ts').includes('enableChannelBinding: true'), 'Strict database transport configuration is missing');
 must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
 must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');
 must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP extraction must enforce the actual extracted-size ceiling');
@@ -413,9 +396,7 @@ const migrationSql = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(
 
 must(migrationSql.includes('nv_governance_policies') && migrationSql.includes('nv_governance_policy_versions'), 'Governance persistence schema is missing');
 must(migrationSql.includes('nv_governance_reject_history_mutation') && migrationSql.includes('BEFORE TRUNCATE'), 'Governance history must be append-only at the database layer');
-const governanceStore = read('apps/api/src/modules/kepler/persistence/governance-store.ts');
-must(governanceStore.includes('GOVERNANCE_APPROVALS_REQUIRED') && governanceStore.includes('GOVERNANCE_REVISION_CONFLICT'), 'Governance activation gates are missing');
-must(governanceStore.includes('pg_advisory_xact_lock') && governanceStore.includes('verifyGovernanceAuditChain'), 'Governance concurrency or audit-chain controls are missing');
+/* Activation refused without its approvals or over a changed revision, and the audit chain kept under lock: test/governance-store.test.js's. */
 
 /* That a protection holds in every session of the identity is test/composition-postgres.test.js's, as is the runner applying every migration. */
 must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migration runner keeps the migration record; no migration may');
@@ -428,19 +409,20 @@ must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeUR
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');
 /* That an upload carrying a malware signature is refused, MALWARE_DETECTED, is test/composition.test.js's. */
 /* That the composed mutation context binds a restore to its preview is test/composition-postgres.test.js's. */
-must(read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes('normalizeFileBatch(body.ops)') && read('apps/api/src/platform/mutation-gateway/mutation-context.ts').includes("summarizeBatchItems('recovery.restore-refs', inspected.actions)"), 'Task 18 aggregate mutation evidence is not wired');
-const mutationCoverage = read('apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
-must(mutationCoverage.includes('MUTATION_ROUTE_INVENTORY') && mutationCoverage.includes('ACTION_EXECUTION_CONTRACTS'), 'Task 18 mutation coverage inventory is missing');
-must(read('apps/api/src/modules/kepler/delivery/governance-delivery.ts').includes('MAX_EXPORT_EVENTS') && read('apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts').includes('startWebhookWorker'), 'Task 19 governance delivery foundation is missing');
+/*
+ * A file batch and a restore are recorded as what they would do
+ * (test/mutation-context.test.js), against the coverage inventory
+ * (test/mutation-coverage.test.js), and provider writes are held to their
+ * contract (test/mutation-gateway-execution.test.js); an evidence export
+ * holds at most a thousand events (test/governance-delivery-model.test.js)
+ * and webhooks are delivered by their worker (test/governance-webhook-worker.test.js).
+ */
 must(read('apps/web/src/features/governance/governance-ui.js').includes('Notifications and signed evidence'), 'Task 19 governance delivery interface is missing');
-must(read('apps/api/src/platform/mutation-gateway/mutation-gateway.ts').includes('MUTATION_PROVIDER_WRITE_LIMIT') && read('apps/api/src/platform/mutation-gateway/mutation-gateway.ts').includes('operationId'), 'Task 18 provider-write bounds or operation IDs are missing');
 
-const stagingValidation = read('src/staging-validation.js');
-must(stagingValidation.includes("EVIDENCE_SCHEMA_VERSION = '1.2.0'"), 'Task 20 evidence schema 1.2.0 is missing');
-must(stagingValidation.includes('CATALOG_HASH') && stagingValidation.includes('expectedSubjectHash is required'), 'Task 20 evidence must bind to the exact catalog and release subject');
-must(stagingValidation.includes('evidence requires at least one artifact file') && stagingValidation.includes('commandHash does not match the prescribed command'), 'Task 20 evidence is not command/file-artifact bound');
+must(require('../src/staging-validation').EVIDENCE_SCHEMA_VERSION === '1.2.0', 'Task 20 evidence schema 1.2.0 is missing');
+/* Staging evidence bound to the catalog, the release subject, its command and its verified artifacts: test/staging-validation.test.js's. */
 must(read('scripts/staging-gate.js').includes('NV_STAGING_SUBJECT_SHA256') && read('scripts/staging-gate.js').includes('versioned object envelope') && read('scripts/staging-gate.js').includes('artifact hash mismatch'), 'Task 20 staging CLI is not fail-closed');
-must(read('scripts/test-matrix.js').includes('--allow-missing-dependencies') && read('src/test-matrix.js').includes('runTestMatrix'), 'Task 20 independent test matrix is missing');
+must(read('scripts/test-matrix.js').includes('--allow-missing-dependencies') && typeof require('../src/test-matrix').runTestMatrix === 'function', 'Task 20 independent test matrix is missing');
 const task20Browser = read('test/e2e/task20-accessibility.spec.js');
 /*
  * The governance workspace used to be reached by a data attribute, so this

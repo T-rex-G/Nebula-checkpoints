@@ -13,6 +13,12 @@ export const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 const SCOPE_RX = /^[A-Za-z0-9_-]{16,64}$/;
 const REPO_KEY_RX = /^(?:account|github:[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100})$/i;
 
+/*
+ * What is never kept, wherever in a route it is named. A repository's owner
+ * and name are the reader's, and may be any of these words, so they are read
+ * past: a repository called `governance` is cached like any other, while its
+ * governance routes are not.
+ */
 const SENSITIVE: readonly RegExp[] = [
   /^\/api\/(?:login|logout|me|accounts|session|security|oauth|notifications|config)(?:\/|$)/,
   /\/governance(?:\/|$)/,
@@ -53,7 +59,8 @@ export function classifyApiRequest(url: RequestUrl | null | undefined, method: u
   if (verb !== 'GET') return { mode: 'bypass' };
   const pathname = url && url.pathname ? url.pathname : '';
   if (!pathname.startsWith('/api/')) return { mode: 'bypass' };
-  if (SENSITIVE.some(rx => rx.test(pathname))) return { mode: 'network-only' };
+  const route = pathname.replace(/^\/api\/repo\/[^/]+\/[^/]+(?=\/|$)/, '/api/repo/:owner/:repo');
+  if (SENSITIVE.some(rx => rx.test(route))) return { mode: 'network-only' };
   const scope = readHeader(headers, OFFLINE_SCOPE_HEADER);
   const repoKey = readHeader(headers, OFFLINE_REPO_HEADER);
   if (!validScope(scope) || !validRepoKey(repoKey)) return { mode: 'network-only' };

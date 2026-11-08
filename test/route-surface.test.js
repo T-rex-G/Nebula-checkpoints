@@ -27,6 +27,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { serverFiles } = require('./helpers/server-source');
+const { locations } = require('./oracles/route-policy');
+const ts = require('typescript');
 const { spawn } = require('child_process');
 const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
@@ -79,12 +81,6 @@ const EXPECTATIONS = [
  * root does not quietly turn this half of the test into a check of an empty
  * string.
  */
-const ROUTE_SOURCES = [...serverFiles(root), path.join('apps', 'api', 'src', 'modules', 'identity-access', 'http', 'security-routes.ts')]
-  .map(relative => path.join(root, relative))
-  .filter(file => fs.existsSync(file))
-  .map(file => fs.readFileSync(file, 'utf8'))
-  .join('\n');
-
 const MIDDLEWARE = [
   ['get', '/api/security/scanner-status', ['auth', "capabilityAccess('upload-security')"]],
   ['get', '/api/security/csrf', ['accountAuth']],
@@ -93,19 +89,12 @@ const MIDDLEWARE = [
   ['post', '/api/security/revoke-others', ['auth']]
 ];
 
+/* The chain each registration hands Express, in order, as the route policy reads it from the syntax tree. */
+const POLICY_ROUTES = locations(root).filter(entry => entry.kind === 'route');
 for (const [method, routePath, expected] of MIDDLEWARE) {
-  const line = ROUTE_SOURCES.split('\n').find(candidate =>
-    candidate.includes(`.${method}('${routePath}'`));
-  assert(line, `${method.toUpperCase()} ${routePath} is not registered in any known route file`);
-  let cursor = line.indexOf(routePath);
-  for (const name of expected) {
-    const at = line.indexOf(name, cursor);
-    assert(
-      at > -1,
-      `${method.toUpperCase()} ${routePath} must still be guarded by ${name}`
-    );
-    cursor = at + name.length;
-  }
+  const entry = POLICY_ROUTES.find(candidate => candidate.method === method.toUpperCase() && candidate.path === routePath);
+  assert(entry, `${method.toUpperCase()} ${routePath} is not registered`);
+  assert.deepEqual(entry.guards, expected, `${method.toUpperCase()} ${routePath} is guarded by exactly ${expected.join(', ')}, in that order`);
 }
 
 /*
@@ -301,28 +290,44 @@ assert.equal(registeredInRoot, 0,
  * too, each a part of the route policy's order or of the services' build.
  */
 const MAIN_LINE_LIMIT = 150;
-const mainLines = (fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'main.ts'), 'utf8').match(/\n/g) || []).length;
+const syntaxOf = file => ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const main = syntaxOf(path.join(root, 'apps', 'api', 'src', 'main.ts'));
+const mainLines = main.getLineAndCharacterOfPosition(main.end).line;
 assert(mainLines <= MAIN_LINE_LIMIT,
   `apps/api/src/main.ts holds ${mainLines} lines, above the ${MAIN_LINE_LIMIT} the entry point may hold. Put the composition in apps/api/src/composition.`);
 assert.deepEqual(fs.readdirSync(root).filter(name => name === 'server.js'), [], 'server.js is gone; the entry point is apps/api/src/main.ts');
 
 /* A route module that nothing mounts is worse than no route module: it reads
    as covered and serves nothing. Every registration function a module's http
-   folder exports is called by the composition. */
+   folder exports is called by the composition with the application, as their
+   syntax trees say. */
+const calledWithApp = new Set();
+for (const file of rootFiles) {
+  const visit = node => {
+    if (ts.isCallExpression(node) && node.arguments[0] && ts.isIdentifier(node.arguments[0]) && node.arguments[0].text === 'app') {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee)) calledWithApp.add(callee.text);
+      else if (ts.isPropertyAccessExpression(callee)) calledWithApp.add(callee.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(syntaxOf(path.join(root, file)));
+}
 const modulesRoot = path.join(root, 'apps', 'api', 'src', 'modules');
+let registrations = 0;
 for (const moduleName of fs.readdirSync(modulesRoot)) {
   const httpDir = path.join(modulesRoot, moduleName, 'http');
   if (!fs.existsSync(httpDir)) continue;
   for (const file of fs.readdirSync(httpDir).filter(name => name.endsWith('.ts'))) {
-    const source = fs.readFileSync(path.join(httpDir, file), 'utf8');
-    for (const [, name] of source.matchAll(/^export function (register[A-Z]\w*)\(/gm)) {
-      assert(
-        new RegExp(`\\b${name}\\(app\\b`).test(rootSource),
-        `${moduleName}/http/${file}: ${name} is never called by the composition`
-      );
+    for (const statement of syntaxOf(path.join(httpDir, file)).statements) {
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !/^register[A-Z]\w*$/.test(statement.name.text)) continue;
+      if (!(statement.modifiers || []).some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+      registrations += 1;
+      assert(calledWithApp.has(statement.name.text), `${moduleName}/http/${file}: ${statement.name.text} is never called by the composition`);
     }
   }
 }
+assert(registrations >= 30, `the modules export ${registrations} registration functions; the walk found too few to be looking in the right place`);
 
 const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,

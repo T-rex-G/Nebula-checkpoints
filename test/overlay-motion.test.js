@@ -32,7 +32,6 @@ const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css
 const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 const { shellImports, builtShell } = require('./helpers/web-shell');
 /* OAuth sign-in is identity and access's. */
-const oauthSource = fs.readFileSync(path.join(root, 'apps', 'api', 'src', 'modules', 'identity-access', 'http', 'oauth-routes.ts'), 'utf8');
 
 let failures = 0;
 function check(label, fn) {
@@ -1369,35 +1368,13 @@ check('every focus taken on an opening layer declines the scroll', () => {
 
 /* ---------------- a sign-in that did not finish ---------------- */
 
-check('a failed OAuth exchange returns to the application', () => {
-  const body = oauthSource.slice(oauthSource.indexOf("app.get('/api/oauth/callback'"));
-  /*
-   * Every failure used to end on a bare page with no navigation: the only way
-   * back was to retype the address. A reader on a phone should never be asked
-   * to do that.
-   */
-  assert.ok(!/res\.status\(\d+\)\.send\(/.test(body),
-    'a failed sign-in still ends on a bare page the reader has to escape by editing the address bar');
-  assert.ok(/res\.redirect\(`\/\?oauth=/.test(body),
-    'a failed sign-in does not return to the application with a reason');
-  assert.ok(/Max-Age=0/.test(body),
-    'the state cookie is not cleared on failure, so a retry replays a code the provider has already spent');
-});
-
-check('the token response is parsed defensively', () => {
-  const body = oauthSource.slice(oauthSource.indexOf("app.get('/api/oauth/callback'"));
-  /*
-   * The provider answers with an HTML page when it refuses the request itself
-   * rather than the exchange. Handing that straight to a JSON parser throws
-   * "Unexpected token '<'", and that message reached the reader verbatim.
-   */
-  assert.ok(!/await tr\.json\(\)/.test(body),
-    'the token response is parsed as JSON unguarded, so an HTML error page throws a parser message at the reader');
-  assert.ok(/tr\.text\(\)/.test(body) && /JSON\.parse/.test(body),
-    'the response is not read as text and parsed under a guard');
-  assert.ok(/member\(td, 'error'\)/.test(body),
-    "the provider's own refusal is discarded, so an expired code reports nothing useful");
-});
+/*
+ * A failed OAuth sign-in returns to the application with its reason, the
+ * state cookie cleared so a retry starts a fresh exchange; a token answer that
+ * is not JSON is reported as unreadable rather than thrown at the reader; and
+ * the provider's own refusal, such as an expired code, is the reason given.
+ * The route is asked all of it over HTTP by test/identity-security-routes.test.js.
+ */
 
 check('the reader is told which failure it was', () => {
   assert.ok(/function oauthCallbackNotice/.test(appSource), 'nothing reads the failure back out of the address bar');

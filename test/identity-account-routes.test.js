@@ -77,7 +77,7 @@ async function start({ alpha = false } = {}) {
   const deps = {
     accountAuth, config, fail, isGithubAccount,
     providerIdentity: async acct => { calls.push(['providerIdentity', acct]); if (state.user instanceof Error) throw state.user; return state.user; },
-    addAccount: async (req, res, ...args) => { calls.push(['addAccount', ...args]); },
+    addAccount: async (req, res, ...args) => { calls.push(['addAccount', ...args]); if (state.storeDown) throw state.storeDown; },
     signedOutWithoutGithub: (req, res) => {
       if (req.session.accounts.some(isGithubAccount)) return false;
       res.status(401).json({ error: 'Not signed in', code: 'AUTH_REQUIRED' });
@@ -86,9 +86,9 @@ async function start({ alpha = false } = {}) {
     retainedActor: () => 'tester-7',
     githubAppConnectionView: (account, active) => ({ connectionKey: `key-${account.login}`, active }),
     clearStepUpAuthorization: session => { calls.push(['clearStepUp']); session.stepUp = null; },
-    setSession: async (req, res, session) => { calls.push(['setSession', structuredClone(session)]); },
+    setSession: async (req, res, session) => { calls.push(['setSession', structuredClone(session)]); if (state.storeDown) throw state.storeDown; },
     sessionOf: async () => { calls.push(['sessionOf']); return structuredClone(state.reread); },
-    destroySession: async () => { calls.push(['destroySession']); },
+    destroySession: async () => { calls.push(['destroySession']); if (state.storeDown) throw state.storeDown; },
     /* As the server's helper does, a completed disconnect leaves the request a new session without those accounts, its selection at the first. */
     disconnectProviderAccounts: async (req, accounts) => {
       const gone = new Set([accounts].flat().map(account => account.login));
@@ -235,6 +235,25 @@ const called = (calls, name) => calls.filter(call => call[0] === name);
     t.state.session = { accounts: [TOKEN], active: 0 };
     const deletion = await t.send('POST', '/api/alpha/delete', {});
     assert.equal(deletion.status, 404, 'with the alpha off, deletion needs no confirmation and is not there');
+  }
+  /* A session store that fails is the answer: every route that writes or ends the session answers its refusal, and none is left unanswered. */
+  {
+    const outage = Object.assign(new Error('Session database is temporarily unavailable'), { status: 503 });
+    t.state.storeDown = outage;
+    for (const [method, url, body, step] of [
+      ['POST', '/api/login', { token: 'ghp_abc' }, 'addAccount'],
+      ['POST', '/api/accounts/switch-idx', { idx: 1 }, 'setSession'],
+      ['POST', '/api/accounts/switch', { login: 'bob' }, 'setSession'],
+      ['POST', '/api/accounts/remove', { idx: 1 }, 'setSession'],
+      ['POST', '/api/logout', undefined, 'destroySession']
+    ]) {
+      t.state.session = { accounts: [TOKEN, OAUTH], active: 0 };
+      t.state.cleanups = [done()];
+      const answered = await t.send(method, url, body);
+      assert.deepEqual([answered.status, answered.body], [503, { error: outage.message }], `${method} ${url}`);
+      assert.equal(called(t.calls, step).length, 1, `${method} ${url} reached the store`);
+    }
+    t.state.storeDown = null;
   }
   await t.close();
 

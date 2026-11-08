@@ -47,9 +47,20 @@ function walk(directory, out = []) {
   return out;
 }
 
-function parse(file, text = fs.readFileSync(file, 'utf8')) {
+function parse(file) {
   const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
-  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
+  return ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind);
+}
+/* Every name a file's syntax uses -- identifiers, property names, and keys in quotes -- but none its comments mention. */
+function namesIn(file) {
+  const names = new Set();
+  const visit = node => {
+    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) names.add(node.text);
+    else if (ts.isStringLiteralLike(node)) names.add(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file));
+  return names;
 }
 
 /* ------------------------------------------------------------- 1. versions */
@@ -292,13 +303,12 @@ for (const file of consumers) {
  */
 const SELF = new Set([__filename, path.join(root, 'test', 'codes.test.js')]);
 const tests = walk(path.join(root, 'test')).filter(file => !SELF.has(file));
-const outside = [...consumers, ...walk(CONTRACTS), ...tests].map(file => [file, fs.readFileSync(file, 'utf8')]);
+const outside = [...new Set([...consumers, ...walk(CONTRACTS), ...tests])].map(file => [file, namesIn(file)]);
 const unconsumed = [];
 for (const name of contractFiles) {
   const own = path.join(CONTRACTS, name);
   for (const key of Object.keys(load(name)).filter(key => !key.endsWith('_CONTRACT_VERSION'))) {
-    const word = new RegExp(`\\b${key.replace(/\$/g, '\\$')}\\b`);
-    if (!outside.some(([file, text]) => file !== own && word.test(text))) unconsumed.push(`${name} ${key}`);
+    if (!outside.some(([file, names]) => file !== own && names.has(key))) unconsumed.push(`${name} ${key}`);
   }
 }
 unconsumed.sort();

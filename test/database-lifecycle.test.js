@@ -11,6 +11,7 @@
 const assert = require('assert');
 const path = require('path');
 const { createDatabaseLifecycle } = require('../apps/api/src/platform/persistence/database-lifecycle.ts');
+const { createDatabasePool, DATABASE_BUDGETS } = require('../apps/api/src/platform/persistence/database-pool.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const URL = 'postgres://tester:secret@db.example/nebula?sslmode=require';
@@ -287,6 +288,18 @@ async function main() {
     restore();
   }
   finished = true;
+  /*
+   * The pool the server opens: channel binding on, so a credential is only
+   * ever proved to the server holding the TLS session it was sent over, and
+   * the budgets that bound each wait. Built without connecting.
+   */
+  {
+    const pool = createDatabasePool('postgres://tester:secret@db.example/nebula?sslmode=require', () => {});
+    assert.equal(pool.options.enableChannelBinding, true, 'the pool binds its credentials to the channel');
+    for (const [name, value] of Object.entries(DATABASE_BUDGETS)) assert.equal(pool.options[name], value, name);
+    assert.deepEqual([DATABASE_BUDGETS.max, DATABASE_BUDGETS.connectionTimeoutMillis, DATABASE_BUDGETS.statement_timeout, DATABASE_BUDGETS.lock_timeout], [3, 5000, 10000, 3000]);
+    await pool.end();
+  }
   console.log('database lifecycle tests passed');
 }
 

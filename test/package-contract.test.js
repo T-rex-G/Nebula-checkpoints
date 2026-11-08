@@ -158,8 +158,11 @@ assert.strictEqual(JSON.parse(read('node_modules/dompurify/package.json')).versi
   const builtEntry = fs.readdirSync(path.join(root, 'dist', 'web', 'build')).find(file => /^index-.+\.js$/.test(file));
   assert(builtEntry && read(`dist/web/build/${builtEntry}`).includes('DOMPurify 3.4.17'), 'the built page does not carry the pinned DOMPurify');
 }
-for (const source of ['apps/api/src/http/routes/vendor.ts', 'scripts/copy-vendor.js']) {
-  assert(read(source).includes('dompurify/3.4.17/purify.min.js'), `${source} has a stale DOMPurify asset path`);
+assert(read('scripts/copy-vendor.js').includes('dompurify/3.4.17/purify.min.js'), 'scripts/copy-vendor.js has a stale DOMPurify asset path');
+{
+  /* The vendor route serves the pinned DOMPurify and no other: its allowlist, as the route holds it. */
+  const { VENDOR_ALLOWLIST } = require('../apps/api/src/http/routes/vendor.ts');
+  assert.deepStrictEqual([...VENDOR_ALLOWLIST].filter(file => file.startsWith('dompurify/')), ['dompurify/3.4.17/purify.min.js'], 'the vendor route serves a stale DOMPurify');
 }
 assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.17/purify.min.js')));
 assert(['3.4.12', '3.4.13', '3.4.16'].every(version => !fs.existsSync(path.join(root, 'public/vendor/dompurify', version))),
@@ -507,12 +510,8 @@ for (const artifact of [
 ]) {
   assert(verifyScript.includes(artifact), `build verification missing ${artifact}`);
 }
-const stagingValidation = read('src/staging-validation.js');
-assert(stagingValidation.includes("const EVIDENCE_SCHEMA_VERSION = '1.2.0'"));
-assert(stagingValidation.includes('expectedSubjectHash is required'));
-assert(stagingValidation.includes('evidence requires at least one artifact file'));
-assert(stagingValidation.includes('verifyArtifact is required when evidence contains artifacts'));
-assert(stagingValidation.includes('commandHash does not match the prescribed command'));
+assert.strictEqual(require('../src/staging-validation').EVIDENCE_SCHEMA_VERSION, '1.2.0');
+/* Staging evidence refused without its subject, an artifact, a way to verify one, or the prescribed command: test/staging-validation.test.js's. */
 const stagingCli = read('scripts/staging-gate.js');
 assert(stagingCli.includes('NV_STAGING_SUBJECT_SHA256'));
 assert(stagingCli.includes('evidence subjectHash does not match NV_STAGING_SUBJECT_SHA256'));

@@ -72,7 +72,7 @@ function fixture(options = {}) {
     dbReady: async () => false, pool: () => assert.fail('no database'), identityKey: () => identity,
     scopedEvidenceKey: () => 'evidence', appendEvidence: async () => null,
     signatures: { sign: () => 'synthetic', verify: () => ({ valid: true, keyId: 'fixture' }), activeKeyId: 'fixture' },
-    retentionCount: 50, safetyOf: () => ({ readOnly: false }), protectedPatternsForReq: () => [],
+    retentionCount: 50, safetyOf: () => ({ readOnly: options.readOnly === true }), protectedPatternsForReq: () => options.protectedPatterns || [],
     alphaEnabled: options.alpha === true,
     savePersistentSafety: async (_req, safety) => { effects.push(['safety-save']); Object.assign(persistedSafety, safety); return safety; },
     saveSessionSafetyCopy: async () => { effects.push(['session-save']); },
@@ -124,6 +124,16 @@ function fixture(options = {}) {
     snapshot: { kind: 'nebulaverse-snapshot', owner: 'alice', repo: 'demo', provider: 'github', refs: [{ name: 'main', sha: A }, { name: 'restored', sha: C }] }
   });
   assert.strictEqual(safePreview.body.canRestore, true, 'create-if-absent recovery remains available');
+  /* The same preview while read-only mode is on, or while a path is protected: shown, with the reason, and nothing granted. */
+  for (const [held, pattern] of [[{ readOnly: true }, /read-only mode is active/], [{ protectedPatterns: ['docs/**'] }, /protected-path policies are active/]]) {
+    const guarded = fixture(held);
+    const shown = await guarded.call('restore-preview', {
+      snapshot: { kind: 'nebulaverse-snapshot', owner: 'alice', repo: 'demo', provider: 'github', refs: [{ name: 'main', sha: A }, { name: 'restored', sha: C }] }
+    });
+    assert.deepStrictEqual([shown.status, shown.body.canRestore, shown.body.authorization], [200, false, ''], JSON.stringify(held));
+    assert(shown.body.warnings.some(warning => pattern.test(warning)), JSON.stringify(held));
+    assert.deepStrictEqual(guarded.effects.filter(([kind, method]) => kind === 'provider' && method !== 'GET'), [], 'a preview writes nothing');
+  }
   const restored = await recreate.call('restore-refs', { confirm: 'RESTORE', authorization: safePreview.body.authorization });
   assert.strictEqual(restored.body.ok, true);
   assert.strictEqual(restored.body.partialFailure, false, 'all of it went through');
@@ -133,6 +143,22 @@ function fixture(options = {}) {
   const replay = await recreate.call('restore-refs', { confirm: 'RESTORE', authorization: safePreview.body.authorization });
   assert.strictEqual(replay.body.code, 'RESTORE_AUTHORIZATION_REPLAY');
   assert.strictEqual(recreate.effects.filter(([kind, method]) => kind === 'provider' && method === 'POST').length, 1);
+
+  /* Only the product's own snapshots are recovered from -- a snapshot or a signed emergency manifest -- and anything else is refused before the provider is read. */
+  {
+    const reads = [];
+    const recovery = createRecovery({
+      gh: async (...args) => { reads.push(args); return []; }, seal, unseal, identityKey: () => identity, databaseConfigured: false,
+      durableSingleUse: () => assert.fail('no grants here'), manifestMax: 10000
+    });
+    const target = { account: { provider: 'github' }, owner: 'alice', repo: 'demo' };
+    const snapshot = kind => ({ kind, owner: 'alice', repo: 'demo', provider: 'github', refs: [] });
+    for (const kind of ['nebulaverse-snapshot', 'nebulaverse-emergency-manifest']) assert.strictEqual(recovery.validateSnapshot(target, snapshot(kind)).kind, kind);
+    for (const kind of ['nebulaverse-evidence', 'nebulaverse-restore-preview', 'NEBULAVERSE-SNAPSHOT', 'nebulaverse-snapshot ', '', undefined]) {
+      await assert.rejects(recovery.compareWith(target, snapshot(kind)), error => error.code === 'SNAPSHOT_KIND_INVALID' && error.status === 400, String(kind));
+    }
+    assert.deepStrictEqual(reads, [], 'refused before the provider is read');
+  }
 
   const racedCreate = fixture({ raceAfterRead: 'restored' });
   const raced = await racedCreate.call('restore-refs', {

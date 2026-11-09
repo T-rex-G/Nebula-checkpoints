@@ -2601,3 +2601,16 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Counted.** 101 page reads converted: 545 remain (`test/page-reads.test.js`).
 - **Next:** E2, one typed store and the hash router.
 - **Checks:** the unit gate, every verify-job gate, and the whole browser suite (1,030 tests) on desktop and mobile, on Node 22.23.4.
+
+### S2 — The November 2026 dependency advisories
+
+Two advisories published since S1 reach locked dependencies, both moderate. npm's audit and an OSV query over all 296 locked package versions agree on exactly these two, and Node 22.23.4 (20 October) is still the newest security release on its line.
+
+- **qs 6.16.0 → 6.16.2** (GHSA-6pq8-jhm2-2vcw, CVE-2026-110816). Express 4.22.3 and body-parser 1.20.9 take it through their own `~6.16.0`, so only the lockfile moves.
+  - The advisory is `qs.stringify` with `arrayFormat: 'comma'` throwing on an array item that has no callable `toString`. Nothing here stringifies with qs: the server only parses, through Express's query parser (`req.query`), and mounts no form parser.
+  - It moves anyway, as a patch release. 6.16.1 also changes parsing at its edges -- an object input is no longer changed, `[]` is array syntax only where it ends a key, dots become brackets only with `allowDots` -- and the route surface and the negative-request matrix hold unchanged under it.
+- **minimatch 10.2.5, not moved** (GHSA-g3hv-75wg-m249, CVE-2026-118764: a pattern's parts can multiply into a denial of service).
+  - Only development tools load it: ESLint and typescript-eslint, and archiver's readdir-glob when a release is packaged. The server never does (`npm ls minimatch --omit=dev` is empty), and every pattern those tools are handed is this repository's own, so the caller the advisory guards against, one who supplies the glob, does not exist here.
+  - The fix exists only in minimatch 11, published with the advisory as a rewrite: `makeRe`, `regexp`, the AST class and the regular expressions in `set` are gone. The newest ESLint (10.14.0), @eslint/config-array (0.23.5), typescript-estree (8.72.2) and readdir-glob (3.0.0) all still require 10.x, so forcing 11 beneath them would replace what they were written against. It moves when they do.
+- **Not affected:** React and react-dom 19.3.0, Express 4.22.3, pg 8.22.0, DOMPurify 3.4.17, marked 15.0.12, three 0.185.1, playwright-core 1.61.1 and every other locked version.
+- **Checks:** the unit gate and every verify-job gate on Node 22.23.4.

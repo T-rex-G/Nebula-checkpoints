@@ -28,9 +28,15 @@ export interface UploadScanResult {
   } | null;
 }
 
-/* A request as the scan reads it: the repository its route names. */
+/*
+ * A request as the scan reads it: the repository its route names, and what
+ * the session guards attached -- the account, and the tester's access in the
+ * alpha -- which the evidence's actor is read from.
+ */
 export interface ScanRequest {
   readonly params?: { readonly owner?: string; readonly repo?: string } | null;
+  readonly gh?: Readonly<Record<string, unknown>>;
+  readonly alpha?: unknown;
 }
 
 export interface UploadScanDeps {
@@ -38,12 +44,10 @@ export interface UploadScanDeps {
   /* The repository's evidence chain for the request's identity (Corona). */
   readonly evidenceKey: (req: ScanRequest) => string;
   readonly appendEvidence: (key: string, type: string, id: string, details: unknown) => Promise<unknown>;
-  readonly retainedActor: (req: never) => unknown;
+  readonly retainedActor: (req: ScanRequest) => unknown;
 }
 
 export function createUploadScan(deps: UploadScanDeps) {
-  const actorOf = deps.retainedActor as unknown as (req: ScanRequest) => unknown;
-
   return async function scanUploadOrThrow(req: ScanRequest, tmp: string, repoPath: string, size: number) {
     const result = await deps.scan(tmp, { repoPath, size });
     if (result.blocked) {
@@ -54,7 +58,7 @@ export function createUploadScan(deps: UploadScanDeps) {
       }));
       if (req.params && req.params.owner && req.params.repo) {
         deps.appendEvidence(deps.evidenceKey(req), 'malware-blocked', randomUUID(), {
-          actor: actorOf(req),
+          actor: deps.retainedActor(req),
           path: cleanText(repoPath || 'batch blob', 500),
           size: Number(size || 0),
           matches,

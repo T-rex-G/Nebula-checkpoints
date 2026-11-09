@@ -99,5 +99,33 @@ function makeStore(client, generated = []) {
     assert.strictEqual(result.manifest.recordCount, 1);
     assert.strictEqual(result.manifest.lastEventSeq, 9);
   }
+  {
+    /* A claimed delivery is described to the worker from its own row and its webhook's: each field from the column that holds it. */
+    const delivery = '60000000-0000-4000-8000-000000000006';
+    const leased = new Date('2026-07-23T10:01:00.000Z');
+    const client = new Client([{
+      match: /^WITH due AS \(.*FOR UPDATE OF d SKIP LOCKED LIMIT \$1/,
+      check(params) { assert.deepStrictEqual(params, [5, 30]); },
+      result: { rows: [{
+        delivery_id: delivery, webhook_id: ids.webhook, event_seq: '7', status: 'delivering', attempt_count: 2,
+        next_attempt_at: new Date('2026-07-23T09:59:00.000Z'), lease_until: leased, last_status_code: 503,
+        last_error_code: 'WEBHOOK_HTTP_503', delivered_at: null, created_at: new Date('2026-07-23T09:00:00.000Z'),
+        updated_at: leased, scope_key: scopeKey, provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo',
+        endpoint_url: 'https://hooks.example.com/nebulaverse', secret_salt: 'c'.repeat(64), secret_version: '2',
+        event_types: ['policy.activated'], name: 'Operations hook'
+      }] }
+    }]);
+    const [claimed, ...rest] = await makeStore(client).claimWebhookDeliveries({ limit: 5, leaseSeconds: 30 });
+    assert.deepStrictEqual(rest, []);
+    assert.deepStrictEqual(
+      [claimed.deliveryId, claimed.webhookId, claimed.eventSeq, claimed.status, claimed.attemptCount, claimed.leaseUntil],
+      [delivery, ids.webhook, 7, 'delivering', 2, leased]
+    );
+    assert.deepStrictEqual(
+      [claimed.url, claimed.name, claimed.secretSalt, claimed.secretVersion, claimed.eventTypes, claimed.lastStatusCode, claimed.lastErrorCode],
+      ['https://hooks.example.com/nebulaverse', 'Operations hook', 'c'.repeat(64), 2, ['policy.activated'], 503, 'WEBHOOK_HTTP_503']
+    );
+    assert.strictEqual(claimed.scope.scopeKey, scopeKey);
+  }
   console.log('governance delivery store tests passed');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

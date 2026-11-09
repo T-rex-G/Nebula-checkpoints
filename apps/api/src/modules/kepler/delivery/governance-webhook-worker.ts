@@ -35,7 +35,8 @@ export interface ClaimedDelivery {
   readonly leaseUntil?: unknown;
 }
 
-export interface DeliveryAttempt {
+/* A plain record of named fields, so the store's reader of fields takes it as it is. */
+export type DeliveryAttempt = {
   readonly deliveryId: string;
   readonly eventHash: string;
   readonly requestTimestamp: string;
@@ -44,7 +45,7 @@ export interface DeliveryAttempt {
   readonly terminal: boolean;
   readonly statusCode: number | null;
   readonly errorCode: string | null;
-}
+};
 
 export interface WebhookDeliveryStore {
   claimWebhookDeliveries(input: { readonly limit: number; readonly leaseSeconds: number }): Promise<readonly ClaimedDelivery[]>;
@@ -52,14 +53,14 @@ export interface WebhookDeliveryStore {
   recordWebhookDeliveryAttempt(input: DeliveryAttempt): Promise<{ readonly status: string }>;
 }
 
-function requireStore(store: unknown): WebhookDeliveryStore {
-  const methods = ['claimWebhookDeliveries', 'getGovernanceEvent', 'recordWebhookDeliveryAttempt'];
-  const candidate = store as Readonly<Record<string, unknown>> | null | undefined;
-  if (!candidate || methods.some(method => typeof candidate[method] !== 'function')) {
+const DELIVERY_STORE_METHODS = ['claimWebhookDeliveries', 'getGovernanceEvent', 'recordWebhookDeliveryAttempt'] as const;
+
+/* The compiler checks a typed caller's store where it is passed; one from untyped code is still refused unless each method the worker calls is there. */
+function requireStore(store: WebhookDeliveryStore | null | undefined): WebhookDeliveryStore {
+  if (!store || DELIVERY_STORE_METHODS.some(method => typeof store[method] !== 'function')) {
     throw new TypeError('Webhook worker requires a complete governance delivery store');
   }
-  /* Each method the worker calls is present and callable; what they answer is the store's contract. */
-  return candidate as unknown as WebhookDeliveryStore;
+  return store;
 }
 
 export type WorkerClock = () => Date | number | string;
@@ -170,7 +171,7 @@ export async function sendPinnedHttpsWebhook(input: WebhookRequest = {}): Promis
 export type WebhookTransport = (request: WebhookRequest & { readonly destination: WebhookDestination; readonly body: string; readonly headers: OutgoingHttpHeaders; readonly signingSecret: string }) => Promise<unknown>;
 
 export interface WebhookWorkerOptions {
-  readonly store?: unknown;
+  readonly store?: WebhookDeliveryStore | null;
   readonly masterSecret?: unknown;
   readonly resolveAddresses?: (hostname: string) => Promise<unknown>;
   readonly transport?: WebhookTransport;

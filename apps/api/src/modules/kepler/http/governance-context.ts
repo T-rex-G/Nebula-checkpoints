@@ -42,26 +42,23 @@ export interface GovernanceContextDeps {
   readonly governanceService: () => Promise<unknown>;
   /* The repository authorization snapshot (authorization-resolver.ts). */
   readonly resolveAuthorization: (input: { account: unknown; owner: unknown; repo: unknown; actorIdentityKey: string }) => Promise<unknown>;
-  readonly identityKey: (account: never) => string;
+  readonly identityKey: (account: GovernanceRequest['gh']) => string;
   /* The actor the ledger keeps for the request. */
-  readonly retainedActor: (req: never) => unknown;
+  readonly retainedActor: (req: GovernanceRequest) => unknown;
 }
 
 export function createGovernanceContext(deps: GovernanceContextDeps) {
-  const call = deps as unknown as { identityKey(account: unknown): string; retainedActor(req: GovernanceRequest): unknown };
-  const failure = governanceFailure as unknown as (res: GovernanceResponse, error: unknown) => unknown;
-
   function governanceAccess(requiredRole: string, options: { readonly publicRepositories?: boolean } = {}) {
     return async function authorizeGovernance(req: GovernanceRequest, res: GovernanceResponse, next: () => void) {
       res.setHeader('Cache-Control', 'no-store');
       try {
-        const params = req.params as Readonly<Record<string, unknown>>;
+        const { params } = req;
         const service = await deps.governanceService();
         const authorization = await deps.resolveAuthorization({
           account: req.gh,
           owner: params.owner,
           repo: params.repo,
-          actorIdentityKey: call.identityKey(req.gh)
+          actorIdentityKey: deps.identityKey(req.gh)
         });
         const context = assertGovernanceAuthorization({
           authorization,
@@ -72,15 +69,15 @@ export function createGovernanceContext(deps: GovernanceContextDeps) {
             repo: params.repo
           },
           requiredRole
-        } as Parameters<typeof assertGovernanceAuthorization>[0]);
+        });
         if (isPublicReaderAccess(context.authorization) && options.publicRepositories !== true) {
           throw Object.assign(new Error('This is shared by the repository’s collaborators, and reading a public repository does not make you one'), {
             status: 403, code: 'GOVERNANCE_COLLABORATORS_ONLY'
           });
         }
-        req.governance = { ...context, service, publicReader: isPublicReaderAccess(context.authorization) } as unknown as GovernanceRequest['governance'];
+        req.governance = { ...context, service, publicReader: isPublicReaderAccess(context.authorization) };
         next();
-      } catch (error) { return failure(res, error); }
+      } catch (error) { return governanceFailure(res, error); }
       return undefined;
     };
   }
@@ -97,16 +94,16 @@ export function createGovernanceContext(deps: GovernanceContextDeps) {
           owner: req.governance.scope.owner,
           repo: req.governance.scope.repo,
           actorIdentityKey: req.governance.actor.identityKey,
-          actorLogin: call.retainedActor(req),
+          actorLogin: deps.retainedActor(req),
           method: req.method,
           route: req.route && req.route.path ? String(req.route.path) : req.path,
           metadata: governanceMutationMetadata(req, action),
           security: {},
           authorization: req.governance.authorization
         };
-      } catch (error) { return failure(res, error); }
+      } catch (error) { return governanceFailure(res, error); }
       runInMutationContext(deps.gateway, descriptor, req, res, next).catch(error => {
-        if (!res.headersSent) return failure(res, error);
+        if (!res.headersSent) return governanceFailure(res, error);
         console.error(JSON.stringify({
           t: new Date().toISOString(), warn: 'governance mutation context failed after headers',
           action, code: error && error.code || 'GOVERNANCE_MUTATION_FAILED'

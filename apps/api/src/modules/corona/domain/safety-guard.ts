@@ -27,7 +27,8 @@ export interface GuardedRequest {
   readonly body?: unknown;
   readonly query?: unknown;
   readonly effectiveSafety?: unknown;
-  readonly session?: { readonly safety?: unknown } | null;
+  /* The session, whatever else it holds: its copy of the controls is read where none was loaded. */
+  readonly session?: { readonly safety?: unknown; readonly [field: string]: unknown } | null;
 }
 
 interface PathFields {

@@ -391,7 +391,7 @@ export interface GovernanceApiStore {
 
 type LifecycleCall = 'deactivatePolicy' | 'archivePolicy' | 'restorePolicy' | 'listArchivedPolicies' | 'discardDraft' | 'withdrawVersion' | 'resetGovernance';
 
-const REQUIRED_STORE_METHODS = [
+const REQUIRED_STORE_METHODS: readonly (keyof GovernanceApiStore)[] = [
   'listPolicies', 'createPolicy', 'getPolicyStateInScope',
   'createDraft', 'getDraft', 'updateDraft', 'submitDraft',
   'listVersions', 'getVersionInScope', 'getReviewState', 'claimReviewer', 'recordReviewDecision',
@@ -403,13 +403,12 @@ const REQUIRED_STORE_METHODS = [
   'createEvidenceExport', 'listEvidenceExports', 'getEvidenceExport', 'verifyEvidenceExport'
 ];
 
-function requireStore(store: unknown): GovernanceApiStore {
-  const candidate = store as Fields | null | undefined;
-  if (!candidate || REQUIRED_STORE_METHODS.some(method => typeof candidate[method] !== 'function')) {
+/* The compiler checks a typed caller's store where it is passed; one from untyped code is still refused unless every method the service calls unconditionally is there. */
+function requireStore(store: GovernanceApiStore | null | undefined): GovernanceApiStore {
+  if (!store || REQUIRED_STORE_METHODS.some(method => typeof store[method] !== 'function')) {
     throw new TypeError('Governance API service requires a complete governance store');
   }
-  /* Every method the service calls unconditionally is present and callable; what each answers is the store's contract. */
-  return candidate as unknown as GovernanceApiStore;
+  return store;
 }
 
 /* One call into the service: who is asking, on which repository, and what the request carried. */
@@ -422,7 +421,7 @@ export interface RepositoryFactsRequest {
 }
 
 export interface GovernanceApiOptions {
-  readonly store?: unknown;
+  readonly store?: GovernanceApiStore | null;
   readonly now?: () => number;
   readonly resolveRepositoryFacts?: (request: RepositoryFactsRequest) => Promise<unknown>;
   readonly resolveWebhookAddresses?: (hostname: string) => Promise<unknown>;

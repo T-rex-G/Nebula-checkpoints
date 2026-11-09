@@ -118,4 +118,20 @@ assert.strictEqual(invalid.valid, false);
 assert.strictEqual(invalid.failedAt, 2);
 assert.throws(() => createGovernanceAuditRecord('short', base), error => error instanceof GovernanceError && error.code === 'GOVERNANCE_AUDIT_SECRET_INVALID');
 
+/* A document keeps what it was given, in the order stored documents have always had, and nothing it was not. */
+{
+  const rule = { id: 'no-delete', action: 'repository.delete', effect: 'deny' };
+  const full = normalizePolicyDocument({
+    metadata: { team: 'core', review: { cadence: 'weekly' } }, rules: [rule],
+    enforcement: { mode: 'Warn' }, description: '  ', schemaVersion: 1
+  });
+  assert.deepStrictEqual(Object.keys(full), ['schemaVersion', 'description', 'enforcement', 'rules', 'metadata']);
+  assert.strictEqual(full.description, '', 'a description given, even an empty one, is kept');
+  assert.deepStrictEqual(full.enforcement, { mode: 'warn' });
+  assert.deepStrictEqual(full.metadata, { team: 'core', review: { cadence: 'weekly' } }, 'the metadata is kept');
+  const bare = normalizePolicyDocument({ schemaVersion: 1, rules: [rule] });
+  assert.deepStrictEqual(Object.keys(bare), ['schemaVersion', 'rules'], 'what was not given is not added');
+  assert.notStrictEqual(policyDocumentHash(full), policyDocumentHash(bare));
+}
+
 console.log('governance model tests passed');

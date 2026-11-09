@@ -211,7 +211,28 @@ async function replayContract() {
     error => error && error.code === 'STEP_UP_REPLAY',
     'an expired pending grant is not consumable'
   );
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), { ...grantClaims, jti: 'grant-2' }, normalizedDelete, { now: at, replayStore: untouched }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'a claim naming another grant must not spend the one this session holds'
+  );
+  await assert.rejects(
+    consumePendingStepUp(pendingFor(), grantClaims, { ...normalizedDelete, scope: { ...normalizedDelete.scope, repo: 'Other' } }, { now: at, replayStore: untouched }),
+    error => error && error.code === 'STEP_UP_REPLAY',
+    'a grant for one repository must not authorize the same action on another'
+  );
   assert.strictEqual(untouched.calls, 0, 'a claim that does not validate must never reach the store');
+
+  /* A spent grant is kept by the guard for as long as either the claim or the pending grant could still be presented. */
+  const recorded = [];
+  const lasting = pendingFor();
+  lasting.stepUp = { ...lasting.stepUp, expiresAt: Number(grantClaims.exp) + 600_000 };
+  await consumePendingStepUp(lasting, grantClaims, normalizedDelete, {
+    now: at, replayStore: { async consumeOnce(input) { recorded.push(input); return true; } }
+  });
+  assert.deepStrictEqual(recorded.map(input => [input.kind, input.key, input.expiresAt, input.now]),
+    [['step-up', grantClaims.jti, Number(grantClaims.exp) + 600_000, at]],
+    'the guard holds the grant until the later of its two expiries');
 
   /* A store that cannot answer denies, and leaves the grant unspent. */
   const unreachable = atomicStore({ fail: true });

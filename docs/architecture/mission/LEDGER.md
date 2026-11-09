@@ -2523,3 +2523,24 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
 - **Every file's length bounded** (`test/source-size.test.js`): a file of the server holds at most 800 lines. Eleven are longer and are recorded in `test/oracles/source-sizes.json`, each with the length it may not exceed: two engines that are one algorithm each, the Uranus flow and C-family analyses, and nine still to divide. A recorded file may shrink but not grow, and one that falls within the limit leaves the record.
 - **Next in Gate D:** the 18 double casts and the four `as never`, by typing the seams the composition passes, then the nine files to divide.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### Gate D, step two — no double cast, no cast to never
+
+- **Why.** Eighteen double casts and four casts to `never` remained, each telling the compiler that two types it knew to be unrelated were the same. Most stood at a seam the composition passes: a dependency typed to take `never`, so that any function fitted, and then called through a cast back to what the module meant. Every one hid a question the compiler would otherwise have asked.
+- **Typed where the value is passed.** Each seam now names what it is given, and the compiler checks the composition against it.
+  - The request guards, the account lifecycle, the mutation and governance contexts, repository and capability access and the upload scan name the request and response they read -- Express's, as far as they read it: the cookie, the headers, the route's parameters, what the guards attached. The session functions, the failure answer and the actor's label are checked against them.
+  - The webhook worker and the governance API take their store typed, so the real store is checked where it is passed. A store from code that is not typed is still refused unless each method is there.
+  - A claimed delivery's id, status and URL, and a scan's id and scope, are read as the text the schema keeps them as (a uuid key, or `text NOT NULL`) rather than claimed to be text.
+  - The stored step-up grant is read field by field, since stored data may hold anything. A policy document is built as its type. An IPv6 address is checked to be eight words. The contracts declare the platform's `URL` rather than cast `globalThis`.
+- **What the casts hid.** The webhook worker took a delivery's id and URL to be text, while the store answered them unread. The exposure worker passed an unread scope to a session resolver that took it to be a typed one. The account lifecycle's webhook steps took the owner and repository to be text, which the disconnect never promised. The guards' request lacked the headers their own session reader reads. None was wrong at run time, since the schema keeps each value as the type it was taken for; each is now checked rather than claimed.
+- **Refused, not counted.** `test/type-assertions.test.js` refuses a cast through `unknown`, in either form, and a cast to `never`. None is left, and none may come back. The register holds each file's count of the rest: 464 in 93 files, 52 fewer than at step one.
+- **Each check fails when what it guards is broken.** Every line this step touched was mutated and run against its tests. 14 of 26 mutants survived at first, and each now has a test:
+  - a policy document keeps an empty description and its metadata, in the order stored documents have always had, and adds nothing it was not given (`test/governance-model.test.js`);
+  - the webhook worker and the governance API refuse a store missing a method they call (`test/governance-webhook-worker.test.js`, `test/governance-api.test.js`);
+  - a claimed delivery is described from the columns that hold each field (`test/governance-delivery-store.test.js`);
+  - a step-up grant is spent only for its own id and scope, and the replay guard holds it until the later of its two expiries (`test/security-foundation.test.js`);
+  - a webhook GitHub never numbered is not removed through GitHub (`test/account-lifecycle.test.js`);
+  - the composed server reads a merge's facts from the repository it merges, before GitHub is asked to merge (`test/composition.test.js`).
+  25 are caught. One cannot fail: an address is always eight words where its words are counted.
+- **The scope contract** moves to version 2. Its file's shape changed with the declaration of `URL`, though nothing it exports did.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

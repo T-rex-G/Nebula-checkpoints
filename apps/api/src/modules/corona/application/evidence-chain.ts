@@ -46,16 +46,6 @@ export interface EvidenceChainDeps {
   readonly legacyAccepted: boolean;
 }
 
-interface ChainRow {
-  readonly seq: unknown;
-  readonly kind: unknown;
-  readonly record_id: unknown;
-  readonly previous_hash: unknown;
-  readonly record_hash: unknown;
-  readonly payload_hash: unknown;
-  readonly created_at: unknown;
-}
-
 export function createEvidenceChain(deps: EvidenceChainDeps) {
   async function appendEvidence(repoK: string, kind: string, recordId: string, payload: unknown) {
     if (!(await deps.ready())) return null;
@@ -99,7 +89,7 @@ export function createEvidenceChain(deps: EvidenceChainDeps) {
       ),
       deps.pool().query('SELECT count(*)::int AS total FROM nv_evidence_chain WHERE repo_key=$1', [repoK])
     ]);
-    const rows = r.rows as unknown as readonly ChainRow[];
+    const rows = r.rows;
     const total = count.rows[0] ? Number(count.rows[0].total || 0) : 0;
     let previousHash: unknown = EVIDENCE_GENESIS;
     /* Records written before the hashing key was separated by purpose still

@@ -39,8 +39,9 @@ export interface CapabilityAccessDeps {
   readonly qualification: unknown;
   readonly deployment: string;
   readonly registry: CapabilityRegistry;
-  readonly providerAuthority: (account: never) => unknown;
-  readonly githubTokenKind: (account: never) => unknown;
+  /* The host the account's provider answers on, and the kind of token it holds (identity-access, the GitHub provider). */
+  readonly providerAuthority: (account: CapabilityAccount | null | undefined) => unknown;
+  readonly githubTokenKind: (account: CapabilityAccount) => unknown;
 }
 
 /*
@@ -51,9 +52,7 @@ type CapabilityRequest = object & { readonly gh?: CapabilityAccount; capability?
 interface CapabilityResponse { status(code: number): CapabilityResponse; json(body: unknown): unknown }
 
 export function createCapabilityAccess(deps: CapabilityAccessDeps) {
-  const authority = deps.providerAuthority as unknown as (account: unknown) => unknown;
-  const tokenKind = deps.githubTokenKind as unknown as (account: unknown) => unknown;
-  const { registry } = deps;
+  const { registry, providerAuthority: authority, githubTokenKind: tokenKind } = deps;
 
   function providerCapabilities(account: CapabilityAccount | null | undefined) {
     const context = {

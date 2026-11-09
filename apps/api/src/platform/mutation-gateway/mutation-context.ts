@@ -25,16 +25,16 @@ import { normalizeMutationDescriptor, type MutationGateway } from './mutation-ga
 import { pathFactsForAction } from './protected-paths.ts';
 import { offerSafePassage, type StepEvaluator } from './safe-passage.ts';
 
-/* A request as the contexts read it; every field is read where it is used. */
+/* A request as the contexts read it; every field is read where it is used. Express gives every request its route's parameters. */
 export interface ContextRequest {
   readonly body?: unknown;
   readonly query?: unknown;
-  readonly params?: unknown;
+  readonly params: Readonly<Record<string, string | undefined>>;
   readonly method?: string;
   readonly path?: string;
   readonly route?: { readonly path?: unknown } | null;
   /* Attached by the session guards, which run before a mutation's context on every route that has one. */
-  readonly gh?: { readonly provider?: unknown; readonly baseUrl?: unknown; readonly login?: unknown; [field: string]: unknown };
+  readonly gh?: { readonly provider?: unknown; readonly baseUrl?: unknown; readonly login?: unknown; [field: string]: unknown } | null;
   readonly alpha?: unknown;
   readonly stepUp?: { readonly action?: unknown; readonly assurance?: unknown; readonly authorizedAt?: unknown } | null;
   authorization?: unknown;
@@ -48,6 +48,18 @@ export interface ContextResponse {
   once(event: 'finish' | 'close', listener: () => void): unknown;
   removeListener(event: 'finish' | 'close', listener: () => void): unknown;
 }
+
+/* A response a refusal is also answered on, as a failure is sent (http/errors.ts): Express's. */
+export interface MutationResponse extends ContextResponse {
+  readonly destroyed: boolean;
+  readonly locals: { readonly correlationId?: string };
+  destroy(): void;
+  status(code: number): { json(body: unknown): unknown };
+}
+
+/* The parts of a request the ledger's actor is read from, and the parts a provider change made outside a route's own reads. */
+type ActorRequest = Pick<ContextRequest, 'alpha' | 'gh'>;
+type ProviderMutationRequest = Pick<ContextRequest, 'alpha' | 'gh' | 'route' | 'path'>;
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -100,16 +112,16 @@ export function runInMutationContext(gateway: MutationGateway, descriptor: unkno
 
 export interface RepositoryMutationContextDeps {
   readonly gateway: MutationGateway;
-  readonly identityKey: (account: never) => string;
+  readonly identityKey: (account: Fields | null | undefined) => string;
   /* The actor the ledger keeps for the request (the alpha's label, or the account's login). */
-  readonly retainedActor: (req: never) => unknown;
+  readonly retainedActor: (req: ActorRequest) => unknown;
   /* The repository authorization snapshot (authorization-resolver.ts). */
   readonly resolveAuthorization: (input: { account: unknown; owner: unknown; repo: unknown; actorIdentityKey: string }) => Promise<unknown>;
   /* In the alpha, the principal is recorded under the tester's label. */
   readonly alphaEnabled: boolean;
-  readonly alphaActorLabel: (alpha: never) => string;
+  readonly alphaActorLabel: (alpha: unknown) => string;
   /* A merge's facts for the policy (Uranus). */
-  readonly mergeFacts: (req: never) => Promise<unknown>;
+  readonly mergeFacts: (req: ContextRequest) => Promise<unknown>;
   /* What a restore preview's authorization would do, without spending it (Corona). */
   readonly inspectRestoreAuthorization: (target: { account: unknown; owner: unknown; repo: unknown }, authorization: unknown) => { readonly actions: unknown };
   /* For the safe passage: the database's readiness, the active policy set, and its step evaluator (Kepler). */
@@ -117,17 +129,10 @@ export interface RepositoryMutationContextDeps {
   readonly resolveActivePolicySet: (input: { scope: unknown; action: unknown }) => Promise<{ readonly activePolicies?: unknown; readonly activeExceptions?: unknown; readonly resolvedAt?: unknown }>;
   readonly stepEvaluator: (input: { scope: unknown; activePolicies: unknown; activeExceptions: unknown; evaluatedAt: unknown }) => StepEvaluator;
   /* A failed request's answer (http/errors.ts). */
-  readonly fail: (res: never, error: unknown) => unknown;
+  readonly fail: (res: MutationResponse, error: unknown) => unknown;
 }
 
 export function createRepositoryMutationContext(deps: RepositoryMutationContextDeps) {
-  const call = deps as unknown as {
-    identityKey(account: unknown): string;
-    retainedActor(req: ContextRequest): unknown;
-    alphaActorLabel(alpha: unknown): string;
-    mergeFacts(req: ContextRequest): Promise<unknown>;
-    fail(res: ContextResponse, error: unknown): unknown;
-  };
   const bodyOf = (req: ContextRequest): Fields => (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : {}) as Fields;
 
   function mutationMetadataFor(req: ContextRequest, action: string): Record<string, unknown> {
@@ -138,7 +143,7 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
   function baseMutationMetadataFor(req: ContextRequest, action: string): Record<string, unknown> {
     const body = bodyOf(req);
     const query = (req.query || {}) as Fields;
-    const params = (req.params || {}) as Fields;
+    const params: Fields = req.params || {};
     const text = (value: unknown, max = 500) => cleanText(value == null ? '' : String(value), max).replace(/[\r\n\0]/g, ' ');
     switch (action) {
       case 'repository.create': return { name: text(body.name, 100), private: body.isPrivate !== false, autoInit: body.autoInit !== false };
@@ -176,7 +181,7 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
       case 'file.upload': return { path: text(query.path, 1000), branch: text(query.branch, 255), lfsMode: text(query.lfs || 'auto', 20), expectedHeadSha: text(query.expectedHeadSha, 40) };
       case 'directory.move': return { branch: text(body.branch, 255), from: text(body.from, 1000), to: text(body.to, 1000), expectedHeadSha: text(body.expectedHeadSha, 40) };
       case 'recovery.restore-refs': {
-        const inspected = deps.inspectRestoreAuthorization({ account: req.gh, owner: (req.params as Fields).owner, repo: (req.params as Fields).repo }, body.authorization);
+        const inspected = deps.inspectRestoreAuthorization({ account: req.gh, owner: req.params.owner, repo: req.params.repo }, body.authorization);
         return { confirmation: text(body.confirm, 20), ...summarizeBatchItems('recovery.restore-refs', inspected.actions) };
       }
       default: return {};
@@ -190,10 +195,10 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
       action,
       provider: req.gh!.provider || 'github',
       baseUrl: req.gh!.baseUrl || '',
-      owner: createRepository ? req.gh!.login : (req.params as Fields).owner,
-      repo: createRepository ? body.name : (req.params as Fields).repo,
-      actorIdentityKey: call.identityKey(req.gh),
-      actorLogin: call.retainedActor(req),
+      owner: createRepository ? req.gh!.login : req.params.owner,
+      repo: createRepository ? body.name : req.params.repo,
+      actorIdentityKey: deps.identityKey(req.gh),
+      actorLogin: deps.retainedActor(req),
       method: req.method,
       route: req.route && req.route.path ? String(req.route.path) : req.path,
       metadata: mutationMetadataFor(req, action),
@@ -209,22 +214,22 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
   async function resolveMutationAuthorization(req: ContextRequest, action: string): Promise<unknown> {
     const body = bodyOf(req);
     const createRepository = action === 'repository.create';
-    const owner = createRepository ? req.gh!.login : (req.params as Fields).owner;
-    const repo = createRepository ? body.name : (req.params as Fields).repo;
-    const input = { account: req.gh, owner, repo, actorIdentityKey: call.identityKey(req.gh) };
+    const owner = createRepository ? req.gh!.login : req.params.owner;
+    const repo = createRepository ? body.name : req.params.repo;
+    const input = { account: req.gh, owner, repo, actorIdentityKey: deps.identityKey(req.gh) };
     if (createRepository) {
       const snapshot = createUnavailableAuthorizationSnapshot({
         ...input, reasonCode: 'AUTHORIZATION_SCOPE_NOT_APPLICABLE'
-      } as Parameters<typeof createUnavailableAuthorizationSnapshot>[0]);
+      });
       return retainedMutationAuthorization(req, snapshot);
     }
     const snapshot = await deps.resolveAuthorization(input);
     return retainedMutationAuthorization(req, snapshot);
   }
 
-  function retainedMutationAuthorization(req: ContextRequest, snapshot: unknown): unknown {
+  function retainedMutationAuthorization(req: ActorRequest, snapshot: unknown): unknown {
     if (!deps.alphaEnabled || !req.alpha) return snapshot;
-    const actor = call.alphaActorLabel(req.alpha);
+    const actor = deps.alphaActorLabel(req.alpha);
     const s = snapshot as { readonly executionPrincipal?: object; readonly governanceActor?: object };
     return {
       ...s,
@@ -267,18 +272,18 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
   }
 
   function mutationContext(action: string) {
-    return async function enterMutationContext(req: ContextRequest, res: ContextResponse, next: () => void) {
+    return async function enterMutationContext(req: ContextRequest, res: MutationResponse, next: () => void) {
       let descriptor: unknown;
       try {
         req.authorization = await resolveMutationAuthorization(req, action);
-        if (action === 'pull.merge') req.mergeFacts = await call.mergeFacts(req);
+        if (action === 'pull.merge') req.mergeFacts = await deps.mergeFacts(req);
         descriptor = mutationDescriptorFor(req, action);
-      } catch (error) { return call.fail(res, error); }
+      } catch (error) { return deps.fail(res, error); }
       runInMutationContext(deps.gateway, descriptor, req, res, next).catch(async error => {
         if (!res.headersSent) {
           const passage = await safePassageFor(req, action, descriptor, error);
           if (passage) error.safePassage = passage;
-          return call.fail(res, error);
+          return deps.fail(res, error);
         }
         console.error(JSON.stringify({
           t: new Date().toISOString(), warn: 'mutation gateway context failed after headers',
@@ -300,12 +305,12 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
    * every provider write made outside a mutation.
    */
   async function runProviderMutation<T>(
-    req: ContextRequest,
+    req: ProviderMutationRequest,
     target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
     work: () => T | Promise<T>
   ): Promise<T> {
     const account = (target.account || {}) as Fields;
-    const actorIdentityKey = call.identityKey(account);
+    const actorIdentityKey = deps.identityKey(account);
     const snapshot = await deps.resolveAuthorization({ account, owner: target.owner, repo: target.repo, actorIdentityKey });
     return deps.gateway.run({
       action: target.action,
@@ -314,7 +319,7 @@ export function createRepositoryMutationContext(deps: RepositoryMutationContextD
       owner: target.owner,
       repo: target.repo,
       actorIdentityKey,
-      actorLogin: call.retainedActor(req),
+      actorLogin: deps.retainedActor(req),
       method: target.method,
       route: req.route && req.route.path ? String(req.route.path) : req.path,
       metadata: {},

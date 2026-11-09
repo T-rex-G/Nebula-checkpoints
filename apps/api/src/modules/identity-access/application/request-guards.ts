@@ -17,13 +17,16 @@
  * A refusal answers with its own status and code; anything else is a 500
  * whose message is the error's own, as it always was.
  */
+import type { IncomingHttpHeaders } from 'node:http';
 import { sensitiveOperationFor, type StepUpRequest } from '../../../platform/authorization/security-foundation.ts';
 import { assertGithubAccount, identityKey, isGithubAccount } from '../domain/account-identity.ts';
 import type { SignedInSession } from './provider-sessions.ts';
 
 type Next = () => void;
 
+/* An Express response as the guards answer on it; the session's security sets its cookie on it. */
 interface GuardResponse {
+  setHeader(name: string, value: string): unknown;
   status(code: number): GuardResponse;
   json(body: unknown): unknown;
 }
@@ -37,14 +40,21 @@ interface ProviderSession {
   [field: string]: unknown;
 }
 
+/*
+ * An Express request as the guards and what they ask read it: its method,
+ * path, headers, parameters and body, and what the guards attach. The session
+ * is read from the cookie, and the session's security reads the CSRF and
+ * step-up headers.
+ */
 export interface GuardedRequest {
-  session?: ProviderSession | null;
+  session?: ProviderSession;
   sessionAccount?: ProviderAccount;
   gh?: ProviderAccount;
   effectiveSafety?: unknown;
-  readonly method?: string;
+  readonly method: string;
   readonly path?: string;
-  readonly params?: unknown;
+  readonly headers: IncomingHttpHeaders;
+  readonly params?: Readonly<Record<string, string | undefined>>;
   readonly body?: unknown;
 }
 
@@ -52,30 +62,21 @@ interface Refusal { readonly status?: number; readonly message?: string; readonl
 
 export interface RequestGuardDeps {
   /* The provider session, retired accounts kept when asked (provider-sessions.ts). */
-  readonly sessionOf: (req: never, options: { retainRetiredAccounts: boolean }) => Promise<SignedInSession | null>;
+  readonly sessionOf: (req: GuardedRequest, options: { retainRetiredAccounts: boolean }) => Promise<SignedInSession | null>;
   /* The account with its credential resolved (the GitHub provider, with the App broker). */
   readonly resolveAccount: (account: ProviderAccount) => Promise<ProviderAccount>;
   /* The session's own security (session-security.ts). */
-  readonly ensureSessionSecurity: (req: never, res: never) => Promise<unknown>;
-  readonly verifyRequestCsrf: (req: never) => void;
-  readonly consumeStepUpAuthorization: (req: never, res: never, operation: StepUpRequest) => Promise<unknown>;
+  readonly ensureSessionSecurity: (req: GuardedRequest, res: GuardResponse) => Promise<unknown>;
+  readonly verifyRequestCsrf: (req: GuardedRequest) => unknown;
+  readonly consumeStepUpAuthorization: (req: GuardedRequest, res: GuardResponse, operation: StepUpRequest) => Promise<unknown>;
   /* The identity's safety controls, and what they refuse (Corona). */
-  readonly loadSafety: (req: never) => Promise<unknown>;
-  readonly guardSafety: (req: never) => string | null;
+  readonly loadSafety: (req: GuardedRequest) => Promise<unknown>;
+  readonly guardSafety: (req: GuardedRequest) => string | null;
 }
 
 export function createRequestGuards(deps: RequestGuardDeps) {
-  const call = deps as unknown as {
-    sessionOf(req: GuardedRequest, options: { retainRetiredAccounts: boolean }): Promise<ProviderSession | null>;
-    ensureSessionSecurity(req: GuardedRequest, res: GuardResponse): Promise<unknown>;
-    verifyRequestCsrf(req: GuardedRequest): void;
-    consumeStepUpAuthorization(req: GuardedRequest, res: GuardResponse, operation: StepUpRequest): Promise<unknown>;
-    loadSafety(req: GuardedRequest): Promise<unknown>;
-    guardSafety(req: GuardedRequest): string | null;
-  };
-
   async function attachProviderSession(req: GuardedRequest, { retainRetired = false } = {}): Promise<void> {
-    const s = req.session || await call.sessionOf(req, { retainRetiredAccounts: retainRetired });
+    const s = req.session || await deps.sessionOf(req, { retainRetiredAccounts: retainRetired });
     if (!s) {
       throw Object.assign(new Error('Not signed in'), { status: 401, code: 'AUTH_REQUIRED' });
     }
@@ -110,16 +111,16 @@ export function createRequestGuards(deps: RequestGuardDeps) {
     try {
       await attachProviderSession(req);
       req.gh = await deps.resolveAccount(req.sessionAccount as ProviderAccount);
-      await call.ensureSessionSecurity(req, res);
-      call.verifyRequestCsrf(req);
-      req.effectiveSafety = await call.loadSafety(req);
-      const blocked = call.guardSafety(req);
+      await deps.ensureSessionSecurity(req, res);
+      deps.verifyRequestCsrf(req);
+      req.effectiveSafety = await deps.loadSafety(req);
+      const blocked = deps.guardSafety(req);
       if (blocked) return res.status(423).json({ error: blocked, locked: true });
       const operation = sensitiveOperationFor({
         method: req.method, path: req.path, params: req.params, body: req.body,
         provider: req.gh.provider || 'github', identityKey: identityKey(req.gh)
       } as Parameters<typeof sensitiveOperationFor>[0]);
-      if (operation) await call.consumeStepUpAuthorization(req, res, operation);
+      if (operation) await deps.consumeStepUpAuthorization(req, res, operation);
       next();
     } catch (e) {
       const error = e as Refusal;
@@ -145,10 +146,10 @@ export function createRequestGuards(deps: RequestGuardDeps) {
   async function accountAuth(req: GuardedRequest, res: GuardResponse, next: Next): Promise<unknown> {
     try {
       await attachProviderSession(req, { retainRetired: true });
-      await call.ensureSessionSecurity(req, res);
-      call.verifyRequestCsrf(req);
-      req.effectiveSafety = await call.loadSafety(req);
-      const blocked = call.guardSafety(req);
+      await deps.ensureSessionSecurity(req, res);
+      deps.verifyRequestCsrf(req);
+      req.effectiveSafety = await deps.loadSafety(req);
+      const blocked = deps.guardSafety(req);
       if (blocked) return res.status(423).json({ error: blocked, locked: true });
       next();
     } catch (e) {

@@ -195,24 +195,32 @@ export function normalizePolicyDocument(input: unknown): PolicyDocument {
     if (raw.description !== undefined) rule.description = normalizeOptionalText(raw.description, `Policy rule ${id} description`, 1000);
     return rule;
   });
-  /* Built field by field in the order the stored documents have always had: schemaVersion, description, enforcement, rules, metadata. */
-  const document: Record<string, unknown> = { schemaVersion: 1 };
-  if (input.description !== undefined) document.description = normalizeOptionalText(input.description, 'Policy description', 4000);
+  /* Each part is normalized in turn, so the first that is wrong is the one refused. */
+  const description = input.description === undefined ? undefined : normalizeOptionalText(input.description, 'Policy description', 4000);
+  let enforcement: PolicyDocument['enforcement'];
   if (input.enforcement !== undefined) {
-    const enforcement = input.enforcement;
-    if (!isPlainObject(enforcement)) return fail('Policy enforcement must be an object', 'GOVERNANCE_ENFORCEMENT_INVALID');
-    const mode = String(enforcement.mode || '').trim().toLowerCase();
-    if (!['observe', 'warn', 'block'].includes(mode) || Object.keys(enforcement).some(key => key !== 'mode')) {
+    const requested = input.enforcement;
+    if (!isPlainObject(requested)) return fail('Policy enforcement must be an object', 'GOVERNANCE_ENFORCEMENT_INVALID');
+    const mode = String(requested.mode || '').trim().toLowerCase();
+    if (!['observe', 'warn', 'block'].includes(mode) || Object.keys(requested).some(key => key !== 'mode')) {
       fail('Policy enforcement mode must be observe, warn or block', 'GOVERNANCE_ENFORCEMENT_INVALID');
     }
-    document.enforcement = { mode: mode as EnforcementMode };
+    enforcement = { mode: mode as EnforcementMode };
   }
-  document.rules = rules;
+  let metadata: PolicyDocument['metadata'];
   if (input.metadata !== undefined) {
     if (!isPlainObject(input.metadata)) fail('Policy metadata must be an object', 'GOVERNANCE_DOCUMENT_INVALID');
-    document.metadata = cloneBoundedJson(input.metadata, { maxBytes: POLICY_DOCUMENT_MAX_BYTES }, '$.metadata', 1) as Readonly<Record<string, unknown>>;
+    metadata = cloneBoundedJson(input.metadata, { maxBytes: POLICY_DOCUMENT_MAX_BYTES }, '$.metadata', 1) as Readonly<Record<string, unknown>>;
   }
-  return enforceEncodedSize(document as unknown as PolicyDocument, POLICY_DOCUMENT_MAX_BYTES, 'GOVERNANCE_DOCUMENT_TOO_LARGE');
+  /* In the order the stored documents have always had: schemaVersion, description, enforcement, rules, metadata. */
+  const document: PolicyDocument = {
+    schemaVersion: 1,
+    ...(input.description === undefined ? {} : { description }),
+    ...(input.enforcement === undefined ? {} : { enforcement }),
+    rules,
+    ...(input.metadata === undefined ? {} : { metadata })
+  };
+  return enforceEncodedSize(document, POLICY_DOCUMENT_MAX_BYTES, 'GOVERNANCE_DOCUMENT_TOO_LARGE');
 }
 
 export interface ApprovalPolicy {

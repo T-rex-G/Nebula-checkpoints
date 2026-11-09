@@ -337,6 +337,15 @@ process.on('exit', code => { if (!finished && code === 0) { console.error('the a
     });
   }
   {
+    /* A webhook GitHub never numbered cannot be removed through it: nothing is asked of GitHub, and it is left for cleanup. */
+    const unnumbered = harness({ alpha: true, answers: { rows: sql => (sql.includes('nv_webhooks') ? [{ ...hookRows[0], provider_hook_id: null }] : []), gh: absentOnRead } });
+    const result = await unnumbered.life.disconnectAlphaProviderAccount(tester(), github('alice'));
+    assert.deepStrictEqual(unnumbered.at('gh'), [], 'nothing is asked of the provider');
+    assert.deepStrictEqual(unnumbered.at('mutation'), [], 'nothing is written through the gateway');
+    assert.strictEqual(unnumbered.at('complete').length, 0, 'the webhook is not recorded as removed');
+    assert.strictEqual(result.complete, false);
+  }
+  {
     const claimed = harness({ alpha: true, answers: { rows: sql => (sql.includes('nv_webhooks') ? hookRows.slice(0, 1).map(row => ({ ...row })) : []), gh: async () => ({ status: 204 }) } });
     const result = await claimed.life.disconnectAlphaProviderAccount(tester(), github('alice'));
     assert.strictEqual(result.complete, false, 'a hook the provider still shows is not claimed removed');

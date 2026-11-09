@@ -405,6 +405,46 @@ function admitAll(hub, key, limit = 1000) {
   }
 
   /*
+   * ---- A merge is judged on the facts of the pull it merges ----
+   * The composition hands the merge context a reading of the pull's facts --
+   * its branches and head, which the policy and the ledger see. They are read
+   * from the repository the request names, before GitHub is asked to merge,
+   * and the merge goes to the same pull.
+   */
+  {
+    const application = await composedApplication(BASE);
+    const token = `ghp_${'m'.repeat(36)}`;
+    const head = 'c'.repeat(40);
+    const github = standInForOutbound([
+      ['GET /user$', { body: { login: 'octo', id: 7, name: 'Octo' }, headers: { 'x-oauth-scopes': 'repo' } }],
+      ['GET /repos/acme/demo/collaborators/octo/permission$', { body: { permission: 'admin', role_name: 'admin', user: { login: 'octo', id: 7 } } }],
+      ['GET /repos/acme/demo/pulls/5$', { body: { number: 5, state: 'open', head: { ref: 'feature', sha: head, repo: { full_name: 'acme/demo' } }, base: { ref: 'main', repo: { full_name: 'acme/demo' } } } }],
+      ['PUT /repos/acme/demo/pulls/5/merge$', { body: { merged: true, sha: 'd'.repeat(40) } }]
+    ]);
+    try {
+      const page = browser(application);
+      assert.equal((await page.signIn(token)).status, 200);
+      const csrf = await page.csrf();
+      const stepUp = await bodyOf(await page.request('/api/security/step-up', {
+        method: 'POST', headers: { 'x-nv-csrf': csrf },
+        body: { action: 'pull.merge', scope: { owner: 'acme', repo: 'demo', pullNumber: 5, method: 'squash' }, confirm: 'octo', credential: token }
+      }));
+      const signedIn = github.requests.length;
+      const merged = await page.request('/api/repo/acme/demo/pulls/5/merge', {
+        method: 'PUT', body: { method: 'squash', expectedHeadSha: head }, headers: { 'x-nv-csrf': csrf, 'x-nv-step-up': stepUp.grant }
+      });
+      assert.equal(merged.status, 200, JSON.stringify(await bodyOf(merged.clone())));
+      const asked = github.requests.slice(signedIn).map(request => `${request.method} ${new URL(request.url).pathname}`);
+      assert(asked.every(line => / \/repos\/acme\/demo\//.test(line)), `GitHub is asked about the merged repository alone: ${asked.join(', ')}`);
+      assert(asked.indexOf('GET /repos/acme/demo/pulls/5') >= 0, 'the pull\'s facts are read');
+      assert(asked.indexOf('GET /repos/acme/demo/pulls/5') < asked.indexOf('PUT /repos/acme/demo/pulls/5/merge'), 'before the merge is asked for');
+    } finally {
+      github.restore();
+      await application.close();
+    }
+  }
+
+  /*
    * ---- A GitHub App flow's state is the server's own, and is spent once ----
    * Replaces the GitHub App contract's check that the composition handed the
    * App's routes the state verifier. The App's setup is reached by a redirect

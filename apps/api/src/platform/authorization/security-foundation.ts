@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { memorySingleUseStore } from '../rate-limit/single-use-store.ts';
+import { property } from '../values/fields.ts';
 import { ASSURANCE_LEVELS } from '../../../../../packages/contracts/src/mutation.ts';
 import { isCommitSha } from '../../../../../packages/contracts/src/ids.ts';
 
@@ -309,16 +310,13 @@ function replayStoreFor(store: unknown, maxEntries: number): ReplayStore {
  * The pending grant a session is holding: the identifiers the claim has to
  * match, and the moment past which it is no longer a grant at all.
  */
-export interface PendingStepUp {
-  readonly jti?: string;
-  readonly action?: string;
-  readonly scopeHash?: string;
-  readonly expiresAt?: number;
-  readonly assurance?: string;
-}
-
+/*
+ * A session's security state. The pending grant comes back from wherever the
+ * session was stored, so it is read field by field, as anything it holds may
+ * be.
+ */
 export interface SessionSecurityState {
-  stepUp?: PendingStepUp | null;
+  stepUp?: unknown;
 }
 
 export interface StepUpOperation {
@@ -362,10 +360,10 @@ export async function consumePendingStepUp(
   const pending = securityState.stepUp;
   const expectedScopeHash = scopeHash(operation && operation.scope || {});
   const valid = pending && grantId &&
-    safeEqual(pending.jti, grantId) &&
-    safeEqual(pending.action, operation && operation.action) &&
-    safeEqual(pending.scopeHash, expectedScopeHash) &&
-    Number(pending.expiresAt || 0) >= currentTime;
+    safeEqual(property(pending, 'jti'), grantId) &&
+    safeEqual(property(pending, 'action'), operation && operation.action) &&
+    safeEqual(property(pending, 'scopeHash'), expectedScopeHash) &&
+    Number(property(pending, 'expiresAt') || 0) >= currentTime;
   if (!valid || !pending) {
     throw new SecurityTokenError('Step-up authorization is missing, expired, or already used', 'STEP_UP_REPLAY');
   }
@@ -376,7 +374,7 @@ export async function consumePendingStepUp(
       claimed = await store.consumeOnce({
         kind: 'step-up',
         key: grantId,
-        expiresAt: Math.max(Number(claims?.exp || 0), Number(pending.expiresAt || 0)),
+        expiresAt: Math.max(Number(claims?.exp || 0), Number(property(pending, 'expiresAt') || 0)),
         now: currentTime
       });
     } catch (error) {

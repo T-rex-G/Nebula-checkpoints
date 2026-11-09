@@ -37,11 +37,13 @@ import { createGuardedSession, PROFILES as GUARDED_PROFILES } from '../../../pla
 import * as exposureReader from '../client/exposure-reader.ts';
 import { ExposureStore, type ExposureStoreOptions } from '../persistence/exposure-store.ts';
 import { resolveExposureSession as resolveStoredExposureSession, type ExposureSessionDependencies, type ExposureSessionInput } from './exposure-session.ts';
-import { DEFAULT_BUDGETS, startExposureWorker, type ExposureWorkerOptions } from './exposure-worker.ts';
+import { DEFAULT_BUDGETS, startExposureWorker } from './exposure-worker.ts';
 
 type ExposureWorker = ReturnType<typeof startExposureWorker>;
 /* A tester's alpha access, as a scan's session reads it. */
 type Access = { readonly testerId?: unknown; readonly repositoryScopes?: unknown };
+/* An account with its credential resolved: its fields, the token a scan reads with among them. */
+type ResolvedAccount = Readonly<Record<string, unknown>>;
 
 export interface ExposureHostDeps {
   readonly databaseConfigured: boolean;
@@ -52,7 +54,7 @@ export interface ExposureHostDeps {
   readonly fingerprintKey: string | Buffer;
   readonly shuttingDown: () => boolean;
   /* How a scan finds a session still signed in, less the pool, which is this host's. */
-  readonly session: Omit<ExposureSessionDependencies<Access, unknown>, 'pool'>;
+  readonly session: Omit<ExposureSessionDependencies<Access, ResolvedAccount>, 'pool'>;
 }
 
 export function createExposureHost(deps: ExposureHostDeps) {
@@ -78,7 +80,6 @@ export function createExposureHost(deps: ExposureHostDeps) {
   function ensureExposureWorker(): ExposureWorker | null {
     if (worker || !deps.databaseConfigured || deps.shuttingDown() || !exposureScanningAvailable()) return worker;
     store = new ExposureStore({ pool: deps.pool(), cursorKey: deps.fingerprintKey });
-    /* The store's methods take records as the database reads them; the worker's port names the fields it passes. */
     worker = startExposureWorker({
       store,
       reader: exposureReader,
@@ -88,7 +89,7 @@ export function createExposureHost(deps: ExposureHostDeps) {
         profile: GUARDED_PROFILES.PROVIDER_READ,
         maxSockets: DEFAULT_BUDGETS.readConcurrency
       })
-    } as unknown as ExposureWorkerOptions);
+    });
     return worker;
   }
 

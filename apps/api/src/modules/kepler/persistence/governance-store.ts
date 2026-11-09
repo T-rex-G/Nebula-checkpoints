@@ -539,10 +539,10 @@ function mapWebhook(row: Row) {
 }
 function mapWebhookDelivery(row: Row) {
   return {
-    deliveryId: row.delivery_id,
+    deliveryId: String(row.delivery_id), // the uuid key; status and endpoint_url are text NOT NULL as well
     webhookId: row.webhook_id,
     eventSeq: Number(row.event_seq),
-    status: row.status,
+    status: String(row.status),
     attemptCount: Number(row.attempt_count),
     nextAttemptAt: row.next_attempt_at,
     leaseUntil: row.lease_until || null,
@@ -2887,7 +2887,7 @@ export class GovernanceStore {
     return rowsOf(result).map(row => ({
       ...mapWebhookDelivery(row),
       scope: normalizePolicyScope({ provider: row.provider, baseUrl: `https://${row.authority}`, owner: row.owner, repo: row.repo }),
-      url: row.endpoint_url,
+      url: String(row.endpoint_url),
       secretSalt: row.secret_salt,
       secretVersion: Number(row.secret_version),
       eventTypes: row.event_types,

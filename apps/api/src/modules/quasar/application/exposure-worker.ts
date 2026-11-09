@@ -213,7 +213,7 @@ export interface ScanReader {
 }
 
 /* Who may read the repository right now: a live session's token, or nothing. */
-export type SessionResolver = (input: { readonly scope: unknown; readonly requestedBy: unknown; readonly scanId: unknown }) =>
+export type SessionResolver = (input: { readonly scope: ScanRecord['scope']; readonly requestedBy: unknown; readonly scanId: ScanRecord['scanId'] }) =>
   Promise<{ readonly token?: unknown } | null | undefined>;
 
 /* A connection pool for one scan, closed when the scan ends. */
@@ -248,8 +248,8 @@ interface Provenance {
 /* A finding as the store takes it: the sanitized finding and where it was seen. */
 export type ObservedFinding = Readonly<Finding & Provenance>;
 
-/* How a scan ended, as the store records it. */
-interface ScanOutcome {
+/* How a scan ended, as the store records it: a plain record of named fields, so the store's reader of fields takes it as it is. */
+type ScanOutcome = {
   readonly state: 'complete' | 'partial' | 'failed';
   readonly coverage: 'complete' | 'partial' | 'unknown';
   readonly skippedReason: string | null;
@@ -263,7 +263,7 @@ interface ScanOutcome {
   readonly commitsSkipped?: number | null;
   readonly archivesScanned?: number;
   readonly archiveMembersScanned?: number;
-}
+};
 
 /* A read started ahead of the scan, and how it settled. */
 type Settled<T> = { readonly value: T } | { readonly error: unknown };

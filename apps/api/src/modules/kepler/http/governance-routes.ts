@@ -45,7 +45,10 @@ export interface GovernanceRouteDeps {
  * code; anything else is logged by its code alone and answered as a failure
  * of the operation, without its message.
  */
-export function governanceFailure(res: Response, error: unknown): Response {
+/* A response a failure is answered on: any that answers a status with a JSON body, Express's among them. */
+interface FailureAnswer { status(code: number): { json(body: unknown): unknown } }
+
+export function governanceFailure(res: FailureAnswer, error: unknown): unknown {
   const code = String((error && member(error, 'code')) || '');
   const known = /^(?:GOVERNANCE|MUTATION|AUTHORIZATION|SIMULATION|POLICY)_/.test(code);
   const rawStatus = Number(error && member(error, 'status'));

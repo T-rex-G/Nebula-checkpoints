@@ -335,12 +335,13 @@ function iso(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : (value == null ? null : String(value));
 }
 
+/* The scope quadruple, text NOT NULL in every table that holds it, as is a scan's uuid key. */
+const scopeOf = (row: Row): ExposureScope => Object.freeze({ provider: String(row.provider), authority: String(row.authority), owner: String(row.owner_login), repo: String(row.repo_name) });
+
 function scanOf(row: Row) {
   return Object.freeze({
-    scanId: row.scan_id,
-    scope: Object.freeze({
-      provider: row.provider, authority: row.authority, owner: row.owner_login, repo: row.repo_name
-    }),
+    scanId: String(row.scan_id),
+    scope: scopeOf(row),
     requestedBy: row.requested_by,
     refName: row.ref_name,
     commitSha: row.commit_sha,
@@ -383,9 +384,7 @@ function scanFromRow(row: Row | null | undefined): ScanRecord | null {
 function findingOf(row: Row) {
   return Object.freeze({
     fingerprint: row.fingerprint,
-    scope: Object.freeze({
-      provider: row.provider, authority: row.authority, owner: row.owner_login, repo: row.repo_name
-    }),
+    scope: scopeOf(row),
     fingerprintKeyVersion: row.fingerprint_key_version,
     rulesVersion: row.rules_version,
     engineVersion: row.engine_version,

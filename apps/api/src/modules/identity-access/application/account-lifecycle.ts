@@ -39,9 +39,15 @@ type Rows = { readonly rows: readonly Fields[] };
 /* An account as a session holds it; an old cookie may hold one of a retired provider. */
 interface Account extends Omit<AccountLike, 'identityKey'> { identityKey?: unknown; [field: string]: unknown }
 interface Session { accounts: Account[]; active?: unknown; retiredSelection?: unknown; [field: string]: unknown }
-interface Alpha { readonly testerId?: unknown; [field: string]: unknown }
-/* Any request object, as the lifecycle reads it; the session is attached by the session guards before any of this runs. */
+/* The tester's access the alpha boundary attached: its session's view, or a deletion's recovery, each naming the tester. */
+interface Alpha { readonly testerId?: string; [field: string]: unknown }
+/*
+ * An Express request as the lifecycle reads it: its cookie, which the session
+ * is read from, and what the guards attached -- the session by the session
+ * guards before any of this runs, and the tester's access in the alpha.
+ */
 type LifecycleRequest = object & {
+  readonly headers: { readonly cookie?: string | undefined };
   session?: Session;
   alpha?: Alpha | null;
   gh?: Account | null;
@@ -49,6 +55,8 @@ type LifecycleRequest = object & {
   [HOSTED_SESSION_REVISION]?: unknown;
 };
 interface HostedSession { readonly session: Session; readonly revision: unknown }
+/* An Express response as the lifecycle answers on it: the session cookie is set on it. */
+interface LifecycleResponse { setHeader(name: string, value: string): unknown }
 
 /* The alpha's privacy store, as the lifecycle uses it. */
 export interface LifecyclePrivacyStore {
@@ -77,7 +85,7 @@ export interface AccountLifecycleDeps {
    * refuses any provider write made outside one.
    */
   readonly runProviderMutation: <T>(
-    req: never,
+    req: LifecycleRequest,
     target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
     work: () => Promise<T>
   ) => Promise<T>;
@@ -88,14 +96,14 @@ export interface AccountLifecycleDeps {
   readonly recordGithubAppAudit: (identity: unknown, eventType: string, installationId: number, details: unknown) => Promise<unknown>;
   /* The audits held for an account, forgotten when it leaves. */
   readonly forgetJobs: (account: Account) => void;
-  readonly retainedActor: (req: never) => unknown;
+  readonly retainedActor: (req: LifecycleRequest) => unknown;
   /* The session, its cookie and its security (provider-sessions.ts, session-security.ts). */
-  readonly sessionOf: (req: never) => Promise<SignedInSession | null>;
-  readonly setSession: (req: never, res: never, data: unknown, options?: { readonly createNew?: boolean }) => Promise<unknown>;
-  readonly sessionIdFromRequest: (req: never) => string;
+  readonly sessionOf: (req: LifecycleRequest) => Promise<SignedInSession | null>;
+  readonly setSession: (req: LifecycleRequest, res: LifecycleResponse, data: unknown, options?: { readonly createNew?: boolean }) => Promise<unknown>;
+  readonly sessionIdFromRequest: (req: LifecycleRequest) => string;
   readonly clearStepUpAuthorization: (session: Session) => void;
-  readonly readCookie: (req: never, name: string) => string | null;
-  readonly writeCookie: (res: never, value: string, maxAge?: number) => void;
+  readonly readCookie: (req: LifecycleRequest, name: string) => string | null;
+  readonly writeCookie: (res: LifecycleResponse, value: string, maxAge?: number) => void;
   readonly seal: (value: unknown) => string;
   readonly unseal: (sealed: string) => unknown;
   readonly closeLiveSessions: (sessionIds: readonly string[], reason: string) => unknown;
@@ -104,19 +112,6 @@ export interface AccountLifecycleDeps {
 }
 
 export function createAccountLifecycle(deps: AccountLifecycleDeps) {
-  const call = deps as unknown as {
-    retainedActor(req: LifecycleRequest): unknown;
-    sessionOf(req: LifecycleRequest): Promise<Session | null>;
-    setSession(req: LifecycleRequest, res: unknown, data: unknown, options?: unknown): Promise<unknown>;
-    sessionIdFromRequest(req: LifecycleRequest): string;
-    readCookie(req: LifecycleRequest, name: string): string | null;
-    writeCookie(res: unknown, value: string, maxAge?: number): void;
-    runProviderMutation<T>(
-      req: LifecycleRequest,
-      target: { readonly account: unknown; readonly action: string; readonly owner: string; readonly repo: string; readonly method: string },
-      work: () => Promise<T>
-    ): Promise<T>;
-  };
   /* The alpha's store: every path that reads it runs only in the alpha, where it is always given. */
   const store = deps.privacyStore!;
 
@@ -145,7 +140,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
           account.authorizedByIdentityKey,
           'installation.disconnected',
           Number(account.installationId),
-          { actor: call.retainedActor(req), status: 'disconnected' }
+          { actor: deps.retainedActor(req), status: 'disconnected' }
         );
       }
       /*
@@ -165,7 +160,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
       return Object.freeze({ complete: true, supportedComplete: true, legacy: true, results: Object.freeze([]), manualCleanup: Object.freeze(manualCleanup) });
     }
 
-    const sid = call.sessionIdFromRequest(req);
+    const sid = deps.sessionIdFromRequest(req);
     const alpha = req.alpha as Alpha;
     if (!sid || !req.alpha || !req.alpha.testerId) {
       throw Object.assign(new Error('Owned provider session is unavailable'), {
@@ -209,30 +204,33 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
           }));
         },
         prepareDisconnect: (input: unknown) => store.prepareProviderDisconnect(input),
-        async removeProviderWebhook({ webhook }: { readonly webhook: { readonly owner: string; readonly repo: string; readonly providerHookId?: unknown } }) {
-          if ((account.provider || 'github') !== 'github' || !webhook.providerHookId) {
+        /* The webhook as the inventory above listed it: nv_webhooks' owner and repo, each a text NOT NULL. */
+        async removeProviderWebhook({ webhook }: Fields) {
+          if ((account.provider || 'github') !== 'github' || !member(webhook, 'providerHookId')) {
             return { verifiedAbsent: false };
           }
+          const owner = String(member(webhook, 'owner'));
+          const repo = String(member(webhook, 'repo'));
           const providerAccount = await transportAccount();
-          await call.runProviderMutation(
+          await deps.runProviderMutation(
             req,
-            { account: providerAccount, action: 'webhook.disconnect', owner: webhook.owner, repo: webhook.repo, method: 'DELETE' },
+            { account: providerAccount, action: 'webhook.disconnect', owner, repo, method: 'DELETE' },
             () => deps.gh(
               providerAccount,
-              `/repos/${encodeURIComponent(webhook.owner)}/${encodeURIComponent(webhook.repo)}/hooks/${webhook.providerHookId}`,
+              `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/hooks/${member(webhook, 'providerHookId')}`,
               { method: 'DELETE' }
             )
           );
           return { verifiedAbsent: false };
         },
-        async readProviderWebhook({ webhook }: { readonly webhook: { readonly owner: string; readonly repo: string; readonly providerHookId?: unknown } }) {
-          if ((account.provider || 'github') !== 'github' || !webhook.providerHookId) {
+        async readProviderWebhook({ webhook }: Fields) {
+          if ((account.provider || 'github') !== 'github' || !member(webhook, 'providerHookId')) {
             return { absent: false };
           }
           const providerAccount = await transportAccount();
           await deps.gh(
             providerAccount,
-            `/repos/${encodeURIComponent(webhook.owner)}/${encodeURIComponent(webhook.repo)}/hooks/${webhook.providerHookId}`
+            `/repos/${encodeURIComponent(String(member(webhook, 'owner')))}/${encodeURIComponent(String(member(webhook, 'repo')))}/hooks/${member(webhook, 'providerHookId')}`
           );
           return { absent: false };
         },
@@ -254,7 +252,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
           resourceKeyHash: input.resourceKeyHash,
           reasonCode: input.reasonCode
         })
-      } as unknown as Parameters<typeof disconnectProviderAccount>[0]);
+      });
       results.push(result);
       /* A retired account's local state waits for the operator; the accounts after it are still disconnected. */
       if (result.reasonCode === RETIRED_CLEANUP) continue;
@@ -264,7 +262,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
           bindingIdentityKey,
           'installation.disconnected',
           Number(account.installationId),
-          { actor: call.retainedActor(req), status: 'disconnected' }
+          { actor: deps.retainedActor(req), status: 'disconnected' }
         );
       }
     }
@@ -299,10 +297,10 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     });
   }
 
-  function clearProviderSessionCookie(req: LifecycleRequest, res: unknown): void {
-    const sid = call.sessionIdFromRequest(req);
+  function clearProviderSessionCookie(req: LifecycleRequest, res: LifecycleResponse): void {
+    const sid = deps.sessionIdFromRequest(req);
     if (sid) deps.closeLiveSessions([sid], 'session-ended');
-    call.writeCookie(res, '', 0);
+    deps.writeCookie(res, '', 0);
   }
 
   /* Session ids as the inventory read them; the alpha's store checks each before it revokes, and the database compares them as text. */
@@ -319,9 +317,9 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     return sessionIds;
   }
 
-  async function addAccount(req: LifecycleRequest, res: unknown, token: unknown, user: Fields | null | undefined, provider = 'github', baseUrl = '', options: Fields = { authMethod: 'token' }): Promise<void> {
+  async function addAccount(req: LifecycleRequest, res: LifecycleResponse, token: unknown, user: Fields | null | undefined, provider = 'github', baseUrl = '', options: Fields = { authMethod: 'token' }): Promise<void> {
     const authMethod = ['token', 'oauth', 'github-app'].includes(options && options.authMethod as string) ? options.authMethod : 'token';
-    const existingSession = await call.sessionOf(req);
+    const existingSession = await deps.sessionOf(req);
     const s: Session = existingSession || { accounts: [], active: 0 };
     const account: Account = {
       login: String(user && user.login || '').trim(),
@@ -367,7 +365,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
       : identityKey(account);
     s.accounts.push(account);
     if (deps.alphaEnabled) {
-      const current = deps.unseal(call.readCookie(req, 'nv_session') || '');
+      const current = deps.unseal(deps.readCookie(req, 'nv_session') || '');
       const heldSid = current ? member(current, 'sid') : undefined;
       const held = typeof heldSid === 'string' && heldSid ? heldSid : '';
       const connect = (sessionId: string) => store.connectHostedProviderAccount({
@@ -392,7 +390,7 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
       req.session = connected.session;
       req[HOSTED_SESSION_BASE] = structuredClone(connected.session);
       req[HOSTED_SESSION_REVISION] = connected.revision;
-      call.writeCookie(res, deps.seal({ sid }));
+      deps.writeCookie(res, deps.seal({ sid }));
       return;
     }
     while (s.accounts.length > deps.accountCap()) s.accounts.shift();
@@ -403,17 +401,17 @@ export function createAccountLifecycle(deps: AccountLifecycleDeps) {
     if (!existingSession && deps.databaseConfigured) {
       /* The cookie may still name a row this sign-in replaces, such as one that
          holds only retired provider accounts; its credentials go with it. */
-      const replaced = call.sessionIdFromRequest(req);
+      const replaced = deps.sessionIdFromRequest(req);
       if (replaced) {
         await deps.pool().query('DELETE FROM nv_sessions WHERE sid=$1', [replaced]);
         deps.closeLiveSessions([replaced], 'session-ended');
       }
     }
-    await call.setSession(req, res, s, { createNew: !existingSession });
+    await deps.setSession(req, res, s, { createNew: !existingSession });
   }
 
   async function sessionsForIdentity(req: LifecycleRequest) {
-    const current = deps.unseal(call.readCookie(req, 'nv_session') || '');
+    const current = deps.unseal(deps.readCookie(req, 'nv_session') || '');
     const sid = current ? member(current, 'sid') : undefined;
     const currentSid = sid ? sid : '';
     if (!currentSid || !(await deps.ready())) return { available: false, currentSid: '', rows: [] };

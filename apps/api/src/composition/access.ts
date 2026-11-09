@@ -18,7 +18,7 @@ import { readCookie } from '../platform/authorization/session-cookie.ts';
 import { createRepositoryMutationContext } from '../platform/mutation-gateway/mutation-context.ts';
 import type { Settings } from './configuration.ts';
 import type { Core } from './core.ts';
-import { ALPHA_SESSION_ID, accountOf, type GuardedRequest } from './request-context.ts';
+import { ALPHA_SESSION_ID } from './request-context.ts';
 import type { Fields } from '../platform/values/fields.ts';
 
 /* A request an upload scan reads: the account it acts as, and the repository its route may name. */
@@ -50,7 +50,7 @@ export function composeAccess(settings: Settings, core: Core, later: Later) {
   const { mutationContext, runProviderMutation } = createRepositoryMutationContext({
     gateway: mutationGateway, identityKey, retainedActor: repositories.retainedActor,
     resolveAuthorization: input => authorizationResolver.resolve(input), alphaEnabled: alphaConfig.enabled, alphaActorLabel,
-    mergeFacts: (req: GuardedRequest) => mergeFactsFor(core.codeAudit, { account: accountOf(req), owner: req.params.owner, repo: req.params.repo }, req.params.num),
+    mergeFacts: req => mergeFactsFor(core.codeAudit, { account: req.gh, owner: req.params.owner, repo: req.params.repo }, req.params.num),
     inspectRestoreAuthorization: (target, authorization) => core.recovery.inspectRestoreAuthorization(target, authorization),
     ready: core.ready, resolveActivePolicySet: input => core.governance.ensureGovernanceStore().resolveActivePolicySetInScope(input),
     stepEvaluator: activePolicySetStepEvaluator, fail: sendFailure

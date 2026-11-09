@@ -111,7 +111,7 @@ export function createSessionSecurity(deps: SessionSecurityDeps) {
     const token = String(req.headers[STEP_UP_HEADER] || '');
     if (!token) throw Object.assign(new Error('This sensitive action requires step-up authorization'), { status: 403, code: 'STEP_UP_REQUIRED' });
     const context = requestSecurityContext(req);
-    const claims = verifyStepUpGrant(deps.stepUpSecret, token, { ...context, action: operation.action, scope: operation.scope } as never);
+    const claims = verifyStepUpGrant(deps.stepUpSecret, token, { ...context, action: operation.action, scope: operation.scope });
     const state = sessionSecurityState(req.session!);
     /*
      * Awaited, because the guard behind this may not be in this process. An
@@ -119,7 +119,7 @@ export function createSessionSecurity(deps: SessionSecurityDeps) {
      * record at the end of a sensitive action would read it as an authorization
      * and write undefined for every field it carries.
      */
-    req.stepUp = await consumePendingStepUp(state as never, claims, operation as never, { replayStore: stepUpReplayStore() } as never);
+    req.stepUp = await consumePendingStepUp(state, claims, operation, { replayStore: stepUpReplayStore() });
     await setSession(req, res, req.session);
     return req.stepUp;
   }

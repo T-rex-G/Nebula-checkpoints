@@ -324,5 +324,20 @@ const delivery = {
     assert.strictEqual(opened, 0, 'and refused before any connection is attempted');
   }
 
+  /* A store missing any method the worker calls is refused before anything is claimed. */
+  {
+    const methods = ['claimWebhookDeliveries', 'getGovernanceEvent', 'recordWebhookDeliveryAttempt'];
+    for (const missing of [null, ...methods]) {
+      let claimed = 0;
+      const store = missing === null ? null : Object.fromEntries(methods.filter(name => name !== missing).map(name => [name, async () => { claimed += 1; return []; }]));
+      await assert.rejects(
+        processWebhookDeliveryBatch({ store, masterSecret: 'm'.repeat(48) }),
+        error => error instanceof TypeError && error.message === 'Webhook worker requires a complete governance delivery store',
+        `a store without ${missing || 'anything'} is refused`
+      );
+      assert.strictEqual(claimed, 0, 'and nothing is claimed from it');
+    }
+  }
+
   console.log('governance webhook worker tests passed');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

@@ -10,7 +10,7 @@ import { isPlainObject, refuseWithContractError } from './guards.ts';
 import type { Refuse } from './guards.ts';
 import { REPOSITORY_SEGMENT } from './ids.ts';
 
-export const SCOPE_CONTRACT_VERSION = 1;
+export const SCOPE_CONTRACT_VERSION = 2;
 
 export const PROVIDERS = Object.freeze(['github'] as const);
 export type Provider = (typeof PROVIDERS)[number];
@@ -32,7 +32,7 @@ export interface ScopeInput {
   readonly repo?: unknown;
 }
 
-/* The one platform object this needs. Every runtime that loads the contracts has it; the type is named here so the contracts stay free of any platform's. */
+/* The one platform object this needs. Every runtime that loads the contracts has it; its shape is declared here so the contracts stay free of any platform's types. */
 interface ParsedUrl {
   readonly protocol: string;
   readonly username: string;
@@ -43,7 +43,8 @@ interface ParsedUrl {
   readonly hostname: string;
   readonly pathname: string;
 }
-const WhatwgUrl = (globalThis as unknown as { URL: new (input: string) => ParsedUrl }).URL;
+declare const URL: new (input: string) => ParsedUrl;
+const WhatwgUrl = URL;
 
 const isProvider = (value: string): value is Provider => (PROVIDERS as readonly string[]).includes(value);
 

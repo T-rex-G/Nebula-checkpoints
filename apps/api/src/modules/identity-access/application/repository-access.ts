@@ -26,7 +26,13 @@ import { identityKey } from '../domain/account-identity.ts';
 
 type Next = () => void;
 
+/* An Express response as these guards answer on it, and as a failure is sent on it (http/errors.ts). */
 interface AccessResponse {
+  readonly headersSent: boolean;
+  readonly destroyed: boolean;
+  readonly locals: { readonly correlationId?: string };
+  destroy(): void;
+  setHeader(name: string, value: string): unknown;
   status(code: number): AccessResponse;
   json(body: unknown): unknown;
 }
@@ -55,7 +61,7 @@ export interface SafetyView {
 export interface RepositoryAccessDeps {
   readonly alphaEnabled: boolean;
   /* A failed request's answer (http/errors.ts). */
-  readonly fail: (res: never, error: unknown) => unknown;
+  readonly fail: (res: AccessResponse, error: unknown) => unknown;
   /* What a stored safety record reads as (Corona). */
   readonly defaultSafety: (state: unknown) => SafetyView;
   /* GitHub's own rules for a new repository's name and a code search (the GitHub provider). */
@@ -68,7 +74,7 @@ export interface RepositoryAccessDeps {
 type Fields = Readonly<Record<string, unknown>>;
 
 export function createRepositoryAccess(deps: RepositoryAccessDeps) {
-  const fail = deps.fail as unknown as (res: AccessResponse, error: unknown) => unknown;
+  const { fail } = deps;
 
   /* Who acted, as evidence and audit rows keep it: any request object, with what the session guards attached. */
   function retainedActor(req: object & { readonly alpha?: unknown; readonly gh?: Account | null }): string {

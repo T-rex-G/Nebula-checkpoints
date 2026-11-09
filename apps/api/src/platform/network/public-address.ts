@@ -14,6 +14,8 @@ import { isIP } from 'node:net';
 
 type Ipv6Words = readonly [number, number, number, number, number, number, number, number];
 
+const isIpv6Words = (words: readonly number[]): words is Ipv6Words => words.length === 8;
+
 function ipv4Number(address: string): number | null {
   const parts = address.split('.').map(Number);
   if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
@@ -44,7 +46,8 @@ function expandIpv6(address: unknown): Ipv6Words | null {
   if (missing < 0 || (halves.length === 1 && missing !== 0)) return null;
   const pieces: string[] = [...left, ...Array<string>(missing).fill('0'), ...right];
   if (pieces.length !== 8 || pieces.some(piece => !/^[0-9a-f]{1,4}$/.test(piece))) return null;
-  return pieces.map(piece => parseInt(piece, 16)) as unknown as Ipv6Words;
+  const words = pieces.map(piece => parseInt(piece, 16));
+  return isIpv6Words(words) ? words : null;
 }
 
 const BLOCKED_V4: readonly (readonly [base: string, prefix: number])[] = Object.freeze([

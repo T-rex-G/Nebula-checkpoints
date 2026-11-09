@@ -149,6 +149,20 @@ assert.deepStrictEqual(
   });
   assert.deepStrictEqual(calls.find(([name]) => name === 'submitDraft')[1].actor, { identityKey: userKey, login: 'alice' });
 
+  /* A store missing a method the service calls unconditionally is refused when the service is built. */
+  {
+    const store = missing => new Proxy({}, { get: (target, name) => (name === missing ? undefined : async () => ({})) });
+    assert.doesNotThrow(() => createGovernanceApiService({ store: store(null) }), 'a store with every method builds a service');
+    for (const missing of ['listPolicies', 'getPolicyStateInScope', 'recordReviewDecision', 'activateVersion', 'createWebhook', 'verifyEvidenceExport']) {
+      assert.throws(() => createGovernanceApiService({ store: store(missing) }),
+        error => error instanceof TypeError && error.message === 'Governance API service requires a complete governance store',
+        `a store without ${missing} is refused`);
+    }
+    assert.throws(() => createGovernanceApiService({}), TypeError, 'and so is no store at all');
+    /* A lifecycle method a store written before it may lack is looked for only when used. */
+    assert.doesNotThrow(() => createGovernanceApiService({ store: store('withdrawVersion') }), 'a store without a lifecycle method still builds');
+  }
+
   console.log('governance API tests passed');
 })().catch(error => {
   console.error(error.stack || error);

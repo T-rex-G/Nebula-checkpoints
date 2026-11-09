@@ -257,12 +257,72 @@ test('privacy cleanup clears the feed and rejects a response that arrives afterw
   await page.route('**/api/activity/recent*', async route => { await pending; await route.fallback(); });
   await page.goto('/');
   await expect(feed(page)).toContainText('Reading recent activity');
-  await page.evaluate(() => window.NebulaPwa.purgePrivateData(true));
+  /* The reader clears this browser's data from Settings while the read is on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const received = page.waitForResponse(response => response.url().includes('/api/activity/recent'));
   release();
   await received;
   await page.waitForTimeout(100);
   await expect(rows(page)).toHaveCount(0);
+  await expect(feed(page).locator('.wp-body')).toBeEmpty();
+});
+
+/*
+ * The session ends while the reader is holding a press on the overview, just
+ * after a refreshed feed arrived. The repaint that press was holding belongs
+ * to the reader who has gone: the purge drops it, and letting go of the press
+ * draws nothing of it back into the feed the purge cleared.
+ */
+test('a session that ends during a press leaves nothing of the held feed behind', async ({ page }) => {
+  await page.clock.install();
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let feedReads = 0;
+  let postureReads = 0;
+  let releaseFeed;
+  let releasePosture;
+  const feedHeld = new Promise(resolve => { releaseFeed = resolve; });
+  const postureHeld = new Promise(resolve => { releasePosture = resolve; });
+  await page.route('**/api/activity/recent*', async route => {
+    feedReads += 1;
+    if (feedReads > 1) await feedHeld;
+    return route.fallback();
+  });
+  await page.route('**/api/workspace/posture', async route => {
+    postureReads += 1;
+    if (postureReads === 1) return route.fallback();
+    await postureHeld;
+    return route.fulfill({ status: 401, json: { error: 'The alpha session has ended.', code: 'ALPHA_SESSION_EXPIRED' } });
+  });
+  await page.goto('/');
+  await expect(rows(page)).toHaveCount(2);
+  await page.waitForLoadState('networkidle');
+
+  /* A refreshed feed and a new reading of the posture, both on their way. */
+  await page.locator('#wpFeedRefresh').click();
+  await expect.poll(() => feedReads).toBe(2);
+  await page.clock.fastForward(61000);
+  await page.locator('#ovHomeBtn').click();
+  await expect.poll(() => postureReads).toBe(2);
+
+  /* The reader holds a press on the overview; the feed lands under it and waits. */
+  await page.locator('#wpTrust .wp-numbers summary').first().focus();
+  await page.keyboard.down(' ');
+  const fed = page.waitForResponse(response => response.url().includes('/api/activity/recent'));
+  releaseFeed();
+  await fed;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+  /* The session ends: the gate takes over, and what this browser held is purged. */
+  releasePosture();
+  await expect(page.locator('#page-alpha-access')).toHaveClass(/active/);
+  await expect(feed(page).locator('.wp-body')).toBeEmpty();
+
+  /* The press ends after the purge; past the grace a release waits for its click, the feed is still empty. */
+  await page.keyboard.up(' ');
+  await page.waitForTimeout(700);
   await expect(feed(page).locator('.wp-body')).toBeEmpty();
 });
 

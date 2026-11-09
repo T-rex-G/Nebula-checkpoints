@@ -5,6 +5,7 @@ const fs = require('fs');
 const zlib = require('zlib');
 const { auditRenderedSite } = require('../../apps/api/src/modules/parallax/index.ts').renderedAudit;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 const AxeBuilder = require('@axe-core/playwright').default;
 test.use({ serviceWorkers: 'block' });
 
@@ -72,7 +73,8 @@ async function open(page, handler) {
   await page.route('**/api/site-rendered**', handler);
   await page.goto('/');
   await expect(page.locator('#page-overview')).toHaveClass(/active/);
-  await page.evaluate(() => window.showSiteScan());
+  await ui.rail(page, 'site');
+  await expect(page.locator('#page-site')).toHaveClass(/active/);
   return page.locator('#renderedAuditRoot');
 }
 
@@ -191,29 +193,39 @@ test('a client navigation to an HTTP error page cannot become a successful rende
   })).rejects.toMatchObject({ code: 'RENDERED_PAGE_UNAVAILABLE' });
 });
 
-test('disposing a rendered form cancels a run acknowledged after disposal without target URLs in polls', async ({ page }) => {
-  await page.setContent('<div id="isolated-rendered-root"></div>');
-  await page.addScriptTag({ path: require('path').join(__dirname, '../../apps/web/src/features/parallax/rendered-audit-ui.js') });
-  await page.evaluate(() => {
-    window.renderedCalls = [];
-    window.NebulaRenderedAudit.mount(document.querySelector('#isolated-rendered-root'), { download() {}, api: async (url, options = {}) => {
-      window.renderedCalls.push({ url, method: options.method || 'GET' });
-      if (url.endsWith('/status')) return { available: true };
-      if (options.method === 'POST') return new Promise(resolve => { window.resolveRenderedStart = resolve; });
-      return { state: 'cancelled' };
-    } });
+/*
+ * Clearing this browser's data disposes the form. A run the server
+ * acknowledges after that is cancelled straight away, named by its run alone:
+ * the address it was checking is in no request after the one that started it.
+ */
+test('a run acknowledged after the form was disposed is cancelled by its run alone', async ({ page }) => {
+  const calls = [];
+  let acknowledge;
+  const acknowledged = new Promise(resolve => { acknowledge = resolve; });
+  const root = await open(page, async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    calls.push({ url: url.pathname + url.search, method: request.method(), body: request.postData() || '' });
+    if (url.pathname.endsWith('/status')) return route.fulfill({ json: { available: true } });
+    if (request.method() === 'POST') {
+      await acknowledged;
+      return route.fulfill({ json: { state: 'running', run: 'dispose-fixture-run' } });
+    }
+    return route.fulfill({ json: { state: 'cancelled' } });
   });
-  await page.getByLabel('Page address').fill('https://rendered.example/?theme=fixture');
-  await page.getByRole('button', { name: 'Run rendered audit' }).click();
-  await page.evaluate(() => {
-    window.NebulaRenderedAudit.dispose(document.querySelector('#isolated-rendered-root'));
-    window.resolveRenderedStart({ state: 'running', run: 'dispose-fixture-run' });
-  });
-  await expect.poll(() => page.evaluate(() => window.renderedCalls.filter(call => call.method === 'DELETE'))).toEqual([
-    { url: '/api/site-rendered?run=dispose-fixture-run', method: 'DELETE' }
-  ]);
-});
+  await root.getByLabel('Page address').fill('https://rendered.example/?theme=fixture');
+  await root.getByRole('button', { name: 'Run rendered audit' }).click();
+  await expect.poll(() => calls.filter(call => call.method === 'POST').length).toBe(1);
 
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  acknowledge();
+
+  await expect.poll(() => calls.filter(call => call.method === 'DELETE').map(call => call.url)).toEqual(['/api/site-rendered?run=dispose-fixture-run']);
+  const after = calls.slice(calls.findIndex(call => call.method === 'POST') + 1);
+  expect(after.every(call => !call.url.includes('rendered.example') && !call.body.includes('rendered.example'))).toBe(true);
+});
 
 test('a failed cancellation stays explicit and can be retried', async ({ page }) => {
   let deletes = 0;
@@ -239,35 +251,38 @@ test('a failed cancellation stays explicit and can be retried', async ({ page })
   expect(deletes).toBe(2);
 });
 
+/*
+ * A coded answer is the run's own outcome, told once by the server, and is
+ * shown; an uncoded answer from the edge in front of it is a hiccup, and the
+ * poll asks again.
+ */
 test('a failure the server reported for the run is shown, while an edge hiccup is retried', async ({ page }) => {
-  await page.setContent('<div id="isolated-rendered-root"></div>');
-  await page.addScriptTag({ path: require('path').join(__dirname, '../../apps/web/src/features/parallax/rendered-audit-ui.js') });
-  await page.evaluate(() => {
-    const coded = (status, code, message) => Object.assign(new Error(message), { status, code });
-    window.renderedPolls = 0;
-    window.renderedScript = [];
-    window.NebulaRenderedAudit.mount(document.querySelector('#isolated-rendered-root'), { download() {}, api: async (url, options = {}) => {
-      if (url.endsWith('/status')) return { available: true };
-      if (options.method === 'DELETE') return { state: 'cancelled' };
-      if (options.method === 'POST') return { state: 'running', run: 'reported-run', stage: 'desktop' };
-      window.renderedPolls++;
-      const step = window.renderedScript.shift();
-      if (step === 'edge') throw coded(502, '', 'Bad gateway');
-      if (step === 'timeout') throw coded(504, 'RENDERED_AUDIT_TIMEOUT', 'The rendered audit exceeded its time limit.');
-      if (step === 'done') return { url: 'https://rendered.example/', coverage: { complete: true, reasons: [] }, limitations: [], viewports: [], findings: [] };
-      /* Told once: asking again after a reported failure finds nothing. */
-      throw coded(404, 'RENDERED_RUN_GONE', 'This audit is no longer available.');
-    } });
+  let polls = 0;
+  let script = [];
+  const root = await open(page, route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/status')) return route.fulfill({ json: { available: true } });
+    if (request.method() === 'DELETE') return route.fulfill({ json: { state: 'cancelled' } });
+    if (request.method() === 'POST') return route.fulfill({ json: { state: 'running', run: 'reported-run', stage: 'desktop' } });
+    polls += 1;
+    const step = script.shift();
+    if (step === 'edge') return route.fulfill({ status: 502, contentType: 'text/html', body: '<html><body>Bad gateway</body></html>' });
+    if (step === 'timeout') return route.fulfill({ status: 504, json: { error: 'The rendered audit exceeded its time limit.', code: 'RENDERED_AUDIT_TIMEOUT' } });
+    if (step === 'done') return route.fulfill({ json: { url: 'https://rendered.example/', coverage: { complete: true, reasons: [] }, limitations: [], viewports: [], findings: [] } });
+    /* Told once: asking again after a reported failure finds nothing. */
+    return route.fulfill({ status: 404, json: { error: 'This audit is no longer available.', code: 'RENDERED_RUN_GONE' } });
   });
-  const status = page.locator('#isolated-rendered-root [role="status"]');
-  await page.evaluate(() => { window.renderedScript = ['timeout']; });
-  await page.getByLabel('Page address').fill('https://rendered.example/');
-  await page.getByRole('button', { name: 'Run rendered audit' }).click();
+  const status = root.getByRole('status');
+  script = ['timeout'];
+  await root.getByLabel('Page address').fill('https://rendered.example/');
+  await root.getByRole('button', { name: 'Run rendered audit' }).click();
   await expect(status).toHaveText('The rendered audit exceeded its time limit.');
-  expect(await page.evaluate(() => window.renderedPolls)).toBe(1);
+  expect(polls).toBe(1);
 
-  await page.evaluate(() => { window.renderedPolls = 0; window.renderedScript = ['edge', 'done']; });
-  await page.getByRole('button', { name: 'Run rendered audit' }).click();
+  polls = 0;
+  script = ['edge', 'done'];
+  await root.getByRole('button', { name: 'Run rendered audit' }).click();
   await expect(status).toContainText('Automated checks finished');
-  expect(await page.evaluate(() => window.renderedPolls)).toBe(2);
+  expect(polls).toBe(2);
 });

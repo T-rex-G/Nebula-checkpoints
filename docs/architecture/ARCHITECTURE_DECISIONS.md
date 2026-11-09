@@ -937,6 +937,8 @@ The run-time comment stripper, the `?v=` asset stamp derived from the version, t
 
 **Consequence:** Tests and production run the same bundle with the same `servedAssetsSha256`. No test-only build or server switch exists.
 
+**Implemented, 9 November 2026 (Phase E, E1).** The probe has landed (`apps/web/src/platform/probe.ts`): it reads and deletes the marker before any other module of the page runs, and answers frozen copies of the fields its allowlist names. The twelve transitional names and the live page state under the marker are gone; the four browser tests that reached that state are real interactions, and every module imports what it uses. `test/e2e/no-globals.spec.js` holds the page to no globals of its own.
+
 ## ADR-093 — The DOM contract is held while the interface is rebuilt
 
 **Status:** Accepted owner decision, 18 October 2026.

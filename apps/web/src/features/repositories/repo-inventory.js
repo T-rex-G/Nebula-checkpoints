@@ -10,7 +10,7 @@
  *
  * Loaded before the cards that use it, and requireable on its own for tests.
  */
-(function (global) {
+const api = (function (global) {
   'use strict';
 
   /* One repository, case-insensitively: GitHub treats `Acme/Web` and `acme/web` as the same one. */
@@ -40,10 +40,8 @@
     return list;
   }
 
-  global.NebulaRepoInventory = Object.freeze({ inventory, repoKey });
+  return Object.freeze({ inventory, repoKey });
 })(globalThis);
 
-
-const api = globalThis.NebulaRepoInventory;
 export default api;
 export const { inventory, repoKey } = api;

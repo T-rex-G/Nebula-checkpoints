@@ -7,14 +7,14 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const ROOT = path.resolve(__dirname, '..');
+const { loadPageModule } = require('./helpers/page-module');
 /*
- * The module's one import is the workbench functions it uses; the harness
- * supplies those itself, so the import is lifted and the rest runs as written.
+ * The module runs as written. What it imports from the workbench is the
+ * harness's stand-in for each name; the rest of the page is the context below.
  */
-const neuralModule = fs.readFileSync(path.join(ROOT, 'apps/web/src/visualizations/neural.js'), 'utf8');
-const WORKBENCH_IMPORT = /^import \{[^}]*\} from '\.\.\/legacy\/app\.js';\n/m;
-assert.match(neuralModule, WORKBENCH_IMPORT, 'the Neural module must take the workbench functions from app.js, by import');
-const neural = neuralModule.replace(WORKBENCH_IMPORT, '');
+const WORKBENCH = ['state', 'api', 'toast', 'exposureRuleLabel', 'EXPOSURE_DISPOSITION_WORDS', 'modal', 'securityScanFlow',
+  'exportActivityFlow', 'openFile', 'switchTab', 'recoveryFlow', 'openSafeguards', 'setSafety', 'stepUpApi', 'dlFile',
+  'currentTab', 'purgeLocalData'];
 const now = '2026-10-08T10:00:00.000Z';
 const sha = 'a'.repeat(40);
 function harness(custom = {}) {
@@ -49,8 +49,12 @@ function harness(custom = {}) {
     api:async (url,options={})=>{requests.push(url);if(custom.api){const got=custom.api(url,data,options);if(got!==undefined)return await got;} const key=Object.keys(data).find(k=>url===k||url.includes(`/acme/demo/${k}`));if(!key)throw new Error('Unexpected '+url);return data[key];}
   };
   c.window.matchMedia=c.matchMedia;
-  vm.runInNewContext(neural,c,{filename:`${ROOT}/apps/web/src/visualizations/neural.js`});
-  return {c,ui:c.window.NebulaNeural,elements,streams,requests,warnings,data,timers,listeners};
+  /* The workbench's purge, and the page's reload: recorded when a test asks, inert otherwise. */
+  c.purgeLocalData = custom.purgeLocalData || (async () => {});
+  c.location = { reload: custom.reload || no };
+  const workbench = Object.fromEntries(WORKBENCH.map(name => [name, c[name]]));
+  const ui = loadPageModule('apps/web/src/visualizations/neural.js', c, { imports: { '../legacy/app.js': workbench } }).default;
+  return {c,ui,elements,streams,requests,warnings,data,timers,listeners};
 }
 async function settleCatchup(h){for(let i=0;i<40;i++){await new Promise(setImmediate);if(!h.ui.state.catchUpBusy)return;}throw new Error('Catch-up stuck');}
 
@@ -202,6 +206,22 @@ test('callbacks from a closed stream cannot affect the current repository', asyn
   await new Promise(setImmediate);
   assert.equal(h.requests.length,requests);assert.equal(h.timers.size,0);
   assert.equal(h.ui.state.liveStatus,'disconnected');
+});
+
+/*
+ * A session revoked from another device or tab arrives on the live stream.
+ * What this browser kept for the session is purged before the page reloads,
+ * so the reload cannot start from anything the revoked session left.
+ */
+test('a session revoked elsewhere purges what this browser kept before the page reloads', async () => {
+  const order = [];
+  const h = harness({ purgeLocalData: async full => { order.push(`purge:${full}`); }, reload: () => order.push('reload') });
+  h.ui.state.active = true; await h.ui.refresh();
+  const stream = h.streams[0];
+  assert.equal(typeof stream.handlers['session-revoked'], 'function', 'the stream listens for its session being revoked');
+  await stream.handlers['session-revoked']();
+  assert.deepEqual(order, ['purge:true', 'reload']);
+  assert(stream.closed, 'the revoked session\'s stream is closed before the reload');
 });
 
 test('returning from a hidden tab restarts its cancelled first map load', async () => {

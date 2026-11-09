@@ -1,5 +1,5 @@
 'use strict';
-(function () {
+const api = (function () {
   const mounts = new WeakMap();
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -149,5 +149,8 @@
     void readiness();
   }
   function dispose(root) { const model = root && mounts.get(root); if (model) { model.disposed = true; if (model.busy && model.stop) void model.stop(); } if (root) { mounts.delete(root); root.replaceChildren(); root.hidden = true; } }
-  window.NebulaRenderedAudit = Object.freeze({ mount, dispose, reportHtml });
+  return Object.freeze({ mount, dispose, reportHtml });
 })();
+
+export default api;
+export const { dispose, mount, reportHtml } = api;

@@ -1,7 +1,7 @@
 /* Ordered repository trust summary and accessible public-error presentation. */
 'use strict';
 
-(function trustUiModule(global) {
+const api = (function trustUiModule(global) {
   /*
    * The evidence marks, drawn rather than typed.
    *
@@ -276,5 +276,8 @@
     return dialog;
   }
 
-  global.NebulaTrustUI = Object.freeze({ renderEvidenceState, renderSummary, presentError });
+  return Object.freeze({ renderEvidenceState, renderSummary, presentError });
 })(window);
+
+export default api;
+export const { presentError, renderEvidenceState, renderSummary } = api;

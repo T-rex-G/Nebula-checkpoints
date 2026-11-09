@@ -1,5 +1,6 @@
 /* The landing scene: a vortex that is allowed to fail without taking the page. */
 'use strict';
+import Vortex from './vortex.js';
 
 (function landingStage(global) {
   /*
@@ -498,7 +499,7 @@
   const presetName = (canvas.dataset && canvas.dataset.vortex) || 'column';
   const deskShape = () => (desk && desk.matches && presetName === 'column' ? DESK_COLUMN : {});
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const scene = global.NebulaVortex && global.NebulaVortex.create(canvas, Object.assign({
+  const scene = Vortex.create(canvas, Object.assign({
     preset: presetName,
     onRest: () => sync()
   }, deskShape()));

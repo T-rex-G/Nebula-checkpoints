@@ -92,7 +92,5 @@ const api = (function buildArchiveSafety() {
   return { DEFAULT_LIMITS, normalizeZipPath, validateArchiveEntries, crc32 };
 })();
 
-/* Published for the classic interface code that still reads it by name. */
-globalThis.NebulaArchiveSafety = api;
 export default api;
 export const { DEFAULT_LIMITS, crc32, normalizeZipPath, validateArchiveEntries } = api;

@@ -128,7 +128,7 @@ async function litPixels(page) {
 async function sceneOrSkip(page) {
   const ok = await page.evaluate(() => {
     const canvas = document.getElementById('lpPortal');
-    return !!canvas && !canvas.hidden && !!window.NebulaVortex;
+    return !!canvas && !canvas.hidden;
   });
   test.skip(!ok, 'This build has no WebGL; the no-WebGL path is covered by the unit guards.');
 }

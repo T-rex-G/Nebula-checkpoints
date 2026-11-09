@@ -16,6 +16,7 @@
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const { canvasInk } = require('./canvas-ink');
+const ui = require('./semantic');
 const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
 const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
 const audit = require('../../apps/api/src/modules/uranus/index.ts');
@@ -348,5 +349,17 @@ test('the singularity loads on approach and stands down when the page cannot kee
   await expect(art.locator('nebula-singularity')).toHaveCount(0);
   await expect(page.locator('.lp-orbit')).not.toHaveAttribute('data-drawn', 'true');
   await expect(art.locator('.lp-orbit-fallback')).toBeAttached();
-  expect(await page.evaluate(() => window.NebulaVisuals.supportsWebGL()), 'no other piece mounts this session').toBe(false);
+  /*
+   * And no other piece mounts this session: signed in, the repositories'
+   * galaxy -- mounted the moment its screen is shown -- keeps its ground.
+   */
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+  await ui.enterRepositories(page);
+  await expect(page.locator('#gxHeroArt')).not.toHaveAttribute('data-nebula-mounted', 'true');
+  await expect(page.locator('#gxHeroArt nebula-galaxy')).toHaveCount(0);
 });

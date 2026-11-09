@@ -75,7 +75,7 @@ test('required alpha screens have no critical or serious axe violations', async 
   await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
   await (await ui.action(page, 'Command palette')).focus();
-  await page.evaluate(() => { void openSettings(); });
+  await (await ui.action(page, 'Settings')).click();
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
   await expectNoHighImpactViolations(page, 'disconnect and delete controls');
@@ -195,27 +195,16 @@ test('keyboard-only tester path exposes visible focus and status announcements',
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = await ui.action(page, 'Command palette');
-  await trigger.focus();
-  await page.evaluate(() => { void openSettings(); });
+  /*
+   * Focus goes back to what opened the dialog: Settings itself, or on a phone
+   * the dock it was chosen from, which takes focus back as its menu closes.
+   */
+  const trigger = await ui.actionAnchor(page, 'Settings');
+  await (await ui.action(page, 'Settings')).click();
+  await expect(ui.dialog(page, 'Settings')).toBeVisible();
   await page.locator('#modalOk').focus();
   await page.keyboard.press('Tab');
   await expect.poll(() => page.evaluate(() => document.querySelector('#modal').contains(document.activeElement))).toBe(true);
-  await page.keyboard.press('Escape');
-  await expect(trigger).toBeFocused();
-
-  await page.evaluate(() => window.NebulaTrustUI.presentError({
-    code: 'POLICY_MUTATION_BLOCKED',
-    message: 'This mutation is blocked by the active policy',
-    correlationId: 'fixture-focus-restoration',
-    safeState: 'The sandbox repository remains unchanged.',
-    nextAction: 'Review the policy decision.'
-  }));
-  const dialog = page.locator('.trust-error-dialog');
-  await expect(dialog).toBeVisible();
-  await page.locator('.trust-error-close').focus();
-  await page.keyboard.press('Tab');
-  await expect.poll(() => page.evaluate(() => document.querySelector('.trust-error-dialog').contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
@@ -229,6 +218,29 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
     await expect(evidence).not.toHaveText('');
     await expect(evidence.locator('.trust-evidence-icon svg')).toHaveCount(1);
   }
+});
+
+/*
+ * A request the server refuses is answered with the error dialog. It holds
+ * focus while it is open -- Tab stays inside it -- and gives focus back to the
+ * control the reader pressed when it is dismissed.
+ */
+test('the error dialog holds focus and gives it back to the control that was pressed', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'error' });
+  await page.goto('/');
+  const repos = await ui.enterRepositories(page);
+  const open = ui.button(repos, /^Open repository /).first();
+  await open.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.locator('.trust-error-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Safe state now');
+  await page.locator('.trust-error-close').focus();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => document.querySelector('.trust-error-dialog').contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
 });
 
 test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {

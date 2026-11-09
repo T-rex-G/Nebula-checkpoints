@@ -38,7 +38,5 @@ const api = (function() {
   return { csvCell, activityCsv };
 })();
 
-/* Published for the classic interface code that still reads it by name. */
-globalThis.NebulaExportSafety = api;
 export default api;
 export const { activityCsv, csvCell } = api;

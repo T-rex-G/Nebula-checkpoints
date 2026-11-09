@@ -88,4 +88,54 @@ async function pressOn(page, control) {
   }
 }
 
-module.exports = Object.freeze({ pressOn });
+/*
+ * A reading that lands while the reader is pressing.
+ *
+ * The overview reads its posture again when the reader returns to it, once
+ * the last reading is a minute old; when the answer lands, every card drawn
+ * from it is rebuilt. The page's clock (installed by `installClock` before
+ * the page loads) is moved past that minute, the reader returns to the
+ * overview, and the answer is held -- so the reading starts before the press
+ * and lands, through `land()`, while it is held down: the way one arriving
+ * over a slow connection does.
+ */
+async function installClock(page) {
+  await page.clock.install();
+}
+
+async function heldReading(page) {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let holding = false;
+  let asked = 0;
+  await page.route('**/api/workspace/posture', async route => {
+    if (!holding) return route.fallback();
+    asked += 1;
+    await held;
+    return route.fallback();
+  });
+  return {
+    /* The reader returns to the overview a minute later; the new reading is on its way and held. */
+    async start() {
+      /*
+       * The overview has finished its first reading before the next is held:
+       * a request held from the start would leave the page never idle, and
+       * the press waits for an idle page before it begins.
+       */
+      await page.waitForLoadState('networkidle');
+      holding = true;
+      await page.clock.fastForward(61000);
+      await page.locator('#ovHomeBtn').click();
+      await expect.poll(() => asked, { message: 'returning to the overview reads its posture again' }).toBeGreaterThan(0);
+    },
+    /* The held answer lands; the cards it feeds are rebuilt (or held, under a press). */
+    async land() {
+      const landed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/workspace/posture');
+      release();
+      await landed;
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    }
+  };
+}
+
+module.exports = Object.freeze({ pressOn, installClock, heldReading });

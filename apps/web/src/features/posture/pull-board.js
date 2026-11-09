@@ -18,7 +18,7 @@ import { repaintCard } from '../../components/held-repaint.ts';
  *
  * Loaded on its own and tested on its own, like the posture card above it.
  */
-(function (global) {
+const api = (function (global) {
   'use strict';
 
   /* Shared with the other Overview cards, so they agree about which repositories exist. */
@@ -331,7 +331,7 @@ import { repaintCard } from '../../components/held-repaint.ts';
     unreadable: 'The pull requests could not be read just now.'
   });
 
-  /* Redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
+  /* Redrawn once no press is down on its screen (components/held-repaint.ts): a press on a rebuilt or moved element is lost. */
   function render(host, view, actions) {
     if (!host || typeof document === 'undefined') return;
     repaintCard(host, () => draw(host, view, actions));
@@ -379,13 +379,11 @@ import { repaintCard } from '../../components/held-repaint.ts';
     }
   }
 
-  global.NebulaPullBoard = Object.freeze({
+  return Object.freeze({
     COLUMNS, REPOSITORY_LIMIT, CONCURRENCY, COLUMN_SHOWN, IDLE_DAYS, LIST_PAGE,
     pickRepositories, readAll, model, sentence, notes, render, waitPhrase
   });
 })(globalThis);
 
-
-const api = globalThis.NebulaPullBoard;
 export default api;
 export const { COLUMNS, COLUMN_SHOWN, CONCURRENCY, IDLE_DAYS, LIST_PAGE, REPOSITORY_LIMIT, model, notes, pickRepositories, readAll, render, sentence, waitPhrase } = api;

@@ -21,7 +21,7 @@
  */
 'use strict';
 
-(function codeAuditModule(global) {
+const api = (function codeAuditModule(global) {
   const SEVERITY = Object.freeze({
     critical: Object.freeze({ glyph: '✕', word: 'Critical', icon: 'M8.6 3.5h6.8l5.1 5.1v6.8l-5.1 5.1H8.6l-5.1-5.1V8.6zM9.4 9.4l5.2 5.2M14.6 9.4l-5.2 5.2' }),
     serious: Object.freeze({ glyph: '△', word: 'Serious', icon: 'M12 4l9 15.5H3zM12 10v4.2M12 16.9v.1' }),
@@ -4191,10 +4191,8 @@
     return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
   }
 
-  global.NebulaCodeAudit = Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, diffSentence, readPrevious, remember, storageKey });
+  return Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, diffSentence, readPrevious, remember, storageKey });
 })(globalThis);
 
-
-const api = globalThis.NebulaCodeAudit;
 export default api;
 export const { STORE_PREFIX, allPrompts, brief, csv, cyclonedx, diff, diffSentence, exportMenu, exposureCsv, exposureSarif, keptBrief, keptCsv, keptSarif, progress, readPrevious, remember, render, renderSiteScan, sarif, siteProgress, spdx, storageKey, update } = api;

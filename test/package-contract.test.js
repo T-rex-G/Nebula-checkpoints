@@ -148,11 +148,10 @@ assert.deepStrictEqual(
   'the lockfile root must declare the same versions as package.json'
 );
 /*
- * The page's DOMPurify is the pinned, patched package, bundled: the browser
- * entry imports it by name, the installed copy is the pinned version, and the
- * built entry carries that version's own licence header.
+ * The page's DOMPurify is the pinned, patched package, bundled: the installed
+ * copy is the pinned version, and the built entry carries that version's own
+ * licence header, which only the package's code brings with it.
  */
-assert(/from 'dompurify'/.test(read('apps/web/src/legacy/vendor-globals.js')), 'the page must bundle DOMPurify from its package');
 assert.strictEqual(JSON.parse(read('node_modules/dompurify/package.json')).version, '3.4.17', 'the installed DOMPurify is not the pinned one');
 {
   const builtEntry = fs.readdirSync(path.join(root, 'dist', 'web', 'build')).find(file => /^index-.+\.js$/.test(file));

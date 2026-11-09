@@ -242,6 +242,33 @@ test('the chart is drawn at the width it is shown, not stretched to it', async (
 });
 
 /*
+ * On a phone each card arrives as it is scrolled to, drawn slightly smaller
+ * until it has (a scroll-driven entrance). A chart is drawn at its card's
+ * laid-out width all the same. Measured from the card's box on screen, a chart
+ * drawn while its card was still below the fold came out 1.5% narrower than
+ * the card and was stretched to fill it -- every line and label blurred, and
+ * the card 2px taller than when a reading next redrew it, which moved the page
+ * under the reader. A transform never reaches a resize observer, so nothing
+ * refitted it.
+ */
+test('a chart is drawn at its card\'s laid-out width, arrived or not', async ({ page }) => {
+  await overview(page);
+  const charts = ['#wpActivity svg.wp-area', '#wpPosture svg.pp-chart-svg', '#wpFeed svg.wp-area'];
+  for (const selector of charts) await expect(page.locator(selector)).toBeAttached();
+  /* Back to the overview from its own mark: every card is drawn again where it stands, the lower ones still arriving. */
+  const drawnBefore = await page.evaluateHandle(selectors => selectors.map(selector => document.querySelector(selector)), charts);
+  await page.locator('#ovHomeBtn').click();
+  await expect.poll(() => drawnBefore.evaluate(nodes => nodes.every(node => !node.isConnected)), { message: 'each chart is drawn again' }).toBe(true);
+  const fit = await page.evaluate(selectors => selectors.map(selector => {
+    const chart = document.querySelector(selector);
+    return { selector, drawn: chart.viewBox.baseVal.width, laid: chart.clientWidth };
+  }), charts);
+  for (const { selector, drawn, laid } of fit) {
+    expect(Math.abs(drawn - laid), `${selector} is drawn ${drawn} wide in a space ${laid} wide`).toBeLessThanOrEqual(1);
+  }
+});
+
+/*
  * A reading can land while its card is not laid out yet -- the overview still
  * hidden behind the screen before it. Drawn then, the chart had no width to
  * take, played its arrival at a 380-pixel guess, and was replaced at its real
@@ -252,7 +279,7 @@ test('the chart is drawn at the width it is shown, not stretched to it', async (
 test('a chart whose card is hidden when the reading lands is drawn once, at the width it is shown', async ({ page }) => {
   await overview(page);
   await expect(page.locator('#wpFeed .wp-area')).toBeVisible();
-  await page.evaluate(() => {
+  const reading = await page.evaluate(() => {
     const feed = document.querySelector('#wpFeed');
     window.__charts = [];
     new MutationObserver(records => {
@@ -263,9 +290,13 @@ test('a chart whose card is hidden when the reading lands is drawn once, at the 
       }
     }).observe(feed, { childList: true, subtree: true });
     feed.style.display = 'none';
-    /* The overview's own read, while its card is out of the layout. */
-    return loadActivityFeed(true);
+    /* The card's own Refresh, pressed while the card is out of the layout. */
+    document.getElementById('wpFeedRefresh').click();
+    return feed.textContent.includes('Reading recent activity');
   });
+  expect(reading, 'the read started while the card was hidden').toBe(true);
+  /* The reading lands, still hidden. */
+  await expect(page.locator('#wpFeed')).not.toContainText('Reading recent activity');
   await page.evaluate(() => { document.querySelector('#wpFeed').style.display = ''; });
   const chart = page.locator('#wpFeed .wp-area');
   await expect(chart).toBeVisible();

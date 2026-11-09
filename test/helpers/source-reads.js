@@ -8,8 +8,10 @@
  * bound to such text, or calls a function whose body carries it, such as one
  * that slices a block out of its file. Found by the syntax tree, so a comment
  * or a string that merely names a file reads nothing. Loading a module with
- * require() reads nothing: that is asking it. Text handed straight to the
- * TypeScript parser is read for its syntax tree, and reads no text either.
+ * require() reads nothing: that is asking it, and so is running a page module
+ * whole against a stand-in browser (test/helpers/page-module.js). Text handed
+ * straight to the TypeScript parser is read for its syntax tree, and reads no
+ * text either.
  */
 const fs = require('node:fs');
 const path = require('node:path');

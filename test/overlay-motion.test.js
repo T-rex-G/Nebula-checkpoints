@@ -31,6 +31,7 @@ const appSource = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'),
 const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
 const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 const { shellImports, builtShell } = require('./helpers/web-shell');
+const { loadPageModule } = require('./helpers/page-module');
 /* OAuth sign-in is identity and access's. */
 
 let failures = 0;
@@ -361,13 +362,16 @@ scrimIds.forEach(id => {
   });
 });
 
-check('app.js reaches the overlay rules through the shared module', () => {
-  assert.ok(/NebulaOverlayMotion\.createOverlayMotion\(/.test(appSource),
-    'app.js no longer builds its overlay helpers from the tested module, so these tests prove nothing about the page');
+/*
+ * That the dialogs run these rules -- an exit marked, measured and waited
+ * for, and none with motion off -- is the browser's to show
+ * (test/e2e/ui-lifecycle.spec.js). This is the module being on the page.
+ */
+check('the page carries the overlay rules, and keeps them offline', () => {
   const order = shellImports();
   const motionAt = order.indexOf('apps/web/src/components/overlay-motion.js');
   assert.ok(motionAt !== -1 && motionAt < order.indexOf('apps/web/src/legacy/app.js'),
-    'the page does not load overlay-motion.js before app.js, so app.js will throw on the first line that uses it');
+    'overlay-motion.js is not among the modules the workbench is evaluated after');
   const shell = builtShell();
   assert.ok(shell.precaches(shell.entry),
     'the entry that carries overlay-motion.js is not precached; offline, the whole app would be dead');
@@ -720,15 +724,12 @@ check('the landing scene draws itself rather than shipping a picture', () => {
 });
 
 /*
- * The module, run rather than read. It closes over globalThis and touches no
- * DOM until create() is called, so a bare context is enough to reach its
- * tables and the arithmetic that sizes the mesh.
+ * The module, asked rather than read. It touches no DOM until create() is
+ * called, so importing it is enough to reach its tables and the arithmetic
+ * that sizes the mesh.
  */
 function loadVortex() {
-  const sandbox = {};
-  sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8'), sandbox, { filename: 'apps/web/src/visualizations/vortex.js' });
-  return sandbox.NebulaVortex;
+  return require('../apps/web/src/visualizations/vortex.js').default;
 }
 
 /*
@@ -1005,13 +1006,14 @@ function runLandingStage(options) {
     MutationObserver: function (cb) {
       this.observe = (target, options) =>
         mutations.set(target, { cb, filter: (options && options.attributeFilter) || null });
-    },
-    NebulaVortex: settings.noWebgl ? { create: () => null } : {
-      create: (el, options) => { calls.created.push({ el, options }); return ring; }
     }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8'), sandbox, { filename: 'apps/web/src/visualizations/landing-stage.js' });
+  /* The scene the stage drives: one that is drawn, or one this device refuses. */
+  const vortex = settings.noWebgl ? { create: () => null } : {
+    create: (el, options) => { calls.created.push({ el, options }); return ring; }
+  };
+  loadPageModule('apps/web/src/visualizations/landing-stage.js', sandbox, { imports: { './vortex.js': vortex } });
   /* An attribute changes; only the observers that asked for it hear about it. */
   const mutate = (target, attribute) => {
     const watch = mutations.get(target);

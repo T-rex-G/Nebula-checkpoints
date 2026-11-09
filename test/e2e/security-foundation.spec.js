@@ -1,62 +1,47 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
+const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
+/*
+ * Deleting a repository is a sensitive mutation, asked for the way a reader
+ * asks for it: from the command palette, confirmed by name, then verified by
+ * re-entering the provider token. The grant the step-up returns is for this
+ * action and this repository, and the deletion carries it beside the CSRF
+ * token.
+ */
 test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step-up headers', async ({ page }) => {
   let stepUpRequest = null;
-  let mutationHeaders = null;
-
-  await page.route('**/readyz', route => route.fulfill({ json: { ok: true, database: 'ready' } }));
-  await page.route('**/api/**', async route => {
+  let mutation = null;
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.route('**/api/security/csrf', route => route.fulfill({ json: {
+    token: 'csrf-test-token', expiresAt: new Date(Date.now() + 600000).toISOString()
+  } }));
+  await page.route('**/api/security/step-up', route => {
     const request = route.request();
-    const url = new URL(request.url());
-    /*
-     * An admitted session: the gate is on and this reader is already through
-     * it. It used to say the gate was off, which reached the same place by
-     * accident -- gate-off handed straight over to the workspace. It no longer
-     * does: with entry open the landing page stays until the reader asks to
-     * pass, so saying 'off' here would park every journey below on the front
-     * door. Admission is what these tests need; the gate has its own suite.
-     */
-    if (url.pathname === '/api/alpha/status') return route.fulfill({ json: { mode: 'invite', authenticated: true, access: 'active' } });
-    if (url.pathname === '/api/config') return route.fulfill({ json: { oauth: false, uploadMaxMb: 2048, gitDataMaxMb: 64, nativePushMaxMb: 64, contentsMaxMb: 40 } });
-    if (url.pathname === '/api/me') return route.fulfill({ json: {
-      login: 'alice', name: 'Alice', avatar: '', provider: 'github', authMethod: 'token',
-      caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true },
-      offlineCacheScope: 'scopeAlice_0123456789abcdefXYZ'
+    stepUpRequest = { body: request.postDataJSON(), headers: request.headers() };
+    return route.fulfill({ json: {
+      grant: 'single-use-grant', action: 'repository.delete', assurance: 'credential',
+      expiresAt: new Date(Date.now() + 300000).toISOString()
     } });
-    if (url.pathname === '/api/repos') return route.fulfill({ json: [] });
-    if (url.pathname === '/api/security/csrf') return route.fulfill({ json: {
-      token: 'csrf-test-token', expiresAt: new Date(Date.now() + 600000).toISOString()
-    } });
-    if (url.pathname === '/api/security/step-up') {
-      stepUpRequest = { body: request.postDataJSON(), headers: request.headers() };
-      return route.fulfill({ json: {
-        grant: 'single-use-grant', action: 'repository.delete', assurance: 'credential',
-        expiresAt: new Date(Date.now() + 300000).toISOString()
-      } });
-    }
-    if (request.method() === 'DELETE' && url.pathname === '/api/repo/acme/demo') {
-      mutationHeaders = request.headers();
-      return route.fulfill({ json: { ok: true } });
-    }
-    return route.fulfill({ status: 404, json: { error: `Unmocked ${request.method()} ${url.pathname}` } });
+  });
+  await page.route('**/api/repo/sandbox/demo', route => {
+    const request = route.request();
+    if (request.method() !== 'DELETE') return route.fallback();
+    mutation = { headers: request.headers(), body: request.postDataJSON() };
+    return route.fulfill({ json: { ok: true } });
   });
 
-  await page.goto('/');
-  await expect(await ui.enterRepositories(page)).toBeVisible();
-
-  await page.evaluate(() => {
-    window.__sensitiveResult = stepUpApi(
-      'repository.delete',
-      { owner: 'acme', repo: 'demo' },
-      '/api/repo/acme/demo',
-      { method: 'DELETE' },
-      'Delete repository acme/demo'
-    );
-  });
+  await page.goto('/#/sandbox/demo@main/editor');
+  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await (await ui.action(page, 'Command palette')).click();
+  await ui.palette(page).fill('Delete this repository');
+  await ui.paletteOption(page, /Delete this repository/).click();
+  const confirm = ui.dialog(page, 'Delete repository');
+  await confirm.locator('#drName').fill('sandbox/demo');
+  await ui.button(confirm, 'Delete forever').click();
 
   /*
    * The step-up fields are reached by their labels. Both labels were present
@@ -67,19 +52,20 @@ test('PAT sensitive mutation obtains a scoped grant and sends both CSRF and step
   const stepUp = ui.dialog(page, 'Verify sensitive action');
   const loginField = ui.field(stepUp, /Type the active account login/);
   await expect(loginField).toBeVisible();
-  await loginField.fill('alice');
+  await loginField.fill('alpha-tester');
   await ui.secretField(stepUp, /Re-enter the current provider token/).fill('provider-token-value');
   await ui.button(stepUp, 'Authorize once').click();
-  await expect.poll(() => page.evaluate(() => window.__sensitiveResult)).toEqual({ ok: true });
+  await expect(page.locator('.toast').last()).toContainText('Repository deleted');
 
   expect(stepUpRequest.body).toEqual({
     action: 'repository.delete',
-    scope: { owner: 'acme', repo: 'demo' },
-    confirm: 'alice',
+    scope: { owner: 'sandbox', repo: 'demo' },
+    confirm: 'alpha-tester',
     credential: 'provider-token-value'
   });
   expect(stepUpRequest.headers['x-nv-csrf']).toBe('csrf-test-token');
   expect(stepUpRequest.headers['x-nv']).toBe('1');
-  expect(mutationHeaders['x-nv-step-up']).toBe('single-use-grant');
-  expect(mutationHeaders['x-nv-csrf']).toBe('csrf-test-token');
+  expect(mutation.headers['x-nv-step-up']).toBe('single-use-grant');
+  expect(mutation.headers['x-nv-csrf']).toBe('csrf-test-token');
+  expect(mutation.body).toEqual({ confirmation: 'sandbox/demo' });
 });

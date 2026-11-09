@@ -87,8 +87,12 @@ for (const [name, source] of [['capability-ui.js', ui], ['app.js', app], ['index
 assert(ui.includes('aria-disabled'));
 assert(ui.includes('data-capability-reason'));
 assert(ui.includes('Object.freeze'));
-assert(app.includes('NebulaCapabilityUI.load'));
-assert(app.includes('NebulaCapabilityUI.apply'));
+/*
+ * That the workbench loads the projection and applies it -- every control of a
+ * capability held back absent from the repositories screen, the workbench and
+ * the palette, and every Supported one still there -- is the browser's:
+ * test/e2e/supported-only.spec.js.
+ */
 assert(app.includes('function runCapabilityAction'));
 /*
  * switchTab has to gate on the chosen tab's own capability. This used to pin
@@ -193,9 +197,9 @@ for (const [id, feature] of Object.entries({
 }
 assert(app.includes('data-rerun data-feature="workflows.rerun"'),
   'dynamic workflow rerun must declare its capability');
-assert(app.includes("NebulaCapabilityUI.apply(root)"),
+assert(app.includes("CapabilityUI.apply(root)"),
   'dynamic safeguard controls must receive capability state');
-assert(app.includes('NebulaCapabilityUI.apply(acts)'),
+assert(app.includes('CapabilityUI.apply(acts)'),
   'dynamic workflow controls must receive capability state');
 
 console.log('capability UI contract tests passed');

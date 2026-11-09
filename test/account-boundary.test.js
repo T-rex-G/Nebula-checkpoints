@@ -19,5 +19,5 @@ assert(/async function receiveIdentityBoundary\(\)[\s\S]{0,300}await purgeLocalD
   'other tabs must purge identity-bound state before reloading');
 assert(app.includes('x-nv-offline-scope') && app.includes('x-nv-offline-repo'), 'eligible API reads must carry scoped offline headers');
 assert(app.includes('Enable offline access for this repository'), 'settings must expose explicit per-repository opt-in');
-assert(neural.includes("addEventListener('session-revoked'") && neural.includes('purgePrivateData'), 'remote session revocation must purge private local data');
+/* A session revoked elsewhere purges this browser's private data before the reload: test/pulsar-reliability.test.js. */
 console.log('account boundary tests passed');

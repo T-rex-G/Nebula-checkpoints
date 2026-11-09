@@ -11,6 +11,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -33,7 +34,7 @@ async function openGovernance(page) {
   });
   await page.goto('/#/sandbox/demo@main/editor');
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('governance'));
+  await ui.openTab(page, 'governance');
   await expect(page.locator('[data-gov-action="deactivate-policy"]')).toBeVisible();
   return sent;
 }
@@ -62,6 +63,31 @@ test('a lifecycle action without a reason is refused before anything is sent', a
   await confirm(page, '   ');
   await expect(page.locator('.toast').last()).toContainText('A reason is required');
   expect(sent).toEqual([]);
+});
+
+/*
+ * A JSON field is read through the governance module's bounded parser: a
+ * value that is not an object, or not JSON at all, is refused with its
+ * label before any request is made.
+ */
+test('a JSON field that is not an object is refused before anything is sent', async ({ page }) => {
+  await openGovernance(page);
+  const simulations = [];
+  await page.route(/\/governance\/policies\/[^/]+\/versions\/[^/]+\/simulate$/, route => {
+    simulations.push(route.request().postData());
+    return route.fulfill({ status: 500, json: { error: 'unexpected' } });
+  });
+  for (const [text, message] of [
+    ['[]', 'Simulation request must be a JSON object'],
+    ['{"scenarios": [', 'Simulation request must contain valid JSON'],
+    ['   ', 'Simulation request must be a JSON object']
+  ]) {
+    await page.locator('[data-gov-action="simulate"]').first().click();
+    await page.locator('#govSimulationRequest').fill(text);
+    await page.locator('#modalOk').click();
+    await expect(page.locator('.toast').last()).toContainText(message);
+  }
+  expect(simulations).toEqual([]);
 });
 
 test('archive, restore, discard and withdraw each reach their own route', async ({ page }) => {

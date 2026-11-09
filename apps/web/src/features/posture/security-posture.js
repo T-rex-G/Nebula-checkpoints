@@ -20,7 +20,7 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
  *
  * Loaded on its own and tested on its own, like the pulse beside it.
  */
-(function (global) {
+const api = (function (global) {
   'use strict';
 
   /* Shared with the other Overview cards, so they agree about which repositories exist. */
@@ -308,7 +308,8 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
    * the axis labels with it, to a smudge on a phone and a shout on a monitor.
    */
   function fittedTrend(host, view) {
-    const measure = () => Math.round(host.getBoundingClientRect ? host.getBoundingClientRect().width : 0) || 480;
+    /* The laid-out width, which a card's entrance transform does not shrink (as workspace-pulse's fittedArea). */
+    const measure = () => Math.round(Number(host.offsetWidth) || 0) || 480;
     let drawn = measure();
     let chart = trendChart(view, drawn);
     host.appendChild(chart);
@@ -376,7 +377,7 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
     if (row) host.appendChild(row);
   }
 
-  /* Redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
+  /* Redrawn once no press is down on its screen (components/held-repaint.ts): a press on a rebuilt or moved element is lost. */
   function render(host, view, actions) {
     if (!host || typeof document === 'undefined') return;
     repaintCard(host, () => draw(host, view, actions));
@@ -489,10 +490,8 @@ import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../.
     for (const note of view.notes) host.appendChild(element('p', 'wp-stat-note', note));
   }
 
-  global.NebulaSecurityPosture = Object.freeze({ model, render, weekSentence, categoryLabel, UNREAD_SHOWN });
+  return Object.freeze({ model, render, weekSentence, categoryLabel, UNREAD_SHOWN });
 })(globalThis);
 
-
-const api = globalThis.NebulaSecurityPosture;
 export default api;
 export const { UNREAD_SHOWN, categoryLabel, model, render, weekSentence } = api;

@@ -1,7 +1,7 @@
 /* Controlled public-alpha access, readiness, and session-state UI. */
 'use strict';
 
-(function alphaUiModule(global) {
+const api = (function alphaUiModule(global) {
   const RETRY_DELAYS = Object.freeze([1000, 2000, 4000, 8000]);
   const GENERIC_INVITE_ERROR = 'Invitation could not be redeemed. Check the invitation and try again.';
   let status = null;
@@ -401,7 +401,7 @@
       : 'This alpha session expired. Redeem a new invitation to continue.');
   }
 
-  global.NebulaAlphaUI = Object.freeze({
+  return Object.freeze({
     boot,
     gateEnabled,
     showAccessGate,
@@ -411,3 +411,6 @@
     showExpired
   });
 })(window);
+
+export default api;
+export const { boot, gateEnabled, showAccessGate, showOpenAccess, showWaking, showTerms, showExpired } = api;

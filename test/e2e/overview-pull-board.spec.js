@@ -17,7 +17,8 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
-const { pressOn } = require('./press');
+const { pressOn, installClock, heldReading } = require('./press');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -96,14 +97,15 @@ test('a card opens its pull request in its own repository', async ({ page }) => 
 
 /* A press on a pull request is delivered even when the board is redrawn under it. */
 test('a redraw that lands during the press on a pull request does not swallow it', async ({ page }) => {
+  await installClock(page);
   const card = await board(page);
+  /* Registered after the fixture's routes, so it is asked first. */
+  const reading = await heldReading(page);
   const pull = card.getByRole('button', { name: /Open pull request #42 in sandbox\/demo/ });
   await expect(pull).toBeVisible();
+  await reading.start();
   await pressOn(page, pull);
-  await page.evaluate(() => {
-    const Board = window.NebulaPullBoard;
-    Board.render(document.querySelector('#wpPulls .wp-body') || document.querySelector('#wpPulls'), Board.model({ results: [], repos: [] }), {});
-  });
+  await reading.land();
   await page.mouse.up();
   await expect(page.locator('#tab-pulls')).toBeVisible();
   await expect(page).toHaveURL(/#\/sandbox\/demo@main\/pulls$/);
@@ -298,12 +300,16 @@ test('the board has no critical or serious accessibility violations', async ({ p
  * page was reloaded.
  */
 test('a reading overtaken by a new identity reads again instead of hanging', async ({ page }) => {
-  await page.addInitScript(() => { window.__NV_HARNESS__ = true; });
   await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
   let release;
   const held = new Promise(resolve => { release = resolve; });
   let calls = 0;
   await mockPublicAlphaApi(page, { access: 'active' });
+  /* Two GitHub accounts, so the reader has one to switch to. */
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'alpha-tester', provider: 'github' }, { login: 'second-github', provider: 'github' }
+  ] } }));
+  await page.route('**/api/accounts/switch-idx', route => route.fulfill({ json: { ok: true, login: 'second-github' } }));
   await page.route('**/api/repo/sandbox/demo/pulls?*', async route => {
     calls += 1;
     if (calls === 1) await held;
@@ -314,8 +320,10 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   await card.scrollIntoViewIfNeeded();
   await expect(card).toContainText('Reading the open pull requests');
   await expect.poll(() => calls).toBe(1);
-  /* The signed-in identity is replaced while the first reading is on its way. */
-  await page.evaluate(() => { const { state } = window.__NV_DIAGNOSTICS__; state.me = { ...state.me }; });
+  /* The reader switches account while the first reading is on its way. */
+  await ui.button(page, 'Accounts').click();
+  await ui.dialog(page, 'Accounts').getByRole('button', { name: 'Switch' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
   release();
   /* Read again (from the lists already fetched, within their five minutes), not left reading. */
   await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');

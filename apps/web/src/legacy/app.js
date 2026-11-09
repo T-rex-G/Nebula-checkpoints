@@ -6,6 +6,25 @@ import * as codeowners from '../../../../packages/contracts/src/codeowners.ts';
 import * as uploadPlanning from '../../../../packages/contracts/src/upload-planning.ts';
 import * as findingsInbox from '../features/findings/findings-model.ts';
 import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
+import CodeMirror from '../components/code-editor.js';
+import OverlayMotion from '../components/overlay-motion.js';
+import AlphaUI from '../features/access/alpha-ui.js';
+import CapabilityUI from '../features/capabilities/capability-ui.js';
+import GovernanceUI from '../features/governance/governance-ui.js';
+import WorkspacePulse from '../features/overview/workspace-pulse.js';
+import RenderedAudit from '../features/parallax/rendered-audit-ui.js';
+import PullBoard from '../features/posture/pull-board.js';
+import SecurityPosture from '../features/posture/security-posture.js';
+import RepoSigil from '../features/repositories/repo-sigil.js';
+import TrustUI from '../features/trust/trust-ui.js';
+import CodeAudit from '../features/uranus/code-audit-ui.js';
+import ArchiveSafety from '../features/workbench/archive-safety.js';
+import ExportSafety from '../features/workbench/export-safety.js';
+import { discardHeldRepaints, repaintCard } from '../components/held-repaint.ts';
+import { probeSource } from '../platform/probe.ts';
+import Visuals from '../visualizations/nebula-visuals.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -187,7 +206,7 @@ async function api(path, opts = {}, allowCsrfRetry = true) {
       await purgeLocalData(true);
       broadcastIdentityBoundary();
       alphaBootStarted = false;
-      window.NebulaAlphaUI.showExpired(error.code);
+      AlphaUI.showExpired(error.code);
       _page = 'alpha-access';
     }
     throw error;
@@ -295,9 +314,8 @@ function renderGalaxyPulse(repos) {
    * be a shape -- so the count stays in that case rather than a degenerate
    * chart being drawn to keep the layout tidy.
    */
-  const pulse = window.NebulaWorkspacePulse;
-  const spread = pulse && pulse.languageSpread ? pulse.languageSpread(list) : [];
-  const drawRadar = spread.length >= (pulse ? pulse.RADAR_MIN_AXES : 3);
+  const spread = WorkspacePulse.languageSpread(list);
+  const drawRadar = spread.length >= WorkspacePulse.RADAR_MIN_AXES;
   /*
    * Private and public together account for the set, so the row never stops
    * on an empty slot and a reader can check one figure against the other two.
@@ -343,7 +361,7 @@ function renderGalaxyPulse(repos) {
      */
     const body = document.createElement('div');
     body.className = 'gx-lang';
-    body.appendChild(pulse.radarChart(spread,
+    body.appendChild(WorkspacePulse.radarChart(spread,
       `Repositories by language: ${spread.map(axis => `${axis.label} ${axis.count}`).join(', ')}.`));
     const total = spread.reduce((sum, axis) => sum + axis.count, 0) || 1;
     const peak = Math.max(...spread.map(axis => axis.count), 1);
@@ -416,7 +434,7 @@ function toast(msg, kind = '') {
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
 }
 function presentError(error) {
-  return window.NebulaTrustUI.presentError(error || new Error('The request could not be completed.'));
+  return TrustUI.presentError(error || new Error('The request could not be completed.'));
 }
 
 /*
@@ -496,7 +514,7 @@ async function takeSafePassage(error, change) {
  * entirely in what happens when the animation never ends, and that case cannot
  * be reached from the page.
  */
-const { overlayOpen, openOverlay, closeOverlay, anyOverlayClosing } = NebulaOverlayMotion.createOverlayMotion();
+const { overlayOpen, openOverlay, closeOverlay, anyOverlayClosing } = OverlayMotion.createOverlayMotion();
 
 /*
  * Where a layer grows from.
@@ -623,6 +641,7 @@ let _page = 'alpha-access';
  * page still changes at the same moment; it just changes underneath a moving
  * overlay instead of behind a snapshot of one.
  */
+/* Settles once the update has run: at once without a transition, after the old frame is captured with one. */
 function withTransition(fn) {
   if (document.startViewTransition && state.settings.motion &&
       !anyOverlayClosing() &&
@@ -631,7 +650,10 @@ function withTransition(fn) {
     // A superseding navigation may skip only the animation; its DOM update
     // still runs. Handle that expected cancellation without hiding real errors.
     transition.ready.catch(error => { if (error.name !== 'AbortError') throw error; });
-  } else fn();
+    return transition.updateCallbackDone.catch(() => {});
+  }
+  fn();
+  return Promise.resolve();
 }
 function measureTopbar() {
   requestAnimationFrame(() => {
@@ -903,7 +925,7 @@ function paintFloatingAction(name) {
   fab.dataset.action = name;
   /* Freshly built entries have to be re-read against the session's
      capabilities, or a blocked action arrives looking available. */
-  if (window.NebulaCapabilityUI && window.NebulaCapabilityUI.apply) window.NebulaCapabilityUI.apply(menu);
+  CapabilityUI.apply(menu);
 }
 
 $('#paletteFab') && $('#paletteFab').addEventListener('click', () => {
@@ -966,9 +988,10 @@ const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
   hero.addEventListener('pointerleave', () => { art.style.removeProperty('--gx-ry'); art.style.removeProperty('--gx-rx'); });
 })();
 
+/* Settles once the screen is the one showing. */
 function showPage(name) {
   setTimeout(measureTopbar, 30);
-  if (_page === name) return;
+  if (_page === name) return Promise.resolve();
   _page = name;
   paintRail(name);
   /*
@@ -979,7 +1002,7 @@ function showPage(name) {
    */
   const visual = NEBULA_VISUALS[name];
   if (visual) mountNebulaVisual(visual[0], visual[1]);
-  withTransition(() => {
+  const swapped = withTransition(() => {
     $$('.page').forEach(p => p.classList.remove('active'));
     const shown = $('#page-' + name);
     shown.classList.add('active');
@@ -1010,6 +1033,7 @@ function showPage(name) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     paintFloatingAction(name);
   }));
+  return swapped;
 }
 /*
  * The address follows the workbench. A tab change is a step the reader can
@@ -1172,7 +1196,7 @@ function applySettings() {
       choice.setAttribute('aria-checked', String(on));
       choice.tabIndex = on ? 0 : -1;
     });
-    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+    Visuals.repaint();
   }
   document.documentElement.style.setProperty('--ed-font', (state.settings.fontSize / 16) + 'rem');
   document.documentElement.style.setProperty('--ed-family', `'${state.settings.editorFont}', ui-monospace, monospace`);
@@ -1196,7 +1220,7 @@ function toggleTheme(origin) {
     try { localStorage.setItem('nv_theme', next); } catch {}
     $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
     /* The artwork has its own palettes; it follows the toggle like everything else. */
-    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
+    Visuals.repaint();
   }, origin);
 }
 document.addEventListener('click', e => {
@@ -1429,7 +1453,7 @@ async function openSettings() {
         <p class="hint">Use short-lived installation credentials with repository-scoped access. Existing PAT and OAuth connections continue to work.</p>
         <div id="githubAppSettingsBody"><p class="hint" role="status">Loading connection details…</p></div>
       </div>
-      ${window.NebulaAlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
+      ${AlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
       <div class="set-group">
         <div class="set-label">About</div>
         <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub from your pocket.</p>
@@ -1622,7 +1646,7 @@ function removeAlphaLoginChrome() {
   }
 }
 function ensureAlphaProviderGuidance() {
-  if (!window.NebulaAlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
+  if (!AlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
   const card = document.querySelector('.login-card');
   if (!card) return null;
   let panel = $('#alphaProviderGuidance');
@@ -1642,7 +1666,7 @@ function ensureAlphaProviderGuidance() {
   return panel;
 }
 function ensureLoginAlphaSessionControls() {
-  if (!window.NebulaAlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
+  if (!AlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
   const card = document.querySelector('.login-card');
   if (!card) return null;
   let controls = $('#loginAlphaSessionControls');
@@ -1684,7 +1708,7 @@ function applyCaps() {
     uploadModeV = 'single';
     selectSegment('#uploadMode', b2 => b2.dataset.v === 'single');
   }
-  window.NebulaCapabilityUI.apply();
+  CapabilityUI.apply();
   /*
    * Read after apply(), because apply() is what decides whether Git LFS is
    * reachable here. A blocked choice that stays selected is a choice the
@@ -1703,19 +1727,19 @@ async function loadProviderCapabilities() {
   const authority = state.me && (
     state.me.authority || state.me.host || state.me.baseUrl
   ) || (provider === 'github' ? 'github.com' : '');
-  await window.NebulaCapabilityUI.load(provider, authority, { connected: !!state.me });
-  window.NebulaCapabilityUI.apply();
+  await CapabilityUI.load(provider, authority, { connected: !!state.me });
+  CapabilityUI.apply();
 }
 function runCapabilityAction(feature, action) {
   if (!feature) {
     action();
     return true;
   }
-  const resolved = window.NebulaCapabilityUI.decision(feature);
+  const resolved = CapabilityUI.decision(feature);
   /* Only what is Supported runs. There is no opt-in for anything less. */
   const blocked = resolved.status !== 'Supported';
   if (blocked) {
-    toast(window.NebulaCapabilityUI.explain(feature), 'err');
+    toast(CapabilityUI.explain(feature), 'err');
     return false;
   }
   action();
@@ -1728,7 +1752,7 @@ function runCapabilityAction(feature, action) {
  */
 window.addEventListener('nebula:capability-refused', event => {
   const refused = (event && event.detail) || {};
-  toast(window.NebulaCapabilityUI.explain(refused.feature), 'err');
+  toast(CapabilityUI.explain(refused.feature), 'err');
 });
 /*
  * Unknown means no number, not a small one. Requiring a positive value here
@@ -1741,10 +1765,14 @@ function runtimeLimitsKnown() {
   return ['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb', 'contentsMaxMb']
     .every(key => Number.isFinite(state.runtime[key]));
 }
+/* The limits as the browser suite may read them, under the test harness only. */
+probeSource('runtime', () => ({ ...state.runtime, known: runtimeLimitsKnown() }));
+/* Whether the deployment offers GitHub sign-in, as /api/config last said. */
+let oauthOn = false;
 async function loadRuntimeConfig(attempt = 0) {
   try {
     const c = await api('/api/config');
-    window._oauthOn = !!c.oauth;
+    oauthOn = !!c.oauth;
     state.runtime = { ...state.runtime, ...c };
     refreshQueuedStrategies();
     $('#oauthBtn').hidden = !c.oauth;
@@ -1868,6 +1896,8 @@ async function purgePrivateCaches() {
 async function purgeLocalData(full) {
   // Invalidate before the first await: an old fetch may finish during cleanup.
   state.uiEpoch++;
+  /* A card held for a press on the overview is not drawn afterwards from the last reader's reading. */
+  discardHeldRepaints();
   clearActivityFeed();
   clearPosture();
   paintUnread([]);
@@ -1936,7 +1966,6 @@ async function purgeLocalData(full) {
   }
   if (full) _cache.clear();
 }
-window.NebulaPwa = Object.freeze({ purgePrivateData: purgeLocalData, purgePrivateCaches, isOfflineRepoEnabled });
 const NV_IDENTITY_BOUNDARY_STORAGE_KEY = 'nv_identity_boundary_event';
 const identityBoundaryChannel = (() => {
   try { return typeof BroadcastChannel === 'function' ? new BroadcastChannel('nv-identity-boundary-v1') : null; }
@@ -2037,8 +2066,8 @@ function repoCard(r) {
    * name and never instead of it: it is hidden from assistive technology, and
    * a session that cannot draw it loses nothing but the picture.
    */
-  if (window.NebulaRepoSigil) {
-    const sigil = window.NebulaRepoSigil.render(r.full_name);
+  {
+    const sigil = RepoSigil.render(r.full_name);
     if (sigil) el.querySelector('.repo-sigil-slot').appendChild(sigil);
   }
   const open = () => openRepo(r.owner, r.name);
@@ -2150,8 +2179,8 @@ function clearActivityFeed() {
 
 function paintActivityFeed() {
   const root = $('#wpFeed');
-  if (!root || !window.NebulaWorkspacePulse || !window.NebulaWorkspacePulse.renderActivityFeed) return;
-  window.NebulaWorkspacePulse.renderActivityFeed(root, activityFeedState);
+  if (!root) return;
+  WorkspacePulse.renderActivityFeed(root, activityFeedState);
   const refresh = $('#wpFeedRefresh');
   if (refresh) {
     refresh.disabled = !state.me || !!(activityFeedState && activityFeedState.loading);
@@ -2239,13 +2268,18 @@ function paintCoreState() {
 function paintCoreLine(pulse) {
   const line = $('#ovCoreLine');
   if (!line) return;
+  const said = coreLineText(pulse);
+  /* Rewritten once no press is down on the overview: a line that wraps anew moves every card below it. */
+  repaintCard(line, () => { line.textContent = said; });
+}
+function coreLineText(pulse) {
   const trust = pulse && pulse.trust;
-  if (!state.me) { line.textContent = 'Sign in to measure this workspace.'; return; }
-  if (!trust || trust.score === null) { line.textContent = 'Measuring this workspace\u2026'; return; }
+  if (!state.me) return 'Sign in to measure this workspace.';
+  if (!trust || trust.score === null) return 'Measuring this workspace\u2026';
   const attention = trust.attention
     ? `${trust.attention} ${trust.attention === 1 ? 'signal needs' : 'signals need'} attention`
     : 'every measured signal healthy';
-  line.textContent = `Grade ${trust.grade} \u00b7 ${trust.score}/100 \u00b7 ${attention}${trust.capped ? ' \u00b7 capped by a critical leak' : ''}.`;
+  return `Grade ${trust.grade} \u00b7 ${trust.score}/100 \u00b7 ${attention}${trust.capped ? ' \u00b7 capped by a critical leak' : ''}.`;
 }
 
 /*
@@ -2319,7 +2353,7 @@ function clearSecurityPosture() {
   state.securityPosture = null;
 }
 function securityPostureOffered() {
-  return Boolean(window.NebulaCapabilityUI) && window.NebulaCapabilityUI.decision('workspace.posture').status === 'Supported';
+  return CapabilityUI.decision('workspace.posture').status === 'Supported';
 }
 async function openRepositoryTool(owner, repo, tab) {
   const opened = await openRepo(owner, repo);
@@ -2328,10 +2362,10 @@ async function openRepositoryTool(owner, repo, tab) {
 function renderSecurityPosture() {
   const section = $('#wpPostureSection');
   const host = $('#wpPosture .wp-body');
-  if (!section || !host || !window.NebulaSecurityPosture) return;
+  if (!section || !host) return;
   section.hidden = !securityPostureOffered();
   if (section.hidden) return;
-  window.NebulaSecurityPosture.render(host, window.NebulaSecurityPosture.model(state.securityPosture, state.repos), {
+  SecurityPosture.render(host, SecurityPosture.model(state.securityPosture, state.repos), {
     audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); },
     inbox: findingsOffered() ? filters => showFindings(findingsInbox.parseFilters(filters || '')) : null
   });
@@ -2374,15 +2408,15 @@ function clearPullBoard() {
   pullBoardState.inflight = false;
 }
 function pullBoardOffered() {
-  return Boolean(window.NebulaCapabilityUI && window.NebulaPullBoard) && window.NebulaCapabilityUI.decision('pulls.read').status === 'Supported';
+  return CapabilityUI.decision('pulls.read').status === 'Supported';
 }
 function renderPullBoard() {
   const section = $('#wpPullsSection');
   const host = $('#wpPulls .wp-body');
-  if (!section || !host || !window.NebulaPullBoard) return;
+  if (!section || !host) return;
   section.hidden = !pullBoardOffered();
   if (section.hidden) return;
-  const Board = window.NebulaPullBoard;
+  const Board = PullBoard;
   Board.render(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
     open: (owner, repo, number) => {
       state.pendingPull = { key: `${owner}/${repo}`.toLowerCase(), number: Number(number) };
@@ -2420,7 +2454,7 @@ async function loadPullBoard(force) {
   if (!state.me || !pullBoardOffered()) { renderPullBoard(); return; }
   if (pullBoardState.inflight && !force) return;
   if (!force && pullBoardState.results && Date.now() - pullBoardState.at < PULL_BOARD_TTL_MS) { renderPullBoard(); return; }
-  const Board = window.NebulaPullBoard;
+  const Board = PullBoard;
   const repositories = Board.pickRepositories(state.repos);
   if (!repositories.length) { renderPullBoard(); return; }
   const request = ++pullBoardState.request;
@@ -2559,13 +2593,12 @@ async function loadScannerPosture() {
  */
 function mountNebulaVisual(kind, selector) {
   const host = $(selector);
-  if (!host || !window.NebulaVisuals) return;
-  window.NebulaVisuals.mount(kind, host);
+  if (!host) return;
+  Visuals.mount(kind, host);
 }
 
 function renderWorkspacePulse(repos) {
-  if (!window.NebulaWorkspacePulse) return;
-  const capabilities = window.NebulaCapabilityUI;
+  const capabilities = CapabilityUI;
   /* The inventory's failure path reports an empty set without discarding what
    * the session still holds, so the caller may override the list it reads. */
   const list = Array.isArray(repos) ? repos : state.repos;
@@ -2574,7 +2607,7 @@ function renderWorkspacePulse(repos) {
    * computed apart, which let the row say one thing and the card under it say
    * another about the same session. They now share a single measurement.
    */
-  const pulse = window.NebulaWorkspacePulse.model({
+  const pulse = WorkspacePulse.model({
     repos: list,
     features: capabilities && capabilities.features ? capabilities.features() : null,
     recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
@@ -2586,7 +2619,7 @@ function renderWorkspacePulse(repos) {
   renderOverviewPulse(list, pulse);
   paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
-  if (roots.trust || roots.signals || roots.activity) window.NebulaWorkspacePulse.render(roots, pulse);
+  if (roots.trust || roots.signals || roots.activity) WorkspacePulse.render(roots, pulse);
   renderSecurityPosture();
   renderPullBoard();
 }
@@ -2643,9 +2676,13 @@ function renderOverviewPulse(repos, pulse) {
   const section = $('#ovPulse');
   const grid = $('#ovPulseGrid');
   if (!section || !grid) return;
-  const list = Array.isArray(repos) ? repos : [];
+  const measures = pulseMeasures(Array.isArray(repos) ? repos : [], pulse);
+  /* Rebuilt once no press is down on the overview, like the cards below it (components/held-repaint.ts). */
+  repaintCard(grid, () => drawOverviewPulse(section, grid, measures));
+}
+function drawOverviewPulse(section, grid, measures) {
   grid.innerHTML = '';
-  for (const measure of pulseMeasures(list, pulse)) {
+  for (const measure of measures) {
     const cell = document.createElement('div');
     cell.className = 'gx-pulse-cell';
     if (measure.value === null) cell.classList.add('is-unmeasured');
@@ -2710,7 +2747,7 @@ async function openAccounts() {
       </div>`).join('') + `
       <div class="detail-actions" style="margin-top:14px">
         <button class="btn btn-ghost small" id="accAdd">Add account</button>
-        ${githubIdentity(a.accounts[a.active]) && a.accounts[a.active].authMethod === 'oauth' && window._oauthOn
+        ${githubIdentity(a.accounts[a.active]) && a.accounts[a.active].authMethod === 'oauth' && oauthOn
           ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
         <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
       </div>`;
@@ -2786,7 +2823,7 @@ async function refreshUnread() {
      identity left whatever the last session lit still lit, so a reader who
      signed out kept someone else's count over a bell they could not open. */
   if (!state.me) { paintUnread([]); return; }
-  const capabilities = window.NebulaCapabilityUI;
+  const capabilities = CapabilityUI;
   if (capabilities && capabilities.decision) {
     const decision = capabilities.decision('notifications');
     /* Asking through a capability the deployment has refused would spend a
@@ -2865,7 +2902,7 @@ async function loadRepositoryTrustSummary() {
     evidence: { text: 'Loading supporting evidence…', evidenceState: 'Inferred' },
     announcement: 'Repository opened. Trust checks are running.'
   };
-  NebulaTrustUI.renderSummary(loading);
+  TrustUI.renderSummary(loading);
   const [liveResult, accessResult, evidenceResult] = await Promise.allSettled([
     api(`/api/repo/${wPath()}/live-events/status`),
     api(`/api/repo/${wPath()}/access-surface`),
@@ -2918,7 +2955,7 @@ async function loadRepositoryTrustSummary() {
       ? { text: `${chain.checked || 0} chained record(s), ${(evidence.events || []).length} event(s), and ${(evidence.snapshots || []).length} snapshot(s) support this summary.`, evidenceState: 'Deterministic' }
       : { text: 'Evidence exists, but its chain is not currently verified.', evidenceState: 'Stale' };
 
-  NebulaTrustUI.renderSummary({
+  TrustUI.renderSummary({
     connection, pipeline, risk, action, evidence: evidenceSummary,
     announcement: failures.length
       ? `Repository trust summary updated with ${failures.length} unavailable check${failures.length === 1 ? '' : 's'}.`
@@ -2941,13 +2978,13 @@ function resetRepositoryViews() {
   const safeguards = $('#safeguardsRoot');
   if (safeguards) safeguards.replaceChildren();
   branchRulesCache = { key: '', at: 0, value: null };
-  if (window.NebulaNeural && typeof window.NebulaNeural.reset === 'function') window.NebulaNeural.reset();
+  if (neural) neural.reset();
 }
 /* The account is leaving: a repository still opening for it never finishes opening, and its graph goes. */
 function forgetRepositoryWork() {
   openRepoRequest++;
   state.opening = null;
-  if (window.NebulaNeural && typeof window.NebulaNeural.reset === 'function') window.NebulaNeural.reset();
+  if (neural) neural.reset();
 }
 /*
  * Resolves true when this repository is the one open at the end, false when
@@ -2956,6 +2993,8 @@ function forgetRepositoryWork() {
  */
 async function openRepo(owner, repo) {
   const opening = ++openRepoRequest;
+  /* What the reader pressed to get here. The workbench hides it while the repository loads. */
+  const opener = document.activeElement;
   showPage('work');
   /* No repository is open until this one answers: nothing may act on the last one meanwhile. */
   state.work = null;
@@ -3014,7 +3053,7 @@ async function openRepo(owner, repo) {
     refreshRate();
     saveRoute();
     loadRepositoryTrustSummary().catch(error => {
-      NebulaTrustUI.renderSummary({
+      TrustUI.renderSummary({
         connection: { text: 'Repository metadata responded.', evidenceState: 'Provider-verified' },
         pipeline: { text: 'Trust checks could not be completed.', evidenceState: 'Unavailable' },
         risk: { text: 'Risk state is unavailable.', evidenceState: 'Unavailable' },
@@ -3028,7 +3067,21 @@ async function openRepo(owner, repo) {
     api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) work.starred = x.starred; }).catch(() => {});
     rememberRepository(owner, repo, visitor);
     return true;
-  } catch (e) { presentError(e); showPage('repos'); return false; }
+  } catch (e) {
+    /*
+     * The list comes back before the error is shown, and focus with it to
+     * what the reader pressed. The workbench had hidden that control, so the
+     * dialog -- which gives focus back to whatever held it when it opened --
+     * was giving it to nothing, and a keyboard reader who dismissed it started
+     * again from the top of the page.
+     */
+    await showPage('repos');
+    /* Another repository was chosen meanwhile: that one owns the screen, and this answer is stale. */
+    if (opening !== openRepoRequest) return null;
+    if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
+    presentError(e);
+    return false;
+  }
 }
 
 /*
@@ -3150,7 +3203,7 @@ async function pickRepository(target, pickOptions = {}) {
         el.setAttribute('role', 'option');
         const sigil = document.createElement('span');
         sigil.className = 'rp-pick-sigil';
-        if (window.NebulaRepoSigil) { const mark = window.NebulaRepoSigil.render(`${repo.owner}/${repo.name}`); if (mark) sigil.appendChild(mark); }
+        { const mark = RepoSigil.render(`${repo.owner}/${repo.name}`); if (mark) sigil.appendChild(mark); }
         const text = document.createElement('span');
         text.className = 'rp-pick-text';
         const name = document.createElement('span');
@@ -3424,7 +3477,7 @@ function clearGovernanceState() {
   governanceExpiryTimer = null;
   state.governance = { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], archived: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } };
   const root = $('#govRoot');
-  if (root && window.NebulaGovernanceUI) root.innerHTML = window.NebulaGovernanceUI.renderGovernanceInterface({ loading: true });
+  if (root) root.innerHTML = GovernanceUI.renderGovernanceInterface({ loading: true });
   const live = $('#govLive');
   if (live) live.textContent = '';
 }
@@ -4245,19 +4298,19 @@ async function exportExposure(kind) {
         if (!cursor && shown.length !== page.total) throw new Error('Incomplete export');
       } while (cursor);
     }
-  if (!shown.length || !window.NebulaCodeAudit) return;
+  if (!shown.length) return;
   const rows = exposureExportRows(shown, current);
   const day = new Date().toISOString().slice(0, 10);
   const base = `${state.work.repo}-exposure-${day}`;
   if (kind === 'sarif') {
     const provider = (state.me && state.me.provider) || 'github';
     const scan = current.scan || {};
-    dlFile(`${base}.sarif`, window.NebulaCodeAudit.exposureSarif(rows, {
+    dlFile(`${base}.sarif`, CodeAudit.exposureSarif(rows, {
       ref: state.work.branch, commitSha: scan.commitSha,
       repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : ''
     }), 'application/sarif+json');
   } else {
-    dlFile(`${base}.csv`, window.NebulaCodeAudit.exposureCsv(rows), 'text/csv');
+    dlFile(`${base}.csv`, CodeAudit.exposureCsv(rows), 'text/csv');
   }
   announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
   } catch (error) {
@@ -4371,7 +4424,7 @@ function ensureExposureTools() {
   more.textContent = 'Load more findings';
   more.addEventListener('click', () => void loadExposure({ append: true, filterOnly: true }));
   tail.append(shown, reset, more);
-  if (window.NebulaCodeAudit && window.NebulaCodeAudit.exportMenu) tail.appendChild(window.NebulaCodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
+  tail.appendChild(CodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
   host.append(segments, row, tail);
   return host;
 }
@@ -5120,8 +5173,8 @@ function repaintGovernanceView(focusKey) {
 }
 function renderGovernanceInterface() {
   const root = $('#govRoot');
-  if (!root || !window.NebulaGovernanceUI) return;
-  $('#govRoot').innerHTML = window.NebulaGovernanceUI.renderGovernanceInterface({
+  if (!root) return;
+  $('#govRoot').innerHTML = GovernanceUI.renderGovernanceInterface({
     view: governanceView(),
     digitalTwin: state.governance.digitalTwin,
     access: state.governance.access,
@@ -5259,8 +5312,8 @@ async function showGovernanceJson(title, value) {
 }
 function governanceReadJson(selector, label) {
   const element = $(selector);
-  if (!window.NebulaGovernanceUI || !element) throw new Error(`${label} input is unavailable`);
-  return window.NebulaGovernanceUI.parseJsonObject(element.value, label);
+  if (!element) throw new Error(`${label} input is unavailable`);
+  return GovernanceUI.parseJsonObject(element.value, label);
 }
 async function createGovernancePolicy() {
   const ok = await modal({
@@ -5402,7 +5455,7 @@ async function viewGovernanceVersion(policyId, versionId) {
 async function simulateGovernanceVersion(policyId, versionId) {
   const previous = state.governance.simulation && state.governance.simulation.policyId === policyId && state.governance.simulation.versionId === versionId
     ? state.governance.simulation.request
-    : window.NebulaGovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
+    : GovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
   const ok = await modal({
     title: 'Simulate policy version', okText: 'Run simulation',
     bodyHTML: `<label class="field-label" for="govSimulationRequest">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
@@ -5895,7 +5948,7 @@ function openItemMenu(it) {
         : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
       <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
   });
-  if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply($('#modalBody'));
+  CapabilityUI.apply($('#modalBody'));
   $('#modalBody').addEventListener('click', async e => {
     const b = e.target.closest('[data-mi]');
     if (!b) return;
@@ -6038,7 +6091,7 @@ function siteKey() {
   return state.work ? `${state.work.owner}/${state.work.repo}` : '';
 }
 function siteUrlStorageKey() {
-  return `${window.NebulaCodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
+  return `${CodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
 }
 /*
  * The deployed site an audit shows. Site checks run on the Website page
@@ -6096,19 +6149,19 @@ async function copyPrompt(text, control) {
 }
 function paintAudit(options = {}) {
   const root = $('#auditRoot');
-  if (!root || !window.NebulaCodeAudit) return;
+  if (!root) return;
   if (auditView.key !== auditKey()) {
     auditHistoryRequest++;
     clearTimeout(auditHistoryArmTimer);
     auditView = blankAuditView(auditKey());
   }
-  const repository = window.NebulaCapabilityUI.decision('code-audit');
+  const repository = CapabilityUI.decision('code-audit');
   if (repository.status === 'Supported' && auditView.history.status === 'idle' && state.work) loadAuditHistory();
-  const draw = options.partial ? window.NebulaCodeAudit.update : window.NebulaCodeAudit.render;
+  const draw = options.partial ? CodeAudit.update : CodeAudit.render;
   draw(root, {
     ...auditView,
     unavailable: repository.status === 'Supported' ? null : repository.reason,
-    site: window.NebulaCapabilityUI.decision('site-check').status === 'Supported' ? auditSiteLink() : null
+    site: CapabilityUI.decision('site-check').status === 'Supported' ? auditSiteLink() : null
   }, {
     onSiteOpen: options => openParallax(options),
     onRun: runAudit,
@@ -6138,10 +6191,10 @@ function paintAudit(options = {}) {
       if (kind === 'sarif') {
         const provider = (state.me && state.me.provider) || 'github';
         const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, window.NebulaCodeAudit.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
+        return dlFile(`${base}.sarif`, CodeAudit.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
       }
-      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.keptCsv(audit, findings), 'text/csv');
-      dlFile(`${base}.md`, window.NebulaCodeAudit.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
+      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.keptCsv(audit, findings), 'text/csv');
+      dlFile(`${base}.md`, CodeAudit.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
     },
     onTriage: finding => triageAuditFinding(finding),
     onReopen: finding => reopenAuditFinding(finding),
@@ -6171,7 +6224,7 @@ function paintAudit(options = {}) {
     onOpen: finding => openAuditFinding(finding),
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
     onCopyAll: async () => {
-      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
+      try { await navigator.clipboard.writeText(CodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onExport: kind => {
@@ -6184,17 +6237,17 @@ function paintAudit(options = {}) {
       if (kind === 'sarif') {
         const provider = (state.me && state.me.provider) || 'github';
         const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
+        return dlFile(`${base}.sarif`, CodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
       }
-      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(result, site, auditView.diff), 'text/csv');
+      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.csv(result, site, auditView.diff), 'text/csv');
       if ((kind === 'cyclonedx' || kind === 'spdx') && result) {
         const provider = (state.me && state.me.provider) || 'github';
         const meta = { name: `${state.work.owner}/${state.work.repo}`, ref: state.work.branch, repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '' };
         return kind === 'cyclonedx'
-          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, window.NebulaCodeAudit.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
-          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, window.NebulaCodeAudit.spdx(result, meta), 'application/spdx+json');
+          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, CodeAudit.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
+          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, CodeAudit.spdx(result, meta), 'application/spdx+json');
       }
-      dlFile(`${base}.md`, window.NebulaCodeAudit.brief(result, label, site), 'text/markdown');
+      dlFile(`${base}.md`, CodeAudit.brief(result, label, site), 'text/markdown');
     }
   });
 }
@@ -6230,14 +6283,14 @@ async function pollSiteCheck(path, { current, onProgress }) {
  * engine and card. The address typed is remembered under the audit prefix the
  * account purge removes, and so are the last check's fingerprints.
  */
-const SITE_SCAN_URL = () => `${window.NebulaCodeAudit.STORE_PREFIX}site-url:standalone`;
+const SITE_SCAN_URL = () => `${CodeAudit.STORE_PREFIX}site-url:standalone`;
 function blankSiteScan() {
   let url = '';
   try { url = localStorage.getItem(SITE_SCAN_URL()) || ''; } catch {}
   return { status: 'idle', url, suggested: false, result: null, diff: null, error: '', progress: null };
 }
 function clearSiteScanState() {
-  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
+  RenderedAudit.dispose($('#renderedAuditRoot'));
   siteScanRequest++;
   siteScanView = null;
   const root = $('#siteRoot');
@@ -6249,11 +6302,11 @@ function showSiteScan() {
 }
 function paintSiteScan() {
   const root = $('#siteRoot');
-  if (!root || !window.NebulaCodeAudit) return;
+  if (!root) return;
   if (!siteScanView) siteScanView = blankSiteScan();
-  const decision = window.NebulaCapabilityUI.decision('site-check');
+  const decision = CapabilityUI.decision('site-check');
   if (decision.status !== 'Supported') {
-    if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.dispose($('#renderedAuditRoot'));
+    RenderedAudit.dispose($('#renderedAuditRoot'));
     root.replaceChildren();
     const note = document.createElement('p');
     note.className = 'audit-lede audit-muted';
@@ -6261,15 +6314,15 @@ function paintSiteScan() {
     root.appendChild(note);
     return;
   }
-  if (window.NebulaRenderedAudit) window.NebulaRenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
+  RenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
   const from = siteScanView.from && siteScanView.from === siteKey() ? siteScanView.from : null;
-  window.NebulaCodeAudit.renderSiteScan(root, { ...siteScanView, from }, {
+  CodeAudit.renderSiteScan(root, { ...siteScanView, from }, {
     onSiteBack: from ? () => { showPage('work'); switchTab('audit'); } : null,
     onSiteInput: value => { siteScanView.url = value; },
     onSiteCheck: runStandaloneSiteCheck,
     onSiteExpand: () => paintSiteScan(),
     onSiteCopyAll: async () => {
-      try { await navigator.clipboard.writeText(window.NebulaCodeAudit.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
+      try { await navigator.clipboard.writeText(CodeAudit.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
@@ -6278,9 +6331,9 @@ function paintSiteScan() {
       if (!site) return;
       const host = site.origin.replace(/^https:\/\//, '');
       const base = `${host}-site-check-${String(site.checkedAt || new Date().toISOString()).slice(0, 10)}`;
-      if (kind === 'sarif') return dlFile(`${base}.sarif`, window.NebulaCodeAudit.sarif(null, site, {}), 'application/sarif+json');
-      if (kind === 'csv') return dlFile(`${base}.csv`, window.NebulaCodeAudit.csv(null, site, null), 'text/csv');
-      dlFile(`${base}.md`, window.NebulaCodeAudit.brief(null, host, site), 'text/markdown');
+      if (kind === 'sarif') return dlFile(`${base}.sarif`, CodeAudit.sarif(null, site, {}), 'application/sarif+json');
+      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.csv(null, site, null), 'text/csv');
+      dlFile(`${base}.md`, CodeAudit.brief(null, host, site), 'text/markdown');
     }
   });
 }
@@ -6296,7 +6349,7 @@ async function runStandaloneSiteCheck(address) {
       current,
       onProgress: progress => {
         siteScanView.progress = progress;
-        if (!window.NebulaCodeAudit.siteProgress($('#siteRoot'), progress)) paintSiteScan();
+        if (!CodeAudit.siteProgress($('#siteRoot'), progress)) paintSiteScan();
       }
     });
     if (!result || !current()) return;
@@ -6304,12 +6357,12 @@ async function runStandaloneSiteCheck(address) {
     try {
       localStorage.setItem(SITE_SCAN_URL(), result.origin);
       /* Checked for a repository: its audit names this address from now on. */
-      if (from) localStorage.setItem(`${window.NebulaCodeAudit.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
+      if (from) localStorage.setItem(`${CodeAudit.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
     } catch {}
     const fingerprints = `site:${result.origin}`;
-    const previous = window.NebulaCodeAudit.readPrevious(fingerprints);
-    window.NebulaCodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: window.NebulaCodeAudit.diff(result, previous), error: '', progress: null, from };
+    const previous = CodeAudit.readPrevious(fingerprints);
+    CodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
+    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: CodeAudit.diff(result, previous), error: '', progress: null, from };
   } catch (error) {
     if (!current()) return;
     siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
@@ -6333,7 +6386,7 @@ const findingsState = {
   disposition: 'accepted-risk', progress: '', request: 0, at: 0, deciding: false
 };
 function findingsOffered() {
-  return Boolean(window.NebulaCapabilityUI) && window.NebulaCapabilityUI.decision('findings.inbox').status === 'Supported';
+  return CapabilityUI.decision('findings.inbox').status === 'Supported';
 }
 function findingsFiltersFromHash() {
   const match = /^#\/findings(\?.*)?$/.exec(location.hash);
@@ -6493,7 +6546,7 @@ async function loadFindings(force) {
   paintFindings();
 }
 function showFindings(filters) {
-  if (!findingsOffered()) return toast(window.NebulaCapabilityUI.explain('findings.inbox'), 'err');
+  if (!findingsOffered()) return toast(CapabilityUI.explain('findings.inbox'), 'err');
   findingsState.filters = filters || findingsState.filters || findingsInbox.parseFilters('');
   showPage('findings');
   writeFindingsHash();
@@ -6533,7 +6586,7 @@ async function runAudit() {
     while (answer && answer.state === 'running') {
       if (!current()) return;
       auditView.progress = answer;
-      if (shown() && !window.NebulaCodeAudit.progress($('#auditRoot'), answer)) paintAudit();
+      if (shown() && !CodeAudit.progress($('#auditRoot'), answer)) paintAudit();
       await pause(wait);
       if (!current()) return;
       try {
@@ -6553,8 +6606,8 @@ async function runAudit() {
     if (!current()) return;
     const result = answer;
     const repoKey = `${state.work.owner}/${state.work.repo}`;
-    const previous = window.NebulaCodeAudit.readPrevious(repoKey);
-    window.NebulaCodeAudit.remember(repoKey, result);
+    const previous = CodeAudit.readPrevious(repoKey);
+    CodeAudit.remember(repoKey, result);
     /*
      * The server compared this audit with the last one it kept of the branch;
      * this browser's own fingerprints are only the fallback for a server that
@@ -6563,7 +6616,7 @@ async function runAudit() {
     const kept = result.history && result.history.saved === true ? result.history : null;
     const diff = kept
       ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number.isSafeInteger(kept.resolved) ? kept.resolved : null } : null)
-      : window.NebulaCodeAudit.diff(result, previous);
+      : CodeAudit.diff(result, previous);
     auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
     if (kept) loadAuditHistory();
   } catch (error) {
@@ -6931,9 +6984,7 @@ async function snapshotFlow() {
   } catch (e) { toast(e.message, 'err'); }
 }
 function activityCsv(activity) {
-  if (!globalThis.NebulaExportSafety || typeof globalThis.NebulaExportSafety.activityCsv !== 'function')
-    throw new Error('Secure CSV exporter is unavailable');
-  return globalThis.NebulaExportSafety.activityCsv(activity);
+  return ExportSafety.activityCsv(activity);
 }
 
 async function fetchIntelligenceEventsForExport() {
@@ -7245,7 +7296,7 @@ async function renderSafeguards() {
       </section>
     </div>`;
   /* Bound in the same turn as the markup: no control is ever on screen without its handler. */
-  if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(root);
+  CapabilityUI.apply(root);
   const bind = (id, fn) => { const el = root.querySelector('#' + id); if (el) el.addEventListener('click', fn); };
   const ro = root.querySelector('#sgReadOnly'), fz = root.querySelector('#sgFreeze');
   if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });
@@ -7430,10 +7481,6 @@ const VID_EXT = ['mp4','webm'];
 const extOf = p => (p.split('.').pop() || '').toLowerCase();
 
 function ensureCM() {
-  if (typeof window.CodeMirror === 'undefined') {
-    toast('Editor engine could not load — refresh once while online to repair', 'err');
-    throw new Error('CodeMirror unavailable');
-  }
   if (state.cm) return state.cm;
   state.cm = CodeMirror($('#editorHost'), {
     value: '', lineNumbers: true, theme: state.settings.editorTheme,
@@ -7566,14 +7613,13 @@ function closeFile() {
  * Markdown a provider sends -- a pull request's description, an issue, a
  * comment, release notes -- rendered the way the file preview renders it:
  * parsed by marked, then sanitised by DOMPurify with forms, frames and
- * embeds forbidden. Links open in a new tab without an opener. Without the
- * renderer the text is shown as text, line breaks kept.
+ * embeds forbidden. Links open in a new tab without an opener. Both libraries
+ * are imported by this module, so no page draws Markdown without them.
  */
 const MD_SANITIZE = Object.freeze({ USE_PROFILES: { html: true }, FORBID_TAGS: ['form', 'iframe', 'object', 'embed', 'style'], FORBID_ATTR: ['srcdoc', 'style'] });
 function renderMarkdownInto(el, source) {
   el.classList.add('md-body');
   const text = String(source || '');
-  if (!window.DOMPurify || !window.marked) { el.textContent = text; el.classList.add('md-plain'); return; }
   el.innerHTML = DOMPurify.sanitize(marked.parse(text), MD_SANITIZE);
   el.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
 }
@@ -7585,11 +7631,6 @@ $('#mdPreviewBtn').addEventListener('click', () => {
   $('#mdPreviewBtn').textContent = showing ? 'Preview' : 'Edit';
   if (!showing) {
     const source = state.cm.getValue();
-    if (!window.DOMPurify || !window.marked) {
-      pv.textContent = source;
-      toast('Secure Markdown renderer is unavailable; showing plain text.', 'err');
-      return;
-    }
     /* The same rules as provider text: a file's <style> or inline style would restyle the workbench around it. */
     pv.innerHTML = DOMPurify.sanitize(marked.parse(source), MD_SANITIZE);
     pv.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer nofollow'; });
@@ -7937,11 +7978,13 @@ function currentTab() { const t = $('.tab.active'); return t ? t.dataset.tab : '
 /* the Neural module is 60 KB — it loads the first time you open the tab, not on every visit.
    It is its own chunk of the build, which the service worker precaches, so that first open
    is instant and works offline too. */
+/* The loaded module, once the tab has asked for it. */
+let neural = null;
 let _neuralLoad = null;
 function ensureNeural() {
-  if (window.NebulaNeural) { window.NebulaNeural.activate(); return; }
+  if (neural) { neural.activate(); return; }
   if (!_neuralLoad) {
-    _neuralLoad = import('../visualizations/neural.js').then(() => window.NebulaNeural, () => {
+    _neuralLoad = import('../visualizations/neural.js').then(module => { neural = module.default; return neural; }, () => {
       _neuralLoad = null;
       throw new Error('Neural module could not load');
     });
@@ -8005,7 +8048,7 @@ function switchTab(name) {
   if (name === 'audit') paintAudit();
   if (name === 'safeguards') renderSafeguards();
   if (name === 'neural') ensureNeural();
-  else if (window.NebulaNeural) window.NebulaNeural.deactivate();
+  else if (neural) neural.deactivate();
   if (name === 'editor' && state.cm) setTimeout(() => state.cm.refresh(), 30);
   saveRoute(previousTab !== name);
 }
@@ -8249,7 +8292,7 @@ function fuzzyScore(q, s) {
 function renderPalette(q) {
   const host = $('#paletteList');
   /* A command for something that is not Supported is not offered, so the selection never lands on what is not drawn. */
-  const cmds = COMMANDS.filter(c => fuzzy(q, c.label) && !(c.feature && window.NebulaCapabilityUI.withheld(c.feature)));
+  const cmds = COMMANDS.filter(c => fuzzy(q, c.label) && !(c.feature && CapabilityUI.withheld(c.feature)));
   const files = (state.fileIndex || [])
     .map(p => [p, fuzzyScore(q, p)]).filter(([, score]) => score > -1)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, q ? 30 : 14)
@@ -8294,7 +8337,7 @@ function renderPalette(q) {
   });
   input.setAttribute('aria-expanded', 'true');
   input.setAttribute('aria-activedescendant', `pal-option-${palSel}`);
-  window.NebulaCapabilityUI.apply(host);
+  CapabilityUI.apply(host);
 }
 function runPaletteItem(item) {
   return runCapabilityAction(item && item.feature, () => {
@@ -8639,8 +8682,7 @@ function loadScript(src) {
 }
 async function unzipNative(buf) {
   if (!window.DecompressionStream) throw new Error('This browser lacks built-in decompression (needs iOS 16.4+/modern Chrome)');
-  const guard = window.NebulaArchiveSafety;
-  if (!guard || typeof guard.validateArchiveEntries !== 'function') throw new Error('Archive safety guard is unavailable — extraction is blocked');
+  const guard = ArchiveSafety;
   const dv = new DataView(buf), u8 = new Uint8Array(buf);
   if (buf.byteLength < 22) throw new Error('Not a valid zip file');
   /* Locate End Of Central Directory. ZIP64 and split archives are rejected to keep browser extraction bounded. */
@@ -9220,7 +9262,7 @@ const GATE_EFFECT = Object.freeze({
 });
 async function paintPullGate(p, box) {
   const host = box.querySelector('#prGate');
-  if (!host || !window.NebulaCapabilityUI || window.NebulaCapabilityUI.decision('code-audit').status !== 'Supported') return;
+  if (!host || CapabilityUI.decision('code-audit').status !== 'Supported') return;
   const token = ++pullGateRequest;
   const repoPath = wPath();
   try {
@@ -10410,7 +10452,7 @@ async function loadActions() {
           acts.className = 'detail-actions';
           acts.innerHTML = `<button class="btn btn-ghost small" data-rerun data-feature="workflows.rerun">Re-run</button>
             <button class="btn btn-ghost small" data-open>Open on the provider</button>`;
-          if (window.NebulaCapabilityUI) NebulaCapabilityUI.apply(acts);
+          CapabilityUI.apply(acts);
           acts.querySelector('[data-rerun]').addEventListener('click', async () => {
             try { await api(`/api/repo/${wPath()}/actions/${r.id}/rerun`, { method: 'POST' }); toast('Re-run requested ✦', 'ok'); }
             catch (e3) { toast(e3.message, 'err'); }
@@ -10505,10 +10547,10 @@ window.addEventListener('nebula:alpha-access-gated', () => {
   paintFloatingAction('alpha-access');
   closeNavMenu();
 });
-window.NebulaAlphaUI.boot().then(result => {
+AlphaUI.boot().then(result => {
   if (result.allowed) startAuthorizedApp();
 }).catch(() => {
-  window.NebulaAlphaUI.showWaking('Temporarily unavailable');
+  AlphaUI.showWaking('Temporarily unavailable');
 });
 
 /*
@@ -10519,33 +10561,6 @@ window.NebulaAlphaUI.boot().then(result => {
 export {
   state, api, toast, exposureRuleLabel, EXPOSURE_DISPOSITION_WORDS, modal, securityScanFlow,
   exportActivityFlow, openFile, switchTab, recoveryFlow, openSafeguards, setSafety, stepUpApi,
-  dlFile, currentTab
+  dlFile, currentTab, purgeLocalData
 };
 
-/*
- * Transitional: the browser suite reaches these by name. Every other function
- * of this file used to be a property of window as well; these are the ones a
- * test still calls, and they go when the read-only diagnostics probe and real
- * interactions replace them.
- */
-Object.assign(window, {
-  switchTab, toast, showPage, openSettings, openFile, stepUpApi, strategyFor,
-  loadActivityFeed, clearExposureState, showSiteScan, runtimeLimitsKnown, uploadOne
-});
-
-/*
- * The page state was never a window property: as a classic script's top-level
- * const it was reachable by name only, and a guard that looks for it on window
- * (no credential in anything the page caches) depends on that. Three browser
- * tests still change it mid-flight to stand in for an identity or a limit
- * changing under a running operation. They reach it through the harness: the
- * marker exists only when the test set it before any page script ran, it is
- * read once and deleted, and without it nothing is defined. The live object
- * goes when those tests become real interactions and the probe becomes the
- * read-only snapshot.
- */
-if (Object.prototype.hasOwnProperty.call(window, '__NV_HARNESS__')) {
-  const asked = window.__NV_HARNESS__ === true;
-  delete window.__NV_HARNESS__;
-  if (asked) Object.defineProperty(window, '__NV_DIAGNOSTICS__', { value: Object.freeze({ state }), enumerable: false, writable: false, configurable: false });
-}

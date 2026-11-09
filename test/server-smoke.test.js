@@ -119,8 +119,9 @@ async function waitForServer() {
     acorn.parse(scriptBody, { ecmaVersion: 'latest', sourceType: 'module', onComment: scriptComments });
     assert.deepStrictEqual(scriptComments.filter(comment => !/^!|@license|@preserve/.test(comment.value.trim())), [],
       'no comment in the served script');
-    assert.match(scriptBody, /NebulaArchiveSafety/, 'the archive validator is part of the entry');
-    assert.match(scriptBody, /NebulaExportSafety/, 'the export helper is part of the entry');
+    /* Recognised by what each says, which survives the build, not by a global name the page no longer publishes. */
+    assert.match(scriptBody, /Unsafe archive file path traversal/, 'the archive validator is part of the entry');
+    assert.match(scriptBody, /sha_or_tag/, 'the export helper is part of the entry');
     const etag = script.headers.get('etag');
     assert(etag, 'the served script has a validator');
     /*

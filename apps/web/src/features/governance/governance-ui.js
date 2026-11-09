@@ -467,7 +467,5 @@ const api = (function createGovernanceUi() {
   });
 })();
 
-/* Published for the classic interface code that still reads it by name. */
-globalThis.NebulaGovernanceUI = api;
 export default api;
 export const { defaultSimulationRequest, escapeHtml, normalizeInterfaceAccess, parseJsonObject, renderGovernanceInterface } = api;

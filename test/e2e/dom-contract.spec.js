@@ -67,6 +67,14 @@ const SAMPLE_MS = 500;
 const STILL_MS = 2500;
 const BUDGET_MS = 24000;
 
+/*
+ * A notification is what just happened, not what the view is. A toast stays
+ * four seconds, longer than the stillness asked for, so a view read while one
+ * showed recorded the toast as structure or not by a few milliseconds of
+ * timing. A reading taken while one shows does not count as still.
+ */
+const notifying = page => page.evaluate(() => document.querySelector('#toasts .toast') !== null);
+
 async function stableTokens(page) {
   const same = (left, right) => left.length === right.length && left.every((token, index) => token === right[index]);
   const readings = [await page.evaluate(readTokens)];
@@ -74,7 +82,7 @@ async function stableTokens(page) {
   for (let waited = 0; waited < BUDGET_MS; waited += SAMPLE_MS) {
     await page.waitForTimeout(SAMPLE_MS);
     const current = await page.evaluate(readTokens);
-    still = same(readings[readings.length - 1], current) ? still + SAMPLE_MS : 0;
+    still = same(readings[readings.length - 1], current) && !(await notifying(page)) ? still + SAMPLE_MS : 0;
     readings.push(current);
     if (still >= STILL_MS) return current;
   }

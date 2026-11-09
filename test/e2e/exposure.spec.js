@@ -1,6 +1,7 @@
 'use strict';
 
 const { test, expect } = require('@playwright/test');
+const ui = require('./semantic');
 const { mockTask20Api, openRepository } = require('./task20-fixtures');
 
 test.use({ serviceWorkers: 'block' });
@@ -495,7 +496,11 @@ test('a late status response cannot restore a cleared repository scan', async ({
   await openExposure(page);
   await page.locator('#exposureScanBtn').click();
   await page.waitForRequest(request => request.method() === 'GET' && /\/exposure\/scans\//.test(request.url()));
-  await page.evaluate(() => window.clearExposureState());
+  /* The reader clears this browser's data while the scan's status is still on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const response = page.waitForResponse(url => /\/exposure\/scans\//.test(url.url()));
   release();
   await response;
@@ -1207,12 +1212,21 @@ test('switching repository does not leave the previous findings on screen', asyn
   await openExposure(page);
   await expect(page.locator('.exposure-item')).toHaveCount(1);
 
-  await page.evaluate(() => window.clearExposureState());
   /*
-   * Whether or not the helper is reachable from here, the guarantee is that
-   * findings belong to one repository and one identity: leaving them up after
-   * a switch would show somebody another repository's exposures.
+   * Findings belong to one repository and one identity: leaving them up after
+   * a switch would show somebody another repository's exposures. The other
+   * repository is opened by its address, and holds its answer back, so what
+   * is on screen meanwhile can only be what the switch left.
    */
-  const stale = await page.evaluate(() => document.querySelectorAll('.exposure-item').length);
-  expect(stale).toBe(0);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/repo/acme/other', async route => {
+    await held;
+    return route.fulfill({ json: { full_name: 'acme/other', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: 'c'.repeat(40) }] } });
+  });
+  await page.route('**/api/repo/acme/other/**', route => route.fulfill({ json: [] }));
+  await page.evaluate(() => { location.hash = '#/acme/other@main/exposure'; });
+  await expect(page.locator('#workRepoName')).toHaveText('acme/other');
+  await expect(page.locator('.exposure-item')).toHaveCount(0);
+  release();
 });

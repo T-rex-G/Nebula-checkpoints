@@ -1,7 +1,7 @@
 /* Server-projected provider capabilities for truthful client presentation. */
 'use strict';
 
-(function capabilityUiModule(global) {
+const api = (function capabilityUiModule(global) {
   const VALID_STATUS = new Set(['Supported', 'Experimental', 'Unavailable']);
   const FALLBACK_REASON = 'Capability status could not be loaded. Retry after the service is ready.';
   let noteSequence = 0;
@@ -312,5 +312,8 @@
     return projection.answered === true && decision(feature).status !== 'Supported';
   }
 
-  global.NebulaCapabilityUI = Object.freeze({ load, decision, apply, explain, features, withheld });
+  return Object.freeze({ load, decision, apply, explain, features, withheld });
 })(window);
+
+export default api;
+export const { apply, decision, explain, features, load, withheld } = api;

@@ -4167,6 +4167,21 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 .wp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;margin-top:18px;align-items:start}
 .wp-column{display:grid;gap:16px;align-content:start;min-width:0}
 .wp-card{padding:18px 18px 14px;min-width:0}
+/*
+ * The overview does not anchor scrolling, on the page or in its own region.
+ * The browser keeps a scrolled reader's place by watching one element on
+ * screen and scrolling by however far it moves. Every reading that lands
+ * rebuilds the cards whole, and part way through -- a chart measuring the
+ * width it is shown at -- the page is laid out with a card half drawn: the
+ * watched element moved by the height still to come, and the browser then
+ * made up for its return by scrolling. 66 pixels on a phone, under the
+ * reader's eyes and finger, with nothing on the page having moved. Watching a
+ * card instead of what is inside it moved the jump, not the cause. A reading
+ * lands at the heights the cards already had, so there is nothing to make up
+ * for, and a press holds every card's rebuild on its screen until it has been
+ * delivered (components/held-repaint.ts).
+ */
+#page-overview, #page-overview .container{overflow-anchor:none}
 
 /* One hero figure per view, in the body sans -- a display face here reads as
    decoration rather than as a measurement. Proportional figures, not tabular:
@@ -7025,7 +7040,6 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
  * table does the same; nothing pushes the page wider than the screen.
  */
 .md-body{white-space:normal;overflow-wrap:anywhere;min-width:0}
-.md-body.md-plain{white-space:pre-wrap}
 .md-body > :first-child{margin-top:0}
 .md-body > :last-child{margin-bottom:0}
 .md-body h1,.md-body h2,.md-body h3,.md-body h4{margin:1.1em 0 .45em;line-height:1.3;color:var(--text);font-weight:650}

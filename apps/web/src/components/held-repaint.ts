@@ -1,5 +1,5 @@
 /*
- * A card's repaint, held while the reader is pressing inside it.
+ * A card's repaint, held while the reader is pressing on its screen.
  *
  * The Overview cards are rebuilt whenever a reading they show arrives. A
  * press that lands while its target is rebuilt is no click at all: the
@@ -8,12 +8,18 @@
  * replacement. So a tap on "Show the numbers", a repository's name or a
  * button, made just as a reading arrived, did nothing.
  *
- * While a pointer (or Space or Enter) is down inside a card, the card's
- * repaint waits, and runs with the latest reading once the press has been
- * delivered: after its click, or a short while after the release when no
- * click comes. A repaint asked for by the click itself is not held -- the
- * press is over by then -- and supersedes the held one, which is dropped
- * rather than drawn over it later.
+ * Holding only the card being pressed was not enough. A card above it,
+ * rebuilt at another height, carries everything below it up or down the
+ * page, and the pointer comes up over whatever has moved under it -- on a
+ * phone, where the cards stack, the press on a repository's name came up on
+ * the severity beside the one below it.
+ *
+ * So while a pointer (or Space or Enter) is down anywhere on a screen, the
+ * repaints of every card on that screen wait, and run with the latest
+ * reading once the press has been delivered: after its click, or a short
+ * while after the release when no click comes. A repaint asked for by the
+ * click itself is not held -- the press is over by then -- and supersedes
+ * the held one, which is dropped rather than drawn over it later.
  */
 
 /* How long a release may wait for its click: a touch can deliver it a moment after the finger lifts. */
@@ -58,9 +64,24 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('click', () => { pressed = null; release(0); }, true);
 }
 
-/* Draw `host` now, or once the press inside it is over. */
+/*
+ * Forgets every repaint waiting for a press, without drawing it: at an
+ * identity boundary, what the last reader was shown is purged, and nothing
+ * read for them may be drawn afterwards. The press itself is left to end as
+ * it would, so the next repaint is held or drawn as usual.
+ */
+export function discardHeldRepaints(): void {
+  held.clear();
+}
+
+/* The screen a card is on: the main landmark it sits in, or the card alone outside one. */
+function screenOf(host: Element): Element {
+  return host.closest('main') || host;
+}
+
+/* Draw `host` now, or once the press on its screen is over. */
 export function repaintCard(host: Element, draw: () => void): void {
-  if (pressed && host.contains(pressed)) {
+  if (pressed && screenOf(host).contains(pressed)) {
     held.set(host, draw);
     return;
   }

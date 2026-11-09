@@ -36,7 +36,7 @@ function browser(options = {}) {
   const sandbox = {
     state,
     NVN: { data: { safety: { globalControls: options.globalControls !== false } } },
-    window: { NebulaPwa: {} },
+    window: {},
     workPath: () => `${state.work.owner}/${state.work.repo}`,
     modal: async input => {
       effects.push(['modal', input]);
@@ -73,7 +73,7 @@ function browser(options = {}) {
       effects.push(['download', ...args]);
     },
     location: { reload: () => effects.push(['reload']) },
-    clearActivityFeed() {}, clearPosture() {}, paintUnread() {}, clearCsrfToken() {},
+    discardHeldRepaints() {}, clearActivityFeed() {}, clearPosture() {}, paintUnread() {}, clearCsrfToken() {},
     clearGovernanceState() {}, clearExposureState() {}, clearAuditState() {}, clearSiteScanState() {},
     purgePrivateCaches: async () => {
       effects.push(['purge']);
@@ -93,7 +93,8 @@ function browser(options = {}) {
     _cache: { clear() {} }
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${declaration(app, 'purgeLocalData')}\nwindow.NebulaPwa.purgePrivateData = purgeLocalData;`, sandbox);
+  /* The shield purges through the workbench's own purge, which it imports by that name. */
+  vm.runInContext(declaration(app, 'purgeLocalData'), sandbox);
   vm.runInContext(`${declaration(neural, 'emergencyShield', '  ')}\nthis.run = emergencyShield;`, sandbox);
   return { run: sandbox.run, state, effects, stored, button };
 }

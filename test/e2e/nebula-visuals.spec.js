@@ -57,7 +57,9 @@ test('a device without WebGL never downloads the artwork and loses nothing else'
   const repos = await ui.enterRepositories(page);
   await expect(repos).toBeVisible();
 
-  expect(await page.evaluate(() => window.NebulaVisuals.supportsWebGL())).toBe(false);
+  /* The repositories' artwork is not mounted: its host keeps the ground the stylesheet draws. */
+  await expect(page.locator('#gxHeroArt')).not.toHaveAttribute('data-nebula-mounted', 'true');
+  await expect(page.locator('nebula-galaxy, nebula-singularity')).toHaveCount(0);
   expect(heavy, 'nothing heavy may be fetched for a device that cannot draw it').toEqual([]);
   expect(failures, 'a missing context must not throw through the page').toEqual([]);
 

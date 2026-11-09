@@ -445,7 +445,7 @@ test.describe('the neural section', () => {
     await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
     await page.goto('/#/sandbox/demo@main/files');
     await page.locator('#page-work.active').waitFor();
-    await page.evaluate(() => window.switchTab('neural'));
+    await ui.openTab(page, 'neural');
     await expect(page.locator('#tab-neural.active')).toBeVisible();
   }
 
@@ -455,7 +455,7 @@ test.describe('the neural section', () => {
     await page.locator('#page-work.active').waitFor();
 
     const before = await page.evaluate(() => window.innerWidth);
-    await page.evaluate(() => window.switchTab('neural'));
+    await ui.openTab(page, 'neural');
     await expect(page.locator('#tab-neural.active')).toBeVisible();
 
     await expect.poll(() => page.evaluate(() => window.innerWidth),
@@ -812,7 +812,7 @@ test('controls are large enough to hit', async ({ page }) => {
    */
   const undersized = [];
   for (const tab of ['neural', 'upload']) {
-    await page.evaluate(name => window.switchTab(name), tab);
+    await ui.openTab(page, tab);
     await page.waitForTimeout(700);
     undersized.push(...await page.evaluate(pane => {
       const targets = [
@@ -859,7 +859,7 @@ test('the governance pane fits a 320px screen while reporting a failure', async 
   await page.goto('/#/sandbox/demo@main/editor');
   await page.reload();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('governance'));
+  await ui.openTab(page, 'governance');
   await page.waitForTimeout(800);
 
   await page.setViewportSize({ width: 320, height: 560 });
@@ -901,7 +901,7 @@ test('every neural mode is reachable without dragging', async ({ page }) => {
   await page.goto('/#/sandbox/demo@main/editor');
   await page.reload();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('neural'));
+  await ui.openTab(page, 'neural');
   await page.waitForTimeout(800);
   await page.setViewportSize({ width: 320, height: 640 });
   await page.waitForTimeout(900);
@@ -967,7 +967,7 @@ test.describe('the floating action', () => {
     await page.goto('/#/sandbox/demo@main/editor');
     await page.reload();
     await page.locator('#page-work.active').waitFor();
-    await page.evaluate(() => window.switchTab('neural'));
+    await ui.openTab(page, 'neural');
     await page.waitForTimeout(900);
     await expect(page.locator('#paletteFab')).toBeVisible();
 
@@ -987,7 +987,7 @@ test.describe('the floating action', () => {
     await page.goto('/#/sandbox/demo@main/editor');
     await page.reload();
     await page.locator('#page-work.active').waitFor();
-    await page.evaluate(() => window.switchTab('neural'));
+    await ui.openTab(page, 'neural');
     await page.waitForTimeout(900);
 
     await page.locator('#paletteFab').click();
@@ -1005,7 +1005,7 @@ test.describe('the floating action', () => {
     await page.goto('/#/sandbox/demo@main/editor');
     await page.reload();
     await page.locator('#page-work.active').waitFor();
-    await page.evaluate(() => window.switchTab('neural'));
+    await ui.openTab(page, 'neural');
     await page.waitForTimeout(900);
 
     await page.evaluate(() => window.scrollTo(0, 600));
@@ -1030,9 +1030,11 @@ test('a message never covers the bottom navigation', async ({ page }) => {
   const nav = page.locator('#bottomNav');
   if (!(await nav.isVisible())) return;
 
-  await page.evaluate(() => window.toast('A message that has to stay out of the way', 'ok'));
+  /* A message raised the way any is: here, the workbench saying it refreshed. */
+  await (await ui.action(page, 'Refresh repo')).click();
   const toast = page.locator('#toasts');
   await expect(toast).toBeVisible();
+  await expect(toast.locator('.toast').last()).toContainText('Refreshed');
 
   const clash = await page.evaluate(() => {
     const box = id => document.getElementById(id).getBoundingClientRect();
@@ -1061,9 +1063,10 @@ for (const design of ['nebula', 'obsidian']) {
       await page.goto('/#/sandbox/demo@main/files');
       await page.locator('#page-work.active').waitFor();
 
-      await page.evaluate(() => window.toast('Two fingers zoom and move the graph'));
+      await (await ui.action(page, 'Refresh repo')).click();
       const message = page.locator('#toasts .toast').last();
       await expect(message).toBeVisible();
+      await expect(message).toContainText('Refreshed');
       const look = await message.evaluate(element => {
         const style = getComputedStyle(element);
         const probe = document.createElement('canvas').getContext('2d');
@@ -1089,9 +1092,10 @@ test('a message does not move for a reader who asked for less motion', async ({ 
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.toast('Saved', 'ok'));
+  await (await ui.action(page, 'Refresh repo')).click();
   const message = page.locator('#toasts .toast').last();
   await expect(message).toBeVisible();
+  await expect(message).toContainText('Refreshed');
   expect(await message.evaluate(element => getComputedStyle(element).animationName)).toBe('none');
 });
 
@@ -1161,7 +1165,7 @@ test('the graph filter and the policy destination do not share a name', async ({
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('neural'));
+  await ui.openTab(page, 'neural');
   await expect(page.locator('#tab-neural.active')).toBeVisible();
 
   const names = await page.evaluate(() => {

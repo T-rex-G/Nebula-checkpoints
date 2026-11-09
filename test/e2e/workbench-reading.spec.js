@@ -13,7 +13,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
-const { mockMediumRepo, LONG_FILE, LONG_FILE_LINES } = require('./medium-repo-fixtures');
+const { mockMediumRepo, LONG_FILE, LONG_FILE_LINES, HOSTILE_DOCUMENT } = require('./medium-repo-fixtures');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
@@ -131,6 +131,26 @@ test('an issue opens under its row with its comments rendered', async ({ page })
   expect(await page.evaluate(() => window.__mdPwned)).toBeUndefined();
 });
 
+/*
+ * A Markdown file's preview is drawn by the same sanitiser as a provider's
+ * text: what its author wrote as markup arrives inert.
+ */
+test('a Markdown preview renders the document and nothing its author scripted', async ({ page }) => {
+  await openRepository(page, 'editor');
+  await ui.openFileByName(page, HOSTILE_DOCUMENT);
+  await expect(page.locator('.CodeMirror-code')).toContainText('How this repository is kept safe.');
+  await page.locator('#mdPreviewBtn').click();
+  const preview = page.locator('#mdPreview');
+  await expect(preview.locator('h1')).toHaveText('Security');
+  await expect(preview.locator('script, iframe, form, style, [onerror], [onclick], [style]')).toHaveCount(0);
+  await expect(preview.locator('a[href^="javascript:"]')).toHaveCount(0);
+  for (const link of await preview.locator('a[href]').all()) {
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', /noopener/);
+  }
+  expect(await page.evaluate(() => window.__mdPwned)).toBeUndefined();
+});
+
 test('the palette ranks files by how well they match, not by name', async ({ page }) => {
   await openRepository(page, 'editor');
   await (await ui.action(page, 'Command palette')).click();
@@ -147,8 +167,9 @@ test('the palette ranks files by how well they match, not by name', async ({ pag
 
 test('the editor scrolls a long file and its last line clears the navigation', async ({ page }) => {
   await openRepository(page, 'editor');
-  await page.evaluate(path => openFile(path), LONG_FILE);
+  await ui.openFileByName(page, LONG_FILE);
   await expect(page.locator('.CodeMirror')).toBeVisible();
+  await expect(page.locator('.CodeMirror-code')).toContainText('line 1');
   /*
    * Two ways a reader reaches the end, each repeated on every look: the
    * editor refreshes itself just after a file opens and re-measures its lines
@@ -206,11 +227,11 @@ test('each tab keeps its own place in a long list', async ({ page }) => {
   await settle();
   const deep = await scrollDeep();
   expect(deep).toBeGreaterThan(400);
-  await page.evaluate(() => switchTab('issues'));
+  await ui.openTab(page, 'issues');
   await expect(page.locator('#issueList .list-item')).toHaveCount(30);
   /* The next tab starts at its top, not at the last tab's offset. */
   await expect.poll(() => onScreen(page, '#issueList .list-item')).toEqual({ belowBar: true, startsOnScreen: true });
-  await page.evaluate(() => switchTab('commits'));
+  await ui.openTab(page, 'commits');
   const back = await page.evaluate(() => document.scrollingElement.scrollTop + document.querySelector('.tabpane.active').scrollTop);
   expect(Math.abs(back - deep)).toBeLessThanOrEqual(2);
 });

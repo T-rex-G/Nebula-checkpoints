@@ -86,7 +86,7 @@ test('offline repository access is opt-in and account switching purges scoped ca
   await page.locator('.repo-card').first().click();
   await expect(page.locator('#page-work')).toHaveClass(/active/);
   await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
-  await page.evaluate(() => { void openSettings(); });
+  await (await ui.action(page, 'Settings')).click();
   const toggle = page.locator('#setOfflineRepo');
   await expect(toggle).toBeVisible();
   await toggle.check();

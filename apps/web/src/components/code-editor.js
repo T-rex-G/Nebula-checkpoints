@@ -1,9 +1,9 @@
 /*
- * The pinned browser libraries, bundled from their npm packages rather than
- * copied into the repository, and published under the names the classic
- * interface code still reads. Imported before anything else so they exist
- * when that code first runs. Transitional: each consumer imports the library
- * directly once it is a typed module.
+ * The editor library, with the modes and the search addon the workbench
+ * uses registered on it. A mode registers itself on CodeMirror when its
+ * module is evaluated, so importing the editor from here is what guarantees
+ * that every language the workbench names is known before the first file
+ * opens.
  */
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/meta.js';
@@ -16,7 +16,5 @@ import 'codemirror/mode/python/python.js';
 import 'codemirror/mode/shell/shell.js';
 import 'codemirror/mode/yaml/yaml.js';
 import 'codemirror/addon/search/searchcursor.js';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 
-Object.assign(globalThis, { CodeMirror, marked, DOMPurify });
+export default CodeMirror;

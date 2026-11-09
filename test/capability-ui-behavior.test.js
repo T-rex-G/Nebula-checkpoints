@@ -1,11 +1,8 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { loadPageModule } = require('./helpers/page-module');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'features', 'capabilities', 'capability-ui.js'), 'utf8');
 const notes = new Map();
 
 function control(feature, options = {}) {
@@ -79,10 +76,10 @@ const sandbox = {
   Set,
   String
 };
-vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
+const CapabilityUI = loadPageModule('apps/web/src/features/capabilities/capability-ui.js', sandbox).default;
 
 (async () => {
-  await window.NebulaCapabilityUI.load('github', 'github.com');
+  await CapabilityUI.load('github', 'github.com');
   const nestedButton = control('file.batch');
   const batchContainer = control('file.batch', { native: false, children: [nestedButton] });
   const experimental = control('governance');
@@ -91,7 +88,7 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   let controls = [batchContainer, experimental, supported, unavailableButton];
   const root = { querySelectorAll: () => controls };
 
-  window.NebulaCapabilityUI.apply(root);
+  CapabilityUI.apply(root);
 
   /*
    * Only what is Supported is rendered. A control for anything else is taken
@@ -108,7 +105,7 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   assert.strictEqual(supported.getAttribute('data-capability-blocked'), 'false');
   assert.strictEqual(supported.disabled, false);
   assert.strictEqual(
-    window.NebulaCapabilityUI.decision('unknown.feature').status,
+    CapabilityUI.decision('unknown.feature').status,
     'Unavailable',
     'unknown features must fail closed'
   );
@@ -118,8 +115,8 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   /* A capability that becomes Supported comes back, exactly as it was. */
   sandbox.fetch = async () => ({ ok: true, json: async () => ({ ...body, features: { ...body.features,
     governance: { ...body.features.governance, status: 'Supported', evidenceState: 'Deterministic' } } }) });
-  await window.NebulaCapabilityUI.load('github', 'github.com');
-  window.NebulaCapabilityUI.apply(root);
+  await CapabilityUI.load('github', 'github.com');
+  CapabilityUI.apply(root);
   assert.strictEqual(experimental.hidden, false, 'a control hidden for its capability is shown again once Supported');
   assert.strictEqual(experimental.getAttribute('data-capability-blocked'), 'false');
   assert.strictEqual(batchContainer.hidden, true);
@@ -130,11 +127,11 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
    * so the person can see that something is wrong and retry.
    */
   sandbox.fetch = async () => ({ ok: false, json: async () => ({}) });
-  await window.NebulaCapabilityUI.load('github', 'github.com');
+  await CapabilityUI.load('github', 'github.com');
   const field = control('file.batch', { tagName: 'INPUT' });
   const pressable = control('file.batch', { tagName: 'BUTTON' });
   controls = [field, pressable];
-  window.NebulaCapabilityUI.apply(root);
+  CapabilityUI.apply(root);
   assert.notStrictEqual(field.hidden, true);
   assert.notStrictEqual(pressable.hidden, true);
   assert.strictEqual(field.disabled, true, 'a refused field must not accept input it will discard');
@@ -143,32 +140,32 @@ vm.runInNewContext(source, sandbox, { filename: 'capability-ui.js' });
   const outage = notes.get(field.dataset.capabilityNoteId);
   assert(outage && String(outage.getAttribute('aria-label') || '').includes('could not be loaded'), 'the outage is explained');
   sandbox.fetch = async () => ({ ok: true, json: async () => body });
-  await window.NebulaCapabilityUI.load('github', 'github.com');
+  await CapabilityUI.load('github', 'github.com');
 
   // An older account response must never overwrite the latest projection.
   const pending = [];
   sandbox.fetch = (url, options) => new Promise(resolve => pending.push({ url, options, resolve }));
-  const firstAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
-  const secondAccount = window.NebulaCapabilityUI.load('github', 'github.com', { connected: true });
+  const firstAccount = CapabilityUI.load('github', 'github.com', { connected: true });
+  const secondAccount = CapabilityUI.load('github', 'github.com', { connected: true });
   assert(pending.every(call => call.url.startsWith('/api/account/capabilities?')));
   assert(pending.every(call => call.options.cache === 'no-store' && call.options.credentials === 'same-origin'));
   pending[1].resolve({ ok: true, json: async () => body });
   await secondAccount;
   pending[0].resolve({ ok: false, json: async () => ({}) });
   await firstAccount;
-  assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Supported');
+  assert.strictEqual(CapabilityUI.decision('file.read').status, 'Supported');
   for (const retiredProvider of ['gitlab', 'gitea', 'unknown']) {
     let fetched = false;
     sandbox.fetch = async () => { fetched = true; return { ok: true, json: async () => body }; };
-    await window.NebulaCapabilityUI.load(retiredProvider, 'github.com', { connected: true });
+    await CapabilityUI.load(retiredProvider, 'github.com', { connected: true });
     assert.strictEqual(fetched, false, 'unsupported identities must not request GitHub capabilities');
-    assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
+    assert.strictEqual(CapabilityUI.decision('file.read').status, 'Unavailable');
   }
   let fetchedCustomHost = false;
   sandbox.fetch = async () => { fetchedCustomHost = true; return { ok: true, json: async () => body }; };
-  await window.NebulaCapabilityUI.load('github', 'git.example.org', { connected: true });
+  await CapabilityUI.load('github', 'git.example.org', { connected: true });
   assert.strictEqual(fetchedCustomHost, false, 'custom hosts are not supported GitHub identities');
-  assert.strictEqual(window.NebulaCapabilityUI.decision('file.read').status, 'Unavailable');
+  assert.strictEqual(CapabilityUI.decision('file.read').status, 'Unavailable');
   console.log('capability UI behavior tests passed');
 })().catch(error => {
   console.error(error.stack || error);

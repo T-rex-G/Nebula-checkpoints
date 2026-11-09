@@ -9,10 +9,8 @@ const ts = require('typescript');
 const { serverFiles } = require('../test/helpers/server-source');
 const { PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
 const renderReleaseTemplate = value => value.replaceAll('__NV_PRODUCT_NAME__', PRODUCT_NAME);
-/* The browser entry's imports, in order, as root-relative paths. */
-const ENTRY = 'apps/web/src/main.js';
-const shellImports = () => [...read(ENTRY).matchAll(/^import\s+(?:[^'"]+\s+from\s+)?'(\.[^']+)';$/gm)]
-  .map(match => path.relative(root, path.resolve(root, path.dirname(ENTRY), match[1])).split(path.sep).join('/'));
+/* The page's modules in the order the browser evaluates them, and the packages they import by name. */
+const { shellImports, pagePackages } = require('../test/helpers/web-shell');
 /* A module under apps/ or packages/ is an ES module; everything else a classic script or CommonJS. */
 function assertParses(file) {
   const source = read(file);
@@ -299,14 +297,16 @@ must(
 must(pkg.dependencies?.codemirror === '5.65.16', 'CodeMirror must be pinned and bundled');
 must(pkg.dependencies?.marked === '15.0.12', 'Marked must be pinned to the Node 18-compatible browser build');
 must(pkg.dependencies?.dompurify === '3.4.17', 'DOMPurify must be pinned to the patched browser build');
-const vendorBridge = read('apps/web/src/legacy/vendor-globals.js');
-must(/from 'marked'/.test(vendorBridge), 'Pinned Marked is not bundled');
-must(/from 'dompurify'/.test(vendorBridge), 'Pinned DOMPurify is not bundled');
-must(/from 'codemirror'/.test(vendorBridge), 'Pinned CodeMirror is not bundled');
+/*
+ * The libraries are imported by the modules that use them, from their pinned
+ * packages; no module reads one off the window, which the page no longer
+ * publishes anything on (test/e2e/no-globals.spec.js).
+ */
+const packages = pagePackages();
+for (const name of ['marked', 'dompurify', 'codemirror']) must(packages.includes(name), `Pinned ${name} is not bundled`);
 const imports = shellImports();
 const at = name => imports.indexOf(name);
 const appAt = at('apps/web/src/legacy/app.js');
-must(imports.find(entry => entry.endsWith('.js')) === 'apps/web/src/legacy/vendor-globals.js', 'The bundled libraries must load before anything that reads them');
 must(at('apps/web/src/features/workbench/archive-safety.js') > -1 && at('apps/web/src/features/workbench/archive-safety.js') < appAt, 'Archive validator must load before app.js');
 must(at('apps/web/src/features/workbench/export-safety.js') > -1 && at('apps/web/src/features/workbench/export-safety.js') < appAt, 'Export safety helper must load before app.js');
 /* Named by content at build time: no URL in the page carries a stamp. */
@@ -315,7 +315,7 @@ must(html.includes('<script type="module" src="/src/main.js"></script>'), 'The p
 
 const app = read('apps/web/src/legacy/app.js');
 must(app.includes("name === 'neural'"), 'Neural tab activation hook missing');
-must(app.includes('window.NebulaNeural.deactivate'), 'Neural deactivation hook missing');
+/* Leaving the Neural tab stops the graph drawing: test/e2e/neural-layout.spec.js reads it off the probe. */
 /*
  * Every destination in the workbench is reachable by name. Governance had no
  * entry here at all while every other one did, which is how the surface that
@@ -382,8 +382,15 @@ must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'S
  * channel within its budgets (test/database-lifecycle.test.js), and migrated
  * (test/composition-postgres.test.js).
  */
-must(app.includes('Secure Markdown renderer is unavailable') && app.includes('DOMPurify.sanitize'), 'Markdown preview must fail closed and sanitize HTML');
-must(app.includes('NebulaArchiveSafety') && app.includes('validateArchiveEntries(rawEntries)'), 'ZIP extraction must validate the central directory before decompression');
+/*
+ * Markdown is sanitised before it is drawn, in a file's preview and wherever
+ * a provider's text is shown: test/e2e/workbench-reading.spec.js previews a
+ * document and opens a pull request and an issue, each carrying a script, an
+ * event handler, a frame and a javascript: link, and none of them survives
+ * or runs. An archive is validated before anything in it is
+ * extracted: test/e2e/upload-archive.spec.js offers one that climbs out of
+ * the folder and sees it refused with nothing queued.
+ */
 must(app.includes('actualTotal > validated.limits.maxTotalUncompressed'), 'ZIP extraction must enforce the actual extracted-size ceiling');
 /* That the composed server's live events are connected through their route and stream a delivery is test/composition-postgres.test.js's. */
 const migrationSql = fs.readdirSync(path.join(root, 'db', 'migrations')).filter(name => name.endsWith('.sql')).sort().map(name => read('db/migrations/' + name)).join('\n');
@@ -400,7 +407,7 @@ must(migrationSql.includes('nv_governance_reject_history_mutation') && migration
 
 /* That a protection holds in every session of the identity is test/composition-postgres.test.js's, as is the runner applying every migration. */
 must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migration runner keeps the migration record; no migration may');
-must(app.includes('Secure CSV exporter is unavailable') && app.includes('NebulaExportSafety.activityCsv'), 'CSV export must fail closed through the formula-safe helper');
+/* The activity export's CSV defuses a cell a spreadsheet would run: test/e2e/activity-export.spec.js reads the file. */
 must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
 const neural = read('apps/web/src/visualizations/neural.js');
 must(neural.includes('graphShortestPath') && neural.includes('Explain this connection'), 'Deterministic connection explanation is missing');

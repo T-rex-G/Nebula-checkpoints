@@ -41,7 +41,7 @@
  * data (TIERS), so a variant is a line of configuration, not a new shader.
  */
 
-(function vortexModule(global) {
+const api = (function vortexModule(global) {
   const TAU = Math.PI * 2;
   const DPR_CAP = 1.5;
 
@@ -1334,7 +1334,12 @@ void main() {
     });
   }
 
-  global.NebulaVortex = Object.freeze({
+  return Object.freeze({
     create, THEMES, PRESETS, RANGES, TIERS, FEATHER, VERTEX_LIMIT, PACE, strandVertices, resolveShape, pacer
   });
 })(globalThis);
+
+export default api;
+export const {
+  create, THEMES, PRESETS, RANGES, TIERS, FEATHER, VERTEX_LIMIT, PACE, strandVertices, resolveShape, pacer
+} = api;

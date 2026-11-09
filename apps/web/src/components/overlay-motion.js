@@ -169,7 +169,5 @@ const api = (function buildOverlayMotion() {
   return { createOverlayMotion, longestTimeMs, SETTLE_MARGIN_MS };
 })();
 
-/* Published for the classic interface code that still reads it by name. */
-globalThis.NebulaOverlayMotion = api;
 export default api;
 export const { SETTLE_MARGIN_MS, createOverlayMotion, longestTimeMs } = api;

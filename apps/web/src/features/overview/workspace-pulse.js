@@ -19,7 +19,7 @@ import { repaintCard } from '../../components/held-repaint.ts';
 
 'use strict';
 
-(function workspacePulseModule(global) {
+const api = (function workspacePulseModule(global) {
   const DAY = 86400000;
 
   /*
@@ -1115,7 +1115,14 @@ import { repaintCard } from '../../components/held-repaint.ts';
    * reader has already seen the line arrive once.
    */
   function fittedArea(host, values, label, options) {
-    const measure = () => Math.round(host.getBoundingClientRect ? host.getBoundingClientRect().width : 0);
+    /*
+     * The card's laid-out width, not its box on screen. On a phone a card
+     * arrives scaled (a scroll-driven entrance), and a chart measured from the
+     * scaled box was drawn 1.5% narrower than its card and stretched to fill
+     * it, blurred, and taller than it would be redrawn. A transform never
+     * reaches the resize observer below, so nothing refitted it.
+     */
+    const measure = () => Math.round(Number(host.offsetWidth) || 0);
     const observed = typeof ResizeObserver === 'function';
     let drawn = measure();
     let chart = null;
@@ -1672,7 +1679,7 @@ import { repaintCard } from '../../components/held-repaint.ts';
     return host.querySelector('.wp-body') || host;
   }
 
-  /* Each card is redrawn when it is not being pressed (components/held-repaint.ts): a press on a rebuilt element is lost. */
+  /* Each card is redrawn once no press is down on its screen (components/held-repaint.ts): a press on a rebuilt or moved element is lost. */
   function paint(host, draw) {
     if (host) repaintCard(host, () => draw(host));
   }
@@ -1697,13 +1704,11 @@ import { repaintCard } from '../../components/held-repaint.ts';
     return current;
   }
 
-  global.NebulaWorkspacePulse = Object.freeze({
+  return Object.freeze({
     COMPONENTS, ACTIVITY_BUCKETS, CRITICAL_CAP, gradeOf, model, render, renderActivityFeed,
     languageSpread, radarChart, RADAR_MIN_AXES
   });
 })(globalThis);
 
-
-const api = globalThis.NebulaWorkspacePulse;
 export default api;
 export const { ACTIVITY_BUCKETS, COMPONENTS, CRITICAL_CAP, RADAR_MIN_AXES, gradeOf, languageSpread, model, radarChart, render, renderActivityFeed } = api;

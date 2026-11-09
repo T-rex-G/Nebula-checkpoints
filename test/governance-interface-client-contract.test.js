@@ -9,7 +9,7 @@ for (const symbol of ['clearGovernanceState', 'renderGovernanceInterface', 'load
 assert(app.includes("if (name === 'governance') loadGovernanceTwin()"), 'Governance tab must lazy-load the read model');
 assert(app.includes('/governance/digital-twin?historyLimit=50'), 'client must request a bounded Digital Twin history page');
 assert(app.includes('/governance/decisions/verify?limit=50000'), 'client must expose bounded chain verification');
-assert(app.includes("$('#govRoot').innerHTML = window.NebulaGovernanceUI.renderGovernanceInterface"), 'client must use the pure renderer');
+/* The section is drawn by the module's renderer: the governance browser tests press its controls (test/e2e/governance-lifecycle.spec.js). */
 assert(app.includes('clearGovernanceState();') && app.indexOf('clearGovernanceState();') < app.indexOf('state.work = { owner, repo'), 'opening a repository must clear prior governance state before assigning the new repository');
 assert(!app.includes('nv_governance') && !app.includes('localStorage.setItem(\'governance'), 'governance evidence must not be persisted in browser storage');
 assert(app.includes("data-gov-action") || app.includes("closest('[data-gov-action]')"), 'client needs delegated governance actions');

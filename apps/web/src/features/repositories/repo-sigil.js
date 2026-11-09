@@ -14,7 +14,7 @@
  * The geometry is the product's own: folded facets radiating from a centre,
  * the same language as the brand mark rather than a generic identicon grid.
  */
-(function repoSigilModule(global) {
+const api = (function repoSigilModule(global) {
   /*
    * FNV-1a. Chosen because it is short enough to read, has no dependencies,
    * and spreads single-character differences across the whole word -- names in
@@ -186,10 +186,8 @@
     return root;
   }
 
-  global.NebulaRepoSigil = Object.freeze({ hash, plan, render, HUES });
+  return Object.freeze({ hash, plan, render, HUES });
 })(globalThis);
 
-
-const api = globalThis.NebulaRepoSigil;
 export default api;
 export const { HUES, hash, plan, render } = api;

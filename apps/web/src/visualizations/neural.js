@@ -5,10 +5,11 @@
 import {
   state, api, toast, exposureRuleLabel, EXPOSURE_DISPOSITION_WORDS, modal, securityScanFlow,
   exportActivityFlow, openFile, switchTab, recoveryFlow, openSafeguards, setSafety, stepUpApi,
-  dlFile, currentTab
+  dlFile, currentTab, purgeLocalData
 } from '../legacy/app.js';
+import { probeSource } from '../platform/probe.ts';
 
-(() => {
+const neuralGraph = (() => {
   const TYPE_STYLE = {
     repo:          { color: '#9a8cff', mark: 'star', radius: 22, label: 'Repository', plural: 'Repositories' },
     user:          { color: '#f3f5ff', glyph: 'U', radius: 13, label: 'Identity', plural: 'Identities' },
@@ -3378,7 +3379,7 @@ import {
     });
     source.addEventListener('session-revoked', async () => {
       if (NVN.eventSource !== source || !NVN.active) return;
-      try { await window.NebulaPwa?.purgePrivateData(true); } catch {}
+      try { await purgeLocalData(true); } catch {}
       closeLiveStream();
       location.reload();
     });
@@ -3720,9 +3721,8 @@ import {
          the incident bound to its original repository, and never restore the
          cleared identity from a response that may predate an account change. */
       let purgeFailed = false;
-      const purge = window.NebulaPwa?.purgePrivateData;
-      try { if (purge) await purge(false); } catch { purgeFailed = true; }
-      const epochAfterPurge = operation.epoch + (purge ? 1 : 0);
+      try { await purgeLocalData(false); } catch { purgeFailed = true; }
+      const epochAfterPurge = operation.epoch + 1;
       if (state.uiEpoch !== epochAfterPurge) return;
       const report = {
         kind: 'nebulaverse-emergency-containment-report', version: 2, generatedAt: new Date().toISOString(),
@@ -3839,5 +3839,9 @@ import {
     else { stopLoop(); closeLiveStream(); cancelReads(); }
   });
   window.addEventListener('resize', resize);
-  window.NebulaNeural = { activate, deactivate, reset, refresh: () => load(true), emergencyShield, injectDemo, state: NVN };
+  /* What the browser suite may read of the graph: copies, and only under the test harness. */
+  probeSource('neural', () => NVN);
+  return { activate, deactivate, reset, refresh: () => load(true), emergencyShield, injectDemo, state: NVN };
 })();
+
+export default neuralGraph;

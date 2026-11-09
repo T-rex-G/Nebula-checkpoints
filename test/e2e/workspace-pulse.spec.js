@@ -10,7 +10,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
-const { pressOn } = require('./press');
+const { pressOn, installClock, heldReading } = require('./press');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
@@ -76,10 +76,7 @@ test('a signed-in session lands on the overview and reports a trust score it can
    * arrives; the disclosure used to be rebuilt closed, so a reader who had
    * just opened it lost it the moment the next signal landed.
    */
-  await page.evaluate(() => {
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
-  });
+  await page.locator('#ovHomeBtn').click();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
@@ -113,8 +110,8 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
   const open = await page.evaluate(() => {
     const host = document.querySelector('#wpTrust');
     host.querySelector('.wp-numbers summary').click();
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: host }, Pulse.model({ repos: [] }));
+    /* Returning to the overview in the same task rebuilds the card, ahead of the toggle event. */
+    document.getElementById('ovHomeBtn').click();
     return host.querySelector('.wp-numbers').open;
   });
   expect(open).toBe(true);
@@ -128,16 +125,16 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
  * and the numbers stayed shut. The repaint now waits for the press.
  */
 test('a reading that lands during the press on the numbers does not swallow it', async ({ page }) => {
+  await installClock(page);
   await mockPublicAlphaApi(page, { access: 'active' });
+  const reading = await heldReading(page);
   await page.goto('/#/overview');
   const trust = page.getByRole('article', { name: 'Trust score' });
   const summary = trust.locator('.wp-numbers summary').first();
   await expect(summary).toBeVisible();
+  await reading.start();
   await pressOn(page, summary);
-  await page.evaluate(() => {
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
-  });
+  await reading.land();
   await page.mouse.up();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
   /* The reading that waited is drawn once the press is over, and the numbers stay open in it. */

@@ -21,6 +21,7 @@
  * how far down the landing the reader is.
  */
 'use strict';
+import Visuals from './nebula-visuals.js';
 
 (function landingOrbit(global) {
   const root = document.documentElement;
@@ -123,10 +124,10 @@
    */
   if (section && art && typeof IntersectionObserver === 'function') {
     const near = new IntersectionObserver(entries => {
-      if (mounted || !entries.some(entry => entry.isIntersecting) || !global.NebulaVisuals) return;
+      if (mounted || !entries.some(entry => entry.isIntersecting)) return;
       mounted = true;
       near.disconnect();
-      global.NebulaVisuals.mount('singularity', art).then(drawn => {
+      Visuals.mount('singularity', art).then(drawn => {
         const scene = art.querySelector('nebula-singularity');
         if (scene && arc) scene.horizon = arc;
         if (drawn && art.dataset.nebulaMounted === 'true') section.dataset.drawn = 'true';

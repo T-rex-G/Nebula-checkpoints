@@ -21,7 +21,7 @@
  */
 'use strict';
 
-(function nebulaVisuals(global) {
+const api = (function nebulaVisuals(global) {
   /*
    * Separate chunks of the build, named by their content. The server caches
    * built files for a year on the promise that their names change when their
@@ -258,5 +258,8 @@
     else global.addEventListener('load', watchAmbient, { once: true });
   }
 
-  global.NebulaVisuals = Object.freeze({ mount, repaint, supportsWebGL });
+  return Object.freeze({ mount, repaint, supportsWebGL });
 })(window);
+
+export default api;
+export const { mount, repaint, supportsWebGL } = api;

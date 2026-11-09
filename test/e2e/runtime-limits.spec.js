@@ -5,8 +5,8 @@ const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
-/* The limits live in the page state, which the harness reaches through its seam. */
-test.beforeEach(async ({ page }) => page.addInitScript(() => { window.__NV_HARNESS__ = true; }));
+/* The limits are read through the read-only probe, which the harness marker asks for (ADR-092). */
+test.beforeEach(async ({ page }) => { await ui.underHarness(page); });
 
 /*
  * The client must not state a limit the server never sent it.
@@ -27,19 +27,26 @@ const CONFIG = {
   contentsMaxMb: 40
 };
 
-async function runtime(page) {
-  return page.evaluate(() => {
-    const { state } = window.__NV_DIAGNOSTICS__;
-    return {
-      uploadMaxMb: state.runtime.uploadMaxMb,
-      gitDataMaxMb: state.runtime.gitDataMaxMb,
-      nativePushMaxMb: state.runtime.nativePushMaxMb,
-      contentsMaxMb: state.runtime.contentsMaxMb,
-      /* The label a queued file would carry, at sizes either side of the ceiling. */
-      smallLabel: strategyFor(1 * 1048576, 'auto'),
-      largeLabel: strategyFor(30 * 1048576, 'auto')
-    };
-  });
+/* The limits the page holds, as the probe copies them. */
+const runtime = page => ui.probe(page, 'runtime');
+
+/*
+ * The route each file is labelled with once it is queued -- what the reader
+ * sees -- at sizes either side of the hosted ceiling.
+ */
+async function routeLabels(page) {
+  await ui.enterRepositories(page);
+  await page.locator('.repo-card').first().click();
+  await page.locator('#page-work.active').waitFor();
+  await ui.openTab(page, 'upload');
+  await page.locator('#filePicker').setInputFiles([
+    { name: 'small.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1 * 1048576, 7) },
+    { name: 'large.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(30 * 1048576, 7) }
+  ]);
+  const label = name => page.locator('#uploadQueue .uq-item').filter({ has: page.locator('.uq-name', { hasText: name }) }).locator('.uq-strategy');
+  await expect(label('small.bin')).toHaveCount(1);
+  await expect(label('large.bin')).toHaveCount(1);
+  return { smallLabel: await label('small.bin').textContent(), largeLabel: await label('large.bin').textContent() };
 }
 
 test('the limits the server sent are the limits the interface uses', async ({ page }) => {
@@ -53,12 +60,14 @@ test('the limits the server sent are the limits the interface uses', async ({ pa
   expect(values.gitDataMaxMb).toBe(16);
   expect(values.nativePushMaxMb).toBe(16);
   expect(values.contentsMaxMb).toBe(40);
+  expect(values.known).toBe(true);
   /*
    * 30 MB is over the hosted native-push ceiling and under the self-hosted one.
    * It is the size that told the reader the wrong route before this.
    */
-  expect(values.largeLabel).toBe('Git LFS ✦');
-  expect(values.smallLabel).toBe('Git Data API');
+  const labels = await routeLabels(page);
+  expect(labels.largeLabel).toBe('Git LFS ✦');
+  expect(labels.smallLabel).toBe('Git Data API');
 });
 
 test('an unreachable config leaves the limits unknown rather than guessed', async ({ page }) => {
@@ -74,14 +83,16 @@ test('an unreachable config leaves the limits unknown rather than guessed', asyn
   for (const key of ['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb', 'contentsMaxMb']) {
     expect(values[key], `${key} must stay unknown, not fall back to a self-hosted ceiling`).toBeNull();
   }
+  expect(values.known).toBe(false);
   /*
    * Specifically not 2048, 64 or 64. Naming a ceiling nobody sent is worse than
    * naming none: the reader believes a number the server will not honour.
    */
   expect(values.uploadMaxMb).not.toBe(2048);
   expect(values.nativePushMaxMb).not.toBe(64);
-  expect(values.largeLabel).toBe('checking limits…');
-  expect(values.smallLabel).toBe('checking limits…');
+  const labels = await routeLabels(page);
+  expect(labels.largeLabel).toBe('checking limits…');
+  expect(labels.smallLabel).toBe('checking limits…');
 });
 
 test('a slow config is awaited rather than raced', async ({ page }) => {
@@ -109,7 +120,7 @@ async function queueConfigProbe(page) {
   await ui.enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('upload'));
+  await ui.openTab(page, 'upload');
   await page.locator('#filePicker').setInputFiles({
     name: 'config-probe.txt', mimeType: 'text/plain', buffer: Buffer.from('config probe\n')
   });
@@ -129,7 +140,7 @@ test('an incomplete transport config refuses uploads before sending a write', as
   await expect(page.locator('#uploadQueue .uq-item.error')).toHaveCount(1);
   await expect(page.locator('#uploadQueue .uq-status')).toContainText('upload limits are unavailable');
   await expect(page.locator('#uploadQueue .uq-strategy')).toHaveText('checking limits…');
-  expect(await page.evaluate(() => window.runtimeLimitsKnown())).toBe(false);
+  expect((await runtime(page)).known).toBe(false);
   expect(writes).toBe(0);
 });
 
@@ -149,7 +160,7 @@ test('a recovered config refreshes the queued route before uploading', async ({ 
   await queueConfigProbe(page);
   await expect(page.locator('#uploadQueue .uq-item.done')).toHaveCount(1);
   await expect(page.locator('#uploadQueue .uq-strategy')).toHaveText('Git Data API');
-  expect(await page.evaluate(() => window.runtimeLimitsKnown())).toBe(true);
+  expect((await runtime(page)).known).toBe(true);
   expect(configRequests).toBe(2);
   expect(heads).toEqual(['a'.repeat(40)]);
 });

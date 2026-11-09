@@ -20,30 +20,6 @@
   "apps/api/src/modules/quasar/persistence/exposure-store.ts": {
    "lines": 2180,
    "reason": "to divide"
-  },
-  "apps/api/src/modules/quasar/client/credential-verification.ts": {
-   "lines": 1213,
-   "reason": "to divide"
-  },
-  "apps/api/src/modules/quasar/client/exposure-reader.ts": {
-   "lines": 1083,
-   "reason": "to divide"
-  },
-  "apps/api/src/modules/quasar/application/exposure-worker.ts": {
-   "lines": 990,
-   "reason": "to divide"
-  },
-  "apps/api/src/modules/kepler/application/governance-api.ts": {
-   "lines": 982,
-   "reason": "to divide"
-  },
-  "apps/api/src/modules/quasar/domain/exposure-narration.ts": {
-   "lines": 937,
-   "reason": "to divide"
-  },
-  "apps/api/src/platform/network/guarded-fetch.ts": {
-   "lines": 851,
-   "reason": "to divide"
   }
  }
 }

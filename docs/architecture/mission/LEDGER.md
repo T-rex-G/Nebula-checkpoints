@@ -2544,3 +2544,17 @@ Three advisories published from 21 to 23 October hit pinned dependencies. npm's 
   25 are caught. One cannot fail: an address is always eight words where its words are counted.
 - **The scope contract** moves to version 2. Its file's shape changed with the declaration of `URL`, though nothing it exports did.
 - **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.
+
+### Gate D, step three — six files divided where their dependencies point
+
+- **Why.** Nine files of the server were longer than the 800 lines a file may hold, and the size record marked them to be divided. In six of them, one part is what the rest stands on, and it stands on nothing of the rest. Each is divided along that line.
+- **Divided.** Each original file keeps every export it had, re-exported, so no importer changed.
+  - `platform/network/guarded-fetch.ts`, 851 lines to 509: the profiles, the response bounds, the refusal codes and the checks made before a connection opens move to `outbound-policy.ts` (364).
+  - `quasar/domain/exposure-narration.ts`, 937 to 362: each rule's narration moves to `rule-narration.ts` (588), still versioned by `NARRATION_VERSION`.
+  - `kepler/application/governance-api.ts`, 982 to 661: the authorization check and the checks on each operation's input move to `governance-inputs.ts` (333).
+  - `quasar/application/exposure-worker.ts`, 990 to 740: a scan's ceilings, their version and the ports the runner is handed move to `scan-ports.ts` (257).
+  - `quasar/client/exposure-reader.ts`, 1083 to 710: what every read stands on -- paths, tree entries, the provider readers, the request and the ref resolution -- moves to `provider-reads.ts` (399).
+  - `quasar/client/credential-verification.ts`, 1213 to 516: each provider's probe, and the reading of its answer, move to `verification-adapters.ts` (714).
+- **How.** A tool reading the type checker made each division. It moves named declarations with their comments, and refuses a division in which the moved part would use what stays, which would be a cycle. It writes each file's imports from what its code uses. No line of code changed beyond the imports and an `export` on each moved helper that the rest still calls.
+- **Left to divide:** the three stores (governance, alpha privacy and exposure), each of whose classes is longer than a file may be on its own.
+- **Checks:** typecheck, lint, the unit gate and every verify-job gate on Node 22.23.4.

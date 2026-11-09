@@ -234,6 +234,24 @@ follow(WORKER);
 const resolving = [];
 each(parse(WORKER), node => { if (ts.isIdentifier(node) && node.text === 'resolveCommit') resolving.push(node.getStart()); });
 
+/*
+ * A store, and the modules beside it that its class delegates to: whatever it
+ * imports from its own folder, followed. Its statements are read from all of
+ * them, so dividing a store never leaves a rule reading an empty file.
+ */
+const storeFiles = entry => {
+  const found = new Set([entry]);
+  const follow = file => {
+    for (const statement of parse(file).statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !statement.moduleSpecifier.text.startsWith('./')) continue;
+      const target = path.resolve(path.dirname(file), statement.moduleSpecifier.text);
+      if (!found.has(target) && fs.existsSync(target)) { found.add(target); follow(target); }
+    }
+  };
+  follow(entry);
+  return [...found];
+};
+
 /* The text of every string the exposure store holds, its statements among them. */
 const STORE = path.join(QUASAR, 'persistence', 'exposure-store.ts');
 const stringsIn = (source, within = source) => {
@@ -244,8 +262,8 @@ const stringsIn = (source, within = source) => {
   });
   return found;
 };
-const storeSource = parse(STORE);
-const statements = stringsIn(storeSource).filter(text => /nv_exposure/.test(text)).map(text => text.replace(/\s+/g, ' ').trim());
+const storeSources = storeFiles(STORE).map(file => [file, parse(file)]);
+const statements = storeSources.flatMap(([, source]) => stringsIn(source)).filter(text => /nv_exposure/.test(text)).map(text => text.replace(/\s+/g, ' ').trim());
 const observationUpdates = statements.filter(statement => /UPDATE nv_exposure_observations/.test(statement));
 const rewritten = statements.filter(statement => /UPDATE nv_exposure_(?:verifications|readability_probes)/.test(statement));
 /* The five statements that reach a scan or a finding without its identity or a claim, each for a stated reason. */
@@ -258,14 +276,22 @@ const UNSCOPED = [
 ];
 const unscoped = statements.filter(statement => /nv_exposure_scans|nv_exposure_findings/.test(statement)
   && !/identity_key/.test(statement) && !/claim_owner=\$/.test(statement) && !UNSCOPED.some(pattern => pattern.test(statement)));
+/* The probe recorder is the one that writes: the function, or method, of that name whose statements touch the tables. */
 let probeMethod = null;
-each(storeSource, node => { if (ts.isMethodDeclaration(node) && node.name.getText(storeSource) === 'recordReadabilityProbe') probeMethod = node; });
+for (const [, source] of storeSources) {
+  each(source, node => {
+    if ((ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name && node.name.getText(source) === 'recordReadabilityProbe'
+      && stringsIn(source, node).some(text => /nv_exposure/.test(text))) probeMethod = { source, node };
+  });
+}
 const spread = [];
-each(storeSource, node => {
-  if ((ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) && ts.isIdentifier(bare(node.expression)) && /^row$|Row$/.test(bare(node.expression).text)) {
-    spread.push(`${path.relative(ROOT, STORE)}:${storeSource.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
-  }
-});
+for (const [file, source] of storeSources) {
+  each(source, node => {
+    if ((ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) && ts.isIdentifier(bare(node.expression)) && /^row$|Row$/.test(bare(node.expression).text)) {
+      spread.push(`${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+    }
+  });
+}
 const evidenceDeleted = [];
 for (const file of files) {
   for (const text of stringsIn(parse(file))) {
@@ -285,7 +311,7 @@ assert.deepEqual(rewritten, [], 'a verification or a probe is evidence: never ed
 assert.deepEqual(evidenceDeleted, [], 'observations, verifications and probes leave with their scan or finding, by cascade, and not otherwise');
 assert.deepEqual(unscoped, [], 'a statement on a scan or a finding carries its identity, the worker\'s claim, or a stated exception');
 assert(probeMethod, 'the probe recorder is found');
-assert.deepEqual(stringsIn(storeSource, probeMethod).filter(text => /UPDATE nv_exposure_findings/.test(text)), [], 'what the anonymous role can read moves no finding');
+assert.deepEqual(stringsIn(probeMethod.source, probeMethod.node).filter(text => /UPDATE nv_exposure_findings/.test(text)), [], 'what the anonymous role can read moves no finding');
 assert.deepEqual(spread, [], 'a row leaves the store field by field: spreading one publishes the next column added');
 
 /* ---- Uranus: the code audits' stores ---- */
@@ -325,7 +351,9 @@ const constantIn = (file, name) => {
   return found;
 };
 const PRIVACY_STORE = path.join(SOURCE, 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts');
-const cascadedDeletes = stringsIn(parse(PRIVACY_STORE)).filter(text => /DELETE FROM nv_code_audit_(?:findings|components|alerts)\b/.test(text));
+const privacyStrings = storeFiles(PRIVACY_STORE).flatMap(file => stringsIn(parse(file)));
+const privacyDeletes = privacyStrings.filter(text => /DELETE FROM nv_/.test(text));
+const cascadedDeletes = privacyStrings.filter(text => /DELETE FROM nv_code_audit_(?:findings|components|alerts)\b/.test(text));
 
 assert(historyStatements.length >= 16, `the audit history's statements are found (${historyStatements.length})`);
 assert.deepEqual(unscopedAudits, [], 'a statement reaches audit rows only under an identity, or as a stated exception');
@@ -338,6 +366,7 @@ for (const [name, key] of [['DECISION_COLUMNS', 'decided_by_key'], ['EVENT_COLUM
   const columns = constantIn(TRIAGE_FILE, name);
   assert(columns && !columns.includes(key), `triage writes ${key} and never reads it back`);
 }
+assert(privacyDeletes.length >= 10, `the privacy store's deletions are found (${privacyDeletes.length})`);
 assert.deepEqual(cascadedDeletes, [], 'the purge leaves an audit\'s findings, components and alerts to its cascade');
 
 const FONT_PROXY = /fonts\.googleapis|fonts\.gstatic|\bgfonts|GFONTS_ALLOWLIST/i;

@@ -1,25 +1,13 @@
 {
  "limit": 800,
  "files": {
-  "apps/api/src/modules/kepler/persistence/governance-store.ts": {
-   "lines": 3059,
-   "reason": "to divide"
-  },
   "apps/api/src/modules/uranus/domain/uranus-flow.ts": {
    "lines": 2910,
    "reason": "engine"
   },
-  "apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts": {
-   "lines": 2742,
-   "reason": "to divide"
-  },
   "apps/api/src/modules/uranus/domain/uranus-cfamily.ts": {
    "lines": 2334,
    "reason": "engine"
-  },
-  "apps/api/src/modules/quasar/persistence/exposure-store.ts": {
-   "lines": 2180,
-   "reason": "to divide"
   }
  }
 }

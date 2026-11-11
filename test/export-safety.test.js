@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { csvCell, activityCsv } = require('../apps/web/src/features/workbench/export-safety');
+const { csvCell, activityCsv } = require('../apps/web/src/features/workbench/export-safety.ts');
 
 assert.strictEqual(csvCell('plain'), '"plain"');
 assert.strictEqual(csvCell('hello,"world"'), '"hello,""world"""');
@@ -19,5 +19,9 @@ const csv = activityCsv({
 assert(csv.includes('"\'=HYPERLINK(""https://example.invalid"")"'));
 assert(csv.includes('"\'+Danger"'));
 assert(csv.includes('"\'@Critical"'));
+/* A commit names who made it: its actor, or else its author. */
+assert(csv.split('\r\n').some(row => row.startsWith('"commit","abc",') && row.includes(',"Alice",')), 'a commit is credited to its author');
+/* Verified intelligence events are exported beside the activity, as their own rows. */
+assert(csv.split('\r\n').some(row => row.startsWith('"verified_event","evt-1",')), 'verified events are exported');
 assert(csv.endsWith('\r\n'));
 console.log('export safety tests passed');

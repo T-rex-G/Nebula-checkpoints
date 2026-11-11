@@ -1,4 +1,4 @@
-import RepoInventory from '../repositories/repo-inventory.js';
+import RepoInventory from '../repositories/repo-inventory.ts';
 import { repaintCard } from '../../components/held-repaint.ts';
 import { COMPLETENESS_OF, combineCompleteness, completenessOf } from '../../../../../packages/contracts/src/evidence.ts';
 /*

@@ -40,7 +40,6 @@ assert(schema.includes('identity_keys text[]') && schema.includes('nv_sessions_i
 
 const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
-const exportSafety = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'features', 'workbench', 'export-safety.js'), 'utf8');
 
 assert(neural.includes('catchUpIntelligence'), 'Neural SSE reconnect must catch up missed persisted events');
 assert(neural.includes('after=${encodeURIComponent(after)}') && neural.includes('hasMore'), 'Neural catch-up must page from a persisted event cursor');
@@ -48,8 +47,6 @@ assert(neural.includes('/emergency-manifest'), 'Emergency Shield must use the si
 assert(neural.includes('/access-surface'), 'Neural Shadow Access Radar data source is missing');
 assert(neural.includes('/api/security/scanner-status') && neural.includes('Upload malware gate'), 'Neural dependency/security view must expose upload scanner posture');
 assert(app.includes('function activityCsv'), 'Activity export must support CSV');
-assert(exportSafety.includes('intelligenceEvents') && exportSafety.includes('verified_event'), 'JSON/CSV activity export must include verified intelligence events when available');
-assert(exportSafety.includes('/^\\s*[=+\\-@]/') || exportSafety.includes('/^\s*[=+\-@]/'), 'CSV export must neutralize spreadsheet formulas');
 assert(app.includes("snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest'"), 'Recovery must accept signed emergency manifests as snapshot inputs');
 assert(app.includes('/snapshot-compare') && app.includes('/restore-preview'), 'Recovery workflow must compare snapshots and preview ref changes');
 assert(app.includes("authorization: preview.authorization") && app.includes("confirm: 'RESTORE'"), 'Client restore must submit only the preview authorization and typed confirmation');

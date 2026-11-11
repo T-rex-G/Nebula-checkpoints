@@ -168,11 +168,12 @@ module.exports = [
      * through a promise, and one left unawaited is truthy: the request goes on
      * as if the guard had said yes, and its refusal becomes an unhandled
      * rejection that ends the process. These rules ask the type checker, so
-     * they hold for every call in the server and the contracts, not for a list
-     * of names. The page is Phase E's.
+     * they hold for every call in the server, the contracts and the page's
+     * TypeScript, not for a list of names. The page holds them module by
+     * module as Phase E rebuilds it in TypeScript.
      */
     name: 'nebulaverse/promises',
-    files: ['apps/api/src/**/*.ts', 'packages/contracts/src/**/*.ts'],
+    files: ['apps/api/src/**/*.ts', 'packages/contracts/src/**/*.ts', 'apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: __dirname } },
     rules: {
       '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],

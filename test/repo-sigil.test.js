@@ -8,7 +8,7 @@
  */
 
 const assert = require('node:assert/strict');
-const sigil = require('../apps/web/src/features/repositories/repo-sigil.js');
+const sigil = require('../apps/web/src/features/repositories/repo-sigil.ts');
 
 function inventory() {
   const names = [];
@@ -64,6 +64,10 @@ for (const name of names) {
   assert.ok(sigil.HUES.includes(shape.hue), `${name} uses a hue outside the palette`);
   assert.ok(sigil.HUES.includes(shape.hueLift), `${name} lifts to a hue outside the palette`);
 }
+
+/* And the palette is used: across an inventory the marks take many of its hues, not one. */
+const hues = new Set(names.map(name => sigil.plan(name).hue));
+assert.ok(hues.size >= sigil.HUES.length / 2, `only ${hues.size} hues across ${names.length} repositories`);
 
 /*
  * Every facet has to be drawable, and drawable inside the frame. The first
@@ -157,6 +161,18 @@ for (const name of names) {
   const offX = Math.abs((ink.minX + ink.maxX) / 2 - (frame.x + frame.width / 2)) / frame.width;
   const offY = Math.abs((ink.minY + ink.maxY) / 2 - (frame.y + frame.height / 2)) / frame.height;
   assert.ok(offX < 0.02 && offY < 0.02, `${name} is off-centre in its frame`);
+}
+
+/* Decoration beside the name it belongs to: not announced, and not a stop for the keyboard. */
+{
+  const doc = { createElementNS: (_ns, tag) => ({ tag, attributes: {}, setAttribute(key, value) { this.attributes[key] = String(value); }, appendChild() {} }) };
+  const root = sigil.render('sandbox/demo', doc);
+  assert.equal(root.tag, 'svg');
+  assert.equal(root.attributes.class, 'repo-sigil');
+  assert.equal(root.attributes['aria-hidden'], 'true');
+  assert.equal(root.attributes.focusable, 'false');
+  /* Outside a page, with no document handed to it, there is nothing to draw on. */
+  assert.equal(sigil.render('sandbox/demo', null), null);
 }
 
 process.stdout.write('repository sigil tests passed\n');

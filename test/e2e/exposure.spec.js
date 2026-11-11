@@ -1168,6 +1168,12 @@ test('the screen is operable from the keyboard and announces changes', async ({ 
 test('both themes and a 320px screen keep it readable', async ({ page }) => {
   await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  /*
+   * The tab is shown before its findings arrive. Read straight after it
+   * opened, the finding was not there yet whenever the scan answered a little
+   * late, and the check failed on an element it never waited for.
+   */
+  await expect(page.locator('.exposure-item-consequence').first()).toBeAttached();
 
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);

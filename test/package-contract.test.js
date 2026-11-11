@@ -53,7 +53,7 @@ const required = [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -258,7 +258,7 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr57)) {
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
 
 const uxArtifacts = [
-  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -270,7 +270,7 @@ const uxPrograms = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js'
 ];
 const uxSyntaxSources = [
-  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.js', 'apps/web/src/features/capabilities/capability-ui.js', 'apps/web/src/features/trust/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js'
 ];

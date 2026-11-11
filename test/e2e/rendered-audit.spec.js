@@ -83,13 +83,16 @@ test('rendered results show coverage and export inert evidence without persistin
     coverage: { state: 'partial', complete: false, reasons: ['A third-party resource was blocked.'] }, limitations: ['Single lab sample.'],
     viewports: [{ name: 'Mobile', width: 390, height: 844, screenshot: null, facts: { overflowPx: 40, metrics: { lcpMs: 345, cls: 0.01 } } }],
     findings: [{ viewport: 'Mobile', severity: 'serious', title: 'Review overflow', detail: '<script>window.compromised=true</script>' }] };
+  const posted = [];
   const root = await open(page, route => {
     const url = new URL(route.request().url());
+    if (route.request().method() === 'POST') posted.push(route.request().postDataJSON());
     return route.fulfill({ json: url.pathname.endsWith('/status') ? { available: true, message: 'Ready.' }
       : route.request().method() === 'POST' ? { state: 'running', run: 'fixture-run', stage: 'mobile' } : result });
   });
   await root.getByLabel('Page address').fill('https://rendered.example');
   await root.getByRole('button', { name: 'Run rendered audit' }).click();
+  await expect.poll(() => posted).toEqual([{ url: 'https://rendered.example' }]);
   await expect(root.getByRole('status')).toContainText('Partial report');
   await expect(root).toContainText('A third-party resource was blocked.');
   await expect(root).toContainText('345 ms');
@@ -121,14 +124,18 @@ test('unavailable browser is explicit and cancellation stops a pending run', asy
   });
   await expect(root.getByRole('status')).toContainText('unavailable');
   await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeDisabled();
+  /* With nothing running there is nothing to cancel. */
+  await expect(root.getByRole('button', { name: 'Cancel audit' })).toBeHidden();
   available = true;
   await root.getByRole('button', { name: 'Check availability' }).click();
   await root.getByLabel('Page address').fill('https://rendered.example');
   await root.getByRole('button', { name: 'Run rendered audit' }).click();
   await expect(root.getByRole('status')).toContainText('Checking');
+  await expect(root.getByRole('button', { name: 'Check availability' })).toBeHidden();
   await root.getByRole('button', { name: 'Cancel audit' }).click();
   await expect(root.getByRole('status')).toContainText('cancelled');
   expect(cancelled).toBe(true);
+  await expect(root.getByRole('button', { name: 'Cancel audit' })).toBeHidden();
   await expect(root.getByRole('button', { name: 'Run rendered audit' })).toBeEnabled();
 });
 
@@ -223,6 +230,8 @@ test('a run acknowledged after the form was disposed is cancelled by its run alo
   acknowledge();
 
   await expect.poll(() => calls.filter(call => call.method === 'DELETE').map(call => call.url)).toEqual(['/api/site-rendered?run=dispose-fixture-run']);
+  /* A panel that is gone asks after its run no more: it is cancelled, not polled to its end. */
+  expect(calls.filter(call => call.method === 'GET' && call.url.startsWith('/api/site-rendered?run='))).toEqual([]);
   const after = calls.slice(calls.findIndex(call => call.method === 'POST') + 1);
   expect(after.every(call => !call.url.includes('rendered.example') && !call.body.includes('rendered.example'))).toBe(true);
 });

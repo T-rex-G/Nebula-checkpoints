@@ -18,6 +18,7 @@
  * Decided here, drawn by WorkspacePulse.tsx; the charts' geometry is
  * pulse-charts.ts's.
  */
+import { CAPABILITY_EVIDENCE_STATES } from '../../../../../packages/contracts/src/capability.ts';
 import { field, hasFields, items } from '../../platform/values.ts';
 
 const DAY = 86400000;
@@ -139,7 +140,8 @@ function connectedKeys(repos: unknown): Set<string> {
   return keys;
 }
 
-const EVIDENCE_STATES = Object.freeze(['Provider-verified', 'Deterministic', 'Inferred', 'Stale', 'Unavailable']);
+/* The registry's evidence states, strongest first. */
+const EVIDENCE_STATES = CAPABILITY_EVIDENCE_STATES;
 
 export interface EvidenceCount {
   readonly label: string;

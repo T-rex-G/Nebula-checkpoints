@@ -1293,17 +1293,10 @@ check('the access flow survived being given a stage', () => {
 /*
  * Focusing an input scrolls it into view. On a bare gate that was helpful; on
  * a landing page it threw the reader past the headline before they had read a
- * word of it -- measured at 323px on a phone.
+ * word of it -- measured at 323px on a phone. Every focus the gate gives the
+ * invitation is checked for preventScroll by test/alpha-ui.test.js, on the
+ * module as it runs.
  */
-check('raising the gate does not scroll the page past its own headline', () => {
-  const alphaSource = fs.readFileSync(path.join(root, 'apps/web/src/features/access/alpha-ui.js'), 'utf8');
-  const focuses = [...alphaSource.matchAll(/invite\.focus\(([^)]*)\)/g)];
-  assert.ok(focuses.length >= 1, 'nothing focuses the invitation any more');
-  focuses.forEach(match => {
-    assert.ok(/preventScroll:\s*true/.test(match[1]),
-      'the invitation is focused without preventScroll, which scrolls the landing page away');
-  });
-});
 
 check('the stylesheet actually carries overlay exits', () => {
   assert.ok(exits.length >= 8,

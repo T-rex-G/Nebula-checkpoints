@@ -726,7 +726,8 @@ test('no icon slot falls back to a typed glyph', async ({ page }) => {
       const found = [...document.querySelectorAll(selector)];
       if (!found.length) { bad.push({ where, why: 'no slot found to inspect' }); continue; }
       for (const slot of found) {
-        if (!slot.querySelector('svg')) bad.push({ where, why: 'slot holds no drawn mark' });
+        /* An svg with nothing in it draws nothing: the mark is a shape inside one. */
+        if (!slot.querySelector('svg :is(path, circle, ellipse, rect, line, polyline, polygon, use)')) bad.push({ where, why: 'slot holds no drawn mark' });
         else if (slot.textContent.trim() !== '') {
           bad.push({ where, why: `slot carries text: ${slot.textContent.trim()}` });
         }

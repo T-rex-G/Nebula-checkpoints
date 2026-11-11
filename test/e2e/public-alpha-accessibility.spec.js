@@ -235,12 +235,59 @@ test('the error dialog holds focus and gives it back to the control that was pre
   const dialog = page.locator('.trust-error-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('Safe state now');
+  /* It takes focus as it opens: a keyboard reader is in the dialog, not behind it. */
+  await expect(page.locator('.trust-error-close')).toBeFocused();
   await page.locator('.trust-error-close').focus();
   await page.keyboard.press('Tab');
   await expect.poll(() => page.evaluate(() => document.querySelector('.trust-error-dialog').contains(document.activeElement))).toBe(true);
+  /* And the other way round: Shift+Tab from its first control comes round to its last, not out to the page behind. */
+  await page.getByRole('dialog', { name: 'The action was not completed' }).getByRole('button', { name: 'Copy', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('.trust-error-close')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(open).toBeFocused();
+});
+
+/*
+ * A second failure while the first is still on screen replaces its dialog.
+ * Focus was on the first dialog's Close button, which goes with it, so the
+ * second recorded nothing to return to and dismissing it left a keyboard
+ * reader at the top of the page. It returns where the first would have: to
+ * the control the reader was on when the first failure arrived.
+ */
+test('a dialog that replaces another gives focus back where the first would have', async ({ page }) => {
+  await openConnectedRepository(page);
+  const held = [];
+  await page.route('**/api/repo/sandbox/demo/star', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    const call = held.length + 1;
+    await new Promise(resolve => { held.push(resolve); });
+    return route.fulfill({
+      status: 503,
+      json: { error: `Star request ${call} was refused.`, code: 'PROVIDER_UNAVAILABLE', correlationId: `fixture-star-${call}` }
+    });
+  });
+  await runFromPalette(page, 'Star / unstar');
+  await runFromPalette(page, 'Star / unstar');
+  await expect.poll(() => held.length).toBe(2);
+  /* Where the reader is now: the control the palette gave focus back to. */
+  expect(await page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) return false;
+    active.setAttribute('data-focus-origin', '');
+    return true;
+  })).toBe(true);
+  const dialog = page.getByRole('dialog', { name: 'The action was not completed' });
+  held[1]();
+  await expect(dialog).toContainText('Star request 2 was refused.');
+  await expect(page.locator('.trust-error-close')).toBeFocused();
+  held[0]();
+  await expect(dialog).toContainText('Star request 1 was refused.');
+  await expect(page.locator('.trust-error-dialog')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.trust-error-dialog')).toHaveCount(0);
+  await expect(page.locator('[data-focus-origin]')).toBeFocused();
 });
 
 test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {

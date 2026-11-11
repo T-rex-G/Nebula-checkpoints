@@ -51,6 +51,15 @@ test('the way through knows whether the session is signed in', async ({ page }) 
   await expect(landing(page)).not.toHaveClass(/active/);
 });
 
+test('a session already signed in is offered its workspace, at the door and at the close', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'active', ready: 'ready' });
+  await page.goto('/');
+  await expect(landing(page)).toHaveClass(/active/);
+  await expect(passThrough(page)).toHaveText(/^Open your workspace$/);
+  await expect(page.locator('#alphaOpenNote')).toHaveText('Entry is open, and this session is already signed in.');
+  await expect(page.getByLabel('Ready when your sandbox is.').getByRole('button', { name: 'Open your workspace', exact: true })).toHaveCount(1);
+});
+
 /*
  * The closing call carries the same name as the way through when entry is
  * open, so it has to do the same thing: hand over, not scroll back to a card

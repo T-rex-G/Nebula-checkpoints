@@ -3,8 +3,6 @@
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,
     "src/work-continuity.js": 2,
-    "apps/web/src/features/access/alpha-ui.js": 1,
-    "apps/web/src/features/capabilities/capability-ui.js": 1,
     "apps/web/src/legacy/app.js": 13
   },
   "unconsumed": [
@@ -12,7 +10,6 @@
     "actor.ts BASE_ROLES",
     "api-envelope.ts ERROR_CODE_FORMAT",
     "api-envelope.ts SECRET_SIGNAL",
-    "capability.ts CAPABILITY_EVIDENCE_STATES",
     "capability.ts CAPABILITY_RELEASE",
     "capability.ts CAPABILITY_SCHEMA_VERSION",
     "capability.ts DEPLOYMENT_PROFILES",

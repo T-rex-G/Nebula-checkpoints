@@ -155,6 +155,11 @@ test('repositories it could not read are named, and it says how many it read, a 
   await waiting.getByRole('button', { name: 'Show 2 more' }).click();
   await expect(waiting.locator('.pb-item')).toHaveCount(7);
   await expect(waiting.getByRole('button', { name: 'Show fewer' })).toHaveAttribute('aria-expanded', 'true');
+  /* The control pressed is the control that answers: the reader's focus stays on it, not on the page. */
+  await expect(waiting.getByRole('button', { name: 'Show fewer' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(waiting.locator('.pb-item')).toHaveCount(5);
+  await expect(waiting.getByRole('button', { name: 'Show 2 more' })).toBeFocused();
 });
 
 test('a GitHub rate limit says so and how long to wait, rather than "could not be read"', async ({ page }) => {

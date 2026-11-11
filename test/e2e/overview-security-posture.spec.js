@@ -106,6 +106,60 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
   expect(open).toBe(true);
 });
 
+/*
+ * A reading that lands is drawn into the card the reader is in, not over it:
+ * the table they opened stays open and the control they are on keeps their
+ * focus, because it is the same element it was.
+ */
+test('a new reading keeps the reader where they were in the card', async ({ page }) => {
+  await installClock(page);
+  const card = await overview(page);
+  const numbers = card.locator('.pp-trend .wp-numbers');
+  await numbers.locator('summary').click();
+  await expect(numbers).toHaveJSProperty('open', true);
+  const name = card.locator('.pp-repos .pp-repo-name').first();
+  await expect(name).toHaveText('sandbox/demo');
+  await name.focus();
+  const pressed = await name.elementHandle();
+  await page.waitForLoadState('networkidle');
+  await page.clock.fastForward(61000);
+  const reading = page.waitForResponse(response => new URL(response.url()).pathname === '/api/workspace/security-posture');
+  /* Returning to the overview by script, so nothing the reader holds moves with the press. */
+  await page.evaluate(() => document.getElementById('ovHomeBtn').click());
+  await reading;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await pressed.evaluate(node => node.isConnected), 'the name is the element it was').toBe(true);
+  await expect(name).toBeFocused();
+  await expect(numbers).toHaveJSProperty('open', true);
+});
+
+/*
+ * The tables a reader opened stay open for the life of the page, even when
+ * the card has had to draw something else in between -- a reading that
+ * failed, then one that answered.
+ */
+test('the numbers a reader opened are open again when the card is drawn again', async ({ page }) => {
+  await installClock(page);
+  const card = await overview(page);
+  const numbers = card.locator('.pp-trend .wp-numbers');
+  await numbers.locator('summary').click();
+  await expect(numbers).toHaveJSProperty('open', true);
+  await page.waitForLoadState('networkidle');
+  /* The next reading fails: the card says so, and its tables are gone with the figures. */
+  await page.route('**/api/workspace/security-posture', route => route.fulfill({ status: 500, json: { error: 'unavailable' } }));
+  await page.clock.fastForward(61000);
+  await page.evaluate(() => document.getElementById('ovHomeBtn').click());
+  await expect(card).toContainText('could not be read just now');
+  await expect(card.locator('.wp-numbers')).toHaveCount(0);
+  /* The one after answers. */
+  await page.unroute('**/api/workspace/security-posture');
+  await page.clock.fastForward(61000);
+  await page.evaluate(() => document.getElementById('ovHomeBtn').click());
+  await expect(card.locator('.pp-week')).toBeVisible();
+  await expect(numbers).toHaveJSProperty('open', true);
+  await expect(card.locator('.pp-where .wp-numbers')).toHaveJSProperty('open', false);
+});
+
 test('a repository named on the card opens its audit', async ({ page }) => {
   const card = await overview(page);
   const top = card.locator('.pp-repos .pp-repo-name').first();
@@ -147,8 +201,8 @@ test('a reading that lands during the press on a repository does not swallow it'
 
 /*
  * A reading that lands while the reader is scrolled down the overview moves
- * nothing they are looking at. The cards it feeds are rebuilt at the height
- * they had. The browser kept the reader's place by an element inside one of
+ * nothing they are looking at. The cards it feeds are drawn in place, at the
+ * height they had. The browser kept the reader's place by an element inside one of
  * them; rebuilt, it was gone, another was chosen while the activity card
  * stood without its chart, and the chart's arrival was then made up for by
  * scrolling -- 66 pixels on a phone, with nothing on the page having moved.
@@ -173,9 +227,14 @@ test('a reading that lands leaves a scrolled overview where it was', async ({ pa
   /* On a phone a card arrives as it is scrolled to (a scroll-driven animation): the name is measured once its card has. */
   await expect.poll(() => card.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).isIdentity)).toBe(true);
   const before = await name.boundingBox();
-  const rebuilt = await page.evaluateHandle(() => document.querySelector('#wpActivity .wp-body').firstElementChild);
+  const drawn = await page.evaluateHandle(() => [
+    document.querySelector('#wpActivity .wp-body').firstElementChild,
+    document.querySelector('#wpActivity svg.wp-area'),
+    document.querySelector('#wpTrust .wp-body').firstElementChild
+  ]);
   await reading.land();
-  await expect.poll(() => rebuilt.evaluate(node => node.isConnected), { message: 'the cards the reading feeds are rebuilt' }).toBe(false);
+  /* The cards the reading feeds are drawn in place: what the reader was looking at is the element it was. */
+  expect(await drawn.evaluate(nodes => nodes.map(node => node.isConnected)), 'the cards are drawn in place, not rebuilt').toEqual([true, true, true]);
   await expect.poll(async () => Math.abs((await name.boundingBox()).y - before.y), {
     message: 'the name stays where the reader was looking'
   }).toBeLessThanOrEqual(1);

@@ -11,7 +11,7 @@ const assert = require('assert');
 const express = require('express');
 const { pullListItem, MAX_LABELS, MAX_LABEL_LENGTH } = require('../apps/api/src/modules/posture/index.ts');
 const workbench = require('../apps/api/src/modules/workbench/index.ts');
-const { LIST_PAGE } = require('../apps/web/src/features/posture/pull-board');
+const { LIST_PAGE } = require('../apps/web/src/features/posture/pull-board.ts');
 
 /* A list entry in the shape GitHub documents for GET /repos/{owner}/{repo}/pulls. */
 const listed = {

@@ -327,6 +327,9 @@ test('a session that ends during a press leaves nothing of the held feed behind'
 });
 
 test('signing in again reads a new feed instead of reusing the previous identity', async ({ page }) => {
+  /* The departing session's card is taken down whole, so the next one is drawn without an error on the way. */
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   let reads = 0;
   await mockPublicAlphaApi(page, { access: 'active' });
   await page.route('**/api/activity/recent*', async route => { reads++; await route.fallback(); });
@@ -340,6 +343,7 @@ test('signing in again reads a new feed instead of reusing the previous identity
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await expect(rows(page)).toHaveCount(2);
   expect(reads).toBe(2);
+  expect(errors).toEqual([]);
 });
 
 test('the sample bounds and snapshot time are visible, including an empty inventory', async ({ page }) => {

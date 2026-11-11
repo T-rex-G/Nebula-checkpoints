@@ -15,13 +15,15 @@ const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
-async function signIn(page) {
+async function signIn(page, answer = {}) {
   await mockPublicAlphaApi(page, {
     access: 'required',
     ready: 'ready',
     provider: 'github',
     repositoryState: 'current'
   });
+  /* Registered after the fixture's routes, so each is asked first. */
+  for (const [route, body] of Object.entries(answer)) await page.route(`**${route}`, request => request.fulfill({ json: body }));
   await page.goto('/');
   await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
   await ui.checkbox(page, /I accept/).check();
@@ -155,7 +157,7 @@ test('an open critical leak caps the score and says why', async ({ page }) => {
 
   const trust = page.getByRole('article', { name: 'Trust score' });
   await expect(trust).toContainText('1 leaked credential still exposed (1 critical)');
-  await expect(trust).toContainText('Held below 50 while a critical leaked credential is still exposed');
+  await expect(trust.getByText('Held below 50 while a critical leaked credential is still exposed')).toBeVisible();
   const figure = Number((await trust.locator('.wp-dial .wp-gauge-figure').first().textContent()).trim());
   expect(figure).toBeLessThanOrEqual(49);
   await expect(trust.locator('.wp-grade')).toHaveAttribute('aria-label', 'Grade F');
@@ -188,6 +190,43 @@ test('the overview never invents a figure it could not measure', async ({ page }
     expect(Number(shown)).toBeGreaterThan(0);
     expect(Number(shown)).toBeLessThanOrEqual(100);
     expect(arcs).toBe(1);
+  }
+});
+
+/*
+ * A signal with nothing to report is drawn as not measured: its dial keeps
+ * its track and draws no arc, and a dash stands where its figure goes. A
+ * zero-length arc would be a reading of zero, and "not measured" is not zero.
+ */
+test('a signal with nothing to report draws its track and no arc', async ({ page }) => {
+  /* A deployment without a database scans nothing, so leaked credentials are not measured. */
+  await signIn(page, {
+    '/api/workspace/posture': {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], detail: 'Fine-grained token limited to the repositories chosen for it.' },
+      recovery: { available: false, repositories: [] },
+      exposure: { available: false, repositories: [] },
+      boundary: { state: 'online', database: 'unavailable', maintenance: false }
+    }
+  });
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust.locator('.wp-component').filter({ hasText: 'Leaked credentials' })).toContainText('needs the server database');
+  const dials = await trust.locator('.wp-components .wp-gauge').evaluateAll(gauges => gauges.map(gauge => ({
+    status: gauge.dataset.status,
+    arcs: gauge.querySelectorAll('.wp-gauge-arc').length,
+    tracks: gauge.querySelectorAll('.wp-gauge-track').length,
+    figure: gauge.querySelector('.wp-gauge-figure').textContent.trim(),
+    empty: gauge.querySelector('.wp-gauge-figure').classList.contains('wp-gauge-empty')
+  })));
+  expect(dials).toHaveLength(6);
+  expect(dials.some(dial => dial.status === 'unknown'), 'a signal is left unmeasured').toBe(true);
+  expect(dials.some(dial => dial.status !== 'unknown'), 'and another is measured').toBe(true);
+  for (const dial of dials) {
+    expect(dial.tracks).toBe(1);
+    if (dial.status === 'unknown') expect(dial).toMatchObject({ arcs: 0, figure: '\u2014', empty: true });
+    else {
+      expect(dial).toMatchObject({ arcs: 1, empty: false });
+      expect(dial.figure).toMatch(/^\d{1,3}$/);
+    }
   }
 });
 

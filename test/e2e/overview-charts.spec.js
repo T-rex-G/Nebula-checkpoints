@@ -53,11 +53,32 @@ test('the feed says that today is still being counted', async ({ page }) => {
  */
 test('the grid is a solid hairline, not a dashed rule', async ({ page }) => {
   await overview(page);
+  await expect(page.locator('#wpActivity .wp-grid-line').first()).toBeAttached();
   const dashes = await page.evaluate(() => [...document.querySelectorAll('.wp-grid-line')]
     .map(line => getComputedStyle(line).strokeDasharray)
     .filter(value => /[1-9]/.test(value)));
   expect(dashes).toEqual([]);
   await expect(page.locator('#wpActivity .wp-area-axis').first()).toBeVisible();
+});
+
+/*
+ * Every chart takes its colours from the preset: a gradient that carried a
+ * colour of its own would stay Nebula violet under Obsidian, and stay
+ * whatever theme was current when it was drawn. The stops carry classes the
+ * stylesheet colours, and change with the preset without being drawn again.
+ */
+test('the charts take their colours from the preset, not from their markup', async ({ page }) => {
+  await overview(page);
+  await expect(page.locator('#wpActivity svg.wp-area')).toBeVisible();
+  const stops = page.locator('#page-overview svg.wp-area stop');
+  expect(await stops.count()).toBeGreaterThan(0);
+  expect(await stops.evaluateAll(nodes => nodes.filter(stop => stop.hasAttribute('stop-color')).length), 'a stop names a colour of its own').toBe(0);
+  const ink = () => page.locator('#wpActivity svg.wp-area .wp-stroke-to').evaluate(stop => getComputedStyle(stop).stopColor);
+  const before = await ink();
+  const drawn = await page.locator('#wpActivity svg.wp-area').elementHandle();
+  await page.evaluate(() => { document.documentElement.dataset.design = document.documentElement.dataset.design === 'obsidian' ? 'nebula' : 'obsidian'; });
+  await expect.poll(ink, { message: 'the series ink follows the preset' }).not.toBe(before);
+  expect(await drawn.evaluate(node => node.isConnected), 'without the chart being drawn again').toBe(true);
 });
 
 /*
@@ -68,6 +89,7 @@ test('the grid is a solid hairline, not a dashed rule', async ({ page }) => {
  */
 test('a dense series draws no dots, and still names its latest reading', async ({ page }) => {
   await overview(page);
+  await expect(page.locator('#wpActivity .wp-area-line')).toBeAttached();
   /* Segment count off the curve: one cubic per gap between readings. */
   const segments = await page.evaluate(() =>
     ((document.querySelector('#wpActivity .wp-area-line')?.getAttribute('d') || '').match(/C/g) || []).length);
@@ -185,6 +207,8 @@ test('the series is curved and never dips below its own baseline', async ({ page
   }));
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
+  /* Read once the series is drawn: a card not laid out yet draws its chart at its first real width. */
+  await expect(page.locator('#wpActivity .wp-area-line')).toBeAttached();
 
   const geometry = await page.evaluate(() => {
     const path = document.querySelector('#wpActivity .wp-area-line');
@@ -222,6 +246,8 @@ test('the endpoint pings, and does not when motion is off', async ({ page }) => 
   });
   await page.reload();
   await expect(ui.screen(page, 'overview')).toBeVisible();
+  /* Counted once the chart is there: an overview still arriving has no ping either. */
+  await expect(page.locator('#wpActivity .wp-area-head')).toBeVisible();
   await expect(page.locator('#wpActivity .wp-area-ping')).toHaveCount(0);
 });
 
@@ -255,17 +281,16 @@ test('a chart is drawn at its card\'s laid-out width, arrived or not', async ({ 
   await overview(page);
   const charts = ['#wpActivity svg.wp-area', '#wpPosture svg.pp-chart-svg', '#wpFeed svg.wp-area'];
   for (const selector of charts) await expect(page.locator(selector)).toBeAttached();
-  /* Back to the overview from its own mark: every card is drawn again where it stands, the lower ones still arriving. */
-  const drawnBefore = await page.evaluateHandle(selectors => selectors.map(selector => document.querySelector(selector)), charts);
-  await page.locator('#ovHomeBtn').click();
-  await expect.poll(() => drawnBefore.evaluate(nodes => nodes.every(node => !node.isConnected)), { message: 'each chart is drawn again' }).toBe(true);
-  const fit = await page.evaluate(selectors => selectors.map(selector => {
+  const fit = () => page.evaluate(selectors => selectors.map(selector => {
     const chart = document.querySelector(selector);
     return { selector, drawn: chart.viewBox.baseVal.width, laid: chart.clientWidth };
-  }), charts);
-  for (const { selector, drawn, laid } of fit) {
-    expect(Math.abs(drawn - laid), `${selector} is drawn ${drawn} wide in a space ${laid} wide`).toBeLessThanOrEqual(1);
-  }
+  }).filter(entry => Math.abs(entry.drawn - entry.laid) > 1), charts);
+  /* As first drawn, the lower cards still arriving on a phone. */
+  await expect.poll(fit, { message: 'every chart is drawn at the width it is laid out at' }).toEqual([]);
+  /* Back to the overview from its own mark: every card is drawn again where it stands, the lower ones arriving again. */
+  await page.locator('#ovHomeBtn').click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect.poll(fit, { message: 'every chart is drawn at the width it is laid out at' }).toEqual([]);
 });
 
 /*

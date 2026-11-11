@@ -1,14 +1,14 @@
 'use strict';
 
 /*
- * The pull-request board's decisions (apps/web/src/features/posture/pull-board.js), without a
+ * The pull-request board's decisions (apps/web/src/features/posture/pull-board.ts), without a
  * browser: which repositories are read and how many at once, which column a
  * pull request lands in and in what order, what the first line says, and
  * what the card admits about the repositories it could not read.
  */
 
 const assert = require('assert');
-const Board = require('../apps/web/src/features/posture/pull-board');
+const Board = require('../apps/web/src/features/posture/pull-board.ts');
 
 const NOW = Date.parse('2026-10-12T12:00:00Z');
 const daysAgo = days => new Date(NOW - days * 86400000).toISOString();
@@ -154,6 +154,28 @@ const pull = (number, fields = {}) => ({
   assert.strictEqual(Board.waitPhrase(60), 'a minute');
   assert.strictEqual(Board.waitPhrase(0), 'a minute', 'a limit that named no wait is read again after a minute, as GitHub advises');
   assert.strictEqual(Board.waitPhrase(3600), 'an hour');
+
+  /* ---- A pull request read as GitHub sent it, and nothing more --------- */
+  {
+    const entries = Board.model({
+      results: [{
+        owner: 'acme', repo: 'shop', pulls: [
+          pull(1, { title: '', updated_at: daysAgo(Board.IDLE_DAYS) }),
+          pull(2, { draft: 'true', updated_at: daysAgo(Board.IDLE_DAYS - 1) }),
+          pull(3, { labels: ['bug', '', null, 'ui'] }),
+          pull(4, { labels: 'bug' })
+        ]
+      }],
+      repos: [repo('shop', 0)],
+      now: NOW
+    }).columns.flatMap(definition => definition.items);
+    const byNumber = new Map(entries.map(entry => [entry.number, entry]));
+    assert.strictEqual(byNumber.get(1).title, 'Pull request #1', 'an untitled pull request is named by its number');
+    assert.deepStrictEqual([byNumber.get(1).idle, byNumber.get(1).idleDays], [true, Board.IDLE_DAYS], 'idle from the day the threshold is reached');
+    assert.deepStrictEqual([byNumber.get(2).idle, byNumber.get(2).draft], [false, false], 'a day short is not idle; only `true` is a draft');
+    assert.deepStrictEqual(byNumber.get(3).labels, ['bug', 'ui'], 'only a label name is drawn: not an empty one, not a null as the word');
+    assert.deepStrictEqual(byNumber.get(4).labels, [], 'labels that are not a list are none');
+  }
 
   console.log('pull board client tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

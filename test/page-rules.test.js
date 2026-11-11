@@ -464,11 +464,11 @@ const HANDOFFS = Object.freeze({
   'CodeMirror.findModeByFileName <- file': 'reads the file\'s path, a string',
   'GovernanceUI.defaultSimulationRequest <- work': 'reads the default branch, a string, into a new request',
   'GovernanceUI.renderGovernanceInterface <- governance': 'writes markup from what it is handed and keeps nothing',
-  'SecurityPosture.model <- repos': 'lists the repositories anew (inventory) and filters that list',
-  'SecurityPosture.model <- securityPosture': 'reads the summary; its notes and rows are new lists',
-  'WorkspacePulse.languageSpread <- repos': 'counts languages across the repositories into a new list',
-  'WorkspacePulse.model <- repos': 'measures what it is handed into a new model',
+  'SecurityPostureModel.model <- repos': 'lists the repositories anew (inventory) and filters that list',
+  'SecurityPostureModel.model <- securityPosture': 'reads the summary\'s figures into new records and lists',
+  'WorkspacePulseModel.model <- repos': 'measures what it is handed into a new model',
   'formatRoute <- work': 'writes an address from the route\'s names, strings',
+  'renderGalaxyPulseGrid <- repos': 'counts the repositories and their languages into a new view, and draws that',
   'writeRoute <- work': 'writes an address from the route\'s names, strings'
 });
 

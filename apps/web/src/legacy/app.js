@@ -9,14 +9,18 @@ import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import CodeMirror from '../components/code-editor.ts';
-import OverlayMotion from '../components/overlay-motion.js';
+import OverlayMotion from '../components/overlay-motion.ts';
 import AlphaUI from '../features/access/alpha-ui.js';
 import CapabilityUI from '../features/capabilities/capability-ui.js';
 import GovernanceUI from '../features/governance/governance-ui.js';
-import WorkspacePulse from '../features/overview/workspace-pulse.js';
+import * as WorkspacePulseModel from '../features/overview/workspace-pulse.ts';
+import { clearActivityFeed as clearActivityFeedCard, render as renderWorkspacePulseCards, renderActivityFeed } from '../features/overview/WorkspacePulse.tsx';
+import { render as renderGalaxyPulseGrid } from '../features/repositories/GalaxyPulse.tsx';
 import RenderedAudit from '../features/parallax/rendered-audit-ui.js';
-import PullBoard from '../features/posture/pull-board.js';
-import SecurityPosture from '../features/posture/security-posture.js';
+import * as PullBoardModel from '../features/posture/pull-board.ts';
+import { render as renderPullBoardCard } from '../features/posture/PullBoard.tsx';
+import * as SecurityPostureModel from '../features/posture/security-posture.ts';
+import { render as renderSecurityPostureCard } from '../features/posture/SecurityPosture.tsx';
 import RepoSigil from '../features/repositories/repo-sigil.ts';
 import TrustUI from '../features/trust/trust-ui.js';
 import CodeAudit from '../features/uranus/code-audit-ui.js';
@@ -266,124 +270,22 @@ function safeHexColor(value, fallback = '8a8fa8') {
 }
 const TOAST_TONE = { ok: 'Success', err: 'Error' };
 /*
- * A segmented control is a set of choices, and which one is chosen was carried
- * only by an .active class -- visible, but silent. Selection moves through
- * here so the class and the announced state cannot drift apart at any of the
- * places that repaint one.
- */
-/*
- * The pulse reports what this session actually loaded. Each measure names its
- * own source, and a measure without one is not rendered: the design shows a
- * trust score, and nothing in this product computes one yet, so that tile is
- * absent rather than invented.
+ * The pulse over the repository list (features/repositories/GalaxyPulse.tsx):
+ * what this session actually loaded, each measure with its own source.
  */
 function renderGalaxyPulse(repos) {
   const section = $('#reposPulse');
   const grid = $('#reposPulseGrid');
   if (!section || !grid) return;
-  const list = Array.isArray(repos) ? repos : [];
-  const languages = new Set(list.map(r => r && r.language).filter(Boolean));
-  /*
-   * The language tile earned a chart and lost its number.
-   *
-   * "Languages 7" is true and it is not an answer: it cannot say which seven,
-   * nor that one of them is nearly the whole estate while the rest are a file
-   * each. The radar puts every language on its own spoke against a shared
-   * scale, so the shape of the estate is what you see. Below three languages
-   * there is no polygon to draw -- one or two spokes is a line pretending to
-   * be a shape -- so the count stays in that case rather than a degenerate
-   * chart being drawn to keep the layout tidy.
-   */
-  const spread = WorkspacePulse.languageSpread(list);
-  const drawRadar = spread.length >= WorkspacePulse.RADAR_MIN_AXES;
-  /*
-   * Private and public together account for the set, so the row never stops
-   * on an empty slot and a reader can check one figure against the other two.
-   * Public is counted only where the provider said so: a repository whose
-   * visibility did not come back is neither, rather than assumed open.
-   */
-  const measures = [
-    { label: 'Galaxies', value: list.length, note: 'repositories connected' },
-    { label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
-    { label: 'Public', value: list.filter(r => r && r.private === false).length, note: 'readable by anyone' },
-    ...(drawRadar ? [] : [{ label: 'Languages', value: languages.size, note: languages.size === 1 ? 'in use' : 'across the set' }])
-  ].filter(measure => Number.isFinite(measure.value));
-  grid.innerHTML = '';
-  for (const measure of measures) {
-    const cell = document.createElement('div');
-    cell.className = 'gx-pulse-cell';
-    const dt = document.createElement('dt');
-    dt.textContent = measure.label;
-    const dd = document.createElement('dd');
-    const value = document.createElement('span');
-    value.className = 'gx-pulse-value';
-    value.textContent = String(measure.value);
-    const note = document.createElement('span');
-    note.className = 'gx-pulse-note';
-    note.textContent = measure.note;
-    dd.append(value, note);
-    cell.append(dt, dd);
-    grid.appendChild(cell);
-  }
-  if (drawRadar) {
-    /* Its own cell, spanning the row: a radar squeezed into a third of the
-       grid beside two numbers is a chart nobody can read the labels of. */
-    const cell = document.createElement('div');
-    cell.className = 'gx-pulse-cell gx-pulse-radar';
-    const dt = document.createElement('dt');
-    dt.textContent = 'Languages';
-    const dd = document.createElement('dd');
-    /*
-     * The radar gives the estate its shape; the ranked list beside it gives
-     * each language its number and its share, read off one baseline. The
-     * card was a radar alone in a row-wide panel -- a small shape in a large
-     * empty box, with every value left to be estimated from a spoke.
-     */
-    const body = document.createElement('div');
-    body.className = 'gx-lang';
-    body.appendChild(WorkspacePulse.radarChart(spread,
-      `Repositories by language: ${spread.map(axis => `${axis.label} ${axis.count}`).join(', ')}.`));
-    const total = spread.reduce((sum, axis) => sum + axis.count, 0) || 1;
-    const peak = Math.max(...spread.map(axis => axis.count), 1);
-    const ranked = document.createElement('ol');
-    ranked.className = 'gx-lang-list';
-    ranked.setAttribute('aria-label', 'Repositories by language');
-    for (const axis of spread) {
-      const row = document.createElement('li');
-      const name = document.createElement('span');
-      name.className = 'gx-lang-name';
-      name.textContent = axis.folded ? `Other (${axis.folded})` : axis.label;
-      name.title = name.textContent;
-      const bar = document.createElement('span');
-      bar.className = 'gx-lang-bar';
-      bar.setAttribute('aria-hidden', 'true');
-      const fill = document.createElement('i');
-      fill.style.setProperty('--w', String(Math.round((axis.count / peak) * 1000) / 1000));
-      bar.appendChild(fill);
-      const count = document.createElement('span');
-      count.className = 'gx-lang-n';
-      count.textContent = String(axis.count);
-      const share = document.createElement('span');
-      share.className = 'gx-lang-pc';
-      share.textContent = `${Math.round((axis.count / total) * 100)}%`;
-      row.append(name, bar, count, share);
-      ranked.appendChild(row);
-    }
-    body.appendChild(ranked);
-    dd.appendChild(body);
-    const note = document.createElement('span');
-    note.className = 'gx-pulse-note';
-    const folded = spread.find(axis => axis.folded);
-    note.textContent = folded
-      ? `${languages.size} in use, the smallest ${folded.folded} grouped`
-      : `${languages.size} across the set`;
-    dd.appendChild(note);
-    cell.append(dt, dd);
-    grid.appendChild(cell);
-  }
-  section.hidden = measures.length === 0 && !drawRadar;
+  section.hidden = !renderGalaxyPulseGrid(grid, Array.isArray(repos) ? repos : []);
 }
 
+/*
+ * A segmented control is a set of choices, and which one is chosen was carried
+ * only by an .active class -- visible, but silent. Selection moves through
+ * here so the class and the announced state cannot drift apart at any of the
+ * places that repaint one.
+ */
 function selectSegment(groupSelector, isChosen) {
   $$(`${groupSelector} .seg-btn`).forEach((button, index) => {
     const chosen = !!isChosen(button, index);
@@ -489,7 +391,7 @@ async function takeSafePassage(error, change) {
 /* ---------------- overlay motion ---------------- */
 /*
  * Every overlay here opened with an animation and closed with none, a cut. The
- * rules that fixed that live in overlay-motion.js, next to a test that can
+ * rules that fixed that live in components/overlay-motion.ts, next to a test that can
  * drive the timer fallback without a browser: the safety of a deferred hide is
  * entirely in what happens when the animation never ends, and that case cannot
  * be reached from the page.
@@ -2187,8 +2089,7 @@ let activityFeedRequest = 0;
 function clearActivityFeed() {
   activityFeedRequest++;
   activityFeedState = null;
-  const body = $('#wpFeed .wp-body');
-  if (body) body.replaceChildren();
+  clearActivityFeedCard($('#wpFeed'));
   const refresh = $('#wpFeedRefresh');
   if (refresh) refresh.disabled = true;
 }
@@ -2196,7 +2097,7 @@ function clearActivityFeed() {
 function paintActivityFeed() {
   const root = $('#wpFeed');
   if (!root) return;
-  WorkspacePulse.renderActivityFeed(root, activityFeedState);
+  renderActivityFeed(root, activityFeedState);
   const refresh = $('#wpFeedRefresh');
   if (refresh) {
     refresh.disabled = !state.me || !!(activityFeedState && activityFeedState.loading);
@@ -2355,7 +2256,7 @@ async function loadPosture(force) {
 }
 
 /*
- * The security posture card (public/security-posture.js), on the posture's
+ * The security posture card (features/posture/security-posture.ts), on the posture's
  * own terms: one request, re-read at most once a minute, bound to the identity
  * that asked, and not asked at all by a deployment that does not offer it.
  * The repositories nobody has read come from the inventory the session holds,
@@ -2381,7 +2282,7 @@ function renderSecurityPosture() {
   if (!section || !host) return;
   section.hidden = !securityPostureOffered();
   if (section.hidden) return;
-  SecurityPosture.render(host, SecurityPosture.model(state.securityPosture, state.repos), {
+  renderSecurityPostureCard(host, SecurityPostureModel.model(state.securityPosture, state.repos), {
     audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); },
     inbox: findingsOffered() ? filters => showFindings(findingsInbox.parseFilters(filters || '')) : null
   });
@@ -2409,7 +2310,7 @@ async function loadSecurityPosture(force) {
 }
 
 /*
- * The open pull requests across the workspace (public/pull-board.js). Read
+ * The open pull requests across the workspace (features/posture/pull-board.ts). Read
  * only when the card comes into view, from the repositories most recently
  * pushed to, a few at a time, through the same list route the workbench
  * uses -- so a card opened from here lands on a list already in the cache.
@@ -2432,8 +2333,8 @@ function renderPullBoard() {
   if (!section || !host) return;
   section.hidden = !pullBoardOffered();
   if (section.hidden) return;
-  const Board = PullBoard;
-  Board.render(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
+  const Board = PullBoardModel;
+  renderPullBoardCard(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
     open: (owner, repo, number) => {
       state.pendingPull = { key: `${owner}/${repo}`.toLowerCase(), number: Number(number) };
       /* The board lists open pull requests, so the list it lands on is the open one. */
@@ -2470,7 +2371,7 @@ async function loadPullBoard(force) {
   if (!state.me || !pullBoardOffered()) { renderPullBoard(); return; }
   if (pullBoardState.inflight && !force) return;
   if (!force && pullBoardState.results && Date.now() - pullBoardState.at < PULL_BOARD_TTL_MS) { renderPullBoard(); return; }
-  const Board = PullBoard;
+  const Board = PullBoardModel;
   const repositories = Board.pickRepositories(state.repos);
   if (!repositories.length) { renderPullBoard(); return; }
   const request = ++pullBoardState.request;
@@ -2623,7 +2524,7 @@ function renderWorkspacePulse(repos) {
    * computed apart, which let the row say one thing and the card under it say
    * another about the same session. They now share a single measurement.
    */
-  const pulse = WorkspacePulse.model({
+  const pulse = WorkspacePulseModel.model({
     repos: list,
     features: capabilities && capabilities.features ? capabilities.features() : null,
     recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
@@ -2635,7 +2536,7 @@ function renderWorkspacePulse(repos) {
   renderOverviewPulse(list, pulse);
   paintCoreLine(pulse);
   const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
-  if (roots.trust || roots.signals || roots.activity) WorkspacePulse.render(roots, pulse);
+  if (roots.trust || roots.signals || roots.activity) renderWorkspacePulseCards(roots, pulse);
   renderSecurityPosture();
   renderPullBoard();
 }

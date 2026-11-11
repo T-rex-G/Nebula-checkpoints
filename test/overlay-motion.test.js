@@ -26,7 +26,7 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const motion = require('../apps/web/src/components/overlay-motion');
+const motion = require('../apps/web/src/components/overlay-motion.ts');
 const appSource = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'), 'utf8');
 const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
 const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
@@ -152,6 +152,9 @@ check('the fallback waits out the exit it measured, not the entry', () => {
     `the fallback fires after ${wait[0]}ms, inside the ${EXIT_MS}ms exit -- it would hide the layer mid-animation`);
   assert.ok(wait[0] < ENTRY_MS,
     `the fallback waits ${wait[0]}ms, which is the entry animation: the duration was read before the layer was marked closing`);
+  /* The frame an exit is judged to end on comes before the frame its event is delivered on: the fallback waits past it. */
+  assert.strictEqual(wait[0], EXIT_MS + motion.SETTLE_MARGIN_MS,
+    `the fallback fires at ${wait[0]}ms, on the exit's last frame, ahead of the event that would have ended it`);
 });
 
 check('the duration comes from the stylesheet, not from a number in the script', () => {
@@ -177,11 +180,15 @@ check('the longest of several animations is what gets waited out', () => {
 
 check('with no exit animation the close is immediate', () => {
   const none = () => ({ animationName: 'none', animationDuration: '0s', animationDelay: '0s' });
-  const { api, layer, clock } = harness(none);
-  api.closeOverlay(layer);
-  assert.strictEqual(layer.hidden, true, 'motion is off and the layer still lingered');
-  assert.strictEqual(clock.scheduled.filter(entry => entry.live).length, 0,
-    'nothing was animating and a timer was armed anyway');
+  /* A rule that names no animation leaves any duration an earlier rule set in place: no animation runs for it all the same. */
+  const unnamed = () => ({ animationName: 'none', animationDuration: '0.28s', animationDelay: '0s' });
+  for (const style of [none, unnamed]) {
+    const { api, layer, clock } = harness(style);
+    api.closeOverlay(layer);
+    assert.strictEqual(layer.hidden, true, 'motion is off and the layer still lingered');
+    assert.strictEqual(clock.scheduled.filter(entry => entry.live).length, 0,
+      'nothing was animating and a timer was armed anyway');
+  }
 });
 
 /* ---------------- reopening mid-exit ---------------- */
@@ -369,12 +376,12 @@ scrimIds.forEach(id => {
  */
 check('the page carries the overlay rules, and keeps them offline', () => {
   const order = shellImports();
-  const motionAt = order.indexOf('apps/web/src/components/overlay-motion.js');
+  const motionAt = order.indexOf('apps/web/src/components/overlay-motion.ts');
   assert.ok(motionAt !== -1 && motionAt < order.indexOf('apps/web/src/legacy/app.js'),
-    'overlay-motion.js is not among the modules the workbench is evaluated after');
+    'overlay-motion.ts is not among the modules the workbench is evaluated after');
   const shell = builtShell();
   assert.ok(shell.precaches(shell.entry),
-    'the entry that carries overlay-motion.js is not precached; offline, the whole app would be dead');
+    'the entry that carries overlay-motion.ts is not precached; offline, the whole app would be dead');
 });
 
 /* ---------------- the stylesheet has to resolve ---------------- */
@@ -1940,49 +1947,6 @@ check('a reading is drawn as an arc, not filled in by a legend colour', () => {
       `${name} never sets fill:none, so a class that sets fill will paint it as a disc`);
     assert.ok(/stroke(-width)?\s*:/.test(body), `${name} is not stroked, so there is no arc to see`);
   });
-  /*
-   * The collision itself: an element may not carry both an arc class and a
-   * fill-setting class. Read off the source that builds the ring rather than
-   * off a list kept in step by hand.
-   */
-  const pulseSource = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
-  const classed = [...pulseSource.matchAll(/class:\s*[`'"]([^`'"]*(?:gauge-arc|donut-arc)[^`'"]*)[`'"]/g)]
-    .map(match => match[1]);
-  assert.ok(classed.length, 'nothing builds an arc any more');
-  /*
-   * Matched by prefix, not by name. The first version of this compared whole
-   * class names and a template interpolation walked straight through it:
-   * `wp-fill-${status}` is not the string `wp-fill-good`, so the check passed
-   * on the very rewrite it was written to catch. What survives interpolation is
-   * the literal text before the `${`, and that is enough to recognise the
-   * family a class belongs to.
-   */
-  const fillFamilies = [...filling].map(name => name.replace(/^\./, ''));
-  classed.forEach(list => {
-    list.split(/\s+/).filter(Boolean).forEach(token => {
-      const literal = token.split('${')[0];
-      if (!literal) return;
-      const clash = fillFamilies.find(name => name === literal || name.startsWith(literal));
-      assert.ok(!clash,
-        `an arc carries "${token}", and .${clash} sets fill -- the arc will paint as a disc`);
-    });
-  });
-});
-
-/*
- * A gauge with nothing to report draws its track and no arc. Drawing a
- * zero-length arc would be a reading of zero, and this model exists to tell
- * "not measured" apart from "measured and failing".
- */
-check('an unmeasured reading draws no arc at all', () => {
-  const pulseSource = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
-  const at = pulseSource.indexOf('function gauge(');
-  assert.ok(at >= 0, 'the gauge primitive is gone');
-  const body = pulseSource.slice(at, pulseSource.indexOf('\n  }\n', at));
-  assert.ok(/if \(measured\)[\s\S]{0,220}wp-gauge-arc/.test(body),
-    'the arc is drawn whether or not there is a reading behind it');
-  assert.ok(/\\u2014|\u2014/.test(body),
-    'an unmeasured gauge prints something other than a dash where its figure goes');
 });
 
 check('the live rail reports a session rather than asserting one', () => {
@@ -2391,8 +2355,6 @@ check('the overview charts draw in one hue per preset, never in status colours',
   const obsidian = cssSource.match(/\[data-design="obsidian"\]\{\s*--wp-series:([^;]+);/);
   assert.ok(obsidian, 'Obsidian has no series ink of its own, so its charts draw in Nebula violet');
   assert.ok(!/8b5cf6|9a77f7|7c3aed|a78bfa/i.test(obsidian[1]), 'Obsidian draws its charts in violet');
-  const pulse = fs.readFileSync(path.join(root, 'apps/web/src/features/overview/workspace-pulse.js'), 'utf8');
-  assert.ok(!/'stop-color':\s*'#/.test(pulse), 'a chart gradient carries a colour of its own instead of the preset ink');
 });
 
 /*

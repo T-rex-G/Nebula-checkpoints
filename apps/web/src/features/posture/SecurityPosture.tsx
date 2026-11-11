@@ -112,24 +112,37 @@ function TrendChart({ view, width }: { view: ReadyView; width: number }): ReactE
  * The chart drawn at the width its panel has, and drawn again when that
  * width changes by more than a hair: a viewBox stretched to fit would scale
  * the axis labels with it, to a smudge on a phone and a shout on a monitor.
+ *
+ * A panel that is not laid out yet -- its screen still hidden when the
+ * reading lands -- has no width to draw at. The chart used to be drawn at a
+ * 480-pixel guess then, and the hair it would not be redrawn for was measured
+ * from the guess: a panel that turned out 499 pixels wide kept a chart drawn
+ * for 480, stretched to fit. Where the panel can be watched, the chart waits
+ * for its first real width, as the pulse's area charts do; a panel taken out
+ * of the layout later keeps the chart it has.
  */
 function FittedTrend({ view }: { view: ReadyView }): ReactElement {
   const plot = useRef<HTMLDivElement>(null);
+  const observed = typeof ResizeObserver === 'function';
   const [width, setWidth] = useState<number | null>(null);
-  /* The laid-out width, which a card's entrance transform does not shrink (as workspace-pulse's fittedArea). */
-  const measure = (): number => Math.round(Number(plot.current ? plot.current.offsetWidth : 0) || 0) || 480;
+  /* The laid-out width, which a card's entrance transform does not shrink (as workspace-pulse's fittedArea); 0 when it is not laid out. */
+  const measure = (): number => Math.round(Number(plot.current ? plot.current.offsetWidth : 0) || 0);
   /* Measured before the first paint of every reading, as the card was when it was drawn whole. */
-  useLayoutEffect(() => { setWidth(measure()); }, [view]);
+  useLayoutEffect(() => {
+    const now = measure();
+    if (now) setWidth(now);
+    else if (!observed) setWidth(drawn => drawn ?? 480);
+  }, [view]);
   /* Watched from the moment the plot is committed, and redrawn in the frame the change is seen in. */
   useLayoutEffect(() => {
     const node = plot.current;
-    if (!node || typeof ResizeObserver !== 'function') return undefined;
+    if (!node || !observed) return undefined;
     let frame = 0;
     const watcher = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const now = measure();
-        flushSync(() => setWidth(drawn => (drawn !== null && Math.abs(now - drawn) < REDRAW_PX ? drawn : now)));
+        if (now) flushSync(() => setWidth(drawn => (drawn !== null && Math.abs(now - drawn) < REDRAW_PX ? drawn : now)));
       });
     });
     watcher.observe(node);

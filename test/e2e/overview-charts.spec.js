@@ -334,6 +334,46 @@ test('a chart whose card is hidden when the reading lands is drawn once, at the 
 });
 
 /*
+ * The posture chart, the same way. Its reading can land while the card is out
+ * of the layout; it used to be drawn then at a 480-pixel guess, and the hair a
+ * chart is not redrawn for was measured from the guess, so a card that turned
+ * out 499 pixels wide -- the desktop default -- kept a chart drawn for 480,
+ * stretched to fit. It waits for the card's real width instead.
+ */
+test('a posture reading that lands while its card is hidden is drawn at the width the card is shown', async ({ page }) => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/workspace/security-posture', async route => { await held; await route.fallback(); });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = 'none'; });
+  release();
+  /* The reading has landed: the card holds its plot, still out of the layout, and no chart drawn at a guess. */
+  await expect(page.locator('#wpPosture .pp-plot')).toBeAttached();
+  await expect(page.locator('#wpPosture svg.pp-chart-svg')).toHaveCount(0);
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = ''; });
+  const fit = () => page.evaluate(() => {
+    const chart = document.querySelector('#wpPosture svg.pp-chart-svg');
+    return chart ? Math.abs(chart.viewBox.baseVal.width - chart.clientWidth) : null;
+  });
+  await expect.poll(fit, { message: 'the posture chart is drawn at the width its card is shown' }).toBeLessThanOrEqual(1);
+  const settled = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 300)))));
+  const drawnAt = () => page.locator('#wpPosture svg.pp-chart-svg').evaluate(chart => chart.viewBox.baseVal.width);
+  /* And stays so: nothing redraws it at another width a frame later. */
+  await settled();
+  expect(await fit()).toBeLessThanOrEqual(1);
+  /* A card taken out of the layout keeps the chart it has, rather than one drawn for no width. */
+  const shown = await drawnAt();
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = 'none'; });
+  await settled();
+  expect(await drawnAt()).toBe(shown);
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = ''; });
+  await settled();
+  expect(await fit()).toBeLessThanOrEqual(1);
+});
+
+/*
  * A pointer over the plot names the day under it and its count; leaving the
  * plot puts it away. The table under the chart carries the same numbers for
  * every other reader.

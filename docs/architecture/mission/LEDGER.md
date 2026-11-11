@@ -2665,3 +2665,10 @@ Two advisories published since S1 reach locked dependencies, both moderate. npm'
 - **Counted.** Nine page reads converted: 534 remain (`test/page-reads.test.js`).
 - **Next:** E3c, the capability, trust, rendered-audit and access interfaces.
 - **Checks:** the unit gate, every verify-job gate, and the whole browser suite (1,062 tests) on desktop and mobile, on Node 22.23.4.
+
+### E3b, a correction — the posture chart drawn at its card's width
+
+- **Found by CI.** The check E3b added -- every Overview chart drawn at its card's laid-out width -- failed on CI's desktop browser: the posture chart was drawn 480 wide in a card 499 wide, stretched to fit. A posture reading that lands while its card is out of the layout has no width to draw at, and the chart was drawn at a 480-pixel guess; the hair a chart is not redrawn for (24 pixels) was then measured from the guess, so a card that turned out within a hair of 480 -- 499 at the desktop default -- kept the guess. It had passed the whole local run and failed on CI's; held to what CI saw -- the reading landing while the card is out of the layout -- it fails locally at every desktop width whose card falls within 24 pixels of 480 (1220 to 1280 pixels).
+- **Fixed.** Where the card can be watched, the chart waits for its first real width, as the pulse's area charts do (E3b); a measurement of no width neither draws a chart nor replaces one, so a card taken out of the layout keeps the chart it has. The old renderer had the same guess.
+- **Checked.** `test/e2e/overview-charts.spec.js` holds a posture reading back until the card is hidden, then shows the card: nothing is drawn while it has no width, the chart is drawn at the width the card is shown and stays so, and hiding and showing the card again changes nothing. It fails on the previous commit (19 pixels off on desktop) and passes with the fix, on desktop and mobile. Three mutants -- the guess restored, a reading drawn for no width, a hidden card redrawn for no width -- are caught by it.
+- **Checks:** the unit gate, every verify-job gate, and the Overview's chart, posture, pulse and DOM-contract specs on desktop and mobile, on Node 22.23.4.

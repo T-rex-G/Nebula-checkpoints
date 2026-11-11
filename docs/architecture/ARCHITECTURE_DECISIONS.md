@@ -939,6 +939,8 @@ The run-time comment stripper, the `?v=` asset stamp derived from the version, t
 
 **Implemented, 9 November 2026 (Phase E, E1).** The probe has landed (`apps/web/src/platform/probe.ts`): it reads and deletes the marker before any other module of the page runs, and answers frozen copies of the fields its allowlist names. The twelve transitional names and the live page state under the marker are gone; the four browser tests that reached that state are real interactions, and every module imports what it uses. `test/e2e/no-globals.spec.js` holds the page to no globals of its own.
 
+**Implemented, 9 November 2026 (Phase E, E2).** The router has landed (`apps/web/src/platform/router.ts`): every address is read and written in one place, as a typed route, and is the address the workbench wrote before, byte for byte (`test/router.test.js`). The store has landed (`apps/web/src/platform/store.ts`, `apps/web/src/platform/page-state.ts`): the workbench's `state` is a sealed view of it, each slice counts its changes, and a component renders again through `useSyncExternalStore` when, and only when, a slice it reads changes. A rule over the page's syntax tree (`test/page-rules.test.js`) refuses any in-place change of a slice outside the store's `mutate`, and holds every slice handed to another module to a reviewed list.
+
 ## ADR-093 — The DOM contract is held while the interface is rebuilt
 
 **Status:** Accepted owner decision, 18 October 2026.

@@ -17,6 +17,7 @@ function harness(answer) {
   let scope = 'first';
   const requests = [];
   const context = { URLSearchParams, exposureState: () => state, exposureScopeKey: () => scope,
+    pageStore: { mutate: (_slice, change) => change(state) },
     wPath: () => 'acme/demo', renderExposure() {}, api: async url => { requests.push(url); return answer(url); } };
   const start = app.indexOf('async function loadExposureReport(');
   const end = app.indexOf('\n/*', start);

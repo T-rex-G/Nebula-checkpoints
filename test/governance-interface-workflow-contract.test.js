@@ -18,5 +18,5 @@ for (const route of [
 ]) assert(app.includes(route), `workflow route fragment missing ${route}`);
 assert(app.includes("'Idempotency-Key': governanceIdempotencyKey"), 'governance writes need unique idempotency keys');
 /* JSON inputs pass the module's bounded parser: test/e2e/governance-lifecycle.spec.js refuses each malformed one before a request. */
-assert(app.includes("state.governance.simulation = null"), 'authoritative read-model changes must invalidate stale simulation evidence');
+assert(app.includes("pageStore.mutate('governance', governance => { governance.simulation = null; });"), 'authoritative read-model changes must invalidate stale simulation evidence');
 console.log('governance interface workflow contract tests passed');

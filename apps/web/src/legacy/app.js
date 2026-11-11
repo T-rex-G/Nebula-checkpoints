@@ -24,6 +24,8 @@ import ArchiveSafety from '../features/workbench/archive-safety.js';
 import ExportSafety from '../features/workbench/export-safety.js';
 import { discardHeldRepaints, repaintCard } from '../components/held-repaint.ts';
 import { probeSource } from '../platform/probe.ts';
+import { NO_ROUTE, currentRoute, formatRoute, onRouteChange, parseRoute, writeRoute } from '../platform/router.ts';
+import { pageStore, state } from '../platform/page-state.ts';
 import Visuals from '../visualizations/nebula-visuals.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -31,28 +33,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const isMobile = () => window.matchMedia('(max-width:900px)').matches;
 const NV_PRODUCT_NAME = 'Nebulaverse-X';
 
-const state = {
-  me: null,
-  posture: null,
-  uiEpoch: 0,
-  repos: [], repoPage: 1, repoSort: 'pushed',
-  work: null, opening: null, file: null, cm: null,
-  commitsPage: 1,
-  staged: [],
-  fileIndex: null,
-  prState: 'open', issueState: 'open',
-  settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono', design: 'nebula' },
-  governance: { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } },
-  /*
-   * Limits start unknown, not at the self-hosted maxima. These three used to
-   * hold 2048/64/64 -- the ceilings of a self-hosted deployment -- so until
-   * /api/config answered, and forever if it never did, a hosted alpha enforcing
-   * 25/16/16 told its reader the per-file limit was 2048 MB and labelled a
-   * 30 MB file as a Git Data API push the server would refuse. A number nobody
-   * sent us is not a smaller number; it is no number.
-   */
-  runtime: { uploadMaxMb: null, gitDataMaxMb: null, nativePushMaxMb: null, contentsMaxMb: null, githubApp: { enabled: false, webhookConfigured: false } }
-};
 
 function branchRecord(branch = state.work && state.work.branch) {
   return state.work && Array.isArray(state.work.branches) ? state.work.branches.find(item => item.name === branch) : null;
@@ -68,7 +48,7 @@ function guardedWrite(extra = {}, branch = state.work && state.work.branch) {
 function rememberHead(commit, branch = state.work && state.work.branch) {
   if (!/^[0-9a-f]{40}$/i.test(String(commit || ''))) return;
   const record = branchRecord(branch);
-  if (record) record.sha = String(commit);
+  if (record) pageStore.mutate('work', () => { record.sha = String(commit); });
 }
 
 /* ---------------- fetch helper ---------------- */
@@ -625,6 +605,8 @@ $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) close
 
 /* ---------------- pages ---------------- */
 let _page = 'alpha-access';
+/* How many times the reader has arrived on a screen: a start that ends late can tell they have moved since it began. */
+let pageArrivals = 0;
 /*
  * A page change, cross-faded -- except while a layer is still leaving.
  *
@@ -993,6 +975,7 @@ function showPage(name) {
   setTimeout(measureTopbar, 30);
   if (_page === name) return Promise.resolve();
   _page = name;
+  pageArrivals += 1;
   paintRail(name);
   /*
    * Mounted here rather than by each caller. Six paths reach these screens,
@@ -1016,7 +999,7 @@ function showPage(name) {
     const region = shown.querySelector('.container');
     if (region) region.scrollTop = 0;
     /* The findings inbox keeps its filters in the address; every other screen but the workbench has none. */
-    if (name !== 'work' && name !== 'findings') history.replaceState(null, '', location.pathname);
+    if (name !== 'work' && name !== 'findings') writeRoute(NO_ROUTE);
   });
   /*
    * After the swap has been laid out, not during it.
@@ -1044,13 +1027,12 @@ function showPage(name) {
 let routeApplying = false;
 function saveRoute(push = false) {
   if (_page !== 'work' || !state.work || !state.work.repo) return;
-  const h = `#/${encodeURIComponent(state.work.owner)}/${encodeURIComponent(state.work.repo)}` +
-    `@${encodeURIComponent(state.work.branch)}/${currentTab()}` +
-    (state.file && state.file.path ? '/' + encodeURIComponent(state.file.path) : '');
-  if (h === location.hash) return;
-  if (push && !routeApplying) history.pushState(null, '', h);
-  else history.replaceState(null, '', h);
-  lastAppliedRoute = h;
+  const route = {
+    kind: 'workbench', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
+    tab: currentTab(), file: state.file && state.file.path ? state.file.path : null
+  };
+  if (!writeRoute(route, { push: push && !routeApplying })) return;
+  lastAppliedRoute = formatRoute(route);
 }
 /*
  * Back, Forward, a pasted link or an edited address: the same repository
@@ -1068,59 +1050,56 @@ async function applyRoute() {
   if (!state.me) return;
   const hash = location.hash;
   if (hash === lastAppliedRoute) return;
-  if (/^#\/findings(\?.*)?$/.test(hash)) {
+  const route = parseRoute(hash);
+  if (route.kind === 'findings') {
     lastAppliedRoute = hash;
-    if (findingsOffered()) showFindings(findingsFiltersFromHash());
+    if (findingsOffered()) showFindings(findingsInbox.parseFilters(route.query));
     return;
   }
-  const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(hash);
-  if (!m) return;
+  /* An address that names nothing -- another screen's, or one mangled in transit -- leaves the workbench as it was. */
+  if (route.kind !== 'workbench') return;
   lastAppliedRoute = hash;
   routeApplying = true;
   try {
-    const owner = decodeURIComponent(m[1]), repo = decodeURIComponent(m[2]);
-    const same = _page === 'work' && state.work && String(state.work.owner).toLowerCase() === owner.toLowerCase()
-      && String(state.work.repo).toLowerCase() === repo.toLowerCase();
+    const same = _page === 'work' && state.work && String(state.work.owner).toLowerCase() === route.owner.toLowerCase()
+      && String(state.work.repo).toLowerCase() === route.repo.toLowerCase();
     if (!same) { await restoreRoute(); return; }
-    const branch = decodeURIComponent(m[3]);
     const select = $('#branchSelect');
-    if (branch && branch !== state.work.branch && select && [...select.options].some(option => option.value === branch)) {
-      select.value = branch;
+    if (route.branch && route.branch !== state.work.branch && select && [...select.options].some(option => option.value === route.branch)) {
+      select.value = route.branch;
       select.dispatchEvent(new Event('change'));
     }
-    if (m[4] !== currentTab()) switchTab(m[4]);
-    const file = m[5] ? decodeURIComponent(m[5]) : '';
-    if (file && (!state.file || state.file.path !== file)) await openFile(file);
+    if (route.tab !== currentTab()) switchTab(route.tab);
+    if (route.file && (!state.file || state.file.path !== route.file)) await openFile(route.file);
   } catch { /* a stale or foreign address leaves the workbench as it was */ }
   finally { routeApplying = false; }
 }
-window.addEventListener('popstate', () => { void applyRoute(); });
-window.addEventListener('hashchange', () => { void applyRoute(); });
+onRouteChange(() => { void applyRoute(); });
 async function restoreRoute() {
-  if (/^#\/findings(\?.*)?$/.test(location.hash) && findingsOffered()) {
+  const route = currentRoute();
+  if (route.kind === 'findings' && findingsOffered()) {
     lastAppliedRoute = location.hash;
-    showFindings(findingsFiltersFromHash());
+    showFindings(findingsInbox.parseFilters(route.query));
     return true;
   }
-  const m = /^#\/([^/]+)\/([^/@]+)@([^/]+)\/([a-z]+)(?:\/(.+))?$/.exec(location.hash);
-  if (!m) return false;
+  if (route.kind !== 'workbench') return false;
   lastAppliedRoute = location.hash;
   const wasApplying = routeApplying;
   routeApplying = true;
   try {
-    const opened = await openRepo(decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+    const opened = await openRepo(route.owner, route.repo);
     /* A later open took over: the route is being applied there, not failed here. */
     if (opened === null) return true;
     if (!opened) return false;
-    const br = decodeURIComponent(m[3]);
+    const br = route.branch;
     if (br && br !== state.work.branch && [...$('#branchSelect').options].some(o => o.value === br)) {
-      state.work.branch = br;
+      pageStore.mutate('work', work => { work.branch = br; });
       $('#branchSelect').value = br;
       state.fileIndex = null;
       loadTree('', $('#tree'), true);
     }
-    if (m[4] && m[4] !== 'editor') switchTab(m[4]);
-    if (m[5]) openFile(decodeURIComponent(m[5]));
+    if (route.tab && route.tab !== 'editor') switchTab(route.tab);
+    if (route.file) openFile(route.file);
     return true;
   } catch { return false; }
   finally { routeApplying = wasApplying; }
@@ -1132,8 +1111,8 @@ function loadSettings() {
     const t = localStorage.getItem('nv_theme');
     if (t) document.documentElement.dataset.theme = t;
     const s = JSON.parse(localStorage.getItem('nv_settings') || 'null');
-    if (s) Object.assign(state.settings, s);
-    else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) state.settings.motion = false;
+    if (s) pageStore.mutate('settings', settings => { Object.assign(settings, s); });
+    else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) pageStore.mutate('settings', settings => { settings.motion = false; });
   } catch {}
   applySettings();
 }
@@ -1180,12 +1159,12 @@ function revealChange(change, origin) {
 function setDesign(next, origin) {
   if (!DESIGNS.includes(next) || state.settings.design === next) return;
   revealChange(() => {
-    state.settings.design = next;
+    pageStore.mutate('settings', settings => { settings.design = next; });
     applySettings();
   }, origin);
 }
 function applySettings() {
-  if (!DESIGNS.includes(state.settings.design)) state.settings.design = 'nebula';
+  if (!DESIGNS.includes(state.settings.design)) pageStore.mutate('settings', settings => { settings.design = 'nebula'; });
   const root = document.documentElement;
   const designChanged = root.dataset.design !== state.settings.design;
   root.dataset.design = state.settings.design;
@@ -1576,16 +1555,16 @@ document.addEventListener('click', async event => {
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'setFs') {
-    state.settings.fontSize = +e.target.value;
+    pageStore.mutate('settings', settings => { settings.fontSize = +e.target.value; });
     const v = $('#setFsVal'); if (v) v.textContent = e.target.value + 'px';
     applySettings();
   }
 });
 document.addEventListener('change', async e => {
-  if (e.target.id === 'setWrap') { state.settings.wrap = e.target.checked; applySettings(); }
-  if (e.target.id === 'setMotion') { state.settings.motion = e.target.checked; applySettings(); }
-  if (e.target.id === 'setEdTheme') { state.settings.editorTheme = e.target.value; applySettings(); }
-  if (e.target.id === 'setEdFont') { state.settings.editorFont = e.target.value; applySettings(); }
+  if (e.target.id === 'setWrap') { pageStore.mutate('settings', settings => { settings.wrap = e.target.checked; }); applySettings(); }
+  if (e.target.id === 'setMotion') { pageStore.mutate('settings', settings => { settings.motion = e.target.checked; }); applySettings(); }
+  if (e.target.id === 'setEdTheme') { pageStore.mutate('settings', settings => { settings.editorTheme = e.target.value; }); applySettings(); }
+  if (e.target.id === 'setEdFont') { pageStore.mutate('settings', settings => { settings.editorFont = e.target.value; }); applySettings(); }
   if (e.target.id === 'setOfflineRepo') {
     try {
       await setOfflineRepoEnabled(e.target.checked);
@@ -1783,7 +1762,26 @@ async function loadRuntimeConfig(attempt = 0) {
     renderLoginGuidance();
   }
 }
+$('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
+$('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
+/*
+ * A start in flight, until it has learned who is signed in or that nobody
+ * is. The page starts once when it is opened and again at every change of
+ * account, and until a start knows its reader nothing may be opened for them.
+ */
+let sessionArriving = null;
 async function boot() {
+  let sessionKnown = () => {};
+  const arriving = new Promise(resolve => { sessionKnown = resolve; });
+  sessionArriving = arriving;
+  /*
+   * Where a start ends: at the address the page was opened on, or the
+   * overview. A reader who has gone to another screen since the start began
+   * is left on it -- a start that ended late used to send them back -- and
+   * the overview is drawn behind them for whoever is now signed in.
+   */
+  const arrivals = pageArrivals;
+  const land = async () => { if (!(await restoreRoute())) showOverview(arrivals === pageArrivals); };
   loadSettings();
   githubAppCallbackNotice();
   oauthCallbackNotice();
@@ -1796,8 +1794,6 @@ async function boot() {
    * rest of the session, with nothing said.
    */
   await loadRuntimeConfig();
-  $('#oauthBtn').addEventListener('click', () => { location.href = '/api/oauth/login'; });
-  $('#findBtn').addEventListener('click', () => { if (state.file && !state.file.binary) openFindPanel(); });
   try {
     state.me = requireGithubIdentity(await api('/api/me'));
     try { sessionStorage.setItem('nv_me', JSON.stringify(state.me)); } catch {}
@@ -1805,6 +1801,7 @@ async function boot() {
     state.caps = state.me.caps || null;
     await loadProviderCapabilities();
     applyCaps();
+    sessionKnown();
     setAvatar(state.me.avatar);
     flushQueue();
     /* After capabilities, so a deployment that refuses notifications is not
@@ -1813,7 +1810,7 @@ async function boot() {
     loadPosture();
     loadSecurityPosture();
     loadRepos(true);
-    if (!(await restoreRoute())) showOverview();
+    await land();
   } catch (e) {
     const cached = (() => { try { return JSON.parse(sessionStorage.getItem('nv_me') || 'null'); } catch { return null; } })();
     if (githubIdentity(cached) && isOfflineError(e)) {
@@ -1822,10 +1819,11 @@ async function boot() {
       state.caps = cached.caps || null;
       await loadProviderCapabilities();
       applyCaps();
+      sessionKnown();
       setAvatar(cached.avatar);
       updateNetBar();
       loadRepos(true);
-      if (!(await restoreRoute())) showOverview();
+      await land();
       toast('Offline mode — showing cached data ✦', 'ok');
     } else if (e.code === 'ACCOUNT_SELECTION_REQUIRED') {
       /* A retired account is still the selected one: the person chooses a GitHub
@@ -1841,6 +1839,10 @@ async function boot() {
       ensureLoginAlphaSessionControls();
       showPage('login');
     }
+  } finally {
+    /* Known, or known to be nobody's: whatever waited on this start goes on, and finds out which. */
+    sessionKnown();
+    if (sessionArriving === arriving) sessionArriving = null;
   }
 }
 $('#loginBackBtn').addEventListener('click', () => {
@@ -2012,13 +2014,25 @@ $('#logoutBtnM').addEventListener('click', doLogout);
 $('#logoutBtnOv') && $('#logoutBtnOv').addEventListener('click', doLogout);
 
 /* ================= REPOS ================= */
+/*
+ * Each fresh listing overtakes the one before it. Two in flight used to put
+ * every repository in the list twice, and an answer that arrived after an
+ * identity boundary drew the departed account's repositories into the page
+ * that had just been purged of them. A further page belongs to the listing
+ * it continues.
+ */
+let repoListing = 0;
 async function loadRepos(reset) {
   const grid = $('#repoGrid');
-  if (reset) { state.repoPage = 1; state.repos = []; grid.innerHTML = '<div class="skeleton"></div>'.repeat(6); }
+  if (reset) { repoListing += 1; state.repoPage = 1; state.repos = []; grid.innerHTML = '<div class="skeleton"></div>'.repeat(6); }
+  const listing = repoListing;
+  const epoch = state.uiEpoch;
+  const overtaken = () => listing !== repoListing || epoch !== state.uiEpoch;
   try {
     const batch = await api(`/api/repos?page=${state.repoPage}&sort=${state.repoSort}`);
+    if (overtaken()) return;
     if (reset) grid.innerHTML = '';
-    state.repos.push(...batch);
+    pageStore.mutate('repos', repos => { repos.push(...batch); });
     batch.forEach(r => grid.appendChild(repoCard(r)));
     $('#moreReposBtn').hidden = batch.length < 30;
     if (!state.repos.length) grid.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.repos}</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>`;
@@ -2026,6 +2040,7 @@ async function loadRepos(reset) {
     renderWorkspacePulse();
     paintRepoOpenAny();
   } catch (e) {
+    if (overtaken()) return;
     toast(e.message, 'err');
     grid.innerHTML = '';
     renderGalaxyPulse([]);
@@ -2139,7 +2154,8 @@ $('#ovHomeBtn') && $('#ovHomeBtn').addEventListener('click', () => showOverview(
 $('#ovGoRepos') && $('#ovGoRepos').addEventListener('click', () => showPage('repos'));
 $('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showPage('repos'));
 
-function showOverview() {
+/* Draws the overview for whoever is signed in and, unless `arrive` is false, takes the reader to it. */
+function showOverview(arrive = true) {
   const who = $('#ovWho');
   if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
   paintCoreState();
@@ -2148,7 +2164,7 @@ function showOverview() {
   loadPosture();
   loadSecurityPosture();
   loadActivityFeed();
-  showPage('overview');
+  if (arrive) showPage('overview');
   watchPullBoard();
   if (pullBoardState.visible) void loadPullBoard();
 }
@@ -2714,6 +2730,7 @@ function drawOverviewPulse(section, grid, measures) {
 async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   const ownsModal = modalOwner();
+  const sheet = modalGeneration;
   try {
     const a = await api('/api/accounts');
     if (!ownsModal()) return;
@@ -2751,30 +2768,68 @@ async function openAccounts() {
           ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
         <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
       </div>`;
+    /*
+     * An account change is an identity boundary crossed in the open. What the
+     * page held is purged before the server is asked, and the page then starts
+     * again as whoever the server answers for -- whether it made the change or
+     * refused it, for a refusal used to leave the page purged and nobody's.
+     * This sheet stays up, its controls held, until that start has ended, and
+     * only then is the reader told the change is made: told at once, they
+     * were let onto a page with no identity, and sent back to the overview
+     * from wherever they had gone when the start finished.
+     */
+    const holdSheet = () => {
+      /* Only what it held is released: by then the dialog may be another's, with controls of its own to keep. */
+      const controls = [...$$('#modalBody button')].filter(control => !control.disabled);
+      for (const control of controls) control.disabled = true;
+      return () => { for (const control of controls) control.disabled = false; };
+    };
+    const leaveSheet = () => { if (modalGeneration === sheet) closeModal(true); };
     $$('#modalBody [data-switch]').forEach(b => b.addEventListener('click', async () => {
+      const release = holdSheet();
+      let out = null;
       try {
         await purgeLocalData(false);
-        const out = await api('/api/accounts/switch-idx', { method: 'POST', body: { idx: +b.dataset.switch } });
+        out = await api('/api/accounts/switch-idx', { method: 'POST', body: { idx: +b.dataset.switch } });
         broadcastIdentityBoundary();
-        closeModal(true);
-        toast(`Switched to ${out.login} ✦`, 'ok');
         location.hash = '';
-        boot(); loadRepos(true);
       } catch (e) { toast(e.message, 'err'); }
+      try {
+        await boot();
+      } finally {
+        release();
+        if (out) {
+          leaveSheet();
+          toast(`Switched to ${out.login} ✦`, 'ok');
+        }
+      }
     }));
     $$('#modalBody [data-remove]').forEach(b => b.addEventListener('click', async () => {
+      const release = holdSheet();
+      let out = null;
       try {
         await purgeLocalData(false);
-        const out = await api('/api/accounts/remove', { method: 'POST', body: { idx: +b.dataset.remove } });
+        out = await api('/api/accounts/remove', { method: 'POST', body: { idx: +b.dataset.remove } });
         await purgeLocalData(!!out.empty);
         broadcastIdentityBoundary();
-        closeModal(true);
-        toast(`${out.removed || 'The account'} signed out ✦`, 'ok');
-        if (out.empty) { sessionStorage.removeItem('nv_me'); showPage('login'); showRevocationGuidance(out.revocationGuidance); return; }
-        location.hash = '';
-        await boot(); loadRepos(true);
-        showRevocationGuidance(out.revocationGuidance);
       } catch (e) { toast(e.message, 'err'); }
+      try {
+        /* The last account gone, there is nobody to start as: the page goes back to sign-in. */
+        if (out && out.empty) {
+          sessionStorage.removeItem('nv_me');
+          showPage('login');
+        } else {
+          if (out) location.hash = '';
+          await boot();
+        }
+      } finally {
+        release();
+        if (out) {
+          leaveSheet();
+          toast(`${out.removed || 'The account'} signed out ✦`, 'ok');
+          showRevocationGuidance(out.revocationGuidance);
+        }
+      }
     }));
     $('#accAdd').addEventListener('click', () => {
       closeModal(true);
@@ -2992,6 +3047,9 @@ function forgetRepositoryWork() {
  * open owns the workbench, and whoever called this has nothing left to do.
  */
 async function openRepo(owner, repo) {
+  /* Not before the session is known: a start in flight is waited for, and nothing opens for nobody. */
+  if (sessionArriving) await sessionArriving;
+  if (!state.me) return false;
   const opening = ++openRepoRequest;
   /* What the reader pressed to get here. The workbench hides it while the repository loads. */
   const opener = document.activeElement;
@@ -3064,7 +3122,7 @@ async function openRepo(owner, repo) {
       presentError(error);
     });
     const work = state.work;
-    api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) work.starred = x.starred; }).catch(() => {});
+    api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) pageStore.mutate('work', () => { work.starred = x.starred; }); }).catch(() => {});
     rememberRepository(owner, repo, visitor);
     return true;
   } catch (e) {
@@ -3303,7 +3361,8 @@ async function pickRepository(target, pickOptions = {}) {
           if (!ownsPicker()) return;
           pickPage += 1;
           const known = new Set(state.repos.map(repo => repo.full_name));
-          state.repos.push(...batch.filter(repo => !known.has(repo.full_name)));
+          const fresh = batch.filter(repo => !known.has(repo.full_name));
+          pageStore.mutate('repos', repos => { repos.push(...fresh); });
           pickMore = batch.length >= 30;
         } catch (error) {
           failed = error && error.message ? `Repositories could not be listed: ${error.message}` : 'Repositories could not be listed.';
@@ -3345,7 +3404,7 @@ async function refreshRepoMetadata() {
 async function toggleStar() {
   try {
     const out = await api(`/api/repo/${wPath()}/star`, { method: state.work.starred ? 'DELETE' : 'PUT' });
-    state.work.starred = out.starred;
+    pageStore.mutate('work', work => { work.starred = out.starred; });
     toast(out.starred ? '★ Starred' : 'Unstarred', 'ok');
   } catch (e) { presentError(e); }
 }
@@ -3430,7 +3489,7 @@ function refreshShield() {
   $('#branchShield').hidden = !on;
 }
 $('#branchSelect').addEventListener('change', e => {
-  state.work.branch = e.target.value;
+  pageStore.mutate('work', work => { work.branch = e.target.value; });
   refreshShield();
   closeFile(); state.fileIndex = null;
   loadTree('', $('#tree'), true);
@@ -3450,13 +3509,13 @@ $('#newBranchBtn').addEventListener('click', async () => {
   if (!name) return;
   try {
     const created = await api(`/api/repo/${wPath()}/branches`, { method: 'POST', body: { name, from: state.work.branch } });
-    state.work.branches.push({ name, sha: created.sha || '' });
+    pageStore.mutate('work', work => { work.branches.push({ name, sha: created.sha || '' }); });
     ['#branchSelect', '#cmpBase', '#cmpHead'].forEach(s => {
       const o = document.createElement('option');
       o.value = name; o.textContent = name;
       $(s).appendChild(o);
     });
-    $('#branchSelect').value = name; state.work.branch = name;
+    $('#branchSelect').value = name; pageStore.mutate('work', work => { work.branch = name; });
     toast(`Branch ${name} created ✦`, 'ok');
     closeDrawer();
   } catch (e) { toast(e.message, 'err'); }
@@ -3490,11 +3549,13 @@ function scheduleGovernanceAccessExpiry() {
   const delay = Math.max(0, Math.min(expiresAt - Date.now() + 25, 2_147_000_000));
   governanceExpiryTimer = setTimeout(() => {
     if (!state.governance.access) return;
-    state.governance.access = {
-      ...state.governance.access,
-      capabilities: { read: false, author: false, review: false, activate: false, administer: false },
-      evidence: { ...state.governance.access.evidence, status: 'stale' }
-    };
+    pageStore.mutate('governance', governance => {
+      governance.access = {
+        ...governance.access,
+        capabilities: { read: false, author: false, review: false, activate: false, administer: false },
+        evidence: { ...governance.access.evidence, status: 'stale' }
+      };
+    });
     renderGovernanceInterface();
     announceGovernance('Repository permission evidence expired. Refresh governance before taking action.');
   }, delay);
@@ -3779,7 +3840,7 @@ function toggleAllExposureFindings() {
   const current = exposureState();
   const allOpen = current.findings.length > 0
     && current.findings.every(finding => current.expanded.has(finding.fingerprint));
-  current.expanded = allOpen ? new Set() : new Set(current.findings.map(finding => finding.fingerprint));
+  pageStore.mutate('exposure', () => { current.expanded = allOpen ? new Set() : new Set(current.findings.map(finding => finding.fingerprint)); });
   renderExposure();
   announceExposure(allOpen ? 'All findings collapsed.' : 'All findings expanded.');
 }
@@ -3947,7 +4008,7 @@ async function loadExposureHistory({ more = false } = {}) {
   const current = exposureState();
   const scopeKey = exposureScopeKey();
   if (current.historyLoading) return;
-  current.historyLoading = true;
+  pageStore.mutate('exposure', () => { current.historyLoading = true; });
   renderExposure();
   try {
     const last = more ? current.history[current.history.length - 1] : null;
@@ -3959,23 +4020,25 @@ async function loadExposureHistory({ more = false } = {}) {
     const body = await api(`/api/repo/${wPath()}/exposure/scans?${query}`);
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
     const page = Array.isArray(body && body.scans) ? body.scans : [];
-    current.history = more ? [...current.history, ...page] : page;
-    current.historyDone = page.length < 20;
-    current.historyError = '';
+    pageStore.mutate('exposure', () => {
+      current.history = more ? [...current.history, ...page] : page;
+      current.historyDone = page.length < 20;
+      current.historyError = '';
+    });
     /*
      * The proof card shows the newest scan when this session has not started
      * one -- a reader coming back should see what the last scan proved, not
      * an invitation to start one as though none had ever run.
      */
     if (!more && page.length && (!current.scan || current.scan.scanId === page[0].scanId)) {
-      current.scan = page[0];
+      pageStore.mutate('exposure', () => { current.scan = page[0]; });
     }
   } catch (error) {
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    current.historyError = 'Scan history could not be loaded.';
+    pageStore.mutate('exposure', () => { current.historyError = 'Scan history could not be loaded.'; });
   } finally {
     if (current === exposureState()) {
-      current.historyLoading = false;
+      pageStore.mutate('exposure', () => { current.historyLoading = false; });
       renderExposure();
       scheduleExposurePoll(current);
     }
@@ -3987,7 +4050,7 @@ async function loadExposureReport(scanId) {
   const scopeKey = exposureScopeKey();
   const existing = current.reports[scanId];
   if (existing && (existing.loading || existing.entries)) return;
-  current.reports[scanId] = { loading: true, entries: null, error: '' };
+  pageStore.mutate('exposure', () => { current.reports[scanId] = { loading: true, entries: null, error: '' }; });
   renderExposure();
   try {
     const observations = [];
@@ -4008,15 +4071,17 @@ async function loadExposureReport(scanId) {
       cursor = body.nextCursor;
       cursors.add(cursor);
     }
-    current.reports[scanId] = {
-      loading: false, error: '', complete,
-      entries: observations.filter(item => item && item.finding).map(item => ({
-        ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
-      }))
-    };
+    pageStore.mutate('exposure', () => {
+      current.reports[scanId] = {
+        loading: false, error: '', complete,
+        entries: observations.filter(item => item && item.finding).map(item => ({
+          ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
+        }))
+      };
+    });
   } catch (error) {
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    current.reports[scanId] = { loading: false, entries: null, error: 'This scan’s report could not be loaded.' };
+    pageStore.mutate('exposure', () => { current.reports[scanId] = { loading: false, entries: null, error: 'This scan’s report could not be loaded.' }; });
   } finally {
     if (current === exposureState()) renderExposure();
   }
@@ -4031,8 +4096,10 @@ async function clearExposureHistory() {
   if (!state.work) return;
   const current = exposureState();
   if (exposureArm('clear', 'history', 'Press again to delete every scan, finding and check result for this repository.')) return;
-  current.confirming = '';
-  current.clearing = true;
+  pageStore.mutate('exposure', () => {
+    current.confirming = '';
+    current.clearing = true;
+  });
   renderExposure();
   const scopeKey = exposureScopeKey();
   try {
@@ -4044,15 +4111,17 @@ async function clearExposureHistory() {
     const cleared = (body && body.cleared) || {};
     clearTimeout(exposurePollTimer);
     state.exposure = freshExposureState(scopeKey);
-    state.exposure.historyDone = true;
+    pageStore.mutate('exposure', exposure => { exposure.historyDone = true; });
     renderExposure();
     announceExposure(`Cleared ${Number(cleared.scans) || 0} scans and ${Number(cleared.findings) || 0} findings.`);
   } catch (error) {
     if (current !== exposureState()) return;
-    current.clearing = false;
-    current.error = error && error.code === 'EXPOSURE_SCAN_ACTIVE'
-      ? 'A scan is still running. Cancel it before clearing the history.'
-      : 'The history could not be cleared.';
+    pageStore.mutate('exposure', () => {
+      current.clearing = false;
+      current.error = error && error.code === 'EXPOSURE_SCAN_ACTIVE'
+        ? 'A scan is still running. Cancel it before clearing the history.'
+        : 'The history could not be cleared.';
+    });
     renderExposure();
     announceExposure(current.error);
   }
@@ -4281,22 +4350,23 @@ async function exportExposure(kind) {
   let shown = exposureFiltered(current);
   const scope = exposureScopeKey();
   const selected = { ...current, view: { ...current.view } };
-  current.exporting = true;
+  pageStore.mutate('exposure', () => { current.exporting = true; });
   renderExposure();
   try {
     if (current.paged) {
-      shown = [];
+      const collected = [];
       let cursor = null;
       do {
         const page = await api(exposureFindingsUrl(selected, cursor, 200));
         if (current !== exposureState() || scope !== exposureScopeKey()) return;
         if (!page || !Array.isArray(page.findings) || !Number.isInteger(page.total)) throw new Error('Incomplete export response');
-        shown.push(...page.findings);
-        Object.assign(current.verifications, page.verifications || {});
+        collected.push(...page.findings);
+        pageStore.mutate('exposure', () => { Object.assign(current.verifications, page.verifications || {}); });
         cursor = page.nextCursor;
-        if (shown.length > 10000 || (cursor && !page.findings.length)) throw new Error('Export limit reached');
-        if (!cursor && shown.length !== page.total) throw new Error('Incomplete export');
+        if (collected.length > 10000 || (cursor && !page.findings.length)) throw new Error('Export limit reached');
+        if (!cursor && collected.length !== page.total) throw new Error('Incomplete export');
       } while (cursor);
+      shown = collected;
     }
   if (!shown.length) return;
   const rows = exposureExportRows(shown, current);
@@ -4314,12 +4384,14 @@ async function exportExposure(kind) {
   }
   announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
   } catch (error) {
-    current.error = error.code === 'EXPOSURE_CURSOR_STALE'
-      ? 'Findings changed during export. Refresh and export again.'
-      : 'A complete export could not be collected. Narrow the filters or try again.';
+    pageStore.mutate('exposure', () => {
+      current.error = error.code === 'EXPOSURE_CURSOR_STALE'
+        ? 'Findings changed during export. Refresh and export again.'
+        : 'A complete export could not be collected. Narrow the filters or try again.';
+    });
     announceExposure(current.error);
   } finally {
-    current.exporting = false;
+    pageStore.mutate('exposure', () => { current.exporting = false; });
     if (current === exposureState()) renderExposure();
   }
 }
@@ -4340,8 +4412,10 @@ function exposureFindingsUrl(current, cursor = null, limit = 50) {
 }
 function filterExposure() {
   if (exposureState().paged) {
-    exposureState().findings = [];
-    exposureState().nextCursor = null;
+    pageStore.mutate('exposure', exposure => {
+      exposure.findings = [];
+      exposure.nextCursor = null;
+    });
     void loadExposure({ filterOnly: true });
   } else renderExposure();
 }
@@ -4365,7 +4439,7 @@ function ensureExposureTools() {
     const n = document.createElement('span');
     n.className = 'audit-segment-n';
     control.append(text, n);
-    control.addEventListener('click', () => { current().view.severity = value; filterExposure(); });
+    control.addEventListener('click', () => { pageStore.mutate('exposure', () => { current().view.severity = value; }); filterExposure(); });
     segments.appendChild(control);
   }
   const select = (id, label, options, key) => {
@@ -4377,7 +4451,7 @@ function ensureExposureTools() {
     const control = document.createElement('select');
     control.id = id;
     for (const [value, word] of options) control.add(new Option(word, value));
-    control.addEventListener('change', () => { current().view[key] = control.value; filterExposure(); });
+    control.addEventListener('change', () => { pageStore.mutate('exposure', () => { current().view[key] = control.value; }); filterExposure(); });
     wrap.append(sr, control);
     return wrap;
   };
@@ -4395,7 +4469,7 @@ function ensureExposureTools() {
   let timer = 0;
   input.addEventListener('input', () => {
     clearTimeout(timer);
-    timer = setTimeout(() => { current().view.query = input.value.slice(0, 120); filterExposure(); }, 140);
+    timer = setTimeout(() => { pageStore.mutate('exposure', () => { current().view.query = input.value.slice(0, 120); }); filterExposure(); }, 140);
   });
   search.appendChild(input);
   const row = document.createElement('div');
@@ -4413,7 +4487,7 @@ function ensureExposureTools() {
   reset.id = 'exposureResetFilters';
   reset.textContent = 'Clear filters';
   reset.addEventListener('click', () => {
-    Object.assign(current().view, { severity: null, status: 'all', where: 'all', query: '' });
+    pageStore.mutate('exposure', () => { Object.assign(current().view, { severity: null, status: 'all', where: 'all', query: '' }); });
     input.value = '';
     filterExposure();
   });
@@ -4829,34 +4903,46 @@ async function loadExposure({ append = false, filterOnly = false } = {}) {
   if (exposureState().scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
   const now = exposureState();
   if (append && (!now.nextCursor || now.loading)) return;
-  const requestId = ++now.requestId;
-  now.loading = true;
+  pageStore.mutate('exposure', () => {
+    now.requestId += 1;
+    now.loading = true;
+  });
+  const requestId = now.requestId;
   renderExposure();
   if (!filterOnly) void loadExposureHistory();
   try {
     const page = await api(exposureFindingsUrl(now, append ? now.nextCursor : null));
     if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
     const items = Array.isArray(page && page.findings) ? page.findings : [];
-    now.findings = append ? [...now.findings, ...items] : items;
-    now.paged = Number.isInteger(page.total) && Boolean(page.counts);
-    now.total = now.paged ? page.total : items.length;
-    now.counts = now.paged ? page.counts : null;
-    now.nextCursor = page.nextCursor || null;
-    now.verifications = { ...(append ? now.verifications : {}), ...(page.verifications || {}) };
-    now.probes = { ...(append ? now.probes : {}), ...(page.probes || {}) };
+    pageStore.mutate('exposure', () => {
+      now.findings = append ? [...now.findings, ...items] : items;
+      now.paged = Number.isInteger(page.total) && Boolean(page.counts);
+      now.total = now.paged ? page.total : items.length;
+      now.counts = now.paged ? page.counts : null;
+      now.nextCursor = page.nextCursor || null;
+      now.verifications = { ...(append ? now.verifications : {}), ...(page.verifications || {}) };
+      now.probes = { ...(append ? now.probes : {}), ...(page.probes || {}) };
+    });
     if (now.error) announceExposure('Findings loaded.');
-    now.error = '';
+    pageStore.mutate('exposure', () => { now.error = ''; });
   } catch (error) {
     if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
     if (error.code === 'EXPOSURE_CURSOR_STALE') {
-      now.loading = false;
+      pageStore.mutate('exposure', () => { now.loading = false; });
       announceExposure('Findings changed. Loading the current view.');
       return loadExposure({ filterOnly: true });
     }
-    if (!append) { now.findings = []; now.verifications = {}; now.probes = {}; now.nextCursor = null; }
-    now.error = 'Findings could not be loaded for this repository. Refresh to try again.';
+    pageStore.mutate('exposure', () => {
+      if (!append) {
+        now.findings = [];
+        now.verifications = {};
+        now.probes = {};
+        now.nextCursor = null;
+      }
+      now.error = 'Findings could not be loaded for this repository. Refresh to try again.';
+    });
   } finally {
-    if (requestId === now.requestId) now.loading = false;
+    if (requestId === now.requestId) pageStore.mutate('exposure', () => { now.loading = false; });
     if (now === exposureState() && scopeKey === exposureScopeKey()) {
       renderExposure();
       scheduleExposurePoll(now);
@@ -4887,11 +4973,13 @@ async function refreshExposureScan(current = exposureState()) {
     if (!body?.scan) throw new Error('Missing scan status');
     /* A status read begun before cancellation cannot resurrect the scan. */
     if (current.scan.state === 'canceled') return;
-    current.scan = body.scan;
-    current.error = '';
-    current.history = current.history.map(item => (
-      item.scanId === body.scan.scanId ? { ...item, ...body.scan } : item
-    ));
+    pageStore.mutate('exposure', () => {
+      current.scan = body.scan;
+      current.error = '';
+      current.history = current.history.map(item => (
+        item.scanId === body.scan.scanId ? { ...item, ...body.scan } : item
+      ));
+    });
     renderExposure();
     if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
     else {
@@ -4902,7 +4990,7 @@ async function refreshExposureScan(current = exposureState()) {
   } catch (error) {
     if (current !== exposureState() || current.scan?.scanId !== scanId
       || current.scopeKey !== exposureScopeKey() || current.scan.state === 'canceled') return;
-    current.error = 'The status check failed. Your scan may still be running. Retry the status check.';
+    pageStore.mutate('exposure', () => { current.error = 'The status check failed. Your scan may still be running. Retry the status check.'; });
     renderExposure();
     announceExposure(current.error);
   }
@@ -4923,7 +5011,7 @@ function exposureArm(action, fingerprint, question) {
   const current = exposureState();
   const key = `${action}:${fingerprint}`;
   if (current.confirming === key) return false;
-  current.confirming = key;
+  pageStore.mutate('exposure', () => { current.confirming = key; });
   renderExposure();
   announceExposure(question);
   return true;
@@ -4933,8 +5021,10 @@ async function verifyExposureFinding(fingerprint) {
   if (!state.work) return;
   const current = exposureState();
   if (exposureArm('verify', fingerprint, 'Press again to send this credential to the service that issued it.')) return;
-  current.confirming = '';
-  current.verifying = fingerprint;
+  pageStore.mutate('exposure', () => {
+    current.confirming = '';
+    current.verifying = fingerprint;
+  });
   renderExposure();
   try {
     const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/verify`, {
@@ -4945,21 +5035,25 @@ async function verifyExposureFinding(fingerprint) {
       body: { confirm: 'use-this-credential', authorized: true }
     });
     const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
-    if (verification) current.verifications[fingerprint] = verification;
+    if (verification) pageStore.mutate('exposure', () => { current.verifications[fingerprint] = verification; });
     invalidatePosture();
     if (body && body.finding) {
-      current.findings = current.findings.map(item => (
-        item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
-      ));
+      pageStore.mutate('exposure', () => {
+        current.findings = current.findings.map(item => (
+          item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
+        ));
+      });
     }
     announceExposure(verification && (body.narration || (exposureAnswerFresh(verification) ? EXPOSURE_VERIFICATION_FALLBACK[verification.state] : 'Previous verification expired or has no check time. Check again for current evidence.')) || 'The check finished.');
   } catch (error) {
-    current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
-      ? 'A governance administrator with permission from the credential owner must run this check.'
-      : 'That credential could not be checked.';
+    pageStore.mutate('exposure', () => {
+      current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
+        ? 'A governance administrator with permission from the credential owner must run this check.'
+        : 'That credential could not be checked.';
+    });
     announceExposure(current.error);
   } finally {
-    current.verifying = '';
+    pageStore.mutate('exposure', () => { current.verifying = ''; });
     renderExposure();
   }
 }
@@ -4980,19 +5074,23 @@ async function acceptExposureRisk(fingerprint) {
   if (!state.work) return;
   const current = exposureState();
   if (exposureArm('accept', fingerprint, 'Press again to record you as accepting this exposure. Nothing here undoes it.')) return;
-  current.confirming = '';
-  current.accepting = fingerprint;
+  pageStore.mutate('exposure', () => {
+    current.confirming = '';
+    current.accepting = fingerprint;
+  });
   renderExposure();
   try {
     const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/accept-risk`, {
       method: 'POST'
     });
     if (body && body.finding) {
-      current.findings = current.findings.map(item => (
-        item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
-      ));
+      pageStore.mutate('exposure', () => {
+        current.findings = current.findings.map(item => (
+          item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
+        ));
+      });
     }
-    current.error = '';
+    pageStore.mutate('exposure', () => { current.error = ''; });
     invalidatePosture();
     announceExposure('Recorded. The credential is still in the repository.');
   } catch (error) {
@@ -5002,12 +5100,14 @@ async function acceptExposureRisk(fingerprint) {
      * whose press was refused can do something about the first sentence and
      * nothing about the second.
      */
-    current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
-      ? 'Accepting an exposure needs a governance administrator. Yours is recorded as a lower role.'
-      : 'That finding could not be accepted.';
+    pageStore.mutate('exposure', () => {
+      current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
+        ? 'Accepting an exposure needs a governance administrator. Yours is recorded as a lower role.'
+        : 'That finding could not be accepted.';
+    });
     announceExposure(current.error);
   } finally {
-    current.accepting = '';
+    pageStore.mutate('exposure', () => { current.accepting = ''; });
     renderExposure();
   }
 }
@@ -5041,8 +5141,10 @@ async function probeExposureReadability(fingerprint) {
     return;
   }
   if (exposureArm('probe', fingerprint, 'Press again to send one request to that project.')) return;
-  current.confirming = '';
-  current.probing = fingerprint;
+  pageStore.mutate('exposure', () => {
+    current.confirming = '';
+    current.probing = fingerprint;
+  });
   renderExposure();
   try {
     const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/probe-readability`, {
@@ -5050,8 +5152,10 @@ async function probeExposureReadability(fingerprint) {
       body: { confirm: 'contact-this-project', authorized: true, relation, projection }
     });
     const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
-    if (probe) current.probes[fingerprint] = probe;
-    current.error = '';
+    pageStore.mutate('exposure', () => {
+      if (probe) current.probes[fingerprint] = probe;
+      current.error = '';
+    });
     announceExposure((probe && (body.narration || (exposureAnswerFresh(probe) ? EXPOSURE_PROBE_FALLBACK[probe.state] : 'Previous readability result expired or has no check time. Check again for current evidence.'))) || 'The question finished.');
   } catch (error) {
     /*
@@ -5060,16 +5164,18 @@ async function probeExposureReadability(fingerprint) {
      * question, the other that the file holds no project to ask.
      */
     const code = error && error.code;
-    current.error = code === 'GOVERNANCE_ROLE_REQUIRED'
-      ? 'A governance administrator with permission from the project owner must run this probe.'
-      : code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
-      ? 'Only an anonymous key can be used to ask what the public can read.'
-      : code === 'EXPOSURE_PROBE_NO_PROJECT'
-        ? 'No project reference was found beside that key, so there is nothing to ask.'
-        : 'That project could not be asked.';
+    pageStore.mutate('exposure', () => {
+      current.error = code === 'GOVERNANCE_ROLE_REQUIRED'
+        ? 'A governance administrator with permission from the project owner must run this probe.'
+        : code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
+        ? 'Only an anonymous key can be used to ask what the public can read.'
+        : code === 'EXPOSURE_PROBE_NO_PROJECT'
+          ? 'No project reference was found beside that key, so there is nothing to ask.'
+          : 'That project could not be asked.';
+    });
     announceExposure(current.error);
   } finally {
-    current.probing = '';
+    pageStore.mutate('exposure', () => { current.probing = ''; });
     renderExposure();
   }
 }
@@ -5079,7 +5185,7 @@ async function requestExposureScan() {
   const current = exposureState();
   if (current.loading || ['queued', 'running'].includes(current.scan?.state)) return;
   const scopeKey = exposureScopeKey();
-  current.loading = true;
+  pageStore.mutate('exposure', () => { current.loading = true; });
   renderExposure();
   try {
     const depth = $('#exposureHistoryToggle');
@@ -5089,13 +5195,17 @@ async function requestExposureScan() {
       body: { ref: (state.work && state.work.branch) || 'HEAD', history }
     });
     if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    current.scan = body && body.scan ? body.scan : null;
-    current.error = '';
+    pageStore.mutate('exposure', () => {
+      current.scan = body && body.scan ? body.scan : null;
+      current.error = '';
+    });
     if (current.scan && !current.history.some(item => item.scanId === current.scan.scanId)) {
-      current.history = [
-        { ...current.scan, findingCount: 0, severityCounts: { critical: 0, serious: 0, warning: 0 } },
-        ...current.history
-      ];
+      pageStore.mutate('exposure', () => {
+        current.history = [
+          { ...current.scan, findingCount: 0, severityCounts: { critical: 0, serious: 0, warning: 0 } },
+          ...current.history
+        ];
+      });
     }
     announceExposure('Scan requested. Nothing is proven until it finishes.');
   } catch (error) {
@@ -5107,10 +5217,10 @@ async function requestExposureScan() {
       EXPOSURE_PROVIDER_UNSUPPORTED: 'Repository exposure scanning currently supports GitHub only.',
       EXPOSURE_READ_FAILED: 'GitHub could not be reached or refused this read. Try again shortly; if it persists, check your GitHub connection.'
     };
-    current.error = messages[error?.code] || 'The scan could not be started for this repository. Try again or check your repository access.';
+    pageStore.mutate('exposure', () => { current.error = messages[error?.code] || 'The scan could not be started for this repository. Try again or check your repository access.'; });
     announceExposure(current.error);
   } finally {
-    current.loading = false;
+    pageStore.mutate('exposure', () => { current.loading = false; });
     if (current === exposureState() && scopeKey === exposureScopeKey()) {
       renderExposure();
       scheduleExposurePoll(current);
@@ -5127,12 +5237,14 @@ async function cancelExposureScan() {
       method: 'POST'
     });
     if (current !== exposureState() || current.scopeKey !== exposureScopeKey()) return;
-    current.scan = body && body.scan ? body.scan : current.scan;
-    current.error = '';
+    pageStore.mutate('exposure', () => {
+      current.scan = body && body.scan ? body.scan : current.scan;
+      current.error = '';
+    });
     clearTimeout(exposurePollTimer);
     announceExposure('Scan canceled. Its coverage is partial.');
   } catch (error) {
-    current.error = 'The scan could not be canceled.';
+    pageStore.mutate('exposure', () => { current.error = 'The scan could not be canceled.'; });
     announceExposure(current.error);
   } finally {
     renderExposure();
@@ -5162,7 +5274,7 @@ function freshGovernanceView() {
 }
 function governanceView() {
   if (!state.governance.view || state.governance.view.scope !== state.governance.scopeKey) {
-    state.governance.view = { ...freshGovernanceView(), scope: state.governance.scopeKey };
+    pageStore.mutate('governance', governance => { governance.view = { ...freshGovernanceView(), scope: governance.scopeKey }; });
   }
   return state.governance.view;
 }
@@ -5193,30 +5305,38 @@ async function loadGovernanceTwin(force = false) {
     renderGovernanceInterface();
     return;
   }
-  state.governance.loading = true;
-  state.governance.error = '';
+  pageStore.mutate('governance', governance => {
+    governance.loading = true;
+    governance.error = '';
+  });
   renderGovernanceInterface();
   try {
     const response = await api(`/api/repo/${wPath()}/governance/digital-twin?historyLimit=50`);
     if (!state.work || `${state.work.owner}/${state.work.repo}` !== expectedScope) return;
     const previousHash = state.governance.digitalTwin && state.governance.digitalTwin.readModelHash;
-    state.governance.digitalTwin = response.digitalTwin || null;
-    state.governance.access = response.access || null;
+    pageStore.mutate('governance', governance => {
+      governance.digitalTwin = response.digitalTwin || null;
+      governance.access = response.access || null;
+    });
     scheduleGovernanceAccessExpiry();
-    state.governance.scopeKey = expectedScope;
-    state.governance.error = '';
+    pageStore.mutate('governance', governance => {
+      governance.scopeKey = expectedScope;
+      governance.error = '';
+    });
     if (previousHash && previousHash !== (response.digitalTwin && response.digitalTwin.readModelHash)) {
-      state.governance.simulation = null;
-      state.governance.verification = null;
-      state.governance.decisionPages = [];
+      pageStore.mutate('governance', governance => {
+        governance.simulation = null;
+        governance.verification = null;
+        governance.decisionPages = [];
+      });
     }
     await Promise.all([loadGovernanceDelivery(), loadGovernanceArchive()]);
     announceGovernance('Policy Digital Twin and delivery evidence refreshed');
   } catch (error) {
-    state.governance.error = error.message || 'Policy Digital Twin could not be loaded';
+    pageStore.mutate('governance', governance => { governance.error = error.message || 'Policy Digital Twin could not be loaded'; });
     announceGovernance(state.governance.error);
   } finally {
-    state.governance.loading = false;
+    pageStore.mutate('governance', governance => { governance.loading = false; });
     renderGovernanceInterface();
   }
 }
@@ -5231,13 +5351,15 @@ async function loadGovernanceDelivery() {
   if (canAdmin) requests.push(api(`${base}/webhooks`));
   const settled = await Promise.allSettled(requests);
   const errors = settled.filter(item => item.status === 'rejected').map(item => item.reason && item.reason.message || 'Delivery data unavailable');
-  state.governance.delivery = {
-    notifications: settled[0].status === 'fulfilled' ? settled[0].value : { events: [] },
-    preferences: settled[1].status === 'fulfilled' ? (settled[1].value.preferences || {}) : {},
-    exports: settled[2].status === 'fulfilled' ? (settled[2].value.exports || []) : [],
-    webhooks: canAdmin && settled[3] && settled[3].status === 'fulfilled' ? (settled[3].value.webhooks || []) : [],
-    error: errors.join(' · ')
-  };
+  pageStore.mutate('governance', governance => {
+    governance.delivery = {
+      notifications: settled[0].status === 'fulfilled' ? settled[0].value : { events: [] },
+      preferences: settled[1].status === 'fulfilled' ? (settled[1].value.preferences || {}) : {},
+      exports: settled[2].status === 'fulfilled' ? (settled[2].value.exports || []) : [],
+      webhooks: canAdmin && settled[3] && settled[3].status === 'fulfilled' ? (settled[3].value.webhooks || []) : [],
+      error: errors.join(' · ')
+    };
+  });
   renderGovernanceInterface();
 }
 
@@ -5246,15 +5368,15 @@ async function loadGovernanceDelivery() {
 async function loadGovernanceArchive() {
   try {
     const response = await api(`${governanceBasePath()}/archive`);
-    state.governance.archived = Array.isArray(response.policies) ? response.policies : [];
+    pageStore.mutate('governance', governance => { governance.archived = Array.isArray(response.policies) ? response.policies : []; });
   } catch {
-    state.governance.archived = [];
+    pageStore.mutate('governance', governance => { governance.archived = []; });
   }
 }
 
 async function verifyGovernanceDecisionChain() {
   const response = await api(`/api/repo/${wPath()}/governance/decisions/verify?limit=50000`);
-  state.governance.verification = response.verification || response;
+  pageStore.mutate('governance', governance => { governance.verification = response.verification || response; });
   renderGovernanceInterface();
   announceGovernance(state.governance.verification.valid === true ? 'Decision chain verified' : 'Decision chain verification failed');
 }
@@ -5272,16 +5394,18 @@ async function loadMoreGovernanceDecisions(value, order = 'desc') {
   const existing = Array.isArray(twin.history && twin.history.decisions) ? twin.history.decisions : [];
   const seen = new Set(existing.map(item => Number(item.seq)));
   const merged = existing.concat(page.decisions.filter(item => !seen.has(Number(item.seq))));
-  state.governance.digitalTwin = {
-    ...twin,
-    history: {
-      ...twin.history,
-      decisions: merged,
-      ...(order === 'desc'
-        ? { nextBeforeDecisionSeq: page.complete ? null : page.nextBeforeSeq }
-        : { nextDecisionSeq: page.complete ? null : page.nextAfterSeq })
-    }
-  };
+  pageStore.mutate('governance', governance => {
+    governance.digitalTwin = {
+      ...twin,
+      history: {
+        ...twin.history,
+        decisions: merged,
+        ...(order === 'desc'
+          ? { nextBeforeDecisionSeq: page.complete ? null : page.nextBeforeSeq }
+          : { nextDecisionSeq: page.complete ? null : page.nextAfterSeq })
+      }
+    };
+  });
   renderGovernanceInterface();
   announceGovernance(`${page.decisions.length} more decisions loaded`);
 }
@@ -5464,7 +5588,7 @@ async function simulateGovernanceVersion(policyId, versionId) {
   if (!ok) return null;
   const request = governanceReadJson('#govSimulationRequest', 'Simulation request');
   const response = await api(`${governanceBasePath()}/policies/${encodeURIComponent(policyId)}/versions/${encodeURIComponent(versionId)}/simulate`, { method: 'POST', body: request });
-  state.governance.simulation = { policyId, versionId, request, report: response.simulation };
+  pageStore.mutate('governance', governance => { governance.simulation = { policyId, versionId, request, report: response.simulation }; });
   renderGovernanceInterface();
   announceGovernance(response.simulation.activationReadiness && response.simulation.activationReadiness.eligible ? 'Simulation is eligible for activation review' : 'Simulation contains activation blockers');
   await showGovernanceJson('Simulation evidence', response.simulation);
@@ -5507,7 +5631,7 @@ async function governanceActivateOrRollback(policyId, versionId, operation, word
     method: 'POST', headers: governanceHeaders(`policy-${operation}`),
     body: { expectedRevision: Number(policy.revision), reason: $('#govActivationReason').value.trim(), simulation: { simulationHash: simulation.report.simulationHash, request: simulation.request } }
   });
-  state.governance.simulation = null;
+  pageStore.mutate('governance', governance => { governance.simulation = null; });
   toast(operation === 'rollback' ? 'Policy rolled back' : 'Policy activated', 'ok');
   await loadGovernanceTwin(true);
 }
@@ -5770,21 +5894,23 @@ const governanceActionHandlers = Object.freeze({
   'discard-draft': button => discardGovernanceDraft(button.dataset.policyId, button.dataset.draftId, button.dataset.revision),
   'withdraw-version': button => withdrawGovernanceVersion(button.dataset.policyId, button.dataset.versionId, button.dataset.versionNumber),
   'reset-governance': button => resetGovernance(button.dataset.total, button.dataset.running),
-  'ledger-tab': button => { const view = governanceView(); if (view.tab !== button.dataset.tab) Object.assign(view, { tab: button.dataset.tab === 'activations' ? 'activations' : 'decisions', filter: 'all', limit: 0 }); repaintGovernanceView(button.dataset.focusKey); },
-  'ledger-filter': button => { Object.assign(governanceView(), { filter: button.dataset.filter, limit: 0 }); repaintGovernanceView(button.dataset.focusKey); },
-  'ledger-more': button => { const view = governanceView(); view.limit = (view.limit || 8) + 8; repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-tab': button => { const view = governanceView(); if (view.tab !== button.dataset.tab) pageStore.mutate('governance', () => { Object.assign(view, { tab: button.dataset.tab === 'activations' ? 'activations' : 'decisions', filter: 'all', limit: 0 }); }); repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-filter': button => { pageStore.mutate('governance', () => { Object.assign(governanceView(), { filter: button.dataset.filter, limit: 0 }); }); repaintGovernanceView(button.dataset.focusKey); },
+  'ledger-more': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.limit = (view.limit || 8) + 8; }); repaintGovernanceView(button.dataset.focusKey); },
   'ledger-clear': button => {
     const view = governanceView();
-    view.cleared = { ...view.cleared, [view.tab]: Math.max(Number(view.cleared[view.tab]) || 0, Number(button.dataset.through) || 0) };
-    Object.assign(view, { showCleared: false, limit: 0 });
+    pageStore.mutate('governance', () => {
+      view.cleared = { ...view.cleared, [view.tab]: Math.max(Number(view.cleared[view.tab]) || 0, Number(button.dataset.through) || 0) };
+      Object.assign(view, { showCleared: false, limit: 0 });
+    });
     try { localStorage.setItem(GOVERNANCE_LEDGER_VIEW(), JSON.stringify(view.cleared)); } catch {}
     announceGovernance(`${view.tab === 'activations' ? 'Activations' : 'Runtime decisions'} cleared from view; the ledger keeps every entry`);
     repaintGovernanceView('ledger-show-cleared');
   },
-  'ledger-show-cleared': button => { const view = governanceView(); view.showCleared = !view.showCleared; repaintGovernanceView(button.dataset.focusKey); },
-  'inbox-more': button => { const view = governanceView(); view.inboxLimit = (view.inboxLimit || 6) + 6; repaintGovernanceView(button.dataset.focusKey); },
-  'inbox-show-read': button => { const view = governanceView(); view.showRead = !view.showRead; repaintGovernanceView(button.dataset.focusKey); },
-  'exports-all': button => { const view = governanceView(); view.exportsAll = !view.exportsAll; repaintGovernanceView(button.dataset.focusKey); }
+  'ledger-show-cleared': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.showCleared = !view.showCleared; }); repaintGovernanceView(button.dataset.focusKey); },
+  'inbox-more': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.inboxLimit = (view.inboxLimit || 6) + 6; }); repaintGovernanceView(button.dataset.focusKey); },
+  'inbox-show-read': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.showRead = !view.showRead; }); repaintGovernanceView(button.dataset.focusKey); },
+  'exports-all': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.exportsAll = !view.exportsAll; }); repaintGovernanceView(button.dataset.focusKey); }
 });
 const governanceRoot = $('#govRoot');
 if (governanceRoot) governanceRoot.addEventListener('click', async event => {
@@ -6389,13 +6515,13 @@ function findingsOffered() {
   return CapabilityUI.decision('findings.inbox').status === 'Supported';
 }
 function findingsFiltersFromHash() {
-  const match = /^#\/findings(\?.*)?$/.exec(location.hash);
-  return findingsInbox.parseFilters(match && match[1] ? match[1] : '');
+  const route = currentRoute();
+  return findingsInbox.parseFilters(route.kind === 'findings' ? route.query : '');
 }
 function writeFindingsHash() {
-  const target = `#/findings${findingsInbox.serializeFilters(findingsState.filters)}`;
-  lastAppliedRoute = target;
-  if (location.hash !== target) history.replaceState(null, '', `${location.pathname}${target}`);
+  const route = { kind: 'findings', query: findingsInbox.serializeFilters(findingsState.filters) };
+  lastAppliedRoute = formatRoute(route);
+  writeRoute(route);
 }
 function clearFindings() {
   findingsState.request++;
@@ -7498,7 +7624,7 @@ function ensureCM() {
   state.cm.on('cursorActivity', cm => requestAnimationFrame(() => keepCursorClearOfNav(cm)));
   state.cm.on('change', () => {
     if (state.file && !state.file.binary && !state.file._loading) {
-      state.file.dirty = true;
+      pageStore.mutate('file', file => { file.dirty = true; });
       $('#commitFileBtn').disabled = false;
       $('#stageFileBtn').disabled = false;
       $('#diffBtn').disabled = false;
@@ -7559,7 +7685,7 @@ async function openFile(p) {
     else bp.innerHTML = `<p>Binary file.</p><a class="btn btn-ghost" href="${url}" download>Download</a>`;
     try {
       const meta = await api(`/api/repo/${wPath()}/file?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`);
-      state.file.sha = meta.sha; $('#fileSize').textContent = fmtSize(meta.size);
+      pageStore.mutate('file', file => { file.sha = meta.sha; }); $('#fileSize').textContent = fmtSize(meta.size);
     } catch {}
     return;
   }
@@ -7596,8 +7722,10 @@ async function openFile(p) {
     const info = CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(p) : null;
     cm.setOption('mode', info ? (info.mime || info.mode) : null);
     cm.setValue(text);
-    state.file._loading = false;
-    state.file.dirty = false;
+    pageStore.mutate('file', file => {
+      file._loading = false;
+      file.dirty = false;
+    });
     rememberRecent(p);
     saveRoute();
     offerDraft(p, text);
@@ -7674,7 +7802,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
           okText: 'Overwrite anyway', danger: true
         });
         if (!overwrite) return;
-        state.file.sha = remote.sha;
+        pageStore.mutate('file', file => { file.sha = remote.sha; });
         await refreshRepoMetadata();
       }
     } catch {}
@@ -7683,9 +7811,12 @@ $('#commitFileBtn').addEventListener('click', async () => {
       body: guardedWrite({ path: state.file.path, content: state.cm.getValue(), message: $('#cmMsg').value || undefined, branch: state.work.branch, sha: state.file.sha })
     });
     rememberHead(out.commit);
-    state.file.sha = out.sha; state.file.dirty = false;
+    pageStore.mutate('file', file => {
+      file.sha = out.sha;
+      file.dirty = false;
+    });
     $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-    state.file.original = state.cm.getValue();
+    pageStore.mutate('file', file => { file.original = state.cm.getValue(); });
     clearDraft(state.file.path);
     removeDraftBar();
     toast('Committed ✦', 'ok');
@@ -7707,7 +7838,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
       message: $('#cmMsg') ? $('#cmMsg').value : undefined, sha: state.file.sha,
       expectedHeadSha: currentHeadSha()
     }, e);
-    if (queued) { state.file.dirty = false; $('#commitFileBtn').disabled = true; }
+    if (queued) { pageStore.mutate('file', file => { file.dirty = false; }); $('#commitFileBtn').disabled = true; }
     else presentError(e);
   }
 });
@@ -7715,7 +7846,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
 $('#stageFileBtn').addEventListener('click', () => {
   if (!state.file || state.file.binary) return;
   addStaged({ op: 'put', path: state.file.path, content: state.cm.getValue() });
-  state.file.dirty = false;
+  pageStore.mutate('file', file => { file.dirty = false; });
   $('#stageFileBtn').disabled = true;
   clearDraft(state.file.path);
   removeDraftBar();
@@ -7813,7 +7944,7 @@ $('#newFileBtn').addEventListener('click', async () => {
 /* ================= STAGED CHANGES ================= */
 function addStaged(op) {
   state.staged = state.staged.filter(s => s.path !== op.path);
-  state.staged.push(op);
+  pageStore.mutate('staged', staged => { staged.push(op); });
   renderStagedCount();
 }
 function renderStagedCount() {
@@ -7836,7 +7967,7 @@ function renderStagedPanel() {
       <button class="stage-x" aria-label="Unstage">${META_ICON.close}</button>`;
     el.querySelector('.stage-path').textContent = s.path;
     el.querySelector('.stage-x').addEventListener('click', () => {
-      state.staged.splice(i, 1); renderStagedCount(); renderStagedPanel();
+      pageStore.mutate('staged', staged => { staged.splice(i, 1); }); renderStagedCount(); renderStagedPanel();
     });
     host.appendChild(el);
   });
@@ -8089,10 +8220,10 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
       if (!(details instanceof HTMLDetailsElement) || !details.dataset.scanId) return;
       const current = exposureState();
       if (details.open) {
-        current.openScans.add(details.dataset.scanId);
+        pageStore.mutate('exposure', () => { current.openScans.add(details.dataset.scanId); });
         if (!current.reports[details.dataset.scanId]) void loadExposureReport(details.dataset.scanId);
       } else {
-        current.openScans.delete(details.dataset.scanId);
+        pageStore.mutate('exposure', () => { current.openScans.delete(details.dataset.scanId); });
       }
     }, true);
   }
@@ -8103,8 +8234,8 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
       const details = event.target;
       if (!(details instanceof HTMLDetailsElement) || !details.dataset.fingerprint) return;
       const current = exposureState();
-      if (details.open) current.expanded.add(details.dataset.fingerprint);
-      else current.expanded.delete(details.dataset.fingerprint);
+      if (details.open) pageStore.mutate('exposure', () => { current.expanded.add(details.dataset.fingerprint); });
+      else pageStore.mutate('exposure', () => { current.expanded.delete(details.dataset.fingerprint); });
       renderExposureTally(current);
     }, true);
     list.addEventListener('click', event => {
@@ -8126,8 +8257,10 @@ $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.ta
       if (!field) return;
       const current = exposureState();
       const draft = current.probeDrafts[field.dataset.fingerprint] || { relation: '', columns: '' };
-      draft[field.dataset.field] = field.value;
-      current.probeDrafts[field.dataset.fingerprint] = draft;
+      pageStore.mutate('exposure', () => {
+        draft[field.dataset.field] = field.value;
+        current.probeDrafts[field.dataset.fingerprint] = draft;
+      });
     });
   }
 }
@@ -10293,7 +10426,7 @@ function offerDraft(p, loadedText) {
   $('.editor-bar').after(bar);
   $('#draftRestore').addEventListener('click', () => {
     state.cm.setValue(d.content);
-    state.file.dirty = true;
+    pageStore.mutate('file', file => { file.dirty = true; });
     $('#commitFileBtn').disabled = false; $('#stageFileBtn').disabled = false; $('#diffBtn').disabled = false;
     removeDraftBar();
     toast('Draft restored', 'ok');
@@ -10479,7 +10612,7 @@ async function openBranchManager() {
   try {
     const info = await api(`/api/repo/${wPath()}`);
     if (!ownsModal() || state.work !== work) return;
-    work.branches = info.branches;
+    pageStore.mutate('work', () => { work.branches = info.branches; });
     const host = $('#modalBody');
     host.innerHTML = '';
     info.branches.forEach(b => {

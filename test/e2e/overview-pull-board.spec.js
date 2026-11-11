@@ -325,6 +325,12 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   await ui.dialog(page, 'Accounts').getByRole('button', { name: 'Switch' }).click();
   await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
   release();
+  /*
+   * The page was emptied for the new account and filled again, which can
+   * leave the reader at its top with the card below the fold: it reads when
+   * it is in view, so the reader goes back to it.
+   */
+  await card.scrollIntoViewIfNeeded();
   /* Read again (from the lists already fetched, within their five minutes), not left reading. */
   await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');
   await expect(card).not.toContainText('Reading the open pull requests');

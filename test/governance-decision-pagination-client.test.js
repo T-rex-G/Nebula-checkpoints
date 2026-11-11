@@ -14,6 +14,7 @@ function harness() {
   const state = { work: { owner: 'Acme', repo: 'Demo' }, governance: { digitalTwin: { history: { decisions: [{ seq: 50 }, { seq: 49 }], nextBeforeDecisionSeq: 49, nextDecisionSeq: null } } } };
   const context = {
     state,
+    pageStore: { mutate: (slice, change) => change(state[slice]) },
     wPath: () => `${state.work.owner}/${state.work.repo}`,
     api: url => { requests.push(url); return new Promise(done => { resolve = done; }); },
     renderGovernanceInterface() {},

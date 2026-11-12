@@ -5296,7 +5296,8 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-header[data-present="false"] { border-color: color-mix(in oklab, var(--sev-serious) 26%, var(--rp-line)); }
 .audit-header[data-via="true"] .audit-header-glyph { color: var(--accent2, var(--accent)); background: color-mix(in oklab, var(--accent2, var(--accent)) 14%, transparent); }
 .audit-header-text { display: grid; gap: 1px; min-width: 0; }
-.audit-header-name { font-family: var(--font-mono); font-size: .74rem; color: var(--text); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A header's name is never cut: two of them share their first twenty letters. A long one wraps at its hyphens. */
+.audit-header-name { font-family: var(--font-mono); font-size: .74rem; color: var(--text); line-height: 1.3; overflow-wrap: anywhere; }
 .audit-header-job { font-size: .7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .audit-header-state { font-size: .66rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 .audit-header[data-present="false"] .audit-header-state { color: var(--sev-serious); }
@@ -7476,6 +7477,14 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-first, .audit-owasp { --fold-gap: 12px; }
 .audit-site { --fold-gap: 16px; }
 .audit-families { --fold-gap: 10px; display: grid; }
+/*
+ * The families have no card around them, so a body that reached 6px past
+ * each side would reach past the audit tab itself and let it scroll
+ * sideways -- a finding brought into view could then shift every card.
+ * Their body keeps to its width and lets a focus ring at the edge show
+ * past the clip instead.
+ */
+.audit-families > .audit-fold > .audit-fold-inner { margin-inline: 0; padding-inline: 0; overflow: clip; overflow-clip-margin: 6px; }
 /* The findings card is a flow of blocks, not a grid: its heading's own margin becomes the body's padding. */
 .audit-findings { --fold-gap: 12px; }
 .audit-findings > .audit-findings-head { margin-bottom: 0; }
@@ -7621,6 +7630,9 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-owasp-id { grid-column: 1; grid-row: 1; align-self: center; }
 .audit-owasp-n { grid-column: 2; grid-row: 1; align-self: center; }
 .audit-owasp-word { grid-column: 1 / -1; grid-row: 2; overflow-wrap: normal; word-break: normal; hyphens: none; }
+/* Words stay whole, so in a tile too narrow for the longest ("Misconfiguration") every word steps down together, never past the tile. */
+.audit-owasp-btn { container-type: inline-size; }
+.audit-owasp-word { font-size: clamp(.64rem, 12.2cqi, .78rem); }
 .audit-owasp-n { background: color-mix(in oklab, var(--tone) var(--st-wash), transparent); border: 1px solid color-mix(in oklab, var(--tone) var(--st-edge), transparent); color: var(--text); border-radius: 999px; min-width: 30px; height: 26px; }
 .audit-owasp-btn[data-status="clear"] .audit-owasp-n { border: 0; color: var(--st-good); }
 .audit-std-chip { background: transparent; border-color: var(--rp-line); color: var(--muted); }
@@ -7689,9 +7701,14 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-site-ledger-detail { font-size: .76rem; color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
 /* The browser libraries recognised, as chips: name and version, and what OSV says of them. */
 .audit-site-libs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.audit-site-lib { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--rp-line); background: var(--rp-tile); font-size: .76rem; min-width: 0; max-width: 100%; }
-.audit-site-lib-name { font-family: var(--font-mono); color: var(--text); white-space: nowrap; }
-.audit-site-lib-state { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/*
+ * A library and what was found in it are never cut: its title says how it
+ * was recognised, not what was found. Where the two do not fit one line,
+ * what was found goes under the name, inside the same pill.
+ */
+.audit-site-lib { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 5px 10px; border-radius: 16px; border: 1px solid var(--rp-line); background: var(--rp-tile); font-size: .76rem; min-width: 0; max-width: 100%; }
+.audit-site-lib-name { font-family: var(--font-mono); color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.audit-site-lib-state { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
 .audit-site-lib[data-state="vulnerable"] { border-color: color-mix(in oklab, var(--st-serious) 34%, var(--rp-line)); }
 .audit-site-lib[data-state="vulnerable"] .audit-site-lib-state { color: var(--st-serious); }
 .audit-site-lib[data-state="clean"] .audit-site-lib-state { color: var(--st-good); }
@@ -7758,7 +7775,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .audit-risk-row[data-band="moderate"], .audit-risk-score[data-band="moderate"], .audit-intel-meter[data-band="moderate"] { --band: var(--st-warning); }
 .audit-risk-score[data-band="low"], .audit-intel-meter[data-band="low"] { --band: color-mix(in oklab, var(--text) 45%, transparent); }
 .audit-risk-btn {
-  display: grid; grid-template-columns: 58px minmax(0, 1fr) auto auto; align-items: center; gap: 6px 14px; width: 100%;
+  display: grid; grid-template-columns: 4.375rem minmax(0, 1fr) auto auto; align-items: center; gap: 6px 14px; width: 100%;
   padding: 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0;
   transition: background .18s var(--ease, ease);
 }
@@ -7925,13 +7942,13 @@ button.audit-licence-btn:hover .audit-licence-go { transform: translateX(3px); c
 .audit-trend-dot:hover, .audit-trend-dot:focus-visible { transform: translate(-50%, -50%) scale(1.35); }
 .audit-trend-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .audit-trend-tip {
-  position: absolute; z-index: 3; transform: translate(-50%, calc(-100% - 14px)); width: max-content; max-width: min(320px, 78vw);
+  position: absolute; z-index: 3; transform: translate(calc(-50% + var(--nudge, 0px)), calc(-100% - 14px)); width: max-content; max-width: min(320px, 100%);
   padding: 7px 10px; border-radius: 10px; border: 1px solid var(--rp-line); pointer-events: none;
   background-color: var(--page); background-image: linear-gradient(color-mix(in oklab, var(--text) 5%, transparent), color-mix(in oklab, var(--text) 5%, transparent));
   box-shadow: 0 16px 32px -18px rgba(0,0,0,.6); font-size: .76rem; line-height: 1.4; color: var(--text); font-variant-numeric: tabular-nums;
 }
-.audit-trend-tip[data-side="start"] { transform: translate(-12px, calc(-100% - 14px)); }
-.audit-trend-tip[data-side="end"] { transform: translate(calc(-100% + 12px), calc(-100% - 14px)); }
+.audit-trend-tip[data-side="start"] { transform: translate(calc(-12px + var(--nudge, 0px)), calc(-100% - 14px)); }
+.audit-trend-tip[data-side="end"] { transform: translate(calc(-100% + 12px + var(--nudge, 0px)), calc(-100% - 14px)); }
 .audit-trend-tip[hidden] { display: none; }
 .audit-trend-caption { grid-column: 1 / -1; font-size: .76rem; line-height: 1.45; color: var(--muted); }
 
@@ -9355,4 +9372,26 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 @media (max-width:340px){
   .gx-pulse-grid:has(> .gx-pulse-radar){grid-template-columns:minmax(0,1fr)}
   .gx-pulse-grid:has(> .gx-pulse-radar) > .gx-pulse-cell:not(.gx-pulse-radar) + .gx-pulse-cell:not(.gx-pulse-radar){border-left:0;border-top:1px solid var(--glass-border)}
+}
+
+/*
+ * Words a reader on a phone or a touch screen could not otherwise recover:
+ * with no pointer to hover, a cut detail cannot be read from its title, so
+ * it wraps instead; and in a third of a narrow phone, a tally's word goes
+ * under its count, whole, when the two do not fit one line.
+ */
+@media (max-width: 760px), (hover: none) {
+  .audit-row-chip { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; border-radius: 10px; }
+  /* A long site address wraps inside its chip, which stays round at the ends while it is one line. */
+  .audit-origin { border-radius: 14px; }
+  .audit-origin span { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+}
+@media (max-width: 480px) {
+  .audit-tally-item .nv-chip { height: 100%; flex-wrap: wrap; align-content: center; row-gap: 0; }
+  /* A chip in a finding's row keeps its words whole on the narrowest phones: they wrap inside it rather than being cut. */
+  .audit-row-tags .nv-chip { white-space: normal; }
+}
+@media (max-width: 340px) {
+  /* Four segments with their counts do not fit one row of the narrowest phones: two rows of two. */
+  .audit-segments, .exposure-tools .audit-segments { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

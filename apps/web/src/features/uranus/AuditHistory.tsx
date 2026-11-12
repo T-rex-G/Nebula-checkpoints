@@ -3,7 +3,7 @@
  * the score over time, and every kept audit of the branch, each opening
  * into what it found as it kept it. What each says is audit-history.ts's.
  */
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { SEVERITY } from './audit-terms.ts';
@@ -57,7 +57,40 @@ export function RemediationCard({ remediation }: { readonly remediation: Remedia
  * ring and a hit area larger than the mark, and says its audit in a tooltip.
  */
 function TrendChart({ trend, handlers }: { readonly trend: Trend; readonly handlers: AuditHandlers }): ReactElement {
-  const [tip, setTip] = useState<{ readonly said: string; readonly x: number; readonly y: number; readonly side: string } | null>(null);
+  /*
+   * A point's tip shows while the pointer is over it or while it has focus:
+   * the pointer leaving a point that still has focus -- a tap whose audit
+   * then scrolled into view moved it from under the finger -- leaves the tip.
+   */
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const shown = hovered ?? focused;
+  const tip = trend.points.find(point => point.key === shown) ?? null;
+  const tipNode = useRef<HTMLDivElement>(null);
+  /*
+   * A tip wider than the room beside its point is nudged back inside the
+   * plot, and again whenever the plot changes size while it shows: on a
+   * narrow screen it would run off the edge.
+   */
+  const showing = tip !== null;
+  useLayoutEffect(() => {
+    const node = tipNode.current;
+    const plot = node?.parentElement;
+    if (!node || !plot) return undefined;
+    const place = (): void => {
+      node.style.removeProperty('--nudge');
+      if (node.hidden) return;
+      const room = plot.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      const nudge = box.left < room.left ? room.left - box.left : box.right > room.right ? room.right - box.right : 0;
+      if (nudge) node.style.setProperty('--nudge', `${Math.round(nudge)}px`);
+    };
+    place();
+    if (!showing || typeof ResizeObserver !== 'function') return undefined;
+    const watch = new ResizeObserver(place);
+    watch.observe(plot);
+    return () => watch.disconnect();
+  }, [showing, tip?.key, tip?.said]);
   return (
     <figure className="audit-trend">
       <div className="audit-trend-axis" aria-hidden="true">
@@ -69,15 +102,16 @@ function TrendChart({ trend, handlers }: { readonly trend: Trend; readonly handl
           {trend.line ? <polyline points={trend.line} className="audit-trend-line" vectorEffect="non-scaling-stroke" /> : null}
         </svg>
         {trend.points.map(point => {
-          const show = (): void => setTip({ said: point.said, x: point.x, y: point.y, side: point.side });
-          const hide = (): void => setTip(null);
+          const leaves = (current: string | null): string | null => (current === point.key ? null : current);
           return (
             <button key={point.key} type="button" className="audit-trend-dot" data-key={point.key} style={{ left: `${point.x}%`, top: `${point.y}%` }}
               data-grade={point.grade} data-latest={point.latest ? 'true' : undefined} aria-label={`${point.said}. Open this audit`}
-              onClick={() => handlers.onHistoryOpen?.(point.id, { reveal: true })} onMouseEnter={show} onFocus={show} onMouseLeave={hide} onBlur={hide}></button>
+              onClick={() => handlers.onHistoryOpen?.(point.id, { reveal: true })}
+              onMouseEnter={() => setHovered(point.key)} onMouseLeave={() => setHovered(leaves)}
+              onFocus={() => setFocused(point.key)} onBlur={() => setFocused(leaves)}></button>
           );
         })}
-        <div className="audit-trend-tip" aria-hidden="true" hidden={!tip} data-side={tip?.side} style={tip ? { top: `${tip.y}%`, left: `${tip.x}%` } : undefined}>{tip?.said}</div>
+        <div ref={tipNode} className="audit-trend-tip" aria-hidden="true" hidden={!tip} data-side={tip?.side} style={tip ? { top: `${tip.y}%`, left: `${tip.x}%` } : undefined}>{tip?.said}</div>
       </div>
       <figcaption className="audit-trend-caption">{trend.caption}</figcaption>
     </figure>

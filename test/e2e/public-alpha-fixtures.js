@@ -218,6 +218,8 @@ function normalizedScenario(input = {}) {
     auditClock: input.auditClock || 'fresh',
     licences: input.licences || 'permissive',
     auditStack: input.auditStack || 'node',
+    /* The address the sandbox repository declares as its homepage: the site its audit offers to check. */
+    homepage: typeof input.homepage === 'string' ? input.homepage : 'https://demo.example.com',
     /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
     auditHistorySeed: Array.isArray(input.auditHistorySeed) ? input.auditHistorySeed : [],
     auditWatchAlerts: Array.isArray(input.auditWatchAlerts) ? input.auditWatchAlerts : []
@@ -688,7 +690,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       if (scenario.repositoryState === 'error') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'The sandbox repository could not be opened.', {
         nextAction: 'Retry opening the allowlisted sandbox repository.'
       }), 503);
-      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: 'https://demo.example.com', branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
+      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: scenario.homepage, branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
     }
     if (pathname === '/api/repo/sandbox/demo/tree') return fulfill([]);
     if (pathname === '/api/repo/sandbox/demo/files') {

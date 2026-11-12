@@ -373,8 +373,8 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr58)) {
 assert.deepStrictEqual(privacyOmissions, [], `Privacy lifecycle binding omissions:\n- ${privacyOmissions.join('\n- ')}`);
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
-assert.strictEqual(pkg.engines.node, '22.23.4');
-assert.strictEqual(read('.nvmrc'), '22.23.4\n');
+assert.strictEqual(pkg.engines.node, '22.23.5');
+assert.strictEqual(read('.nvmrc'), '22.23.5\n');
 assert.strictEqual(pkg.scripts['package:release'], 'node scripts/package-release.js');
 assert.strictEqual(pkg.scripts['foundation:gate'], 'node scripts/foundation-gate.js');
 assert.strictEqual(pkg.scripts['test:e2e:evidence'], 'playwright test --reporter=json');

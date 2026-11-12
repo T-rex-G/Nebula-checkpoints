@@ -2768,3 +2768,27 @@ Two advisories published since S1 reach locked dependencies, both moderate. npm'
 - **Tests.** `test/e2e/overview-place.spec.js`, on the desktop and the phone: the posture and the repository list each held at the server while the reader scrolls past its card, then let go, and the feed does not move; a card in view fills in where it stands; on a phone, a card that begins under the bar keeps the place; and a card held for a press keeps it when drawn after the press. The board's own test waits for the animation and the other readings. `test/repaint-place.test.js` runs the module over pages laid out by the test, reaching what the Overview's readings never make: a card that grows past the card beside it in a row, whose row is what moves the reader. The press-holding test (`test/held-repaint.test.js`) gives its stand-in elements an empty layout, so it reads what it read before. Six mutants, each undoing one part -- no place kept, the card's own bottom measured, a card in view keeping the place too, the bar not counted, a held redraw keeping none, a card beside the drawn one taken for what follows it -- all caught: five by the unit test, the held redraw by the browser.
 - **Counted.** No page read converted: 507 remain.
 - **Checks:** the unit gate, every verify-job gate, and the Overview's place and board specs repeated on desktop and mobile (164 runs, all passed), on Node 22.23.4; the whole browser suite runs with S4.
+
+### S4 — Node 22.23.5, and request framing held on the real server
+
+- **Why now.** 22.23.5 (11 November) is the next security release on the Node 22 line after 22.23.4.
+  - For 22.x its advisory fixes HTTPS re-entering the HTTP parser, HTTP/2 sessions and streams, TLS servers that renegotiate or carry per-host client-certificate authorities, the HTTPS agent's session keys, proxy credentials in errors, zlib's `params()` and the permission model; it also carries llhttp 9.4.4 and SQLite 3.54.1.
+  - The service's own code reaches none of the CVEs: it serves plain HTTP behind Render's TLS edge, and never sets a CA, a proxy or zlib parameters. What it does reach is llhttp, which parses every request it receives, and the HTTPS agent's keying, which the guarded transport's pool uses on every outbound request.
+  - ADR-095 is amended with each CVE and where it meets the code.
+- **The parser, compared.** The advisory gives llhttp's update no CVE. 22.23.4 and 22.23.5 were asked the same 1,853 requests -- every byte value inside a header value, a Transfer-Encoding, a Content-Length, a chunk extension and a trailer, and the ways a proxy and a server are made to disagree on a request's length -- and answer each alike.
+- **Held from now on.** `test/http-framing-server.test.js` sends the real server, natively and compiled, 23 requests whose length a proxy and a server could read two ways, each with a request for `/healthz` hidden behind it in the same write. Each is refused, the connection closes, and the hidden request is never answered; the same requests framed correctly are answered, and so is the request after them. Three mutants -- Node's lenient parser by its flag and by the server's option, and a Host no longer required -- are each caught. A Node update that loosened the parser now fails before it ships.
+- **The dependencies, asked again.** npm's audit and an OSV query over all 296 locked versions: no production dependency has an advisory. minimatch's (S3) is unchanged: development tools only, its fix only in minimatch 11. readdir-glob 4.0.0 (9 November) is the first dependent to accept 11; archiver 8.0.0 still requires readdir-glob 3, and ESLint 10.14.0 and typescript-eslint 8.72.2 still require minimatch 10.
+- **Verified:** the archive's SHA-256 against the release's checksum list, and that list's signature against the Node.js release keys.
+- **What moved, in one commit** (the lockfile's root `engines` with them):
+  - `.nvmrc` and `engines.node`;
+  - the eleven workflow steps;
+  - the candidate qualifier and the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.4 by name;
+  - the framing test, in the unit gate and on both runtimes.
+- **Measured on 22.23.5** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - the production audit;
+  - all 36 server tests on the compiled runtime;
+  - the whole browser suite (1,092 tests: 1,034 run, 58 for the other project) on desktop and mobile.
+- **Production** is unchanged until a deploy the owner approves: Node 22.23.1 on `5326d2b`, without the July, October and November fixes.

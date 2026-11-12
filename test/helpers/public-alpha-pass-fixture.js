@@ -290,7 +290,7 @@ function createPassFixture({ latestMigration = '015_alpha_privacy' } = {}) {
       capabilities: features,
       checks: providerChecks(provider),
       startedAt: '2026-07-29T18:55:00.000Z',
-      nodeVersion: '22.23.4'
+      nodeVersion: '22.23.5'
     });
     expectedAuthorizedTargets[provider] = envelopes[artifactId].authorizedTargetSha256;
     providers[provider] = Object.fromEntries(
@@ -304,7 +304,7 @@ function createPassFixture({ latestMigration = '015_alpha_privacy' } = {}) {
     version: '5.3.0-alpha.17.0',
     subjectSha256: SUBJECT,
     sourceCommit: SOURCE,
-    nodeVersion: '22.23.4',
+    nodeVersion: '22.23.5',
     latestMigration,
     generatedAt: COMPLETED_AT,
     automated: Object.fromEntries(

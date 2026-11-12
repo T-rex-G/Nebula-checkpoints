@@ -11,8 +11,8 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
-assert.strictEqual(pkg.engines.node, '22.23.4');
-assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.4\n');
+assert.strictEqual(pkg.engines.node, '22.23.5');
+assert.strictEqual(fs.readFileSync(path.join(root, '.nvmrc'), 'utf8'), '22.23.5\n');
 
 const { APP_VERSION, PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
 const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');

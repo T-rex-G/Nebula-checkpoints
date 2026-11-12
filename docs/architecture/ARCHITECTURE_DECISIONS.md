@@ -971,7 +971,7 @@ They are enforced through ESLint, an import-graph test built on the TypeScript c
 
 ## ADR-095 — Node 22 stays the qualified runtime; Node 24 LTS is the next production target
 
-**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Amended 25 October 2026: the mission's runtime moves to Node 22.23.4, the October security release on the same line (see *Amendment* below). Node 24 remains the next production target, as recommended.
+**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Amended 25 October 2026: the mission's runtime moves to Node 22.23.4, the October security release on the same line (see *Amendment* below). Amended 12 November 2026: it moves to Node 22.23.5, the November security release (see the second amendment). Node 24 remains the next production target, as recommended.
 
 **Question:** Is Node 24 LTS a better long-term production target than Node 22?
 
@@ -1057,6 +1057,53 @@ They are enforced through ESLint, an import-graph test built on the TypeScript c
   No committed evidence is re-validated against the new pin. The final qualification produces new evidence on 22.23.4.
 - **What it does not change:**
   - The production service runs the merged `3bf017a` on Node 22.23.1 until a deploy the owner approves.
+  - Recommendation 3 stands: Node 24 LTS after this mission, before the end of the first quarter of 2027.
+
+**Amendment, 12 November 2026 — Node 22.23.5.** Node 22.23.5 (11 November) is the next security release on the line. Each of its fixes was weighed against this service, from the project's advisory and the release's changelog:
+
+- **What the advisory fixes on 22.x:**
+  - CVE-2026-123864 (high): a zero-length TLS write re-enters the HTTP parser, and an HTTPS server copies its own heap into a request body;
+  - CVE-2026-123865 and CVE-2026-123866 (high), CVE-2026-123875 (medium): HTTP/2 sessions and streams;
+  - CVE-2026-123872 (high) and CVE-2026-123867 (medium): TLS servers that renegotiate or carry per-host client-certificate authorities;
+  - CVE-2026-123877 (medium): the HTTPS agent gave a request with no `ca` and one with `ca: []` the same session-cache key;
+  - CVE-2026-123871 (medium): proxy credentials in the errors for an invalid proxy URL;
+  - CVE-2026-123862 (low): zlib's `params()` after `destroy()`;
+  - CVE-2026-123829 and CVE-2026-106071 (low): the permission model.
+
+  22.23.5 also carries the fixes for four HTTP/2 issues the advisory lists for 24.x and 26.x only (CVE-2026-123863, CVE-2026-123874, CVE-2026-123828, CVE-2026-123868) and, by its changelog, for CVE-2026-123873 (low, the permission model), with llhttp 9.4.4 and SQLite 3.54.1. The advisory names llhttp among the dependencies updated for public vulnerabilities, with no CVE of its own; its update came through the project's private security repository.
+- **Where they meet this service:**
+  - *Inbound requests.* The service listens on plain HTTP behind Render's TLS edge, so the HTTPS re-entrancy needs a server it does not run; the advisory says cleartext `node:http` is not affected. llhttp parses every request the service receives. Asked the same 1,853 requests -- every byte value inside a header value, a Transfer-Encoding, a Content-Length, a chunk extension and a trailer, and the ways a proxy and a server are made to disagree on a request's length -- 22.23.4 and 22.23.5 answer each alike, so what 9.4.4 changes lies outside these shapes. The shapes that matter are now held on the real server (*The framing test*, below).
+  - *The guarded outbound transport.* Its keep-alive HTTPS agent never sets `ca`, and no request does, so every request shares one trust policy and CVE-2026-123877 has no second policy to confuse; the fix is in the agent's own keying, which the pool uses on every request.
+  - *Proxies.* Node's own proxy support is not turned on in the server; the candidate qualifier hands a proxy only to the package manager, and only a credential-free origin.
+  - *Decompression of content an attacker writes.* The service inflates gzip, deflate and brotli, but never calls `params()`.
+  - Not used: http2, TLS servers, the permission model, heap snapshots, `node:sqlite`.
+- **The framing test.** `test/http-framing-server.test.js` starts the real server, natively and compiled, and sends it 23 requests framed so that a proxy and a server could read their length two ways:
+  - a length given both as chunks and as a Content-Length, two different Content-Lengths, a signed or a negative one;
+  - chunked that is not the last coding, or is followed by a second Transfer-Encoding; an empty Transfer-Encoding, one that ends in a comma, one folded onto the line before, one with whitespace before its colon;
+  - lines ended by a bare line feed, a bare carriage return, a NUL or a control character in a header, a NUL in the path, an HTTP/1.1 request without a Host;
+  - seven malformed chunked bodies.
+
+  Each is followed, in the same write, by a request for `/healthz`. Each is refused, the connection is closed, and the request hidden behind it is never answered; the same requests framed correctly are answered, and so is the request after them. Node's lenient parser, turned on by its flag or by the server's option, and a server that no longer requires a Host, are each caught.
+- **The dependencies, asked again on 12 November.** npm's audit and an OSV query over all 296 locked versions agree: no production dependency has an advisory. The one advisory is still minimatch's (GHSA-g3hv-75wg-m249, moderate), in development tools only, on this repository's own patterns (S3). Its fix is still only in minimatch 11: readdir-glob 4.0.0 (9 November) is the first dependent to accept it, and the newest archiver (8.0.0, which requires readdir-glob 3), ESLint (10.14.0) and typescript-eslint (8.72.2) do not. Node's bundled undici (6.29.1, as in 22.23.4) and llhttp 9.4.4 have no published advisory.
+- **Verified:** the Linux archive's SHA-256 against the release's checksum list, and that list's signature against the Node.js release keys.
+- **Measured on 22.23.5** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - lint and the type checks;
+  - the production audit;
+  - all 36 server tests on the compiled runtime;
+  - the whole browser suite (1,092 tests: 1,034 run, 58 for the other project) on desktop and mobile.
+- **What moved, in one commit:**
+  - `.nvmrc` and `engines.node`, with the lockfile's root `engines`;
+  - the eleven workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.4 by name;
+  - the framing test, in the unit gate and on both runtimes.
+
+  No committed evidence is re-validated against the new pin. The final qualification produces new evidence on 22.23.5.
+- **What it does not change:**
+  - The production service runs `5326d2b` on Node 22.23.1 until a deploy the owner approves: without the July, October and November fixes.
   - Recommendation 3 stands: Node 24 LTS after this mission, before the end of the first quarter of 2027.
 
 ## ADR-096 — Express 4 stays the HTTP foundation of this mission; Express 5 follows it

@@ -183,7 +183,7 @@ function fail(message) {
 }
 
 function assertPinnedNodeVersion(version = process.version) {
-  if (version !== 'v22.23.4') fail('candidate qualification requires Node v22.23.4');
+  if (version !== 'v22.23.5') fail('candidate qualification requires Node v22.23.5');
   return version;
 }
 

@@ -30,10 +30,11 @@ const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const repositoryRoot = path.join(__dirname, '..');
 
-assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.4'));
+assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.5'));
 assert.strictEqual(MINIMUM_MATRIX_TESTS, 141);
-assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.4/);
-assert.throws(() => assertPinnedNodeVersion('v22.23.1'), /requires Node v22\.23\.4/, 'the pin before the October security release is refused');
+assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.5/);
+assert.throws(() => assertPinnedNodeVersion('v22.23.1'), /requires Node v22\.23\.5/, 'the pin before the October security release is refused');
+assert.throws(() => assertPinnedNodeVersion('v22.23.4'), /requires Node v22\.23\.5/, 'the pin before the November security release is refused');
 assert.throws(
   () => runCommand(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     label: 'synthetic stalled qualifier command',
@@ -74,7 +75,7 @@ try {
   Object.defineProperty(process, 'version', { ...processVersionDescriptor, value: 'v22.23.0' });
   assert.throws(
     () => qualifyCandidateArchive(undefined),
-    /requires Node v22\.23\.4/,
+    /requires Node v22\.23\.5/,
     'the runtime pin must fail before qualifier arguments or archive paths are read'
   );
 } finally {

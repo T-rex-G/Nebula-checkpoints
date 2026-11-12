@@ -352,8 +352,8 @@ function verifyQualification(input, options = {}) {
     fail('qualification source commit does not match', 'PUBLIC_ALPHA_SOURCE_COMMIT_MISMATCH');
   }
   if (record.latestMigration !== options.expectedLatestMigration) fail('latest migration does not match', 'PUBLIC_ALPHA_MIGRATION_MISMATCH');
-  if (record.nodeVersion !== '22.23.4') {
-    fail('qualification must use Node 22.23.4', 'PUBLIC_ALPHA_NODE_VERSION_INVALID');
+  if (record.nodeVersion !== '22.23.5') {
+    fail('qualification must use Node 22.23.5', 'PUBLIC_ALPHA_NODE_VERSION_INVALID');
   }
   parseFreshTimestamp(record.generatedAt, now, 'qualification record');
 

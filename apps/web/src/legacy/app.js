@@ -25,6 +25,9 @@ import { render as renderSecurityPostureCard } from '../features/posture/Securit
 import RepoSigil from '../features/repositories/repo-sigil.ts';
 import TrustUI from '../features/trust/TrustViews.tsx';
 import CodeAudit from '../features/uranus/code-audit-ui.js';
+import * as AuditMemory from '../features/uranus/audit-memory.ts';
+import * as AuditReports from '../features/uranus/audit-reports.ts';
+import * as AuditSbom from '../features/uranus/audit-sbom.ts';
 import ArchiveSafety from '../features/workbench/archive-safety.ts';
 import ExportSafety from '../features/workbench/export-safety.ts';
 import { discardHeldRepaints, repaintCard } from '../components/held-repaint.ts';
@@ -4277,12 +4280,12 @@ async function exportExposure(kind) {
   if (kind === 'sarif') {
     const provider = (state.me && state.me.provider) || 'github';
     const scan = current.scan || {};
-    dlFile(`${base}.sarif`, CodeAudit.exposureSarif(rows, {
+    dlFile(`${base}.sarif`, AuditReports.exposureSarif(rows, {
       ref: state.work.branch, commitSha: scan.commitSha,
       repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : ''
     }), 'application/sarif+json');
   } else {
-    dlFile(`${base}.csv`, CodeAudit.exposureCsv(rows), 'text/csv');
+    dlFile(`${base}.csv`, AuditReports.exposureCsv(rows), 'text/csv');
   }
   announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
   } catch (error) {
@@ -6132,7 +6135,7 @@ function siteKey() {
   return state.work ? `${state.work.owner}/${state.work.repo}` : '';
 }
 function siteUrlStorageKey() {
-  return `${CodeAudit.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
+  return `${AuditMemory.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
 }
 /*
  * The deployed site an audit shows. Site checks run on the Website page
@@ -6232,10 +6235,10 @@ function paintAudit(options = {}) {
       if (kind === 'sarif') {
         const provider = (state.me && state.me.provider) || 'github';
         const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, CodeAudit.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
+        return dlFile(`${base}.sarif`, AuditReports.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
       }
-      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.keptCsv(audit, findings), 'text/csv');
-      dlFile(`${base}.md`, CodeAudit.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
+      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.keptCsv(audit, findings), 'text/csv');
+      dlFile(`${base}.md`, AuditReports.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
     },
     onTriage: finding => triageAuditFinding(finding),
     onReopen: finding => reopenAuditFinding(finding),
@@ -6265,7 +6268,7 @@ function paintAudit(options = {}) {
     onOpen: finding => openAuditFinding(finding),
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
     onCopyAll: async () => {
-      try { await navigator.clipboard.writeText(CodeAudit.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
+      try { await navigator.clipboard.writeText(AuditReports.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onExport: kind => {
@@ -6278,17 +6281,17 @@ function paintAudit(options = {}) {
       if (kind === 'sarif') {
         const provider = (state.me && state.me.provider) || 'github';
         const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, CodeAudit.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
+        return dlFile(`${base}.sarif`, AuditReports.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
       }
-      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.csv(result, site, auditView.diff), 'text/csv');
+      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.csv(result, site, auditView.diff), 'text/csv');
       if ((kind === 'cyclonedx' || kind === 'spdx') && result) {
         const provider = (state.me && state.me.provider) || 'github';
         const meta = { name: `${state.work.owner}/${state.work.repo}`, ref: state.work.branch, repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '' };
         return kind === 'cyclonedx'
-          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, CodeAudit.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
-          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, CodeAudit.spdx(result, meta), 'application/spdx+json');
+          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, AuditSbom.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
+          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, AuditSbom.spdx(result, meta), 'application/spdx+json');
       }
-      dlFile(`${base}.md`, CodeAudit.brief(result, label, site), 'text/markdown');
+      dlFile(`${base}.md`, AuditReports.brief(result, label, site), 'text/markdown');
     }
   });
 }
@@ -6324,7 +6327,7 @@ async function pollSiteCheck(path, { current, onProgress }) {
  * engine and card. The address typed is remembered under the audit prefix the
  * account purge removes, and so are the last check's fingerprints.
  */
-const SITE_SCAN_URL = () => `${CodeAudit.STORE_PREFIX}site-url:standalone`;
+const SITE_SCAN_URL = () => `${AuditMemory.STORE_PREFIX}site-url:standalone`;
 function blankSiteScan() {
   let url = '';
   try { url = localStorage.getItem(SITE_SCAN_URL()) || ''; } catch {}
@@ -6363,7 +6366,7 @@ function paintSiteScan() {
     onSiteCheck: runStandaloneSiteCheck,
     onSiteExpand: () => paintSiteScan(),
     onSiteCopyAll: async () => {
-      try { await navigator.clipboard.writeText(CodeAudit.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
+      try { await navigator.clipboard.writeText(AuditReports.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
     onCopy: (finding, control) => copyPrompt(finding.prompt, control),
@@ -6372,9 +6375,9 @@ function paintSiteScan() {
       if (!site) return;
       const host = site.origin.replace(/^https:\/\//, '');
       const base = `${host}-site-check-${String(site.checkedAt || new Date().toISOString()).slice(0, 10)}`;
-      if (kind === 'sarif') return dlFile(`${base}.sarif`, CodeAudit.sarif(null, site, {}), 'application/sarif+json');
-      if (kind === 'csv') return dlFile(`${base}.csv`, CodeAudit.csv(null, site, null), 'text/csv');
-      dlFile(`${base}.md`, CodeAudit.brief(null, host, site), 'text/markdown');
+      if (kind === 'sarif') return dlFile(`${base}.sarif`, AuditReports.sarif(null, site, {}), 'application/sarif+json');
+      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.csv(null, site, null), 'text/csv');
+      dlFile(`${base}.md`, AuditReports.brief(null, host, site), 'text/markdown');
     }
   });
 }
@@ -6398,12 +6401,12 @@ async function runStandaloneSiteCheck(address) {
     try {
       localStorage.setItem(SITE_SCAN_URL(), result.origin);
       /* Checked for a repository: its audit names this address from now on. */
-      if (from) localStorage.setItem(`${CodeAudit.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
+      if (from) localStorage.setItem(`${AuditMemory.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
     } catch {}
     const fingerprints = `site:${result.origin}`;
-    const previous = CodeAudit.readPrevious(fingerprints);
-    CodeAudit.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: CodeAudit.diff(result, previous), error: '', progress: null, from };
+    const previous = AuditMemory.readPrevious(fingerprints);
+    AuditMemory.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
+    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: AuditMemory.diff(result, previous), error: '', progress: null, from };
   } catch (error) {
     if (!current()) return;
     siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
@@ -6647,8 +6650,8 @@ async function runAudit() {
     if (!current()) return;
     const result = answer;
     const repoKey = `${state.work.owner}/${state.work.repo}`;
-    const previous = CodeAudit.readPrevious(repoKey);
-    CodeAudit.remember(repoKey, result);
+    const previous = AuditMemory.readPrevious(repoKey);
+    AuditMemory.remember(repoKey, result);
     /*
      * The server compared this audit with the last one it kept of the branch;
      * this browser's own fingerprints are only the fallback for a server that
@@ -6657,7 +6660,7 @@ async function runAudit() {
     const kept = result.history && result.history.saved === true ? result.history : null;
     const diff = kept
       ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number.isSafeInteger(kept.resolved) ? kept.resolved : null } : null)
-      : CodeAudit.diff(result, previous);
+      : AuditMemory.diff(result, previous);
     auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
     if (kept) loadAuditHistory();
   } catch (error) {

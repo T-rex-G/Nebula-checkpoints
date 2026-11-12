@@ -451,15 +451,15 @@ module.exports = { violations };
  * until it is read and added.
  */
 const HANDOFFS = Object.freeze({
+  'AuditReports.brief <- work': 'writes a report from the repository label, a string',
+  'AuditReports.csv <- work': 'writes rows from the audit and site readings; the branch is a string',
+  'AuditReports.exposureSarif <- work': 'reads the ref and repository address, strings, into a new document',
+  'AuditReports.sarif <- work': 'reads the ref and repository address, strings, into a new document',
+  'AuditSbom.cyclonedx <- work': 'reads the name and ref, strings, into a new document',
+  'AuditSbom.spdx <- work': 'reads the name and ref, strings, into a new document',
   'Board.model <- repos': 'lists the repositories anew (inventory), then reads the readings against that list',
   'Board.pickRepositories <- repos': 'lists the repositories anew (inventory), then slices and maps that list',
   'CapabilityUI.load <- me': 'is handed the provider and authority, which are strings',
-  'CodeAudit.brief <- work': 'writes a report from the repository label, a string',
-  'CodeAudit.csv <- work': 'writes rows from the audit and site readings; the branch is a string',
-  'CodeAudit.cyclonedx <- work': 'reads the name and ref, strings, into a new document',
-  'CodeAudit.exposureSarif <- work': 'reads the ref and repository address, strings, into a new document',
-  'CodeAudit.sarif <- work': 'reads the ref and repository address, strings, into a new document',
-  'CodeAudit.spdx <- work': 'reads the name and ref, strings, into a new document',
   'CodeMirror <- settings': 'takes the editor options, strings, numbers and flags, and keeps a copy of its own',
   'CodeMirror.findModeByFileName <- file': 'reads the file\'s path, a string',
   'SecurityPostureModel.model <- repos': 'lists the repositories anew (inventory) and filters that list',

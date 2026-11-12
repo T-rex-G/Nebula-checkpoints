@@ -118,6 +118,7 @@ for (const file of [
   'packages/contracts/src/offline-cache-policy.ts', 'apps/web/src/features/workbench/archive-safety.ts', 'apps/web/src/features/workbench/export-safety.ts',
   'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'apps/web/src/legacy/app.js', 'apps/web/src/features/governance/governance.ts', 'apps/web/src/features/governance/GovernanceView.tsx', 'apps/web/src/visualizations/neural.js', 'apps/web/src/features/uranus/code-audit-ui.js',
+  'apps/web/src/features/uranus/audit-terms.ts', 'apps/web/src/features/uranus/audit-memory.ts', 'apps/web/src/features/uranus/audit-reports.ts', 'apps/web/src/features/uranus/audit-sbom.ts',
   'apps/api/src/modules/uranus/index.ts', 'apps/api/src/platform/concurrency/bounded-map.ts', 'apps/api/src/modules/uranus/domain/advisories.ts',
   'apps/api/src/modules/uranus/domain/audit-catalog.ts', 'apps/api/src/modules/uranus/domain/audit-database.ts', 'apps/api/src/modules/uranus/domain/audit-files.ts',
   'apps/api/src/modules/uranus/domain/audit-findings.ts', 'apps/api/src/modules/uranus/domain/audit-infrastructure.ts', 'apps/api/src/modules/uranus/domain/audit-ledger.ts',

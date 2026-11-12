@@ -15,9 +15,8 @@ test.use({ serviceWorkers: 'block' });
 
 const AUDIT = /\/api\/repo\/sandbox\/demo\/code-audit(\?|$)/;
 
-async function audited(page) {
+async function audited(page, result = riskyResult()) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
-  const result = riskyResult();
   await page.route(AUDIT, route => (new URL(route.request().url()).searchParams.get('run') ? route.fulfill({ status: 200, json: result }) : route.fallback()));
   await page.goto('/#/sandbox/demo@main/audit');
   const pane = page.locator('#tab-audit');
@@ -131,4 +130,36 @@ test('the exploited filter narrows the findings, and the exports carry the same 
   const spdx = JSON.parse(require('fs').readFileSync(await spdxFile.path(), 'utf8'));
   expect(spdx.spdxVersion).toBe('SPDX-2.3');
   expect(spdx.packages.map(item => item.name)).toContain('qs');
+});
+
+/*
+ * A vulnerable version declared in two manifests is one thing to upgrade:
+ * one row, which says where else it is declared. The count belongs to the
+ * reading. It used to be kept beside the finding and grew by one with every
+ * drawing of the screen and every brief written, so a filter pressed three
+ * times said five places.
+ */
+test('a version declared in two places is one row that says two, however often the screen is drawn', async ({ page }) => {
+  const result = riskyResult();
+  const jquery = result.findings.find(finding => finding.detail && finding.detail.package === 'jquery');
+  result.findings.push({ ...jquery, id: `${jquery.id}-site`, path: 'site/package-lock.json' });
+  const pane = await audited(page, result);
+  const rows = pane.locator('.audit-risk-row');
+  await expect(rows).toHaveCount(4);
+  const places = rows.filter({ hasText: 'jquery' }).locator('.audit-risk-places');
+  const said = 'Declared in 2 places; the finding below each one says where.';
+  await expect(places).toHaveText(said);
+  await expect(rows.filter({ hasText: 'lodash' }).locator('.audit-risk-places')).toHaveCount(0);
+  const toggle = pane.locator('.audit-risk-stats').getByRole('button', { name: /exploited in the wild/ });
+  for (const pressed of ['true', 'false', 'true']) {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', pressed);
+  }
+  await expect(places).toHaveText(said);
+  await pane.getByRole('button', { name: /^Export/ }).click();
+  const [brief] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Export developer brief' }).click()]);
+  expect(require('fs').readFileSync(await brief.path(), 'utf8').match(/^\| \d+ urgent \| jquery 3\.4\.1 \|/gm)).toHaveLength(1);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(places).toHaveText(said);
 });

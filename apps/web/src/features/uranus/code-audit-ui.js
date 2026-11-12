@@ -21,43 +21,16 @@
  */
 'use strict';
 
+import {
+  CLOCK, DISPOSITION, ECOSYSTEM_NAME, HEADER_JOBS, HEADER_NAMES, LEDGER_GLYPH, LEDGER_NAMES, LEDGER_STATE, LEDGER_STATUS, LICENCE_FAMILY, LICENCE_ORDER, LOCK,
+  ORDER, REACH, REACH_TIER, RISK_BAND, RISK_ORDER, SEVERITY, STEP_ROLE, TRACED_CLASSES, VERDICT,
+  capNote, clockWords, coverageCaveat, coverageLine, dayWord, detailChip, exploited, headline, intelOf, intelSources, ledgerStatus, licenceFactList,
+  location, percent, plural, rank, resultId, riskOf, riskRanked, severityCounts, siteAssessment, siteAssessmentLine, siteCoverage, tierPhrase, tierSentence,
+  tierWord, usageOf, verbs, verdictOf
+} from './audit-terms.ts';
+import { diffSentence } from './audit-memory.ts';
+
 const api = (function codeAuditModule(global) {
-  const SEVERITY = Object.freeze({
-    critical: Object.freeze({ glyph: '✕', word: 'Critical', icon: 'M8.6 3.5h6.8l5.1 5.1v6.8l-5.1 5.1H8.6l-5.1-5.1V8.6zM9.4 9.4l5.2 5.2M14.6 9.4l-5.2 5.2' }),
-    serious: Object.freeze({ glyph: '△', word: 'Serious', icon: 'M12 4l9 15.5H3zM12 10v4.2M12 16.9v.1' }),
-    warning: Object.freeze({ glyph: '○', word: 'Warning', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 7.9v.1' })
-  });
-  const ORDER = Object.freeze(['critical', 'serious', 'warning']);
-  /*
-   * How sure a finding is, as Uranus says it: confirmed when the file states
-   * it or the whole path was traced, to confirm when the pattern is there and
-   * one decisive fact is not. A result from before Uranus carries no verdict
-   * and reads as confirmed, which is what it was presented as then.
-   */
-  const VERDICT = Object.freeze({
-    confirmed: Object.freeze({ word: 'Confirmed', tone: 'info', icon: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9.3 12l2 2 3.5-3.8' }),
-    'needs-validation': Object.freeze({ word: 'To confirm', tone: 'pending', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1' })
-  });
-  const verdictOf = finding => (finding && finding.verdict === 'needs-validation' ? 'needs-validation' : 'confirmed');
-  /* Who can reach the line a traced value entered on. */
-  const LOCK = 'M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6';
-  const REACH = Object.freeze({
-    open: Object.freeze({ word: 'Open to anyone', tone: 'critical', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z' }),
-    guarded: Object.freeze({ word: 'After sign-in', tone: 'neutral', icon: LOCK }),
-    unknown: Object.freeze({ word: 'Guard to confirm', tone: 'pending', icon: LOCK }),
-    platform: Object.freeze({ word: 'Platform-guarded', tone: 'neutral', icon: LOCK })
-  });
-  const LEDGER_STATUS = Object.freeze({
-    covered: Object.freeze({ word: 'Checked', tone: 'good', icon: 'M5 12.5l4.2 4.2L19 7' }),
-    traced: Object.freeze({ word: 'Traced', tone: 'good', icon: 'M5 6.5h4a3 3 0 0 1 3 3v5a3 3 0 0 0 3 3h4M17 15.5l2 2-2 2M4.5 6.5h.1' }),
-    mapped: Object.freeze({ word: 'Mapped', tone: 'good', icon: 'M5 5h5a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11M16 14l3 3-3 3' }),
-    partial: Object.freeze({ word: 'Partly traced', tone: 'warning', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17V3.5z' }),
-    patterns: Object.freeze({ word: 'Patterns only', tone: 'pending', icon: 'M4 7h16M4 12h10M4 17h6' }),
-    'not-applicable': Object.freeze({ word: 'Nothing to check', tone: 'neutral', icon: 'M6 12h12' }),
-    'not-assessed': Object.freeze({ word: 'Not assessed', tone: 'pending', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1' })
-  });
-  /* The classes Uranus follows values through, as opposed to checking files for. */
-  const TRACED_CLASSES = new Set(['injection', 'requests', 'browser', 'objects', 'ai']);
   /* One drawn mark per family, so the tiles read before their labels do. */
   const FAMILY_ICON = Object.freeze({
     'supply-chain': 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
@@ -154,37 +127,9 @@ const api = (function codeAuditModule(global) {
     reopen: 'M3.8 12a8.2 8.2 0 1 0 2.4-5.8M3.8 4.6v3.8h3.8',
     timer: 'M12 6.5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM12 10v3.5l2.2 1.4M9.5 3h5'
   });
-  const STORE_PREFIX = 'nv_audit:';
   const SVG = 'http://www.w3.org/2000/svg';
   const ADVISORY_ID = /^[A-Za-z][A-Za-z0-9._-]{2,63}$/;
   const CVE_ID = /^CVE-\d{4}-\d{4,7}$/;
-
-  /*
-   * How close a vulnerable package is to the running code, as Uranus placed
-   * it. None of these words says "unused": a package with no import found is
-   * "installed", because frameworks load packages by convention.
-   */
-  const REACH_TIER = Object.freeze({
-    imported: Object.freeze({ word: 'Imported', icon: 'M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5-4.5 4.5', tone: 'neutral' }),
-    named: Object.freeze({ word: 'Named in code', icon: 'M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5-4.5 4.5', tone: 'neutral' }),
-    bundled: Object.freeze({ word: 'Bundled', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9M8 5.3l8 4.4', tone: 'neutral' }),
-    transitive: Object.freeze({ word: 'Via a dependency', icon: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4', tone: 'neutral' }),
-    installed: Object.freeze({ word: 'Installed', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9', tone: 'neutral' }),
-    unknown: Object.freeze({ word: 'Reach unknown', icon: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9.7 9.7a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .8-1 1.4v.5M12 16.6v.1', tone: 'pending' }),
-    build: Object.freeze({ word: 'Build only', icon: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z', tone: 'neutral' }),
-    test: Object.freeze({ word: 'Tests only', icon: 'M9.5 3.5h5M10.5 3.5v6L5.3 18.4a1.4 1.4 0 0 0 1.2 2.1h11a1.4 1.4 0 0 0 1.2-2.1L13.5 9.5v-6M8 15h8', tone: 'neutral' }),
-    dev: Object.freeze({ word: 'Dev only', icon: 'M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.6 2.6-2.4-.6-.6-2.4z', tone: 'neutral' })
-  });
-  /* Risk bands in the status tones, each with its word: never colour alone. */
-  const RISK_BAND = Object.freeze({
-    urgent: Object.freeze({ word: 'Urgent', tone: 'critical' }),
-    high: Object.freeze({ word: 'High', tone: 'serious' }),
-    moderate: Object.freeze({ word: 'Moderate', tone: 'warning' }),
-    low: Object.freeze({ word: 'Low', tone: 'neutral' })
-  });
-  const RISK_ORDER = Object.freeze(['urgent', 'high', 'moderate', 'low']);
-  const ECOSYSTEM_NAME = Object.freeze({ npm: 'npm', pypi: 'PyPI', go: 'Go', maven: 'Maven', packagist: 'Composer', rubygems: 'RubyGems', cargo: 'Cargo', nuget: 'NuGet' });
-  const PRODUCTION_TIERS = new Set(['imported', 'named', 'bundled', 'transitive', 'installed', 'unknown']);
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -320,8 +265,6 @@ const api = (function codeAuditModule(global) {
     const verdict = VERDICT[verdictOf(finding)];
     return chip(verdict.tone, verdict.word, { glyph: verdict.icon, className: 'audit-verdict-chip', ...options });
   }
-  /* 'POST,PUT' as a reader writes it: POST/PUT */
-  const verbs = method => String(method || 'ANY').split(',').join('/');
   function reachChip(reach) {
     if (!reach || !REACH[reach.auth]) return null;
     const entry = REACH[reach.auth];
@@ -337,17 +280,6 @@ const api = (function codeAuditModule(global) {
    * matters -- due soon, or past due -- and the finding's body always says
    * where it stands.
    */
-  const CLOCK = Object.freeze({
-    overdue: Object.freeze({ tone: 'critical', word: 'Overdue' }),
-    'due-soon': Object.freeze({ tone: 'warning', word: 'Due soon' }),
-    'on-track': Object.freeze({ tone: 'neutral', word: 'On track' })
-  });
-  const dayWord = count => `${count} ${count === 1 ? 'day' : 'days'}`;
-  function clockWords(clock) {
-    const days = Math.abs(clock.daysLeft);
-    if (clock.state === 'overdue') return `${dayWord(days || 1)} overdue`;
-    return days === 0 ? 'Due today' : `Due in ${dayWord(days)}`;
-  }
   function clockChip(finding) {
     const clock = finding && finding.clock;
     if (!clock || !CLOCK[clock.state] || clock.state === 'on-track') return null;
@@ -377,10 +309,6 @@ const api = (function codeAuditModule(global) {
     const found = vocabulary && Array.isArray(vocabulary.reasons) ? vocabulary.reasons.find(reason => reason.id === decision.reason) : null;
     return found ? found.label : decision.reasonLabel || String(decision.reason || '').replace(/-/g, ' ');
   }
-  const DISPOSITION = Object.freeze({
-    'false-positive': Object.freeze({ word: 'False positive', tone: 'neutral' }),
-    'accepted-risk': Object.freeze({ word: 'Risk accepted', tone: 'pending' })
-  });
   function decisionSentence(decision, view) {
     const by = decision.decidedBy ? ` by ${decision.decidedBy}` : '';
     const on = decision.decidedAt ? ` on ${when(decision.decidedAt).short}` : '';
@@ -395,30 +323,6 @@ const api = (function codeAuditModule(global) {
 
   /* ---- Exploit intelligence and reach ------------------------------------- */
 
-  /* A probability as a reader says it: 21%, 3.4%, 0.04%. */
-  function percent(value) {
-    const number = Number(value) * 100;
-    if (!Number.isFinite(number)) return '';
-    if (number >= 10) return `${Math.round(number)}%`;
-    if (number >= 1) return `${number.toFixed(1).replace(/\.0$/, '')}%`;
-    if (number >= 0.01) return `${number.toFixed(2).replace(/0$/, '')}%`;
-    return '<0.01%';
-  }
-  /* A rank among scored CVEs, rounded down so it never claims more than it is: 99.7%, never 100%. */
-  function rank(value) {
-    const number = Number(value) * 100;
-    if (!Number.isFinite(number)) return '';
-    return number >= 99 || number < 10 ? `${(Math.floor(number * 10) / 10).toString()}%` : `${Math.floor(number)}%`;
-  }
-  const intelOf = finding => (finding && finding.detail && finding.detail.intel) || null;
-  const usageOf = finding => (finding && finding.detail && finding.detail.usage) || null;
-  const riskOf = finding => (finding && finding.detail && finding.detail.risk) || null;
-  /* Exploited in the wild, in something that ships: what holds the grade and leads the list. */
-  function exploited(finding) {
-    const intel = intelOf(finding);
-    const usage = usageOf(finding);
-    return Boolean(intel && intel.exploited && finding.rule !== 'DEP-005' && (!usage || PRODUCTION_TIERS.has(usage.tier)));
-  }
   function kevChip(finding, options = {}) {
     const intel = intelOf(finding);
     if (!intel || !intel.exploited) return null;
@@ -432,67 +336,10 @@ const api = (function codeAuditModule(global) {
     const beyond = Number.isFinite(intel.epss.percentile) ? `, higher than ${rank(intel.epss.percentile)} of scored CVEs` : '';
     return chip(tone, `EPSS ${percent(score)}`, { glyph: ICON.gauge, className: 'audit-epss', title: `${percent(score)} chance ${intel.epss.cve} is exploited in the next 30 days${beyond}` });
   }
-  function tierWord(usage) {
-    if (!usage) return '';
-    if (usage.tier === 'transitive' && usage.through && usage.through.length) return `Via ${usage.through[0]}`;
-    return (REACH_TIER[usage.tier] || REACH_TIER.unknown).word;
-  }
   function tierChip(usage) {
     if (!usage || !REACH_TIER[usage.tier]) return null;
     const entry = REACH_TIER[usage.tier];
     return chip(entry.tone, tierWord(usage), { glyph: entry.icon, className: 'audit-tier', title: tierSentence(usage) });
-  }
-  const names = (list, total) => {
-    const shown = (list || []).filter(Boolean);
-    if (!shown.length) return '';
-    const text = shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
-    return total > shown.length ? `${shown.join(', ')} and ${total - shown.length} more` : text;
-  };
-  /* The reach, as one sentence that never claims more than the scan saw. */
-  function tierSentence(usage) {
-    if (!usage) return '';
-    const files = names(usage.files, usage.count);
-    const through = names(usage.through, usage.throughCount);
-    switch (usage.tier) {
-      case 'imported': return `Imported by the code${files ? `: ${files}` : ''}.`;
-      case 'named': return usage.loader === 'bundler'
-        ? `Loaded at boot by Bundler.require${files ? ` (${files})` : ''}, which requires every gem the Gemfile lists for production.`
-        : `Named in the code where a framework loads it by name${files ? `: ${files}` : ''}.`;
-      case 'bundled': return `Shipped by the build: bundled, or served from node_modules${files ? ` (${files})` : ''}.`;
-      case 'transitive': return `Not imported itself; it comes with ${through || 'a dependency'}, which the code imports.`;
-      case 'installed': return usage.seen === 'test'
-        ? `Installed for production. Only tests import it${files ? ` (${files})` : ''}; frameworks load some packages by convention, so that is not proof it never runs.`
-        : `Installed for production${through ? ` with ${through}` : ''}, and no import or reference was found in the files read. Frameworks load some packages by convention, so that is not proof it is unused.`;
-      case 'unknown': return usage.reason === 'graph'
-        ? 'The code does not import it, and the dependency files do not record which package requires it, so how it is reached is unknown.'
-        : 'Some source files were not read, so whether the code imports it is unknown.';
-      case 'build': return `Only build tooling references it${through ? ` (through ${through})` : files ? ` (${files})` : ''}: it runs when the project is built, not when it serves a request.`;
-      case 'test': return `Only tests import it${files ? ` (${files})` : ''}.`;
-      case 'dev': return `A development dependency${through ? `, through ${through}` : ''}: installed to build and test, not to run.`;
-      default: return '';
-    }
-  }
-
-  /* The reach in a few words, for a row in a list; the finding itself carries the whole sentence. */
-  const fileName = filePath => String(filePath || '').slice(String(filePath || '').lastIndexOf('/') + 1);
-  function tierPhrase(usage) {
-    if (!usage) return '';
-    const count = usage.count || (usage.files || []).length;
-    const first = fileName((usage.files || [])[0]);
-    const inFiles = first ? `${first}${count > 1 ? ` and ${plural(count - 1, 'more file', 'more files')}` : ''}` : '';
-    const through = (usage.through || [])[0];
-    switch (usage.tier) {
-      case 'imported': return inFiles ? `Imported by ${inFiles}` : 'Imported by the code';
-      case 'named': return usage.loader === 'bundler' ? 'Loaded at boot by Bundler.require' : inFiles ? `Named in ${inFiles}` : 'Named in the code';
-      case 'bundled': return inFiles ? `Shipped by the build, from ${inFiles}` : 'Shipped by the build';
-      case 'transitive': return through ? `Comes with ${through}, which the code imports` : 'Comes with a dependency the code imports';
-      case 'installed': return usage.seen === 'test' ? 'Installed for production; only tests import it' : 'Installed for production; no import found';
-      case 'unknown': return usage.reason === 'graph' ? 'Reach unknown: nothing records what requires it' : 'Reach unknown: some source files were not read';
-      case 'build': return 'Build tooling only';
-      case 'test': return 'Only tests import it';
-      case 'dev': return through ? `Development only, through ${through}` : 'Development only';
-      default: return '';
-    }
   }
 
   /*
@@ -779,122 +626,12 @@ const api = (function codeAuditModule(global) {
     return wrap;
   }
 
-  function plural(count, one, many) {
-    return `${count} ${count === 1 ? one : many}`;
-  }
-  function location(finding) {
-    if (!finding.path) return 'Whole repository';
-    return finding.line ? `${finding.path}:${finding.line}` : finding.path;
-  }
-  function severityCounts(findings) {
-    const counts = { critical: 0, serious: 0, warning: 0 };
-    for (const finding of findings) counts[finding.severity] += 1;
-    return counts;
-  }
   function reducedMotion() {
     return document.documentElement.dataset.motion === 'off' ||
       Boolean(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
-  /*
-   * What changed since this browser last audited the same repository: which
-   * findings are new, and how many earlier ones are gone. Identities only --
-   * the stored record is a list of fingerprints and a time, nothing a
-   * repository wrote -- and the account-boundary purge removes it.
-   */
-  function diff(result, previous) {
-    if (!previous || !Array.isArray(previous.ids)) return null;
-    if (engineIdentity(result) !== (previous.engine || null)) return null;
-    const before = new Set(previous.ids);
-    const now = new Set(result.findings.map(finding => finding.id));
-    return {
-      previousAt: previous.at || null,
-      newIds: new Set([...now].filter(id => !before.has(id))),
-      resolved: [...before].filter(id => !now.has(id)).length
-    };
-  }
-  function storageKey(repoKey) {
-    return `${STORE_PREFIX}${String(repoKey || '').toLowerCase()}`;
-  }
-  function engineIdentity(result) {
-    if (typeof result.engine === 'number') return `site:${result.engine}`;
-    return result.engine && result.engine.version ? `repository:${result.engine.version}` : null;
-  }
-  function readPrevious(repoKey) {
-    try { return JSON.parse(global.localStorage.getItem(storageKey(repoKey)) || 'null'); } catch { return null; }
-  }
-  function remember(repoKey, result) {
-    try {
-      global.localStorage.setItem(storageKey(repoKey), JSON.stringify({
-        at: result.auditedAt || new Date().toISOString(),
-        engine: engineIdentity(result),
-        ids: result.findings.map(finding => finding.id).slice(0, 2000)
-      }));
-    } catch { /* private mode: no comparison next time, and nothing is lost */ }
-  }
-
   /* ---- What a result rests on ------------------------------------------------ */
-
-  function coverageLine(result) {
-    const coverage = result.coverage || {};
-    const rulesOnly = Number(coverage.rulesOnly) || 0;
-    const parts = [`Read ${coverage.read} of ${coverage.eligible} files it audits at ${String(result.commitSha || '').slice(0, 7)}` +
-      (rulesOnly ? ` (${coverage.read - rulesOnly} traced, ${rulesOnly} against the rules alone)` : '')];
-    const packages = coverage.packages || {};
-    if (packages.declared) {
-      parts.push(`${packages.checked} of ${packages.declared} packages checked against their registry` +
-        (packages.unknown ? ` (${packages.unknown} unanswered, not counted as missing)` : ''));
-    }
-    const advisories = coverage.advisories || {};
-    if (advisories.versions) {
-      parts.push(`${advisories.checked} of ${advisories.versions} package versions checked against OSV` +
-        (advisories.unknown ? ` (${advisories.unknown} unanswered)` : ''));
-    }
-    if (advisories.setAside) {
-      parts.push(`${plural(advisories.setAside, 'manifest', 'manifests')} kept for tests set aside, as no install of the application`);
-    }
-    const components = Array.isArray(result.components) ? result.components : [];
-    if (components.length) {
-      const ecosystems = [...new Set(components.map(component => ECOSYSTEM_NAME[component.ecosystem] || component.ecosystem))];
-      parts.push(`${plural(result.componentsTruncated || components.length, 'component', 'components')} in the bill of materials (${ecosystems.join(', ')})`);
-    }
-    const exploit = coverage.exploit;
-    if (exploit && exploit.cves) {
-      parts.push(`${exploit.asked} ${exploit.asked === 1 ? 'CVE' : 'CVEs'} checked against ${exploit.kev === 'ok' ? `CISA KEV${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}` : 'CISA KEV (unavailable)'} and EPSS (${exploit.scored} scored)`);
-    }
-    const licensing = result.licences && result.licences.status;
-    if (licensing && licensing.versions) {
-      parts.push(`${licensing.known} of ${licensing.versions} package ${licensing.versions === 1 ? 'version\u2019s licence' : 'versions\u2019 licences'} read`);
-    }
-    return `${parts.join(' · ')}.`;
-  }
-  function coverageCaveat(result) {
-    const coverage = result.coverage || {};
-    const notes = [];
-    if (coverage.treeTruncated) notes.push('the provider truncated the file listing');
-    if (coverage.skipped && coverage.skipped.budget) notes.push(`${plural(coverage.skipped.budget, 'file', 'files')} beyond the audit budget were not read`);
-    if (coverage.skipped && coverage.skipped.oversize) notes.push(`${plural(coverage.skipped.oversize, 'file', 'files')} over 512 KB were not read`);
-    if (coverage.unreadable) notes.push(`${plural(coverage.unreadable, 'file', 'files')} could not be read`);
-    if (coverage.packages && coverage.packages.notChecked) notes.push(`${plural(coverage.packages.notChecked, 'package', 'packages')} beyond the lookup limit were not checked`);
-    if (coverage.packages && coverage.packages.unknown) notes.push(`${plural(coverage.packages.unknown, 'registry lookup', 'registry lookups')} went unanswered`);
-    const advisories = coverage.advisories || {};
-    if (advisories.unknown) notes.push(`${plural(advisories.unknown, 'advisory lookup', 'advisory lookups')} went unanswered`);
-    if (advisories.notChecked) notes.push(`${plural(advisories.notChecked, 'package version', 'package versions')} beyond the advisory limit were not checked`);
-    if (advisories.lockfiles > advisories.lockfilesRead) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
-    const licensing = result.licences && result.licences.status;
-    if (licensing && licensing.notAsked) notes.push(`${plural(licensing.notAsked, 'package version', 'package versions')} beyond the licence lookup limit were not checked`);
-    const exploit = coverage.exploit;
-    if (exploit && exploit.cves) {
-      if (exploit.kev === 'unavailable') notes.push('CISA’s exploited-vulnerability catalog could not be read, so existing exploit evidence must be treated as last known rather than current');
-      else if (exploit.kevStale) notes.push('the exploited-vulnerability catalog is an earlier copy, because a refresh failed');
-      if (exploit.epss === 'unavailable') notes.push('EPSS could not be reached, so no exploit probability is shown');
-      else if (exploit.epss === 'partial') notes.push('some EPSS requests went unanswered, so some CVEs have no exploit probability');
-      if (exploit.cves > exploit.asked) notes.push(`${plural(exploit.cves - exploit.asked, 'CVE', 'CVEs')} beyond the lookup limit have no exploit data`);
-    }
-    const traced = result.engine && result.engine.traced;
-    if (traced && traced.cut) notes.push(`tracing reached the server's ${traced.limit === 'memory' ? 'memory' : 'time'} limit, so ${plural(traced.cut, 'file was', 'files were')} checked against the rules without being traced`);
-    return notes.length ? `Not a complete read: ${notes.join('; ')}. A finding-free section here is not a finding-free repository.` : '';
-  }
 
   /*
    * The evidence as four figures a reader takes in at a glance. The sentence
@@ -967,43 +704,6 @@ const api = (function codeAuditModule(global) {
       element('span', 'audit-grade-score', graded ? `${result.score}/100` : status === 'running' ? 'reading' : result ? 'incomplete' : 'not audited'));
     wrap.append(svg, face);
     return wrap;
-  }
-
-  /*
-   * Why a grade sits where it does when a ceiling held it there. A kept audit
-   * stores only the reasons that hold it below 50; one held by serious
-   * findings keeps its capped score and its counts, which agree on their own.
-   */
-  function capNote(reason, counts, kept) {
-    const is = kept ? 'was' : 'is';
-    if (reason === 'exploited') return `Held below 50 while a vulnerability CISA lists as exploited in the wild ${kept ? 'shipped' : 'ships'} with the code.`;
-    if (reason === 'critical') return `Held below 50 while a confirmed critical finding ${is} open.`;
-    if (reason === 'serious') {
-      const serious = counts && Number.isFinite(counts.serious) ? counts.serious : 0;
-      const ceiling = serious >= 6 ? 'D' : serious >= 3 ? 'C' : 'B';
-      return `Held to ${ceiling} at best while ${plural(serious, 'confirmed serious finding', 'confirmed serious findings')} ${serious === 1 ? is : kept ? 'were' : 'are'} open.`;
-    }
-    return null;
-  }
-  function capPhrase(reason) {
-    if (reason === 'exploited') return ' (held below 50 by a vulnerability exploited in the wild)';
-    if (reason === 'critical') return ' (held below 50 by a confirmed critical finding)';
-    if (reason === 'serious') return ' (held down by confirmed serious findings)';
-    return '';
-  }
-
-  /* The headline counts what is confirmed; a lead to confirm is named as one, never as an issue. */
-  function verdict(result, status) {
-    if (status === 'running') return 'Auditing this branch…';
-    if (!result) return 'Not audited yet';
-    const confirmed = result.findings.filter(finding => verdictOf(finding) === 'confirmed');
-    const counts = severityCounts(confirmed);
-    const leads = result.findings.length - confirmed.length;
-    if (counts.critical) return `${plural(counts.critical, 'critical issue', 'critical issues')} to fix`;
-    if (counts.serious) return `${plural(counts.serious, 'serious issue', 'serious issues')} to fix`;
-    if (counts.warning) return `${plural(counts.warning, 'warning', 'warnings')}, nothing serious`;
-    if (leads) return `${plural(leads, 'lead', 'leads')} to confirm, nothing confirmed`;
-    return 'Nothing found in what was read';
   }
 
   /* Confirmed against to confirm, for a result that carries verdicts. */
@@ -1178,7 +878,7 @@ const api = (function codeAuditModule(global) {
     const ref = (result && result.ref) || (stored && stored.ref);
     if (ref) head.appendChild(element('span', 'audit-ref', ref));
     read.appendChild(head);
-    read.appendChild(element('p', 'audit-verdict', stored && status !== 'error' ? `Last audited ${when(stored.auditedAt).relative}` : verdict(result, status)));
+    read.appendChild(element('p', 'audit-verdict', stored && status !== 'error' ? `Last audited ${when(stored.auditedAt).relative}` : headline(result, status)));
 
     if (status === 'error') {
       const error = element('p', 'audit-lede audit-error', view.error || 'The audit could not be completed.');
@@ -1255,24 +955,7 @@ const api = (function codeAuditModule(global) {
     host.appendChild(card);
   }
 
-  function resultId(result) {
-    return `${result.commitSha || ''}|${result.auditedAt || ''}|${result.score}`;
-  }
-
   /* ---- Fix first ------------------------------------------------------------ */
-
-  function detailChip(finding) {
-    const detail = finding.detail;
-    if (!detail) return null;
-    if (finding.rule === 'SCR-001' && detail.credential) return detail.credential;
-    if (finding.rule === 'DEP-004') return `${detail.package} ≈ ${detail.resembles}`;
-    if (finding.category === 'licences' && detail.package) return `${detail.package} ${detail.version} · ${detail.licence || 'no licence'}`;
-    if (detail.package) {
-      if (finding.rule === 'DEP-006') return `${detail.package} ${detail.version}`;
-      return detail.fixed ? `${detail.package} ${detail.version} → ${detail.fixed}` : `${detail.package} ${detail.version}`;
-    }
-    return null;
-  }
 
   function renderPriorities(host, view, handlers, root) {
     const result = view.result;
@@ -1341,43 +1024,12 @@ const api = (function codeAuditModule(global) {
 
   const RISK_FOLD = 6;
   const expandedRisks = new Set();
-  /* The vulnerable packages by risk: exploited in something that ships first, then the number. */
-  /*
-   * One row per package version: declared in two manifests it is still one
-   * thing to upgrade. The row keeps the riskiest finding and counts the rest.
-   */
-  const placesOf = new WeakMap();
-  function riskRanked(findings) {
-    const ranked = findings.filter(finding => riskOf(finding))
-      .sort((a, b) => Number(exploited(b)) - Number(exploited(a)) || riskOf(b).score - riskOf(a).score ||
-        ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity) || String(a.detail.package).localeCompare(String(b.detail.package)));
-    const first = new Map();
-    const out = [];
-    for (const finding of ranked) {
-      const detail = finding.detail;
-      const key = `${detail.ecosystem || ''}\0${String(detail.package).toLowerCase()}\0${detail.source === 'range' ? detail.range : detail.version}`;
-      const kept = first.get(key);
-      if (kept) { placesOf.set(kept, (placesOf.get(kept) || 1) + 1); continue; }
-      first.set(key, finding);
-      out.push(finding);
-    }
-    return out;
-  }
-  function intelSources(result) {
-    const exploit = result.coverage && result.coverage.exploit;
-    if (!exploit) return '';
-    const kev = exploit.kev === 'ok'
-      ? `CISA’s Known Exploited Vulnerabilities catalog${exploit.kevVersion ? ` ${exploit.kevVersion}` : ''}${exploit.kevCount ? ` (${exploit.kevCount.toLocaleString()} CVEs)` : ''}${exploit.kevStale ? ', an earlier copy because a refresh failed' : ''}`
-      : exploit.kev === 'not-needed' ? '' : 'CISA’s catalog could not be read';
-    const epss = exploit.epss === 'ok' || exploit.epss === 'partial'
-      ? `FIRST EPSS scores for ${exploit.scored} of ${exploit.asked} CVEs${exploit.epss === 'partial' ? ' (some requests went unanswered)' : exploit.unscored ? ` (EPSS has not scored the other ${exploit.unscored} yet)` : ''}`
-      : exploit.epss === 'not-needed' ? '' : 'EPSS could not be reached';
-    return [kev, epss].filter(Boolean).join(' · ');
-  }
   function renderRisk(host, view, handlers, root) {
     const result = view.result;
     if (!result || view.filter || view.owasp) return;
-    const ranked = riskRanked(result.findings);
+    /* One row per package version, with how many places declare it (audit-terms.ts). */
+    const rows = riskRanked(result.findings);
+    const ranked = rows.map(row => row.finding);
     if (!ranked.length) return;
     const card = element('section', 'card audit-risk');
     card.setAttribute('aria-labelledby', 'auditRiskHeading');
@@ -1450,7 +1102,7 @@ const api = (function codeAuditModule(global) {
       const sub = element('span', 'audit-risk-sub', finding.rule === 'DEP-006' ? 'Known malicious: remove it and rotate what it could reach.' : tierPhrase(detail.usage));
       if (detail.usage) sub.title = tierSentence(detail.usage);
       main.append(name, sub);
-      const places = placesOf.get(finding) || 1;
+      const places = rows[index].places;
       if (places > 1) main.appendChild(element('span', 'audit-risk-places', `Declared in ${places} places; the finding below each one says where.`));
       const tags = element('span', 'audit-risk-tags');
       const kev = kevChip(finding, { short: true });
@@ -2084,32 +1736,9 @@ const api = (function codeAuditModule(global) {
    * with the tone a reader should give it. Public domain and permissive are
    * the quiet majority; a package that grants no licence is the loudest.
    */
-  const LICENCE_FAMILY = Object.freeze({
-    'public-domain': Object.freeze({ word: 'Public domain', tone: 'good' }),
-    permissive: Object.freeze({ word: 'Permissive', tone: 'good' }),
-    'weak-copyleft': Object.freeze({ word: 'Weak copyleft', tone: 'neutral' }),
-    'strong-copyleft': Object.freeze({ word: 'Strong copyleft', tone: 'warning' }),
-    'network-copyleft': Object.freeze({ word: 'Network copyleft', tone: 'serious' }),
-    restricted: Object.freeze({ word: 'Restricted use', tone: 'serious' }),
-    none: Object.freeze({ word: 'No licence', tone: 'critical' }),
-    unknown: Object.freeze({ word: 'Unknown', tone: 'pending' })
-  });
-  const LICENCE_ORDER = Object.freeze(['none', 'restricted', 'network-copyleft', 'strong-copyleft', 'weak-copyleft', 'unknown', 'permissive', 'public-domain']);
   const LICENCE_FOLD = 8;
   const expandedLicences = new Set();
 
-  /* A licence finding's facts, in the words the finding body and the brief share. */
-  function licenceFactList(detail) {
-    const family = LICENCE_FAMILY[detail.family] || LICENCE_FAMILY.unknown;
-    const facts = [
-      ['Licence', `${detail.licence || 'none stated'} (${family.word.toLowerCase()})`],
-      ['Package', `${detail.package} ${detail.version}, ${detail.dev ? 'installed for development only' : detail.direct ? 'asked for by the project' : 'a transitive dependency'}`],
-      ['Read from', detail.source === 'lockfile' ? 'the lockfile' : 'deps.dev']
-    ];
-    if (detail.project) facts.push(['Project licence', detail.project]);
-    if (detail.policy) facts.push(['Policy', `${detail.reason === 'denied' ? 'refused by' : 'not allowed by'} ${detail.policy}`]);
-    return facts;
-  }
   function licenceFacts(detail) {
     const list = element('dl', 'audit-licence-basis audit-licence-facts');
     for (const [term, value] of licenceFactList(detail)) {
@@ -2352,11 +1981,6 @@ const api = (function codeAuditModule(global) {
    * what the repository already does right. A clean findings list means
    * little without the first, and a reviewer weighs the second.
    */
-  function ledgerStatus(entry) {
-    if (entry.status === 'covered' && TRACED_CLASSES.has(entry.id)) return 'traced';
-    if (entry.status === 'covered' && entry.id === 'access') return 'mapped';
-    return LEDGER_STATUS[entry.status] ? entry.status : 'not-assessed';
-  }
   function renderCoverage(host, view, handlers) {
     const result = view.result;
     if (!result || !Array.isArray(result.ledger) || !result.ledger.length) return;
@@ -2598,7 +2222,6 @@ const api = (function codeAuditModule(global) {
    * passed through, the line that used it. Places and words only -- no step
    * carries the code it points at.
    */
-  const STEP_ROLE = Object.freeze({ entrypoint: 'Enters', propagation: 'Passes', sink: 'Reaches' });
   function traceView(finding, handlers) {
     const wrap = element('div', 'audit-trace');
     const head = element('p', 'audit-trace-head');
@@ -2962,57 +2585,11 @@ const api = (function codeAuditModule(global) {
 
   /* ---- The deployed site ---------------------------------------------------- */
 
-  const HEADER_NAMES = Object.freeze({
-    'strict-transport-security': 'Strict-Transport-Security',
-    'content-security-policy': 'Content-Security-Policy',
-    'x-frame-options': 'X-Frame-Options',
-    'x-content-type-options': 'X-Content-Type-Options',
-    'referrer-policy': 'Referrer-Policy',
-    'permissions-policy': 'Permissions-Policy',
-    'cross-origin-opener-policy': 'Cross-Origin-Opener-Policy',
-    'cross-origin-resource-policy': 'Cross-Origin-Resource-Policy'
-  });
-  /* A header's job in three words, under its name on the tile. */
-  const HEADER_JOBS = Object.freeze({
-    'strict-transport-security': 'HTTPS only',
-    'content-security-policy': 'Script sources',
-    'x-frame-options': 'No framing',
-    'x-content-type-options': 'No sniffing',
-    'referrer-policy': 'Leaks no URLs',
-    'permissions-policy': 'Device features',
-    'cross-origin-opener-policy': 'Window isolation',
-    'cross-origin-resource-policy': 'Resource isolation'
-  });
-
   /*
    * The deployed site: an address, the grade its responses earn, which of
    * the headers a browser enforces were sent, and the findings. The address
    * is the only thing typed here, and only its origin is ever requested.
    */
-  /* Legacy reports without coverage evidence cannot establish a passing grade. */
-  function siteAssessment(result) {
-    const raw = result.coverage || {};
-    const complete = raw.complete === true && raw.state === 'complete';
-    const state = complete ? 'complete' : raw.state === 'partial' ? 'partial' : 'unknown';
-    const reasons = Array.isArray(raw.reasons) ? raw.reasons.filter(reason => typeof reason === 'string') : [];
-    if (!complete && !reasons.length) reasons.push('Coverage evidence is unavailable; run the check again.');
-    return { state, complete, reasons, categories: raw.categories || {} };
-  }
-  function siteAssessmentLine(result) {
-    const coverage = siteAssessment(result);
-    if (coverage.complete) return 'Coverage complete within the stated request and resource limits. This is a bounded security check, not a security certification.';
-    const observed = Number.isFinite(result.observedScore) ? ` Observed checks scored ${result.observedScore}/100; this is not an overall site score.` : '';
-    return `Coverage ${coverage.state}. Overall grade withheld.${observed} ${coverage.reasons.join(' ')}`;
-  }
-
-  function siteCoverage(result) {
-    const hops = result.redirects
-      ? ` after ${plural(result.redirects, 'redirect', 'redirects')}${result.requested && result.requested !== result.origin ? ` from ${result.requested}` : ''}`
-      : '';
-    const took = Number.isFinite(result.durationMs) ? ` in ${Math.max(1, Math.round(result.durationMs / 1000))} s` : '';
-    return `${plural(result.requests, 'anonymous request', 'anonymous requests')}${took}; the page answered ${result.status}${hops}.`;
-  }
-
   /*
    * Where a running site check is, as the server reports it: four steps in
    * the audit's own language, a line in words and a count where there is one.
@@ -3094,13 +2671,6 @@ const api = (function codeAuditModule(global) {
   }
 
   /* What was checked, each as passed, failed, worth a look, skipped or not answered -- so a short findings list is never read as a clean site. */
-  const LEDGER_NAMES = Object.freeze({
-    certificate: 'Certificate', protocol: 'TLS', 'plain-http': 'Plain HTTP', hsts: 'HSTS', headers: 'Security headers', cookies: 'Cookies',
-    cors: 'Cross-origin reads', paths: 'Exposed files', errors: 'Error pages', robots: 'Crawler instructions', pages: 'Pages read', scripts: 'JavaScript', maps: 'Source maps',
-    libraries: 'Libraries', contact: 'Security contact', email: 'Email spoofing'
-  });
-  const LEDGER_GLYPH = Object.freeze({ pass: '✓', fail: '✕', warn: '!', skip: '–', unknown: '?' });
-  const LEDGER_STATE = Object.freeze({ pass: 'Passed', fail: 'Failed', warn: 'Worth a look', skip: 'Skipped', unknown: 'Not answered' });
   function siteLedger(result) {
     const entries = Array.isArray(result.ledger) ? result.ledger : [];
     if (!entries.length) return null;
@@ -3217,7 +2787,7 @@ const api = (function codeAuditModule(global) {
       const origin = element('span', 'audit-origin');
       origin.append(icon(ICON.globe), element('span', null, result.origin.replace(/^https:\/\//, '')));
       origin.title = result.origin;
-      read.append(origin, element('p', 'audit-verdict audit-verdict-sm', total ? verdict(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
+      read.append(origin, element('p', 'audit-verdict audit-verdict-sm', total ? headline(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
       read.appendChild(severityTally(result.findings));
       const notes = element('div', 'audit-notes');
       if (result.capped && graded) notes.appendChild(element('p', 'audit-cap', 'Held below 50 while a critical finding is open.'));
@@ -3332,7 +2902,7 @@ const api = (function codeAuditModule(global) {
         ? `Site grade ${result.grade}, ${result.score} out of 100`
         : `Site coverage ${assessment.state}; overall grade withheld`, fresh ? 0 : null));
       const read = element('div', 'audit-grade-read');
-      read.append(element('p', 'audit-verdict audit-verdict-sm', result.findings.length ? verdict(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
+      read.append(element('p', 'audit-verdict audit-verdict-sm', result.findings.length ? headline(result, 'done') : assessment.complete ? 'Nothing found in the completed checks' : 'No findings in the checks completed so far'));
       read.appendChild(severityTally(result.findings));
       const at = Date.parse(result.checkedAt);
       if (Number.isFinite(at)) read.appendChild(element('p', 'audit-coverage', `Checked ${new Date(at).toLocaleString()}.`));
@@ -3485,714 +3055,8 @@ const api = (function codeAuditModule(global) {
       if (again && !again.disabled) again.focus({ preventScroll: true });
     }
   }
-
-  /*
-   * The developer brief: the audit as a Markdown document a reader can hand
-   * to whoever fixes it, or to an assistant. Rules, places, reasons, fixes,
-   * advisories and the prompts -- the same words the screen shows, and still
-   * no code.
-   */
-  function findingSection(findings, lines, prefix, place) {
-    findings.forEach((finding, index) => {
-      lines.push(
-        `## ${prefix}${index + 1}. ${finding.title}`,
-        '',
-        `- **Severity:** ${finding.severity}`,
-        ...(finding.verdict ? [`- **Verdict:** ${VERDICT[verdictOf(finding)].word.toLowerCase()}${finding.evidence ? ` (${EVIDENCE_WORD[finding.evidence] || finding.evidence})` : ''}`] : []),
-        `- **Rule:** ${finding.rule}`,
-        `- **Where:** ${place(finding)}`
-      );
-      if (finding.clock) {
-        lines.push(`- **Due by:** ${String(finding.clock.dueAt).slice(0, 10)}${finding.clock.state === 'overdue' ? ' (overdue)' : ''} — ${finding.clock.days} days from ${String(finding.clock.firstSeenAt).slice(0, 10)}, when it was first seen`);
-      }
-      if (finding.reach) {
-        const reach = REACH[finding.reach.auth];
-        lines.push(`- **Reached through:** ${finding.reach.route ? `\`${verbs(finding.reach.method)} ${finding.reach.route}\`` : 'a server action'}${reach ? ` — ${reach.word.toLowerCase()}` : ''}`);
-      }
-      if (Array.isArray(finding.trace) && finding.trace.length) {
-        lines.push(`- **Traced path:** ${finding.trace.map(step => `${STEP_ROLE[step.role] || 'Passes'} \`${step.line ? `${step.path}:${step.line}` : step.path}\` (${step.note})`).join(' → ')}`);
-      }
-      const standards = finding.standards;
-      if (standards) {
-        lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
-          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`,
-          standards.top25 && `CWE Top 25 (2025) #${standards.top25.rank}`].filter(Boolean).join(' · ')}`);
-      }
-      const detail = finding.detail;
-      if (detail && finding.rule === 'SCR-001') lines.push(`- **Credential:** ${detail.credential}`);
-      if (detail && finding.rule === 'DEP-004') lines.push(`- **Looks like:** ${detail.resembles}`);
-      if (detail && detail.package && finding.category === 'licences') {
-        for (const [term, value] of licenceFactList(detail)) lines.push(`- **${term}:** ${value}`);
-      }
-      if (detail && detail.package && Array.isArray(detail.advisories)) {
-        lines.push(`- **Package:** ${detail.package} ${detail.source === 'range' ? `${detail.range} (lowest accepted ${detail.version})` : detail.version}${detail.direct ? '' : ' (transitive)'}`);
-        if (detail.fixed) lines.push(`- **Fixed in:** ${detail.fixed}`);
-        lines.push(`- **Advisories:** ${detail.advisories.map(advisory => `${advisory.id}${advisory.cve ? ` (${advisory.cve})` : ''}`).join(', ')}${detail.more ? ` and ${detail.more} more` : ''}`);
-        if (detail.risk) lines.push(`- **Risk:** ${detail.risk.score}/100, ${RISK_BAND[detail.risk.band].word.toLowerCase()}`);
-        const intel = detail.intel;
-        if (intel && intel.exploited && intel.kev) lines.push(`- **Exploited in the wild:** ${intel.kev.cve}, in CISA’s catalog since ${intel.kev.added || 'an unknown date'}${intel.ransomware ? '; used in ransomware campaigns' : ''}`);
-        if (intel && intel.epss) lines.push(`- **EPSS:** ${percent(intel.epss.score)} (${intel.epss.cve}${intel.epss.date ? `, ${intel.epss.date}` : ''})`);
-        if (detail.usage) lines.push(`- **Reach:** ${tierSentence(detail.usage)}${detail.usage.chain && detail.usage.chain.length > 1 ? ` Path: ${detail.usage.chain.join(' → ')}.` : ''}`);
-      }
-      lines.push('', finding.why, '');
-      if (verdictOf(finding) === 'needs-validation') {
-        if (finding.blocker) lines.push(`**What is unknown.** ${finding.blocker}`, '');
-        if (finding.check) lines.push(`**How to confirm.** ${finding.check}`, '');
-      }
-      lines.push(
-        `**Fix.** ${finding.fix}`,
-        '',
-        '```text',
-        finding.prompt,
-        '```',
-        ''
-      );
-    });
-  }
-
-  const EVIDENCE_WORD = Object.freeze({ traced: 'path traced', surface: 'endpoint map', fact: 'stated in the file', pattern: 'pattern only' });
-
-  function brief(result, repoLabel, site) {
-    const lines = [`# Security audit: ${repoLabel}`, ''];
-    if (result) {
-      const leads = result.findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
-      const engine = result.engine && result.engine.traced ? result.engine : null;
-      lines.push(
-        `Grade **${result.grade}** — ${result.score}/100${result.capped ? capPhrase(result.capReason) : ''}.`,
-        `Commit \`${result.commitSha}\`, audited ${result.auditedAt || new Date().toISOString()}${engine ? ` by ${engine.name} ${engine.version}` : ''}.`,
-        ...(engine ? [`${result.findings.length - leads} confirmed, ${leads} to confirm. A finding to confirm weighs half and names the check that settles it.`] : []),
-        '',
-        coverageLine(result),
-        coverageCaveat(result),
-        '',
-        '| Family | Score | Critical | Serious | Warning |',
-        '| --- | --- | --- | --- | --- |',
-        ...result.categories.map(category => `| ${category.label} | ${category.score} | ${category.counts.critical} | ${category.counts.serious} | ${category.counts.warning} |`),
-        ''
-      );
-      if (Array.isArray(result.ledger) && result.ledger.length) {
-        lines.push('## Coverage', '', '| Class | Status | What was read |', '| --- | --- | --- |',
-          ...result.ledger.map(entry => `| ${entry.label} | ${LEDGER_STATUS[ledgerStatus(entry)].word} | ${cell(entry.detail)} |`), '');
-      }
-      if (result.surface && result.surface.counts && (result.surface.counts.endpoints + result.surface.counts.actions)) {
-        const counts = result.surface.counts;
-        lines.push(`**Attack surface:** ${plural(counts.endpoints, 'endpoint', 'endpoints')}${counts.actions ? ` and ${plural(counts.actions, 'server action', 'server actions')}` : ''}; ${counts.guarded} signed in, ${counts.open} open${counts.unknown ? `, ${counts.unknown} behind a guard to confirm` : ''}; ${counts.mutating} write data.`, '');
-      }
-      if (Array.isArray(result.controls) && result.controls.length) {
-        lines.push('**Already in place:**', '', ...result.controls.map(control => `- ${control.label}${control.path ? ` (\`${control.path}\`)` : ''}`), '');
-      }
-      const byId = new Map(result.findings.map(finding => [finding.id, finding]));
-      const first = (result.priorities || []).map(id => byId.get(id)).filter(Boolean);
-      if (first.length) {
-        lines.push('**Fix first:**', '', ...first.map((finding, index) => `${index + 1}. ${finding.title} — ${finding.path ? `\`${location(finding)}\`` : 'whole repository'}`), '');
-      }
-      const risky = riskRanked(result.findings);
-      if (risky.length) {
-        const sources = intelSources(result);
-        lines.push('## Dependency risk', '', 'Ranked by exploitation in the wild, exploit probability and reach. Risk is (40 × CVSS impact + 60 × threat) × reach, out of 100.', '',
-          ...(sources ? [`Sources: ${sources}.`, ''] : []),
-          '| Risk | Package | Exploited | EPSS | Reach |', '| --- | --- | --- | --- | --- |',
-          ...risky.map(finding => {
-            const detail = finding.detail;
-            const intel = intelOf(finding);
-            const epss = intel && intel.epss ? `${percent(intel.epss.score)} (${intel.epss.cve})` : '—';
-            const kev = intel && intel.exploited ? `yes — ${intel.kev.cve}${intel.ransomware ? ', ransomware' : ''}` : intel && intel.catalog === 'unknown' ? 'unknown' : 'no';
-            return `| ${detail.risk.score} ${RISK_BAND[detail.risk.band].word.toLowerCase()} | ${cell(`${detail.package} ${detail.source === 'range' ? detail.range : detail.version}`)} | ${kev} | ${epss} | ${cell(tierWord(detail.usage))} |`;
-          }), '');
-      }
-      const licensing = result.licences;
-      if (licensing && licensing.status && licensing.status.versions) {
-        const policy = licensing.policy && !licensing.policy.invalid ? licensing.policy : null;
-        const project = licensing.project;
-        const tally = LICENCE_ORDER.filter(family => licensing.families[family])
-          .map(family => `${licensing.families[family]} ${LICENCE_FAMILY[family].word.toLowerCase()}`).join(' · ');
-        lines.push('## Licences', '',
-          `Judged against ${policy ? `the policy in \`${policy.path}\`` : project && project.expression ? `the project\u2019s own ${project.expression}${project.source ? ` (from \`${project.source}\`)` : ''}` : 'use in proprietary code: no project licence was found'}. Reported, not graded.`, '',
-          `${licensing.status.known} of ${plural(licensing.status.versions, 'package version', 'package versions')} read: ${tally}.`, '');
-        const listed = Array.isArray(licensing.packages) ? licensing.packages : [];
-        if (listed.length) {
-          lines.push('| Package | Licence | Family | Kind |', '| --- | --- | --- | --- |',
-            ...listed.map(item => `| ${cell(`${item.package} ${item.version}`)} | ${cell(item.licence || 'none stated')} | ${(LICENCE_FAMILY[item.family] || LICENCE_FAMILY.unknown).word} | ${item.dev ? 'development' : item.direct ? 'direct' : 'transitive'} |`), '');
-        }
-      }
-      if (!result.findings.length) lines.push('No findings in what was read.', '');
-      findingSection(result.findings, lines, '', finding => finding.path ? `\`${location(finding)}\`` : 'whole repository');
-      const triaged = (result.suppressed || []).filter(finding => finding.suppression && finding.suppression.triage);
-      if (triaged.length) {
-        lines.push('## Triaged by the team', '', 'Not scored. Each was decided by a person with reviewer access to the repository: a false positive, or a risk accepted until a date, after which it is open again.', '',
-          '| Rule | Finding | Where | Decision |', '| --- | --- | --- | --- |',
-          ...triaged.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${location(finding)}\` | ${cell(triageJustification(finding.suppression.triage))} |`), '');
-      }
-      const waived = (result.suppressed || []).filter(finding => !(finding.suppression && finding.suppression.triage));
-      if (waived.length) {
-        lines.push('## Waived in code', '', 'Not scored. Each was waived by an `nv-audit-ignore` comment naming its rule, or, for a licence, cleared by name in the repository\u2019s licence policy.', '',
-          '| Rule | Finding | Where | Reason |', '| --- | --- | --- | --- |',
-          ...waived.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${location(finding)}\` | ${cell((finding.suppression && finding.suppression.reason) || 'none given')} |`), '');
-      }
-    }
-    if (site) {
-      lines.push(
-        `# Deployed site: ${site.origin}`,
-        '',
-        siteAssessment(site).complete && Number.isFinite(site.score) && typeof site.grade === 'string'
-          ? `Grade **${site.grade}** — ${site.score}/100${site.capped ? ' (held below 50 by a critical finding)' : ''}.`
-          : '**Overall grade withheld.**',
-        siteAssessmentLine(site),
-        `Checked ${site.checkedAt || new Date().toISOString()}: ${siteCoverage(site)}`,
-        '',
-        '| Header | Sent |',
-        '| --- | --- |',
-        ...(site.headers || []).map(header => `| ${HEADER_NAMES[header.name] || header.name} | ${header.present ? 'yes' : 'no'} |`),
-        ''
-      );
-      if (Array.isArray(site.ledger) && site.ledger.length) {
-        lines.push('## What was checked', '', '| Check | Result | Detail |', '| --- | --- | --- |',
-          ...site.ledger.map(entry => `| ${LEDGER_NAMES[entry.id] || entry.id} | ${LEDGER_STATE[entry.state] || entry.state} | ${String(entry.detail || '').replace(/\|/g, '\\|')} |`), '');
-      }
-      if (Array.isArray(site.libraries) && site.libraries.length) {
-        lines.push('## Browser libraries', '', ...site.libraries.map(library => `- ${library.name} ${library.version}: ${library.state === 'vulnerable'
-          ? `${plural(library.advisories, 'advisory', 'advisories')}${library.ids && library.ids.length ? ` (${library.ids.join(', ')})` : ''}${library.fixed ? `, fixed in ${library.fixed}` : ''}`
-          : library.state === 'clean' ? 'no published advisory' : 'not checked'}`), '');
-      }
-      if (!site.findings.length) lines.push(siteAssessment(site).complete ? 'No findings in the completed checks.' : 'No findings in the checks completed so far. Incomplete checks cannot establish that the site is clear.', '');
-      findingSection(site.findings, lines, 'S', finding => `\`${finding.where}\``);
-    }
-    return lines.filter((line, index, all) => !(line === '' && all[index - 1] === '')).join('\n');
-  }
-
-  /* A Markdown table cell: pipes escaped, one line. */
-  function cell(text) {
-    return String(text || '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
-  }
-
-  /*
-   * SARIF 2.1.0, the format code-scanning dashboards read. One run per
-   * source: the repository, with each result at its file and line, and the
-   * deployed site, with each result at its logical place (a header, a path).
-   * Waived findings travel as results with an in-source suppression, so a
-   * dashboard shows them as dismissed rather than losing them. Rules carry
-   * their CWE and OWASP tags and a security-severity GitHub sorts by.
-   */
-  const SARIF_LEVEL = Object.freeze({ critical: 'error', serious: 'error', warning: 'warning' });
-  const SECURITY_SEVERITY = Object.freeze({ critical: '9.5', serious: '7.5', warning: '4.0' });
-
-  function sarifRules(findings) {
-    const rules = new Map();
-    for (const finding of findings) {
-      if (rules.has(finding.rule)) continue;
-      const standards = finding.standards || {};
-      /* A licence is compliance: a dashboard files it apart from security alerts, and gives it no security severity. */
-      const compliance = finding.category === 'licences';
-      const tags = [compliance ? 'compliance' : 'security', finding.category, standards.cwe && `external/cwe/${standards.cwe.toLowerCase()}`,
-        standards.owasp && `owasp-${standards.owasp.replace(':', '-').toLowerCase()}`, standards.top25 && 'cwe-top25-2025'].filter(Boolean);
-      rules.set(finding.rule, {
-        id: finding.rule,
-        name: finding.rule.replace('-', ''),
-        shortDescription: { text: finding.title },
-        fullDescription: { text: finding.why },
-        help: { text: finding.fix, markdown: `**Fix.** ${finding.fix}` },
-        ...(standards.cwe ? { helpUri: `https://cwe.mitre.org/data/definitions/${standards.cwe.slice(4)}.html` } : {}),
-        defaultConfiguration: { level: SARIF_LEVEL[finding.severity] },
-        properties: {
-          tags, precision: 'high', 'problem.severity': finding.severity === 'warning' ? 'warning' : 'error', ...(compliance ? {} : { 'security-severity': SECURITY_SEVERITY[finding.severity] }),
-          ...(standards.owaspBasis ? { 'owasp-basis': standards.owaspBasis } : {}),
-          ...(standards.top25 ? { 'cwe-top25-2025-rank': standards.top25.rank } : {})
-        }
-      });
-    }
-    return [...rules.values()];
-  }
-
-  /* A traced path as a SARIF code flow, which code-scanning dashboards draw step by step. */
-  function sarifFlow(trace) {
-    return [{ threadFlows: [{ locations: trace.map(step => ({
-      location: {
-        physicalLocation: { artifactLocation: { uri: step.path, uriBaseId: 'SRCROOT' }, ...(step.line ? { region: { startLine: step.line } } : {}) },
-        message: { text: step.note || STEP_ROLE[step.role] || 'step' }
-      },
-      kinds: [step.role === 'entrypoint' ? 'source' : step.role === 'sink' ? 'sink' : 'pass-through']
-    })) }] }];
-  }
-  function triageJustification(decision) {
-    const what = decision.disposition === 'false-positive' ? 'False positive' : 'Risk accepted';
-    const who = decision.decidedBy ? ` by ${decision.decidedBy}` : '';
-    const on = decision.decidedAt ? ` on ${String(decision.decidedAt).slice(0, 10)}` : '';
-    const until = decision.expiresAt ? `, until ${String(decision.expiresAt).slice(0, 10)}` : '';
-    return `${what}${who}${on}${until}: ${decision.reasonLabel || String(decision.reason || '').replace(/-/g, ' ')}.`;
-  }
-  function sarifResult(finding, ruleIndex, place, suppression) {
-    const toConfirm = verdictOf(finding) === 'needs-validation';
-    const result = {
-      ruleId: finding.rule,
-      ruleIndex,
-      /* A lead is a note, not an error: a dashboard should not fail a build on something unconfirmed. */
-      level: toConfirm ? 'note' : SARIF_LEVEL[finding.severity],
-      ...(toConfirm ? { kind: 'review' } : {}),
-      message: { text: `${finding.title}. ${finding.why}${toConfirm && finding.blocker ? ` To confirm: ${finding.blocker}` : ''}` },
-      ...place,
-      ...(Array.isArray(finding.trace) && finding.trace.length && place.locations && place.locations[0].physicalLocation ? { codeFlows: sarifFlow(finding.trace) } : {}),
-      partialFingerprints: { 'nebulaverseFinding/v1': finding.id || `${finding.rule}:${finding.where || location(finding)}` },
-      properties: {
-        severity: finding.severity, family: finding.category || 'site',
-        ...(finding.verdict ? { verdict: verdictOf(finding), evidence: finding.evidence || null } : {}),
-        ...(finding.reach ? { reach: { method: finding.reach.method, route: finding.reach.route, auth: finding.reach.auth } } : {}),
-        ...(toConfirm && finding.check ? { howToConfirm: finding.check } : {}),
-        ...(riskOf(finding) ? { risk: riskOf(finding).score, riskBand: riskOf(finding).band } : {}),
-        ...(intelOf(finding) ? {
-          knownExploited: Boolean(intelOf(finding).exploited),
-          ...(intelOf(finding).kev ? { kev: intelOf(finding).kev } : {}),
-          ...(intelOf(finding).epss ? { epss: intelOf(finding).epss.score, epssPercentile: intelOf(finding).epss.percentile, epssCve: intelOf(finding).epss.cve } : {})
-        } : {}),
-        ...(usageOf(finding) ? { dependencyReach: usageOf(finding).tier } : {}),
-        ...(finding.clock ? { firstSeen: finding.clock.firstSeenAt, dueBy: finding.clock.dueAt, clock: finding.clock.state } : {})
-      }
-    };
-    /* A dependency's own CVSS is a better sort key for a dashboard than the family's default. */
-    if (finding.detail && Number.isFinite(finding.detail.cvss)) result.properties['security-severity'] = finding.detail.cvss.toFixed(1);
-    /* A team decision is an external suppression, accepted, with who and why; a waiver in the code is one in source. */
-    if (suppression && suppression.triage) result.suppressions = [{ kind: 'external', status: 'accepted', justification: triageJustification(suppression.triage) }];
-    else if (suppression) result.suppressions = [{ kind: 'inSource', justification: suppression.reason || 'Waived in code without a reason.' }];
-    return result;
-  }
-
-  function sarif(result, site, meta = {}) {
-    const driver = rules => ({
-      driver: {
-        name: 'Nebulaverse-X Uranus',
-        informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints',
-        ...(meta.version ? { semanticVersion: meta.version } : {}),
-        rules
-      }
-    });
-    const runs = [];
-    if (result) {
-      const all = [...result.findings, ...(result.suppressed || [])];
-      const rules = sarifRules(all);
-      const index = new Map(rules.map((rule, at) => [rule.id, at]));
-      const place = finding => finding.path ? {
-        locations: [{ physicalLocation: { artifactLocation: { uri: finding.path, uriBaseId: 'SRCROOT' }, ...(finding.line ? { region: { startLine: finding.line } } : {}) } }]
-      } : {};
-      runs.push({
-        tool: driver(rules),
-        automationDetails: { id: `nebulaverse-audit/${meta.ref || result.ref || 'branch'}/` },
-        ...(meta.repositoryUri ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: result.commitSha, ...(result.ref ? { branch: result.ref } : {}) }] } : {}),
-        originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
-        results: [
-          ...result.findings.map(finding => sarifResult(finding, index.get(finding.rule), place(finding))),
-          ...(result.suppressed || []).map(finding => sarifResult(finding, index.get(finding.rule), place(finding), finding.suppression))
-        ],
-        properties: {
-          grade: result.grade, score: result.score, capped: Boolean(result.capped), ...(result.capReason ? { capReason: result.capReason } : {}),
-          ...(result.coverage && result.coverage.exploit ? { exploitSources: result.coverage.exploit } : {}),
-          ...(result.engine ? { engine: `${result.engine.name} ${result.engine.version}`, traced: result.engine.traced || null } : {}),
-          ...(Array.isArray(result.ledger) ? { coverage: result.ledger.map(entry => ({ class: entry.id, status: entry.status })) } : {})
-        }
-      });
-    }
-    if (site) {
-      const rules = sarifRules(site.findings);
-      const index = new Map(rules.map((rule, at) => [rule.id, at]));
-      runs.push({
-        tool: driver(rules),
-        automationDetails: { id: `nebulaverse-site/${site.origin}/` },
-        results: site.findings.map(finding => sarifResult(finding, index.get(finding.rule), {
-          locations: [{ logicalLocations: [{ name: finding.where, fullyQualifiedName: `${site.origin} ${finding.where}`, kind: 'resource' }] }]
-        })),
-        invocations: [{ executionSuccessful: siteAssessment(site).complete }],
-        properties: { origin: site.origin, grade: siteAssessment(site).complete ? site.grade : null, score: siteAssessment(site).complete ? site.score : null,
-          observedScore: Number.isFinite(site.observedScore) ? site.observedScore : null, capped: Boolean(site.capped), coverage: siteAssessment(site) }
-      });
-    }
-    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs }, null, 2);
-  }
-
-  /*
-   * A kept audit, exported from History. What an audit keeps is its grade,
-   * counts and coverage and, for each finding, the rule, the place and the
-   * package facts -- never a line of code -- and the server adds each rule's
-   * own words. The exports say exactly that much: which audit, what it
-   * found, and, when fewer findings were kept than found, how many.
-   */
-  const KEPT_WAIVED = Object.freeze({ triage: 'triaged by the team', policy: 'cleared by the licence policy', code: 'waived in code' });
-  const keptWaived = finding => KEPT_WAIVED[finding.waived] || 'waived';
-  function keptPlace(finding) {
-    if (finding.package) return `${finding.package.name} ${finding.package.version}${finding.path ? ` (${finding.path})` : ''}`;
-    return finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ''}` : 'whole repository';
-  }
-  function keptNotes(audit) {
-    const notes = [];
-    if (audit.findings && audit.findings.stored < audit.findings.total) notes.push(`${audit.findings.stored} of ${audit.findings.total} findings were kept, the most severe first; the rest are counted above but not listed.`);
-    if (audit.files && !audit.files.complete) notes.push(`Not a complete read: ${audit.files.read} of ${audit.files.eligible} files were read.`);
-    return notes;
-  }
-  function keptBrief(audit, findings, label) {
-    const open = findings.filter(finding => !finding.waived);
-    const waived = findings.filter(finding => finding.waived);
-    const lines = [`# Security audit: ${label}`, '',
-      `Grade **${audit.grade}** — ${audit.score}/100${capPhrase(audit.capReason)}.`,
-      `Commit \`${audit.commitSha}\` on ${audit.ref}, audited ${audit.auditedAt} by Uranus ${audit.engine}.`,
-      `${ORDER.map(severity => `${audit.counts[severity]} ${severity}`).join(' · ')}; ${audit.toConfirm} to confirm${audit.exploited ? `; ${audit.exploited} exploited in the wild` : ''}.`,
-      `Read ${audit.files.read} of ${audit.files.eligible} files.`, '',
-      '> From the kept record: each finding’s rule, place and package, never any of the code. Each rule’s explanation is the current engine’s wording.', ''];
-    for (const note of keptNotes(audit)) lines.push(note, '');
-    if (!open.length) lines.push('Nothing open in what was kept.', '');
-    open.forEach((finding, index) => {
-      const standards = finding.standards;
-      lines.push(`## ${index + 1}. ${finding.title}`, '',
-        `- **Severity:** ${finding.severity}`,
-        `- **Verdict:** ${verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed'}`,
-        `- **Rule:** ${finding.rule}`,
-        `- **Where:** \`${keptPlace(finding)}\``);
-      if (standards) {
-        lines.push(`- **Standards:** ${[standards.cwe && `${standards.cwe}${standards.cweName ? ` (${standards.cweName})` : ''}`,
-          standards.owasp && `OWASP ${standards.owasp} ${standards.owaspName}`, standards.top25 && `CWE Top 25 (2025) #${standards.top25.rank}`].filter(Boolean).join(' · ')}`);
-      }
-      const pkg = finding.package;
-      if (pkg) {
-        if (pkg.fixed) lines.push(`- **Fixed in:** ${pkg.fixed}`);
-        if (pkg.advisories.length) lines.push(`- **Advisories:** ${pkg.advisories.join(', ')}`);
-      }
-      if (finding.risk && RISK_BAND[finding.risk.band]) lines.push(`- **Risk:** ${finding.risk.score}/100, ${RISK_BAND[finding.risk.band].word.toLowerCase()}`);
-      if (finding.exploited) lines.push(`- **Exploited in the wild:** yes${finding.ransomware ? ', used in ransomware campaigns' : ''}`);
-      if (Number.isFinite(finding.epss)) lines.push(`- **EPSS:** ${percent(finding.epss)}`);
-      if (finding.firstSeenAt) lines.push(`- **First seen:** ${String(finding.firstSeenAt).slice(0, 10)}`);
-      lines.push('');
-      if (finding.why) lines.push(finding.why, '');
-      if (finding.fix) lines.push(`**Fix:** ${finding.fix}`, '');
-      if (finding.prompt) lines.push('**Prompt for a coding assistant:**', '', '```text', finding.prompt, '```', '');
-    });
-    if (waived.length) {
-      lines.push('## Waived or triaged', '', 'Not scored. Kept for their clocks.', '', '| Rule | Finding | Where | How |', '| --- | --- | --- | --- |',
-        ...waived.map(finding => `| ${finding.rule} | ${cell(finding.title)} | \`${cell(keptPlace(finding))}\` | ${keptWaived(finding)} |`), '');
-    }
-    return `${lines.join('\n')}\n`;
-  }
-  function keptCsv(audit, findings) {
-    const rows = [['Audit', 'Commit', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Package', 'Version', 'Fixed in', 'Advisories', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'First seen', 'Fix']];
-    for (const finding of findings) {
-      const standards = finding.standards || {};
-      const pkg = finding.package;
-      rows.push([audit.auditedAt, audit.commitSha, finding.waived ? keptWaived(finding) : 'open', finding.severity,
-        verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, finding.category || '',
-        standards.cwe || '', standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
-        finding.path || (pkg ? '' : 'whole repository'), finding.line || '', pkg ? pkg.name : '', pkg ? pkg.version : '', pkg && pkg.fixed ? pkg.fixed : '',
-        pkg ? pkg.advisories.join(' ') : '', finding.risk ? `${finding.risk.score} ${finding.risk.band || ''}`.trim() : '',
-        finding.package ? (finding.exploited ? 'yes' : 'no') : '', Number.isFinite(finding.epss) ? `${(finding.epss * 100).toFixed(2)}%` : '',
-        finding.reach || '', finding.firstSeenAt ? String(finding.firstSeenAt).slice(0, 10) : '', finding.fix || '']);
-    }
-    const notes = keptNotes(audit);
-    for (const note of notes) {
-      const row = Array(rows[0].length).fill('');
-      row[0] = audit.auditedAt; row[1] = audit.commitSha; row[2] = 'note'; row[6] = note;
-      rows.push(row);
-    }
-    return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
-  }
-  function keptSarif(audit, findings, meta = {}) {
-    const asFinding = finding => ({ ...finding, reach: null, detail: null, why: finding.why || finding.title, fix: finding.fix || '' });
-    const all = findings.map(asFinding);
-    const rules = sarifRules(all);
-    const index = new Map(rules.map((rule, at) => [rule.id, at]));
-    const place = finding => finding.path ? {
-      locations: [{ physicalLocation: { artifactLocation: { uri: finding.path, uriBaseId: 'SRCROOT' }, ...(finding.line ? { region: { startLine: finding.line } } : {}) } }]
-    } : {};
-    const results = all.map((finding, at) => {
-      const kept = findings[at];
-      const result = sarifResult(finding, index.get(finding.rule), place(finding),
-        finding.waived ? { reason: `${keptWaived(finding)[0].toUpperCase()}${keptWaived(finding).slice(1)}.` } : null);
-      Object.assign(result.properties, {
-        ...(finding.package ? { package: `${finding.package.name}@${finding.package.version}`, advisories: finding.package.advisories, ...(finding.package.fixed ? { fixedIn: finding.package.fixed } : {}), knownExploited: Boolean(finding.exploited) } : {}),
-        ...(finding.risk ? { risk: finding.risk.score, riskBand: finding.risk.band } : {}),
-        ...(Number.isFinite(finding.epss) ? { epss: finding.epss } : {}),
-        ...(kept.reach ? { dependencyReach: kept.reach } : {}),
-        ...(finding.firstSeenAt ? { firstSeen: finding.firstSeenAt } : {})
-      });
-      return result;
-    });
-    const run = {
-      tool: { driver: { name: 'Nebulaverse-X Uranus', informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints', semanticVersion: audit.engine, rules } },
-      automationDetails: { id: `nebulaverse-audit/${audit.ref}/${audit.id}` },
-      ...(meta.repositoryUri ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: audit.commitSha, branch: audit.ref }] } : {}),
-      originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
-      invocations: [{ executionSuccessful: true, endTimeUtc: audit.auditedAt }],
-      results,
-      properties: { kept: true, grade: audit.grade, score: audit.score, ...(audit.capReason ? { capReason: audit.capReason } : {}), engine: `Uranus ${audit.engine}`,
-        findingsKept: audit.findings ? audit.findings.stored : results.length, findingsTotal: audit.findings ? audit.findings.total : results.length }
-    };
-    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [run] }, null, 2);
-  }
-
-  /*
-   * The bill of materials, in the two formats supply-chain tools read. Every
-   * component the manifests and lockfiles name, by package URL, with its
-   * licence where the lockfile states one, what it depends on, and -- in
-   * CycloneDX -- the vulnerabilities this audit found against it with their
-   * exploit intelligence and reach. Names, versions and licences only; never
-   * a line of the code.
-   */
-  const SPDX_EXPRESSION = /^\(?[A-Za-z0-9][A-Za-z0-9.+-]*(\s+(AND|OR|WITH)\s+\(?[A-Za-z0-9][A-Za-z0-9.+-]*\)?)*\)?$/;
-  function uuid() {
-    if (global.crypto && typeof global.crypto.randomUUID === 'function') return global.crypto.randomUUID();
-    const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = bytes.map(value => value.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  const licencesOf = component => (Array.isArray(component.license) ? component.license : component.license ? [component.license] : [])
-    .map(value => String(value).trim()).filter(Boolean);
-  /* CycloneDX and SPDX split a coordinate into a group and a name where the ecosystem has one. */
-  function coordinates(component) {
-    const name = String(component.name);
-    if (component.ecosystem === 'maven' && name.includes(':')) return { group: name.split(':')[0], name: name.split(':')[1] };
-    if ((component.ecosystem === 'npm' && name.startsWith('@')) || component.ecosystem === 'packagist') {
-      const at = name.indexOf('/');
-      if (at > 0) return { group: name.slice(0, at), name: name.slice(at + 1) };
-    }
-    return { group: null, name };
-  }
-  const CDX_SEVERITY = Object.freeze({ critical: 'critical', serious: 'high', warning: 'medium' });
-
-  function dependencyFindings(result) {
-    return (result.findings || []).filter(finding => finding.detail && finding.detail.purl && Array.isArray(finding.detail.advisories));
-  }
-
-  function cyclonedx(result, meta = {}) {
-    const components = Array.isArray(result && result.components) ? result.components : [];
-    const refs = new Set(components.map(component => component.purl).filter(Boolean));
-    const engine = result.engine || {};
-    const property = (name, value) => ({ name: `nebulaverse:${name}`, value: String(value) });
-    const bomComponents = components.filter(component => component.purl).map(component => {
-      const { group, name } = coordinates(component);
-      const licences = licencesOf(component);
-      const licenses = licences.length === 1 && /\s(AND|OR|WITH)\s/.test(licences[0])
-        ? [{ expression: licences[0] }]
-        : licences.map(value => (SPDX_EXPRESSION.test(value) && !/\s/.test(value) ? { license: { id: value } } : { license: { name: value } }));
-      return {
-        type: 'library', 'bom-ref': component.purl, ...(group ? { group } : {}), name, version: component.version, purl: component.purl,
-        scope: component.dev ? 'optional' : 'required',
-        ...(licenses.length ? { licenses } : {}),
-        properties: [property('ecosystem', component.ecosystem), property('direct', Boolean(component.direct)), property('source', component.source), ...(component.path ? [property('declared-in', component.path)] : [])]
-      };
-    });
-    /* One vulnerability per advisory, affecting every component it was found in. */
-    const vulnerabilities = new Map();
-    for (const finding of dependencyFindings(result)) {
-      const detail = finding.detail;
-      if (!refs.has(detail.purl)) continue;
-      for (const advisory of detail.advisories) {
-        const known = vulnerabilities.get(advisory.id);
-        if (known) { if (!known.affects.some(item => item.ref === detail.purl)) known.affects.push({ ref: detail.purl }); continue; }
-        const intel = detail.intel || null;
-        const properties = [];
-        if (Number.isFinite(advisory.epss)) properties.push(property('epss', advisory.epss));
-        if (advisory.kev) properties.push(property('cisa-kev', true));
-        if (intel && intel.ransomware && intel.kev && intel.kev.cve === advisory.cve) properties.push(property('ransomware', true));
-        if (detail.risk) properties.push(property('risk', detail.risk.score), property('risk-band', detail.risk.band));
-        if (detail.usage) properties.push(property('reach', detail.usage.tier));
-        vulnerabilities.set(advisory.id, {
-          'bom-ref': `vuln:${advisory.id}`,
-          id: advisory.id,
-          source: { name: 'OSV', url: `https://osv.dev/vulnerability/${encodeURIComponent(advisory.id)}` },
-          ...(advisory.cve ? { references: [{ id: advisory.cve, source: { name: 'NVD', url: `https://nvd.nist.gov/vuln/detail/${encodeURIComponent(advisory.cve)}` } }] } : {}),
-          ratings: [{ source: { name: 'OSV' }, ...(Number.isFinite(advisory.cvss) ? { score: advisory.cvss, method: 'CVSSv3' } : {}), severity: CDX_SEVERITY[advisory.severity] || 'unknown' }],
-          ...(advisory.summary ? { description: advisory.summary } : {}),
-          ...(detail.fixed && finding.rule !== 'DEP-006' ? { recommendation: `Upgrade ${detail.package} to ${detail.fixed} or later.` } : {}),
-          affects: [{ ref: detail.purl }],
-          ...(properties.length ? { properties } : {})
-        });
-      }
-    }
-    const root = { type: 'application', 'bom-ref': 'root', name: meta.name || 'repository', ...(result.commitSha ? { version: result.commitSha } : {}) };
-    const dependencies = [
-      { ref: 'root', dependsOn: components.filter(component => component.direct && component.purl).map(component => component.purl) },
-      ...components.filter(component => component.purl && Array.isArray(component.dependsOn) && component.dependsOn.length)
-        .map(component => ({ ref: component.purl, dependsOn: component.dependsOn.filter(target => refs.has(target)) }))
-    ];
-    return JSON.stringify({
-      $schema: 'http://cyclonedx.org/schema/bom-1.5.schema.json',
-      bomFormat: 'CycloneDX', specVersion: '1.5', serialNumber: `urn:uuid:${uuid()}`, version: 1,
-      metadata: {
-        timestamp: result.auditedAt || new Date().toISOString(),
-        tools: { components: [{ type: 'application', name: 'Nebulaverse-X Uranus', ...(engine.version ? { version: engine.version } : {}) }] },
-        component: root,
-        properties: [...(meta.ref ? [property('ref', meta.ref)] : []), ...(result.componentsTruncated ? [property('components-truncated', result.componentsTruncated)] : [])]
-      },
-      components: bomComponents,
-      dependencies,
-      vulnerabilities: [...vulnerabilities.values()]
-    }, null, 2);
-  }
-
-  function spdx(result, meta = {}) {
-    const components = (Array.isArray(result && result.components) ? result.components : []).filter(component => component.purl);
-    const engine = result.engine || {};
-    const id = new Map(components.map((component, index) => [component.purl, `SPDXRef-Package-${index + 1}`]));
-    const advisoriesByPurl = new Map();
-    for (const finding of dependencyFindings(result)) {
-      const list = advisoriesByPurl.get(finding.detail.purl) || [];
-      for (const advisory of finding.detail.advisories) if (!list.includes(advisory.id)) list.push(advisory.id);
-      advisoriesByPurl.set(finding.detail.purl, list);
-    }
-    const declared = component => {
-      const licences = licencesOf(component);
-      const expression = licences.length > 1 ? licences.map(value => (/\s/.test(value) ? `(${value})` : value)).join(' AND ') : licences[0];
-      return expression && SPDX_EXPRESSION.test(expression.replace(/[()]/g, '')) ? expression : 'NOASSERTION';
-    };
-    const packages = [
-      {
-        name: meta.name || 'repository', SPDXID: 'SPDXRef-Root', versionInfo: result.commitSha || 'NOASSERTION', downloadLocation: meta.repositoryUri || 'NOASSERTION',
-        filesAnalyzed: false, licenseConcluded: 'NOASSERTION', licenseDeclared: 'NOASSERTION', copyrightText: 'NOASSERTION', primaryPackagePurpose: 'APPLICATION'
-      },
-      ...components.map(component => ({
-        name: component.name, SPDXID: id.get(component.purl), versionInfo: component.version, downloadLocation: 'NOASSERTION',
-        filesAnalyzed: false, licenseConcluded: 'NOASSERTION', licenseDeclared: declared(component), copyrightText: 'NOASSERTION', primaryPackagePurpose: 'LIBRARY',
-        externalRefs: [
-          { referenceCategory: 'PACKAGE-MANAGER', referenceType: 'purl', referenceLocator: component.purl },
-          ...(advisoriesByPurl.get(component.purl) || []).map(advisory => ({ referenceCategory: 'SECURITY', referenceType: 'advisory', referenceLocator: `https://osv.dev/vulnerability/${encodeURIComponent(advisory)}` }))
-        ]
-      }))
-    ];
-    const relationships = [{ spdxElementId: 'SPDXRef-DOCUMENT', relationshipType: 'DESCRIBES', relatedSpdxElement: 'SPDXRef-Root' }];
-    for (const component of components) {
-      if (component.direct) {
-        relationships.push(component.dev
-          ? { spdxElementId: id.get(component.purl), relationshipType: 'DEV_DEPENDENCY_OF', relatedSpdxElement: 'SPDXRef-Root' }
-          : { spdxElementId: 'SPDXRef-Root', relationshipType: 'DEPENDS_ON', relatedSpdxElement: id.get(component.purl) });
-      }
-      for (const target of component.dependsOn || []) {
-        if (id.has(target)) relationships.push({ spdxElementId: id.get(component.purl), relationshipType: 'DEPENDS_ON', relatedSpdxElement: id.get(target) });
-      }
-    }
-    const slug = String(meta.name || 'repository').toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '') || 'repository';
-    return JSON.stringify({
-      spdxVersion: 'SPDX-2.3', dataLicense: 'CC0-1.0', SPDXID: 'SPDXRef-DOCUMENT', name: `${meta.name || 'repository'} dependencies`,
-      documentNamespace: `https://spdx.org/spdxdocs/${slug}-${uuid()}`,
-      creationInfo: { created: String(result.auditedAt || new Date().toISOString()).replace(/\.\d{3}Z$/, 'Z'), creators: [`Tool: Nebulaverse-X-Uranus${engine.version ? `-${engine.version}` : ''}`] },
-      packages, relationships
-    }, null, 2);
-  }
-
-  /*
-   * CSV, one finding a row. A cell that opens with =, +, -, @ or a control
-   * character is prefixed with an apostrophe: a path or a title from a
-   * repository is somebody else's text, and a spreadsheet must not run it
-   * as a formula.
-   */
-  function csvCell(value) {
-    let text = value === null || value === undefined ? '' : String(value);
-    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  }
-  function csv(result, site, changes) {
-    const rows = [['Source', 'Status', 'Severity', 'Verdict', 'Rule', 'Title', 'Detail', 'Family', 'CWE', 'CWE Top 25 (2025)', 'OWASP', 'Location', 'Line', 'Reached through', 'Risk', 'Known exploited', 'EPSS', 'Dependency reach', 'How to confirm', 'Reason waived', 'Due by', 'Fix']];
-    const row = (source, status, finding, family) => {
-      const standards = finding.standards || {};
-      const reach = finding.reach ? `${finding.reach.route ? `${verbs(finding.reach.method)} ${finding.reach.route}` : 'server action'} (${finding.reach.auth})` : '';
-      rows.push([source, status, finding.severity, verdictOf(finding) === 'needs-validation' ? 'to confirm' : 'confirmed', finding.rule, finding.title, detailChip(finding) || '', family || '', standards.cwe || '',
-        standards.top25 ? `#${standards.top25.rank}` : '', standards.owasp || '',
-        finding.path || finding.where || 'whole repository', finding.line || '', reach,
-        riskOf(finding) ? `${riskOf(finding).score} ${riskOf(finding).band}` : '',
-        intelOf(finding) ? intelOf(finding).exploited ? `yes (${intelOf(finding).kev.cve})` : intelOf(finding).catalog === 'unknown' ? 'unknown' : 'no' : '',
-        intelOf(finding) && intelOf(finding).epss ? `${(intelOf(finding).epss.score * 100).toFixed(2)}% (${intelOf(finding).epss.cve})` : '',
-        usageOf(finding) ? usageOf(finding).tier : '',
-        verdictOf(finding) === 'needs-validation' ? finding.check || '' : '',
-        finding.suppression ? finding.suppression.triage ? triageJustification(finding.suppression.triage) : finding.suppression.reason || '' : '',
-        finding.clock ? `${String(finding.clock.dueAt).slice(0, 10)}${finding.clock.state === 'overdue' ? ' (overdue)' : ''}` : '',
-        finding.fix]);
-    };
-    if (result) {
-      const families = new Map((result.categories || []).map(category => [category.id, category.label]));
-      for (const finding of result.findings) row('repository', changes && changes.newIds.has(finding.id) ? 'new' : 'open', finding, families.get(finding.category));
-      for (const finding of result.suppressed || []) {
-        const decision = finding.suppression && finding.suppression.triage;
-        row('repository', decision ? (decision.disposition === 'false-positive' ? 'false positive' : 'risk accepted') : 'waived', finding, families.get(finding.category));
-      }
-    }
-    if (site) {
-      for (const finding of site.findings) row(site.origin, 'open', finding, 'Deployed site');
-      const coverage = siteAssessment(site);
-      if (!coverage.complete) {
-        const summary = Array(rows[0].length).fill('');
-        summary[0] = site.origin; summary[1] = `coverage-${coverage.state}`;
-        summary[5] = 'Overall grade withheld'; summary[6] = siteAssessmentLine(site);
-        summary[7] = 'Coverage';
-        rows.push(summary);
-      }
-    }
-    return `${rows.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
-  }
-
-  /*
-   * Exposure findings as CSV and SARIF. The rows arrive already made safe by
-   * the caller: a rule, a displayable path (never the raw one, which can be
-   * named with the credential), a line, a status. Nothing here could carry a
-   * secret because nothing here is given one.
-   */
-  const EXPOSURE_COLUMNS = ['Severity', 'Credential', 'Rule', 'Location', 'Line', 'Status', 'Where', 'Introduced in', 'Provider says', 'Fingerprint'];
-  function exposureCsv(rows) {
-    const lines = [EXPOSURE_COLUMNS, ...rows.map(row => [row.severity, row.label, row.rule, row.where, row.line || '', row.status,
-      [row.inTree === false ? 'history only' : 'tree', row.archive ? 'archive' : '', row.encoded ? 'base64' : ''].filter(Boolean).join(' + '),
-      row.commit || '', row.verified || '', row.fingerprint])];
-    return `${lines.map(cells => cells.map(csvCell).join(',')).join('\r\n')}\r\n`;
-  }
-  function exposureSarif(rows, meta = {}) {
-    const rules = [];
-    const index = new Map();
-    for (const row of rows) {
-      if (index.has(row.rule)) continue;
-      index.set(row.rule, rules.length);
-      rules.push({
-        id: row.rule,
-        name: row.label,
-        shortDescription: { text: `${row.label} committed to the repository` },
-        help: { text: 'Revoke the credential with its issuer, replace it, then remove it from the repository and its history.' },
-        helpUri: 'https://cwe.mitre.org/data/definitions/798.html',
-        defaultConfiguration: { level: SARIF_LEVEL[row.severity] || 'error' },
-        properties: { tags: ['security', 'secret', 'external/cwe/cwe-798', 'owasp-a07-2025'], precision: 'high', 'security-severity': SECURITY_SEVERITY[row.severity] || '7.5' }
-      });
-    }
-    const results = rows.map(row => {
-      const result = {
-        ruleId: row.rule,
-        ruleIndex: index.get(row.rule),
-        level: SARIF_LEVEL[row.severity] || 'error',
-        message: { text: `${row.label} in ${row.where}${row.inTree === false ? ', only in history' : ''}.` },
-        locations: [{ physicalLocation: { artifactLocation: { uri: row.where, uriBaseId: 'SRCROOT' }, ...(row.line ? { region: { startLine: row.line } } : {}) } }],
-        partialFingerprints: { 'nebulaverseExposure/v1': row.fingerprint },
-        properties: { severity: row.severity, status: row.status, inTree: row.inTree !== false, ...(row.commit ? { introducedIn: row.commit } : {}), ...(row.verified ? { providerSays: row.verified } : {}) }
-      };
-      if (row.status === 'accepted-risk') result.suppressions = [{ kind: 'external', justification: row.acceptedBy ? `Risk accepted by ${row.acceptedBy}` : 'Risk accepted' }];
-      return result;
-    });
-    return JSON.stringify({ $schema: 'https://json.schemastore.org/sarif-2.1.0.json', version: '2.1.0', runs: [{
-      tool: { driver: { name: 'Nebulaverse-X Exposure', informationUri: meta.informationUri || 'https://github.com/T-rex-G/Nebula-checkpoints', rules } },
-      automationDetails: { id: `nebulaverse-exposure/${meta.ref || 'branch'}/` },
-      ...(meta.repositoryUri && meta.commitSha ? { versionControlProvenance: [{ repositoryUri: meta.repositoryUri, revisionId: meta.commitSha, ...(meta.ref ? { branch: meta.ref } : {}) }] } : {}),
-      originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
-      results
-    }] }, null, 2);
-  }
-
-  /*
-   * What changed since the last audit of the branch. A resolved count the
-   * server could not establish (the audit lacked the evidence to prove a fix)
-   * is said to be unknown, never shown as zero.
-   */
-  function diffSentence(diff) {
-    const since = diff.previousAt ? ` since the audit of ${new Date(diff.previousAt).toLocaleString()}` : '';
-    const added = plural(diff.newIds.size, 'new finding', 'new findings');
-    return Number.isSafeInteger(diff.resolved)
-      ? `${added}, ${diff.resolved} resolved${since}.`
-      : `${added}${since}. Nothing is counted as resolved: this audit did not have the evidence to prove a fix.`;
-  }
-
-  function allPrompts(result) {
-    return (result ? result.findings : []).map((finding, index) => `${index + 1}. ${finding.prompt}`).join('\n\n');
-  }
-
-  return Object.freeze({ STORE_PREFIX, render, update, progress, siteProgress, renderSiteScan, brief, sarif, csv, keptBrief, keptCsv, keptSarif, cyclonedx, spdx, exposureCsv, exposureSarif, exportMenu, allPrompts, diff, diffSentence, readPrevious, remember, storageKey });
+  return Object.freeze({ render, update, progress, siteProgress, renderSiteScan, exportMenu });
 })(globalThis);
 
 export default api;
-export const { STORE_PREFIX, allPrompts, brief, csv, cyclonedx, diff, diffSentence, exportMenu, exposureCsv, exposureSarif, keptBrief, keptCsv, keptSarif, progress, readPrevious, remember, render, renderSiteScan, sarif, siteProgress, spdx, storageKey, update } = api;
+export const { exportMenu, progress, render, renderSiteScan, siteProgress, update } = api;

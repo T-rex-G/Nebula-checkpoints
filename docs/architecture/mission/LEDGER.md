@@ -2792,3 +2792,30 @@ Two advisories published since S1 reach locked dependencies, both moderate. npm'
   - all 36 server tests on the compiled runtime;
   - the whole browser suite (1,092 tests: 1,034 run, 58 for the other project) on desktop and mobile.
 - **Production** is unchanged until a deploy the owner approves: Node 22.23.1 on `5326d2b`, without the July, October and November fixes.
+
+### E3f — The visualizations in strict TypeScript
+
+- **Why.** The landing and the workbench's artwork were eight JavaScript modules, 3,881 lines: the loader that decides whether a device draws the WebGL pieces and fetches them, the galaxy and the singularity, the light waves, the landing's vortex, the stage that drives it, the orbit section and the moving map. Each is now strict TypeScript; what remains in JavaScript under `visualizations/` is the Neural command center (E3g).
+- **The loader, asked rather than read.** `visuals-loader.ts` is `createVisuals(page)`, made over the page it is given:
+  - the device probe, which refuses a context the browser would draw in software, by its refusal or by its renderer's name, and releases the context it asked for;
+  - the reader's data saver, and the cheaper draw for a small screen;
+  - the design and the theme each piece is drawn in;
+  - the frame budget that takes a piece down for the session, and the landing's ambient motion, which a steady page earns and a falling one loses for the session.
+
+  `nebula-visuals.ts` makes the page's one loader. It is the only module that imports a piece, and only when it asks for one; three.js is imported by the pieces alone (`test/module-boundaries.test.js`). `artwork.ts` holds what the two pieces share: the motion setting they hold still for, and a reading of each piece -- held, running, frames drawn, refused -- which the read-only probe answers (`artwork`), so a browser test asks a piece what it is doing rather than inferring it from pixels.
+- **The pieces.** The galaxy and the singularity are typed custom elements; each stops its loop while the reader holds motion still, and says so in its reading. The vortex, 1,345 lines of WebGL, is typed through: its shapes, palettes and budgets are data with types, its uniforms are read through a table of their names, and its six shaders are byte for byte as they were. The stage, the orbit and the map keep every check their test's stand-in document relies on.
+- **Found on the way.**
+  - A shape or palette named like a property every object has -- `constructor`, `toString` -- was taken for one, so the scene would have drawn with a function for its shape. Names are looked up among the vortex's own tables.
+  - The browser test that a device unable to draw the artwork never downloads it looked for chunk names the build no longer makes, so it could not have seen a download at all. It matches the built names now, and a device that can draw the artwork proves it sees one.
+  - The runner draws WebGL on its CPU, which the loader rightly refuses by name and then by its frame budget, so no browser test could see a piece stay mounted. The tests now present the page as a device: a renderer that names a GPU, and frames at a set pace. At sixty a second the pieces mount and stay; at ten the budget takes them down.
+  - A lost ambient motion was held off by two guards, one of which nothing could reach: the watch stops at the first frame after a loss, and the other guard is gone.
+  - The galaxy's chunk imports the page's entry, which holds the motion rules the pieces share; the contract says so, rather than that a piece imports three.js alone.
+- **Tests.**
+  - `test/visuals-loader.test.js` (new) runs the loader over pages the test makes: a context that names its renderer, a connection that saves data, the frames the page keeps, a module that defines its element or does not.
+  - `test/nebula-visuals-contract.test.js` reads only the build: each piece a content-hashed chunk, cached for a year, importing three.js and the entry; the entry importing neither statically; the worker warming neither.
+  - `test/overlay-motion.test.js` draws the vortex on a stand-in WebGL context that keeps every call: the lattice is drawn by 16-bit indices from one buffer of them, a budget past the index limit is refused outright (a host may now give the scene its own budgets), a software renderer is drawn lite and without multisampling, and a palette is chosen by its name. Its landing stage records every part of the page the module asks for and every style it writes: the moment carries a class and writes no style, and nothing looks for, or drives, the old pointer light.
+  - `test/e2e/nebula-visuals.spec.js` gained a device that draws the galaxy, downloads it once and holds it still for the motion setting; one too slow, whose piece is taken down for the session while the interface goes on; and a galaxy and a singularity that arrive while the reader holds motion still, and draw one still frame without ever starting their loops.
+- **Mutants.** 35 in the unit suite -- 16 of the loader, 9 of the vortex, 5 of the stage, 5 of the map -- and 10 in the browser -- the page's motion switch, a held galaxy and a held singularity, the systems lighting as the section is scrolled, the singularity fetched on approach, the section being read, the promise lighting, the vortex's frames, the map starting -- all caught. Four survived at first: a mutant that turned a bad direction into the preset's own, rewritten to one that replaces it; the guard for a lost ambient motion that nothing could reach, removed; and a galaxy or a singularity that arrives while the reader already holds motion still, which no test brought on.
+- **Counted.** 24 page reads converted: 483 remain.
+- **Next:** E3g, the Neural command center.
+- **Checks:** the unit gate, every verify-job gate, and the whole browser suite (1,100 tests: 1,042 run, 58 for the other project) on desktop and mobile, on Node 22.23.5.

@@ -20,7 +20,7 @@
     "docs:check": "node scripts/generate-continuity-docs.js --check",
     "pretest": "npm run build:web",
     "test": "npm run test:unit",
-    "posttest": "node test/light-waves.test.js && node test/landing-map.test.js",
+    "posttest": "node test/light-waves.test.js && node test/landing-map.test.js && node test/visuals-loader.test.js",
     "posttest:unit": "node test/alpha17-restore-runner.test.js && node test/alpha17-restore-witness.test.js && node test/workspace-pulse.test.js && node test/pulse-charts.test.js && node test/workspace-posture.test.js && node test/posture-summary.test.js && node test/security-posture-client.test.js && node test/pull-list.test.js && node test/pull-board-client.test.js && node test/findings-inbox.test.js && node test/posture-routes.test.js && node test/findings-inbox-client.test.js && node test/codeowners.test.js && node test/activity-feed.test.js && node test/repo-sigil.test.js && node test/brand-assets.test.js && node test/service-worker-offline.test.js && node test/nebula-visuals-contract.test.js",
     "lint": "eslint .",
     "typecheck": "tsc --project jsconfig.json && tsc --project packages/contracts && tsc --project apps/api && tsc --project apps/web",

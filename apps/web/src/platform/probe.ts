@@ -34,7 +34,9 @@ export const PROBE_ALLOWLIST = Object.freeze({
     'interacting'
   ]),
   /* The transfer limits the server sent, and whether all of them are known. */
-  runtime: Object.freeze(['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb', 'contentsMaxMb', 'known'])
+  runtime: Object.freeze(['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb', 'contentsMaxMb', 'known']),
+  /* The design's WebGL pieces on the page: whether each holds a still frame, runs its loop, and how many frames it has drawn. */
+  artwork: Object.freeze(['pieces'])
 });
 
 export type ProbeSource = keyof typeof PROBE_ALLOWLIST;

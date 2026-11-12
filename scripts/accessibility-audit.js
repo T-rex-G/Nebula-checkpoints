@@ -183,7 +183,7 @@ async function reflowFindings(page, where) {
 /*
  * Let the WebGL pieces mount.
  *
- * nebula-visuals.js treats a software rasteriser as no renderer at all --
+ * visuals-loader.ts treats a software rasteriser as no renderer at all --
  * deliberately, because these shader-heavy full-viewport pieces starve the
  * interface on a CPU. Under SwiftShader that means the 3D mark and the galaxy
  * never mount, so this audit was scanning two screens with their largest

@@ -1,13 +1,21 @@
 'use strict';
 
 /*
- * The artwork's supply chain.
+ * The artwork's supply chain, read off the build.
  *
- * Every failure this guards has the same shape: a module that loads and then
- * cannot resolve something it needs, which shows up as a component that
- * silently does not appear rather than as an error anyone traces. So each
- * check resolves the path the browser would resolve and looks for the file on
- * disk, instead of matching the text of an import.
+ * Every failure this guards has the same shape: a piece that ships in the
+ * wrong place -- in the first paint, warmed by the worker, under a name that
+ * outlives its contents -- which shows up as a slow or stale page rather than
+ * as an error anyone traces. So each check reads the built page the server
+ * serves, not the text of its source.
+ *
+ * What the loader asks before anything downloads -- the device, the reader's
+ * data saver, the frames the page keeps -- is asked of it directly
+ * (test/visuals-loader.test.js); that the pieces are reached only through it,
+ * and three.js only through them, is a rule over the page's import graph
+ * (test/module-boundaries.test.js); that each piece is decoration and holds
+ * still for the reader's motion setting is read in the browser
+ * (test/e2e/nebula-visuals.spec.js).
  */
 
 const assert = require('assert');
@@ -16,179 +24,63 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const visualsRoot = path.join(root, 'apps', 'web', 'src', 'visualizations');
+const built = path.join(root, 'dist', 'web');
 const { builtShell } = require('./helpers/web-shell');
 
-const MODULES = ['nebula-galaxy.js', 'nebula-singularity.js'];
+const PIECES = ['nebula-galaxy', 'nebula-singularity'];
 
-/* The Trust core is SVG in both presets; the WebGL mark is retired, and the
-   loader must not be able to reach for it. */
-assert(!fs.existsSync(path.join(visualsRoot, 'nebula-mark-3d.js')), 'the retired WebGL mark is still shipped');
-assert(!/mark-3d/.test(fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8')),
-  'the loader still knows how to fetch the retired WebGL mark');
-
-/*
- * Each piece imports three.js by its package name, pinned in package.json, and
- * the bundler resolves it: no import map, so no inline script and no relaxing
- * of script-src. The library is its own chunk, reached only through the
- * pieces' dynamic imports, so a page that never draws one never downloads it.
- */
-const pinned = require('../package.json').dependencies.three;
-assert.strictEqual(pinned, '0.185.1', 'three.js must stay pinned to the version the artwork was written for');
-for (const name of MODULES) {
-  const source = fs.readFileSync(path.join(visualsRoot, name), 'utf8');
-  const imports = [...source.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map(match => match[1]);
-  assert.deepStrictEqual(imports, ['three'], `${name} must import only the library it draws with`);
-}
-{
-  const shell = builtShell();
-  const build = fs.readdirSync(path.join(root, 'dist', 'web', 'build'));
-  const library = build.filter(file => /^three\.module-.+\.js$/.test(file));
-  assert.strictEqual(library.length, 1, 'three.js must be one chunk of its own');
-  const entry = fs.readFileSync(path.join(root, 'dist', 'web', shell.entry.replace(/^\//, '')), 'utf8');
-  const staticImports = [...entry.matchAll(/(?:^|[;}])import\s*["'{*][^;]*?from\s*["']([^"']+)["']|(?:^|[;}])import\s*["']([^"']+)["']/g)]
-    .map(match => match[1] || match[2]);
-  assert(!staticImports.some(specifier => /three|nebula-galaxy|nebula-singularity/.test(specifier)),
-    'the entry must not import the artwork or three.js statically');
-}
-
-{
-  const loader = fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8');
-  const mount = loader.slice(loader.indexOf('async function mount('));
-  const guard = mount.indexOf('supportsWebGL()');
-  const load = mount.indexOf('MODULES[kind]()');
-  assert(guard > -1 && load > -1, 'the loader must probe for WebGL and import behind that probe');
-  assert(guard < load, 'the WebGL probe must be resolved before the module import is started');
-  assert(
-    /saveData/.test(loader),
-    'a metered connection must be able to decline the artwork'
-  );
-  /*
-   * "Has a context" is not "can draw this". A machine with no usable GPU still
-   * returns one -- Chrome falls back to SwiftShader, Mesa to llvmpipe -- and
-   * these shaders on a CPU rasteriser starve the interface rather than merely
-   * running slowly.
-   */
-  const probe = loader.slice(loader.indexOf('function supportsWebGL('));
-  assert(
-    /UNMASKED_RENDERER_WEBGL/.test(probe) && /swiftshader/i.test(loader),
-    'the probe must reject a software rasteriser, not just a missing context'
-  );
-  /*
-   * And a renderer that will not say its name. WebKit reports a generic one,
-   * so the probe also asks the browser to refuse a context it would draw in
-   * software, and a mounted piece is held to a frame budget that takes it down
-   * when the page under it stops keeping up.
-   */
-  assert(/getContext\('webgl2', ask\)/.test(probe) && /failIfMajorPerformanceCaveat: true/.test(probe),
-    'the probe must ask the browser to refuse a software context');
-  const appended = mount.indexOf('host.appendChild(element)');
-  const held = mount.indexOf('holdToBudget(host, element)');
-  assert(appended > -1 && held > appended, 'every mounted piece must be held to the frame budget');
-  const budget = loader.slice(loader.indexOf('function holdToBudget('));
-  assert(/element\.remove\(\)/.test(budget) && /nebulaMounted = 'failed'/.test(budget) && /capable = false/.test(budget),
-    'a piece over budget must be removed, its host marked failed, and nothing else mounted this session');
-  assert(/settleAmbient\(false\)/.test(budget.slice(0, budget.indexOf('const tick'))),
-    'a piece over budget must also stand the landing\'s ambient motion down');
-
-  /*
-   * The landing's ambient motion has to be earned: the GPU probe first, then
-   * a steady frame rate measured with the motion still off, and it is lost
-   * for the session the moment the frames fall. WebKit masks its renderer, so
-   * the measured frames are the answer a software build cannot hide.
-   */
-  const watch = loader.slice(loader.indexOf('function watchAmbient('), loader.indexOf('function metered('));
-  assert(/supportsWebGL\(\)/.test(watch) && /metered\(\)/.test(watch), 'ambient motion must ask the GPU probe and the data saver first');
-  assert(/AMBIENT\.earnMs/.test(watch) && /AMBIENT\.holdMs/.test(watch), 'ambient motion must be earned and then held to a frame rate');
-  assert(/if \(!on\) ambientLost = true/.test(loader), 'ambient motion, once lost, must stay lost for the session');
-  assert(/addEventListener\('load', watchAmbient/.test(loader), 'the frames must be measured on the loaded page, not the page being built');
-
-  /*
-   * The app must reach the artwork through the loader. A direct import in the
-   * shell would defeat every check the loader makes and pull three.js into the
-   * first paint.
-   */
-  const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
-  for (const name of MODULES) {
-    assert(!app.includes(`/${name}`), `app.js must not load ${name} directly; the loader decides whether to`);
-  }
-}
-
-/* Decoration is never announced. */
-for (const name of MODULES) {
-  const source = fs.readFileSync(path.join(visualsRoot, name), 'utf8');
-  assert(
-    source.includes("setAttribute('aria-hidden', 'true')"),
-    `${name} draws decoration and must hide itself from assistive technology`
-  );
+/* The Trust core is SVG in both presets; the WebGL mark is retired and does not ship. */
+for (const retired of ['nebula-mark-3d.js', 'nebula-mark-3d.ts']) {
+  assert(!fs.existsSync(path.join(visualsRoot, retired)), `the retired WebGL mark is still shipped (${retired})`);
 }
 
 /*
- * The worker must know about the loader and must not warm the heavy modules.
- * Warming them would spend the whole download on install, for every reader,
- * including the ones who never open a screen that draws them.
+ * three.js is pinned to the version the artwork was written for and built
+ * into one chunk of its own: no import map, so no inline script and no
+ * relaxing of script-src.
  */
-{
-  const shell = builtShell();
-  assert(shell.precaches(shell.entry), 'the worker must precache the entry, which holds the artwork loader');
-  for (const heavy of ['three.module-', 'nebula-galaxy-', 'nebula-singularity-']) {
-    assert(!shell.worker.includes(`/build/${heavy}`), `${heavy} must not be warmed on install; it is cached on first use`);
-  }
+assert.strictEqual(require('../package.json').dependencies.three, '0.185.1', 'three.js must stay pinned to the version the artwork was written for');
+const chunks = fs.readdirSync(path.join(built, 'build'));
+const library = chunks.filter(file => /^three\.module-.+\.js$/.test(file));
+assert.strictEqual(library.length, 1, 'three.js must be one chunk of its own');
+
+/* The static imports of a built chunk, as the browser resolves them from the build directory. */
+function staticImports(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  return [...text.matchAll(/(?:^|[;}])import\s*(?:[\w$*{}\s,]+from\s*)?["']([^"']+)["']/g)].map(match => match[1]);
+}
+
+/*
+ * Each piece is a chunk named by its content and cached for a year, which
+ * reaches three.js and the entry -- already on the page, holding the loader
+ * and the motion rules the pieces share -- and no other chunk.
+ */
+const { webCacheControl } = require('../apps/api/src/platform/release/web-build.ts');
+const shell = builtShell();
+const entryName = path.basename(shell.entry);
+for (const piece of PIECES) {
+  const chunk = chunks.find(file => file.startsWith(`${piece}-`));
+  assert(chunk && /-[A-Za-z0-9_-]{8}\.js$/.test(chunk), `${piece} must be built under a content-hashed name`);
+  assert.deepStrictEqual(staticImports(path.join(built, 'build', chunk)).map(specifier => path.basename(specifier)).sort(), [entryName, library[0]].sort(),
+    `${piece} must import only the library it draws with and the entry it is loaded from`);
+  assert.strictEqual(webCacheControl(built, path.join(built, 'build', chunk)), 'public, max-age=31536000, immutable');
+}
+assert.strictEqual(webCacheControl(built, path.join(built, 'theme-boot.js')), 'no-cache',
+  'a file whose name does not change with its contents must be revalidated');
+
+/* The entry never imports the artwork or three.js statically: a page that never draws one never downloads it. */
+const entry = path.join(built, shell.entry.replace(/^\//, ''));
+assert(!staticImports(entry).some(specifier => /three|nebula-galaxy|nebula-singularity/.test(specifier)),
+  'the entry must not import the artwork or three.js statically');
+
+/*
+ * The worker precaches the entry, which holds the loader, and does not warm
+ * the heavy pieces: warming them would spend the whole download on install,
+ * for every reader, including the ones who never open a screen that draws them.
+ */
+assert(shell.precaches(shell.entry), 'the worker must precache the entry, which holds the artwork loader');
+for (const heavy of ['three.module-', ...PIECES.map(piece => `${piece}-`)]) {
+  assert(!shell.worker.includes(`/build/${heavy}`), `${heavy} must not be warmed on install; it is cached on first use`);
 }
 
 console.log('nebula visuals contract tests passed');
-
-/*
- * The interface's motion switch has to reach the artwork.
- *
- * Reported as pressing "stop animation" in settings and seeing nothing stop.
- * applySettings publishes the switch as data-motion on the root element, three
- * CSS rules honour it and the SVG logos pause -- but every canvas animator
- * read only the operating system's prefers-reduced-motion query, so the
- * backdrop and the mark, which are the largest moving things on the screen,
- * carried on. The switch appeared to do nothing because the things it visibly
- * governs were the things ignoring it.
- *
- * Asserted against the source rather than a browser because the failure is
- * exactly that the animator never asks: a rendering test would need a GPU, and
- * the absent read is the whole defect.
- */
-for (const file of MODULES) {
-  const source = fs.readFileSync(path.join(visualsRoot, file), 'utf8');
-  /*
-   * Counted, not merely present. The first version of this guard matched
-   * "data-motion" anywhere in the file -- which the observer's own
-   * attributeFilter satisfies -- so deleting the read that decides whether to
-   * animate left it passing. The switch has to be consulted twice: once when
-   * the animator starts, and again when the attribute changes under it.
-   */
-  const reads = source.match(/dataset\.motion === 'off'|motionSuppressed\(\)/g) || [];
-  assert(
-    reads.length >= 2,
-    `${file} must consult the interface's own motion switch when it starts AND when the switch changes (found ${reads.length} reads)`
-  );
-  assert(
-    /MutationObserver/.test(source),
-    `${file} must notice the motion switch being thrown while it is on screen`
-  );
-}
-
-/*
- * Built files are cached for a year on the promise that their names change
- * with their contents. The artwork modules were once imported by a bare path,
- * so a phone kept drawing a stale galaxy -- still violet in the Obsidian
- * preset -- long after the deploy that changed it. The loader now imports them
- * through the build, which names each chunk by its content.
- */
-{
-  const loader = fs.readFileSync(path.join(visualsRoot, 'nebula-visuals.js'), 'utf8');
-  const { webCacheControl } = require('../apps/api/src/platform/release/web-build.ts');
-  const built = path.join(root, 'dist', 'web');
-  for (const name of MODULES) {
-    assert(loader.includes(`import('./${name}')`), `${name} must be imported through the build, not by a fixed URL`);
-    const chunk = fs.readdirSync(path.join(built, 'build')).find(file => file.startsWith(`${name.replace(/\.js$/, '')}-`));
-    assert(chunk && /-[A-Za-z0-9_-]{8}\.js$/.test(chunk), `${name} must be built under a content-hashed name`);
-    assert.strictEqual(webCacheControl(built, path.join(built, 'build', chunk)), 'public, max-age=31536000, immutable');
-  }
-  assert.strictEqual(webCacheControl(built, path.join(built, 'theme-boot.js')), 'no-cache',
-    'a file whose name does not change with its contents must be revalidated');
-}

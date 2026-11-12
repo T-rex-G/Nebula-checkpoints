@@ -441,7 +441,7 @@ em{color:var(--teal);font-style:normal}
  * verticals, which is a second thing to read on the one screen whose whole job
  * is to be read once. Every other screen keeps the waves.
  *
- * display:none, not opacity or a paint trick: light-waves.js measures its own
+ * display:none, not opacity or a paint trick: light-waves.ts measures its own
  * box and holds when there is nothing to measure, so removing it from the
  * layout ends the render loop as well as the picture, without the module
  * needing to know that screens exist.
@@ -578,7 +578,7 @@ em{color:var(--teal);font-style:normal}
   background:#08041A;
   box-shadow:inset 0 -1px 0 rgba(178,160,255,.12),0 12px 32px -18px rgba(0,0,0,.6)}
 /*
- * The ground is earned by scrolling (landing-stage.js sets is-stuck). At rest
+ * The ground is earned by scrolling (landing-stage.ts sets is-stuck). At rest
  * the page's bloom runs up behind the brand untouched: a scrim there only
  * drew a darker band with a lit seam under it -- and, as wide as the content
  * rather than the window, a lit strip down each side of it.
@@ -6130,11 +6130,11 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 }
 @keyframes lp-flow{to{stroke-dashoffset:-64}}
 /* SVG strokes repaint on every frame they move, so the map moves only while
-   it is on screen (landing-stage.js marks it); off screen it costs nothing. */
+   it is on screen (landing-stage.ts marks it); off screen it costs nothing. */
 .lp-show:not(.is-onscreen) .lp-map *{animation-play-state:paused}
 @keyframes lp-breathe{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.9)}}
 [data-motion="off"] .lp-map-flow,[data-motion="off"] .lp-map-arcs,[data-motion="off"] .lp-map-breathe{animation:none}
-/* The moving layer (landing-map.js): one canvas over the picture, where the
+/* The moving layer (landing-map.ts): one canvas over the picture, where the
    signals, the hub's turning arcs and the orbit lights are drawn. While it
    runs, the SVG's own dashes and arcs stand down so nothing is drawn twice;
    when it cannot run, they are the picture again. */
@@ -6313,7 +6313,7 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 .lp-play-head{max-width:46rem;margin:0 auto;text-align:center}
 /*
  * The moves hang from a rail: a numbered stop for each, and a line lit down
- * to the reading line as the page scrolls (landing-stage.js draws the rail
+ * to the reading line as the page scrolls (landing-stage.ts draws the rail
  * and sets --play-p). Each move is a card; the one the frame is showing is
  * raised and lit, the others step back in colour -- not opacity, so muted
  * ink still reads at AA.
@@ -8466,7 +8466,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
  * they are.
  *
  * It opens on the arc the hero ends with, and the arc is the black hole's
- * edge: landing-orbit.js measures it (--arc-top, --arc-r) and the CSS below
+ * edge: landing-orbit.ts measures it (--arc-top, --arc-r) and the CSS below
  * draws that circle until the scene has loaded and draws the same one. Above
  * the arc the stage is clear, so the hero's own ground runs into it with no
  * band between them; as the reader crosses, --orbit-sky closes the night in
@@ -8955,7 +8955,7 @@ body.repo-visitor #page-work .capability-state:is([data-feature="file.write"], [
 /*
  * The frame holds the middle of the screen, not a fixed distance under the
  * bar: its sticky offset is whatever centres it in the screen below the bar
- * (landing-stage.js keeps --frame-h, its height, as the stages change it),
+ * (landing-stage.ts keeps --frame-h, its height, as the stages change it),
  * and never less than a gap under the bar, so a frame taller than the room
  * keeps its top in view. Before it sticks it starts level with the first
  * move. The moves are spaced at a little under half a screen -- a full

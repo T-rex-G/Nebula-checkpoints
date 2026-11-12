@@ -34,7 +34,7 @@ import { discardHeldRepaints, repaintCard } from '../components/held-repaint.ts'
 import { probeSource } from '../platform/probe.ts';
 import { NO_ROUTE, currentRoute, formatRoute, onRouteChange, parseRoute, writeRoute } from '../platform/router.ts';
 import { pageStore, state } from '../platform/page-state.ts';
-import Visuals from '../visualizations/nebula-visuals.js';
+import Visuals from '../visualizations/nebula-visuals.ts';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];

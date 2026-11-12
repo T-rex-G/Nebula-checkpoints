@@ -1,8 +1,15 @@
-/* The landing scene: a vortex that is allowed to fail without taking the page. */
-'use strict';
-import Vortex from './vortex.js';
+/*
+ * The landing scene: a vortex that is allowed to fail without taking the page.
+ *
+ * Every reach for the page below is asked before it is made -- whether a
+ * method is there, whether a part of the page is -- because the landing is
+ * run whole against a stand-in document (test/overlay-motion.test.js) that
+ * has only the parts each check needs.
+ */
+import Vortex from './vortex.ts';
+import { field } from '../platform/values.ts';
 
-(function landingStage(global) {
+function landingStage(): void {
   /*
    * The signature moment: the vortex answers the gate.
    *
@@ -21,11 +28,11 @@ import Vortex from './vortex.js';
    * The moment reaches the geometry rather than stopping at a transform over
    * it.
    */
-  const lp = document.querySelector('.lp');
-  const card = document.querySelector('.lp-card');
-  const art = document.querySelector('.lp-art');
-  const reachListeners = [];
-  const announceReaching = on => reachListeners.forEach(fn => fn(on));
+  const lp = document.querySelector<HTMLElement>('.lp');
+  const card = document.querySelector<HTMLElement>('.lp-card');
+  const art = document.querySelector<HTMLElement>('.lp-art');
+  const reachListeners: Array<(on: boolean) => void> = [];
+  const announceReaching = (on: boolean): void => reachListeners.forEach(fn => fn(on));
 
   if (lp && card) {
     /*
@@ -38,7 +45,7 @@ import Vortex from './vortex.js';
      * reaching for it.
      */
     let engaged = false;
-    const engage = () => {
+    const engage = (): void => {
       if (engaged) return;
       engaged = true;
       if (card.contains(document.activeElement)) {
@@ -67,21 +74,21 @@ import Vortex from './vortex.js';
    * full-width backdrop (CSS: .lp-nav.is-stuck). One passive listener, read
    * once per frame.
    */
-  const nav = document.querySelector('.lp-nav');
+  const nav = document.querySelector<HTMLElement>('.lp-nav');
   if (nav) {
     let queued = false;
-    const syncNav = () => { queued = false; nav.classList.toggle('is-stuck', global.scrollY > 6); };
-    global.addEventListener('scroll', () => {
+    const syncNav = (): void => { queued = false; nav.classList.toggle('is-stuck', globalThis.scrollY > 6); };
+    globalThis.addEventListener('scroll', () => {
       if (queued) return;
       queued = true;
-      global.requestAnimationFrame(syncNav);
+      globalThis.requestAnimationFrame(syncNav);
     }, { passive: true });
     syncNav();
   }
 
   const root = document.documentElement;
-  const reducedMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)');
-  const still = () => root.dataset.motion === 'off' || Boolean(reducedMotion && reducedMotion.matches);
+  const reducedMotion = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const still = (): boolean => root.dataset.motion === 'off' || Boolean(reducedMotion?.matches);
 
   /*
    * The bar's section links. A tap scrolls to the section's heading (the
@@ -90,10 +97,10 @@ import Vortex from './vortex.js';
    * link. The section being read is the last one whose heading has passed
    * the upper third of the view.
    */
-  const links = nav && typeof nav.querySelectorAll === 'function' ? [...nav.querySelectorAll('[data-lp-goto]')] : [];
-  const ink = nav && nav.querySelector ? nav.querySelector('.lp-links-ink') : null;
+  const links = nav && typeof nav.querySelectorAll === 'function' ? [...nav.querySelectorAll<HTMLElement>('[data-lp-goto]')] : [];
+  const ink = nav && typeof nav.querySelector === 'function' ? nav.querySelector<HTMLElement>('.lp-links-ink') : null;
   if (links.length) {
-    const targets = links.map(link => document.getElementById(link.dataset.lpGoto));
+    const targets = links.map(link => document.getElementById(link.dataset.lpGoto ?? ''));
     links.forEach((link, index) => link.addEventListener('click', () => {
       const target = targets[index];
       if (!target) return;
@@ -101,14 +108,14 @@ import Vortex from './vortex.js';
     }));
     let active = -1;
     let queued = false;
-    const place = () => {
+    const place = (): void => {
       queued = false;
-      const line = global.innerHeight / 3;
+      const line = globalThis.innerHeight / 3;
       let current = -1;
       targets.forEach((target, index) => { if (target && target.getBoundingClientRect().top <= line) current = index; });
       /* Past the last section's end, nothing on the bar is being read. */
       const last = targets[targets.length - 1];
-      const section = last && last.closest ? last.closest('section') : null;
+      const section = last && typeof last.closest === 'function' ? last.closest('section') : null;
       if (section && section.getBoundingClientRect().bottom < line) current = -1;
       if (current === active) return;
       active = current;
@@ -117,18 +124,19 @@ import Vortex from './vortex.js';
         else link.removeAttribute('aria-current');
       });
       if (!ink) return;
-      if (current < 0) { ink.classList.remove('is-on'); return; }
-      ink.style.setProperty('--ink-x', `${links[current].offsetLeft}px`);
-      ink.style.setProperty('--ink-w', `${links[current].offsetWidth}px`);
+      const marked = links[current];
+      if (!marked) { ink.classList.remove('is-on'); return; }
+      ink.style.setProperty('--ink-x', `${marked.offsetLeft}px`);
+      ink.style.setProperty('--ink-w', `${marked.offsetWidth}px`);
       ink.classList.add('is-on');
     };
-    const request = () => {
+    const request = (): void => {
       if (queued) return;
       queued = true;
-      global.requestAnimationFrame(place);
+      globalThis.requestAnimationFrame(place);
     };
-    global.addEventListener('scroll', request, { passive: true });
-    global.addEventListener('resize', () => { active = -2; request(); }, { passive: true });
+    globalThis.addEventListener('scroll', request, { passive: true });
+    globalThis.addEventListener('resize', () => { active = -2; request(); }, { passive: true });
     place();
   }
 
@@ -138,15 +146,14 @@ import Vortex from './vortex.js';
    * The words stay in the paragraph as its own text, so a screen reader and
    * a copy both get the sentence; with motion off it is simply lit.
    */
-  const lit = document.querySelector ? document.querySelector('[data-lp-lit]') : null;
+  const lit = typeof document.querySelector === 'function' ? document.querySelector<HTMLElement>('[data-lp-lit]') : null;
   if (lit && typeof lit.querySelectorAll === 'function' && !still()) {
-    const words = [];
+    const words: HTMLElement[] = [];
     const walker = document.createTreeWalker(lit, NodeFilter.SHOW_TEXT);
-    const texts = [];
-    let node;
-    while ((node = walker.nextNode())) texts.push(node);
+    const texts: Node[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node);
     texts.forEach(text => {
-      const parts = text.nodeValue.split(/(\s+)/);
+      const parts = (text.nodeValue ?? '').split(/(\s+)/);
       const fragment = document.createDocumentFragment();
       parts.forEach(part => {
         if (!part) return;
@@ -157,32 +164,32 @@ import Vortex from './vortex.js';
         words.push(word);
         fragment.appendChild(word);
       });
-      text.parentNode.replaceChild(fragment, text);
+      text.parentNode?.replaceChild(fragment, text);
     });
     lit.classList.add('is-lighting');
     let shown = -1;
     let queued = false;
-    const light = () => {
+    const light = (): void => {
       queued = false;
       const box = lit.getBoundingClientRect();
-      const start = global.innerHeight * 0.9;
-      const end = global.innerHeight * 0.35;
+      const start = globalThis.innerHeight * 0.9;
+      const end = globalThis.innerHeight * 0.35;
       const progress = Math.max(0, Math.min(1, (start - box.top) / Math.max(1, (start - end) + box.height * 0.5)));
       const count = still() ? words.length : Math.round(progress * words.length);
       if (count === shown) return;
       shown = count;
       words.forEach((word, index) => word.classList.toggle('is-lit', index < count));
     };
-    const request = () => {
+    const request = (): void => {
       if (queued) return;
       queued = true;
-      global.requestAnimationFrame(light);
+      globalThis.requestAnimationFrame(light);
     };
     if (typeof IntersectionObserver === 'function') {
       new IntersectionObserver(entries => {
         entries.forEach(entry => {
-          if (entry.isIntersecting) { global.addEventListener('scroll', request, { passive: true }); request(); }
-          else global.removeEventListener('scroll', request);
+          if (entry.isIntersecting) { globalThis.addEventListener('scroll', request, { passive: true }); request(); }
+          else globalThis.removeEventListener('scroll', request);
         });
       }, { threshold: 0 }).observe(lit);
     } else {
@@ -198,15 +205,16 @@ import Vortex from './vortex.js';
    * Without script the frame rests on the findings, which is the move worth
    * reading on its own.
    */
-  const play = document.querySelector('.lp-play');
-  const playFrame = play && play.querySelector('.lp-play-frame');
+  const play = document.querySelector<HTMLElement>('.lp-play');
+  const playFrame = play?.querySelector<HTMLElement>('.lp-play-frame') ?? null;
   if (play && playFrame && typeof IntersectionObserver === 'function') {
-    const steps = [...play.querySelectorAll('.lp-play-step')];
+    const steps = [...play.querySelectorAll<HTMLElement>('.lp-play-step')];
     /* The narrow layout's snapshots: one copy of the frame per move, fixed at that move. */
     steps.forEach(step => {
       const snap = playFrame.cloneNode(true);
+      if (!(snap instanceof HTMLElement)) return;
       snap.classList.add('lp-play-snap');
-      snap.dataset.stage = step.dataset.stage;
+      snap.dataset.stage = step.dataset.stage ?? '';
       step.appendChild(snap);
     });
     play.classList.add('is-cloned');
@@ -216,9 +224,9 @@ import Vortex from './vortex.js';
      * drawn by the script that plays the scene; without script the moves
      * stand on their own.
      */
-    const body = play.querySelector('.lp-play-body');
-    const badges = steps.map(step => step.querySelector('.lp-play-n')).filter(Boolean);
-    let rail = null;
+    const body = play.querySelector<HTMLElement>('.lp-play-body');
+    const badges = steps.map(step => step.querySelector<HTMLElement>('.lp-play-n')).filter((badge): badge is HTMLElement => badge !== null);
+    let rail: HTMLElement | null = null;
     if (body && badges.length === steps.length) {
       rail = document.createElement('div');
       rail.className = 'lp-play-rail';
@@ -227,49 +235,51 @@ import Vortex from './vortex.js';
       rail.appendChild(document.createElement('b'));
       body.appendChild(rail);
     }
-    const placeRail = () => {
-      if (!rail) return;
+    const placeRail = (): void => {
+      const first = badges[0];
+      const final = badges[badges.length - 1];
+      if (!rail || !body || !first || !final) return;
       const frame = body.getBoundingClientRect();
-      const first = badges[0].getBoundingClientRect();
-      const last = badges[badges.length - 1].getBoundingClientRect();
-      const top = first.top + first.height / 2 - frame.top;
-      const height = Math.max(0, last.top + last.height / 2 - frame.top - top);
+      const firstBox = first.getBoundingClientRect();
+      const top = firstBox.top + firstBox.height / 2 - frame.top;
+      const lastBox = final.getBoundingClientRect();
+      const height = Math.max(0, lastBox.top + lastBox.height / 2 - frame.top - top);
       rail.style.top = `${top.toFixed(1)}px`;
       rail.style.height = `${height.toFixed(1)}px`;
       rail.style.setProperty('--rail-h', `${height.toFixed(1)}px`);
     };
     /* Fonts, the snapshots and a turned phone all move the numbers; the rail follows them. */
-    if (rail && typeof global.ResizeObserver === 'function') new global.ResizeObserver(placeRail).observe(body);
+    if (rail && body && typeof globalThis.ResizeObserver === 'function') new globalThis.ResizeObserver(placeRail).observe(body);
     /* The held frame centres itself on the screen by its own height, which each stage changes. */
-    if (typeof global.ResizeObserver === 'function') {
-      new global.ResizeObserver(() => {
+    if (typeof globalThis.ResizeObserver === 'function') {
+      new globalThis.ResizeObserver(() => {
         playFrame.style.setProperty('--frame-h', `${Math.round(playFrame.offsetHeight)}px`);
       }).observe(playFrame);
     }
-    const count = playFrame.querySelector('.lp-au-count');
+    const count = playFrame.querySelector<HTMLElement>('.lp-au-count');
     const total = count ? Number(count.textContent) || 0 : 0;
-    const stacked = global.matchMedia ? global.matchMedia('(max-width:939px)') : null;
+    const stacked = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia('(max-width:939px)') : null;
     let current = '';
     let queued = false;
-    const countUp = () => {
+    const countUp = (): void => {
       if (!count || still()) return;
-      const start = global.performance.now();
-      const tick = now => {
+      const start = globalThis.performance.now();
+      const tick = (now: number): void => {
         const t = Math.min(1, (now - start) / 1400);
         count.textContent = String(Math.round(total * (1 - Math.pow(1 - t, 3))));
-        if (t < 1 && current === 'read') global.requestAnimationFrame(tick);
+        if (t < 1 && current === 'read') globalThis.requestAnimationFrame(tick);
         else count.textContent = String(total);
       };
-      global.requestAnimationFrame(tick);
+      globalThis.requestAnimationFrame(tick);
     };
-    const nav = document.querySelector('.lp-nav');
-    const choose = () => {
+    const bar = document.querySelector<HTMLElement>('.lp-nav');
+    const choose = (): void => {
       queued = false;
       /* The reading line is the middle of what the bar leaves (and, stacked, of what the frame leaves). */
-      const under = nav ? Math.max(0, nav.getBoundingClientRect().bottom) : 0;
-      const top = stacked && stacked.matches ? Math.max(under, playFrame.getBoundingClientRect().bottom) : under;
-      const line = top + (global.innerHeight - top) / 2;
-      let best = null;
+      const under = bar ? Math.max(0, bar.getBoundingClientRect().bottom) : 0;
+      const top = stacked?.matches ? Math.max(under, playFrame.getBoundingClientRect().bottom) : under;
+      const line = top + (globalThis.innerHeight - top) / 2;
+      let best: HTMLElement | null = null;
       let distance = Infinity;
       for (const step of steps) {
         const box = step.getBoundingClientRect();
@@ -282,32 +292,33 @@ import Vortex from './vortex.js';
         rail.style.setProperty('--play-p', lit.toFixed(4));
       }
       if (!best || best.dataset.stage === current) return;
-      current = best.dataset.stage;
-      const reached = steps.indexOf(best);
+      const chosen = best;
+      current = chosen.dataset.stage ?? '';
+      const reached = steps.indexOf(chosen);
       steps.forEach((step, index) => {
-        step.classList.toggle('is-current', step === best);
+        step.classList.toggle('is-current', step === chosen);
         step.classList.toggle('is-passed', index < reached);
       });
       playFrame.dataset.stage = current;
       if (current === 'read') countUp();
     };
-    const onScroll = () => {
+    const onScroll = (): void => {
       if (queued) return;
       queued = true;
-      global.requestAnimationFrame(choose);
+      globalThis.requestAnimationFrame(choose);
     };
-    const onResize = () => { placeRail(); onScroll(); };
+    const onResize = (): void => { placeRail(); onScroll(); };
     new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           play.classList.add('is-playing');
-          global.addEventListener('scroll', onScroll, { passive: true });
-          global.addEventListener('resize', onResize, { passive: true });
+          globalThis.addEventListener('scroll', onScroll, { passive: true });
+          globalThis.addEventListener('resize', onResize, { passive: true });
           placeRail();
           onScroll();
         } else {
-          global.removeEventListener('scroll', onScroll);
-          global.removeEventListener('resize', onResize);
+          globalThis.removeEventListener('scroll', onScroll);
+          globalThis.removeEventListener('resize', onResize);
         }
       });
     }, { threshold: 0 }).observe(play);
@@ -317,8 +328,8 @@ import Vortex from './vortex.js';
    * The rules passing under the counts: the list is doubled so the loop
    * meets itself, and it only moves while it is on screen.
    */
-  const ticker = document.querySelector('.lp-ticker');
-  const track = ticker && ticker.querySelector('.lp-ticker-track');
+  const ticker = document.querySelector<HTMLElement>('.lp-ticker');
+  const track = ticker?.querySelector<HTMLElement>('.lp-ticker-track') ?? null;
   if (ticker && track && typeof IntersectionObserver === 'function') {
     [...track.children].forEach(node => track.appendChild(node.cloneNode(true)));
     new IntersectionObserver(entries => {
@@ -330,16 +341,17 @@ import Vortex from './vortex.js';
   if (!canvas) return;
 
   const gate = document.getElementById('page-alpha-access');
-  const connection = global.navigator && global.navigator.connection;
+  /* The reader's data saver, where the browser tells it: not every browser has a connection to ask. */
+  const connection = field(globalThis.navigator, 'connection');
+  const saving = (): boolean => Boolean(field(connection, 'saveData'));
 
   // Content is visible by default, including without WebGL/JavaScript. Animate
   // each section once as it arrives; never take over the browser's scrolling.
-  if (typeof IntersectionObserver === 'function' && document.querySelectorAll) {
+  if (typeof IntersectionObserver === 'function' && typeof document.querySelectorAll === 'function') {
     const sections = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         if (!entry.isIntersecting) return;
-        if (root.dataset.motion !== 'off' && !(reducedMotion && reducedMotion.matches)
-            && !(connection && connection.saveData)) entry.target.classList.add('lp-revealed');
+        if (root.dataset.motion !== 'off' && !reducedMotion?.matches && !saving()) entry.target.classList.add('lp-revealed');
         sections.unobserve(entry.target);
       });
     }, { threshold: 0.12 });
@@ -351,8 +363,8 @@ import Vortex from './vortex.js';
    * moves; it runs only while it is on screen, so the scene above it -- and a
    * phone's battery -- never pay for a picture nobody is looking at.
    */
-  const show = document.querySelector('.lp-show');
-  if (show && typeof IntersectionObserver === 'function' && show.classList) {
+  const show = document.querySelector<HTMLElement>('.lp-show');
+  if (show && typeof IntersectionObserver === 'function') {
     new IntersectionObserver(entries => {
       entries.forEach(entry => show.classList.toggle('is-onscreen', entry.isIntersecting));
     }, { threshold: 0 }).observe(show);
@@ -364,22 +376,23 @@ import Vortex from './vortex.js';
    * pointer catches it even on the card next door. One write per frame, and
    * only where there is a fine pointer to follow.
    */
-  const bento = document.querySelector('.lp-bento');
-  const finePointer = global.matchMedia && global.matchMedia('(hover: hover) and (pointer: fine)');
-  if (bento && finePointer && finePointer.matches && typeof bento.querySelectorAll === 'function') {
-    const cards = [...bento.querySelectorAll('.lp-bento-c')];
-    let pending = null;
+  const bento = document.querySelector<HTMLElement>('.lp-bento');
+  const finePointer = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia('(hover: hover) and (pointer: fine)') : null;
+  if (bento && finePointer?.matches && typeof bento.querySelectorAll === 'function') {
+    const cards = [...bento.querySelectorAll<HTMLElement>('.lp-bento-c')];
+    let pending: { readonly x: number; readonly y: number } | null = null;
     bento.addEventListener('pointermove', event => {
       const first = pending === null;
       pending = { x: event.clientX, y: event.clientY };
       if (!first) return;
-      global.requestAnimationFrame(() => {
-        const { x, y } = pending;
+      globalThis.requestAnimationFrame(() => {
+        const at = pending;
         pending = null;
-        cards.forEach(card => {
-          const box = card.getBoundingClientRect();
-          card.style.setProperty('--mx', `${Math.round(x - box.left)}px`);
-          card.style.setProperty('--my', `${Math.round(y - box.top)}px`);
+        if (!at) return;
+        cards.forEach(one => {
+          const box = one.getBoundingClientRect();
+          one.style.setProperty('--mx', `${Math.round(at.x - box.left)}px`);
+          one.style.setProperty('--my', `${Math.round(at.y - box.top)}px`);
         });
       });
     }, { passive: true });
@@ -390,22 +403,22 @@ import Vortex from './vortex.js';
    * in the markup from the start, so without script -- or with motion off --
    * the reader gets the number, not a zero.
    */
-  const stats = document.querySelector('.lp-checks');
+  const stats = document.querySelector<HTMLElement>('.lp-checks');
   if (stats && typeof IntersectionObserver === 'function' && typeof stats.querySelectorAll === 'function') {
     const counter = new IntersectionObserver(entries => {
       if (!entries.some(entry => entry.isIntersecting)) return;
       counter.disconnect();
-      if (root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches)) return;
-      stats.querySelectorAll('[data-count]').forEach(el => {
+      if (root.dataset.motion === 'off' || reducedMotion?.matches) return;
+      stats.querySelectorAll<HTMLElement>('[data-count]').forEach(el => {
         const to = Number(el.dataset.count) || 0;
         if (!to) return;
-        const start = global.performance.now();
-        const step = now => {
+        const start = globalThis.performance.now();
+        const step = (now: number): void => {
           const t = Math.min(1, (now - start) / 1100);
           el.textContent = String(Math.round(to * (1 - Math.pow(1 - t, 3))));
-          if (t < 1) global.requestAnimationFrame(step);
+          if (t < 1) globalThis.requestAnimationFrame(step);
         };
-        global.requestAnimationFrame(step);
+        globalThis.requestAnimationFrame(step);
       });
     }, { threshold: 0.35 });
     counter.observe(stats);
@@ -415,9 +428,9 @@ import Vortex from './vortex.js';
    * "See how it works": the quiet way forward, for a reader who wants to see
    * before going in. It goes to the section it names and nowhere else.
    */
-  const tours = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-tour]') : [];
+  const tours = typeof document.querySelectorAll === 'function' ? [...document.querySelectorAll<HTMLElement>('[data-lp-tour]')] : [];
   tours.forEach(button => button.addEventListener('click', () => {
-    const target = document.getElementById(button.dataset.lpTour);
+    const target = document.getElementById(button.dataset.lpTour ?? '');
     if (target) target.scrollIntoView({ behavior: still() ? 'auto' : 'smooth', block: 'start' });
   }));
 
@@ -431,18 +444,18 @@ import Vortex from './vortex.js';
    */
   /* The column at desk scale: drawn half again its fitted size and set a little low, so the crown opens at the top of the window and the waist sits level with the copy. */
   const DESK_COLUMN = Object.freeze({ zoom: 1.5, rise: -0.06 });
-  const artBox = document.querySelector('.lp-art');
-  const desk = global.matchMedia && global.matchMedia('(min-width: 940px) and (min-aspect-ratio: 4/5)');
-  if (artBox && desk && artBox.style && typeof artBox.getBoundingClientRect === 'function') {
-    const reach = () => {
+  const artBox = document.querySelector<HTMLElement>('.lp-art');
+  const desk = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia('(min-width: 940px) and (min-aspect-ratio: 4/5)') : null;
+  if (artBox && desk && typeof artBox.getBoundingClientRect === 'function') {
+    const reach = (): void => {
       if (!desk.matches) { artBox.style.removeProperty('--lp-bleed-top'); return; }
-      const top = artBox.getBoundingClientRect().top + (global.scrollY || global.pageYOffset || 0);
+      const top = artBox.getBoundingClientRect().top + (globalThis.scrollY || globalThis.pageYOffset || 0);
       artBox.style.setProperty('--lp-bleed-top', `${Math.max(0, Math.round(top))}px`);
     };
     reach();
     const bodyBox = document.querySelector('.lp-body');
-    if (bodyBox && typeof global.ResizeObserver === 'function') new global.ResizeObserver(reach).observe(bodyBox);
-    if (desk.addEventListener) desk.addEventListener('change', reach);
+    if (bodyBox && typeof globalThis.ResizeObserver === 'function') new globalThis.ResizeObserver(reach).observe(bodyBox);
+    desk.addEventListener?.('change', reach);
   }
 
   /*
@@ -452,24 +465,24 @@ import Vortex from './vortex.js';
    * ("Get started", "Open your workspace") and is that way through: two
    * buttons with one name doing two different things is a promise broken.
    */
-  const jumps = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('[data-lp-jump]') : [];
+  const jumps = typeof document.querySelectorAll === 'function' ? [...document.querySelectorAll<HTMLElement>('[data-lp-jump]')] : [];
   jumps.forEach(button => {
     button.addEventListener('click', () => {
       const open = document.getElementById('alphaOpenAccess');
       const through = document.getElementById('alphaPassThrough');
-      if (open && !open.hidden && through && !through.disabled) { through.click(); return; }
-      const target = document.querySelector('.lp-card');
+      if (open && !open.hidden && through instanceof HTMLButtonElement && !through.disabled) { through.click(); return; }
+      const target = document.querySelector<HTMLElement>('.lp-card');
       if (!target) return;
-      const still = root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches);
-      target.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'center' });
-      const control = [...target.querySelectorAll('input, button')]
+      const held = still();
+      target.scrollIntoView({ behavior: held ? 'auto' : 'smooth', block: 'center' });
+      const control = [...target.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button')]
         .find(el => !el.hidden && !el.closest('[hidden]') && !el.disabled);
-      if (control) global.setTimeout(() => control.focus({ preventScroll: true }), still ? 0 : 420);
+      if (control) globalThis.setTimeout(() => control.focus({ preventScroll: true }), held ? 0 : 420);
     });
     /* A small pull toward a fine pointer: the button meets the hand. */
-    if (global.matchMedia && global.matchMedia('(hover:hover) and (pointer:fine)').matches) {
+    if (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(hover:hover) and (pointer:fine)').matches) {
       button.addEventListener('pointermove', event => {
-        if (root.dataset.motion === 'off' || (reducedMotion && reducedMotion.matches)) return;
+        if (still()) return;
         const box = button.getBoundingClientRect();
         const dx = (event.clientX - (box.left + box.width / 2)) / box.width;
         const dy = (event.clientY - (box.top + box.height / 2)) / box.height;
@@ -496,14 +509,15 @@ import Vortex from './vortex.js';
    * crown opens at the top of the screen and the base spreads into the path,
    * rather than the same-sized form floating in the middle of a taller box.
    */
-  const presetName = (canvas.dataset && canvas.dataset.vortex) || 'column';
-  const deskShape = () => (desk && desk.matches && presetName === 'column' ? DESK_COLUMN : {});
+  const presetName = canvas.dataset.vortex || 'column';
+  const deskShape = (): { readonly zoom?: number; readonly rise?: number } => (desk?.matches && presetName === 'column' ? DESK_COLUMN : {});
   // The canvas owns an unobstructed box and handles pointer capture itself.
-  const scene = Vortex.create(canvas, Object.assign({
+  const scene = Vortex.create(canvas, {
     preset: presetName,
-    onRest: () => sync()
-  }, deskShape()));
-  if (scene && desk && desk.addEventListener) desk.addEventListener('change', () => scene.setShape(presetName, deskShape()));
+    onRest: () => sync(),
+    ...deskShape()
+  });
+  if (scene && desk) desk.addEventListener?.('change', () => scene.setShape(presetName, deskShape()));
   if (!scene) {
     canvas.hidden = true;
     if (art) art.hidden = true;
@@ -511,7 +525,7 @@ import Vortex from './vortex.js';
   }
   reachListeners.push(on => scene.setReaching(on));
 
-  const themeName = () => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
+  const themeName = (): string => (root.dataset.design === 'obsidian' ? 'obsidian-' : '') +
     (root.dataset.theme === 'light' ? 'light' : 'dark');
   scene.setTheme(themeName());
 
@@ -520,18 +534,18 @@ import Vortex from './vortex.js';
 
   /*
    * A device that could not keep the scene moving has had it rested for the
-   * visit (vortex.js says why), and the page does not ask it to start again.
+   * visit (vortex.ts says why), and the page does not ask it to start again.
    */
-  const resting = () => Boolean(scene.budget().resting);
+  const resting = (): boolean => Boolean(scene.budget().resting);
 
   /*
    * The same eligibility the video honoured, for the same reasons: the
    * interface's own motion switch, the system preference, a metered
    * connection, a hidden tab, and whether this screen is even on.
    */
-  const eligible = () => root.dataset.motion !== 'off'
-    && !(reducedMotion && reducedMotion.matches)
-    && !(connection && connection.saveData)
+  const eligible = (): boolean => root.dataset.motion !== 'off'
+    && !reducedMotion?.matches
+    && !saving()
     && !document.hidden && intersecting && !resting()
     && (!gate || (!gate.hidden && gate.classList.contains('active')));
 
@@ -540,13 +554,14 @@ import Vortex from './vortex.js';
    * canvas is transparent until the first frame lands, and fading in an empty
    * one is the flash the video's poster existed to prevent.
    */
-  function reveal() {
-    if (revealed) return;
+  function reveal(): void {
+    if (revealed || !canvas) return;
     revealed = true;
     canvas.classList.add('is-live');
   }
 
-  function sync() {
+  function sync(): void {
+    if (!scene || !canvas) return;
     const moving = eligible();
     canvas.dataset.sceneState = moving ? 'running' : resting() ? 'resting' : 'still';
     if (art) art.classList.toggle('is-static', !moving);
@@ -590,9 +605,12 @@ import Vortex from './vortex.js';
     }
   }
   document.addEventListener('visibilitychange', sync);
-  if (reducedMotion && reducedMotion.addEventListener) reducedMotion.addEventListener('change', sync);
-  else if (reducedMotion && reducedMotion.addListener) reducedMotion.addListener(sync);
-  if (connection && connection.addEventListener) connection.addEventListener('change', sync);
+  if (reducedMotion && typeof reducedMotion.addEventListener === 'function') reducedMotion.addEventListener('change', sync);
+  else if (reducedMotion && typeof reducedMotion.addListener === 'function') reducedMotion.addListener(sync);
+  const listen = field(connection, 'addEventListener');
+  if (typeof listen === 'function') listen.call(connection, 'change', sync);
 
   sync();
-})(globalThis);
+}
+
+landingStage();

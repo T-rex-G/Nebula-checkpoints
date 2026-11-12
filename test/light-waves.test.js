@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { loadsInShell } = require('./helpers/web-shell');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createLightWaves } = require('../apps/web/src/visualizations/light-waves');
+const { createLightWaves } = require('../apps/web/src/visualizations/light-waves.ts');
 
 function events(target = {}) {
   const listeners = new Map();
@@ -99,5 +99,5 @@ const root = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 assert.match(html, /<canvas[^>]+id="lightWaves"[^>]+aria-hidden="true"/,
   'the actual page must mount the decorative canvas');
-assert(loadsInShell('apps/web/src/visualizations/light-waves.js'), 'the light waves are part of the page and therefore of its precached entry');
+assert(loadsInShell('apps/web/src/visualizations/light-waves.ts'), 'the light waves are part of the page and therefore of its precached entry');
 console.log('light waves lifecycle, motion, orientation and delivery tests passed');

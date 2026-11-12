@@ -717,12 +717,12 @@ check('the landing scene draws itself rather than shipping a picture', () => {
    */
   const imports = shellImports();
   const tagAt = name => imports.findIndex(entry => entry.endsWith(`/${name}`));
-  const sceneAt = tagAt('vortex.js');
-  const stageAt = tagAt('landing-stage.js');
+  const sceneAt = tagAt('vortex.ts');
+  const stageAt = tagAt('landing-stage.ts');
   assert.ok(sceneAt !== -1, 'the vortex script is not in the document');
   assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
   assert.ok(sceneAt < stageAt,
-    'landing-stage.js is parsed before vortex.js, so the factory is never there when it looks');
+    'landing-stage.ts is evaluated before vortex.ts, so the factory is never there when it looks');
   assert.ok(!fs.existsSync(path.join(root, 'apps/web/src/visualizations/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
     'the plasma ring is back beside the vortex, so the landing ships two scenes and draws one');
   const shape = (tag[0].match(/data-vortex="([^"]*)"/) || [])[1];
@@ -736,7 +736,50 @@ check('the landing scene draws itself rather than shipping a picture', () => {
  * that sizes the mesh.
  */
 function loadVortex() {
-  return require('../apps/web/src/visualizations/vortex.js').default;
+  return require('../apps/web/src/visualizations/vortex.ts').default;
+}
+
+/*
+ * The scene, drawn on a stand-in for WebGL that keeps every call made of it.
+ * What the scene asks of the context -- the options it asks for one with,
+ * the buffers it fills and the calls that draw them -- is what these checks
+ * read, not the text that would make those calls. `renderer` is the name the
+ * device gives its renderer; `refusesCaveat`, whether it refuses a context
+ * that would be drawn in software.
+ */
+const GL = Object.freeze({
+  ARRAY_BUFFER: 34962, ELEMENT_ARRAY_BUFFER: 34963, STATIC_DRAW: 35044, FLOAT: 5126, UNSIGNED_SHORT: 5123,
+  UNSIGNED_INT: 5125, LINES: 1, POINTS: 0, COLOR_BUFFER_BIT: 16384, BLEND: 3042, DEPTH_TEST: 2929, ONE: 1,
+  ONE_MINUS_SRC_ALPHA: 771, VERTEX_SHADER: 35633, FRAGMENT_SHADER: 35632, COMPILE_STATUS: 35713, LINK_STATUS: 35714,
+  RENDERER: 7937
+});
+function drawVortex({ renderer = 'ANGLE (a discrete GPU)', refusesCaveat = false, options = {} } = {}) {
+  const calls = [];
+  const asked = [];
+  const context = () => new Proxy({}, {
+    get(target, name) {
+      if (Object.prototype.hasOwnProperty.call(GL, name)) return GL[name];
+      if (name === 'getShaderParameter' || name === 'getProgramParameter') return () => true;
+      if (name === 'getExtension') return () => null;
+      if (name === 'getParameter') return () => renderer;
+      if (name === 'getAttribLocation') return () => 0;
+      return (...args) => { calls.push([name, args]); return {}; };
+    }
+  });
+  const contextFor = request => (request && request.failIfMajorPerformanceCaveat && refusesCaveat ? null : context());
+  const canvas = {
+    width: 0, height: 0, clientWidth: 800, clientHeight: 600,
+    ownerDocument: { createElement: () => ({ getContext: (kind, request) => contextFor(request) }) },
+    getContext(kind, request) { asked.push({ kind, ...request }); return contextFor(request); },
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 })
+  };
+  const scene = loadVortex().create(canvas, { preset: 'column', ...options });
+  if (scene) scene.renderStill();
+  return {
+    scene, asked,
+    called: name => calls.filter(([called]) => called === name).map(([, args]) => args)
+  };
 }
 
 /*
@@ -749,9 +792,15 @@ function loadVortex() {
  * build() is the belt behind it.
  */
 check('the vortex cannot ask for more vertices than its index type can address', () => {
-  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8');
-  assert.ok(/UNSIGNED_SHORT/.test(source),
-    'the index type changed; this guard is measuring a limit that no longer applies');
+  /* The lattice is drawn by 16-bit indices, from a buffer of them: the limit below is that index type's. */
+  const drawn = drawVortex();
+  const indices = drawn.called('bufferData').filter(([target]) => target === GL.ELEMENT_ARRAY_BUFFER).map(([, data]) => data);
+  assert.strictEqual(indices.length, 1, 'the lattice is not drawn from one buffer of indices');
+  assert.ok(indices[0] instanceof Uint16Array, 'the index type changed; this guard is measuring a limit that no longer applies');
+  const lines = drawn.called('drawElements');
+  assert.ok(lines.length > 0 && lines.every(([mode, , type]) => mode === GL.LINES && type === GL.UNSIGNED_SHORT),
+    'the lattice is not drawn by its 16-bit indices');
+  assert.ok(Math.max(...indices[0]) < 65536, 'an index wrapped past what its type can address');
   const vortex = loadVortex();
   assert.strictEqual(vortex.VERTEX_LIMIT, 65536);
   assert.ok(vortex.TIERS.length >= 2, 'the budget no longer steps down for a small screen');
@@ -765,8 +814,14 @@ check('the vortex cannot ask for more vertices than its index type can address',
   /* Smaller boxes get smaller meshes, never larger ones. */
   const counts = vortex.TIERS.map(tier => tier.strands * (tier.segments + 1) + tier.motes + tier.field);
   counts.slice(1).forEach((count, i) => assert.ok(count > counts[i], 'a smaller screen is given a heavier scene'));
-  assert.ok(/if \(vertices > VERTEX_LIMIT\) \{ res\.indexCount = 0; return; \}/.test(source),
-    'build() no longer refuses a mesh past the limit');
+  /* A budget past the limit is refused outright: no lattice is drawn, rather than one stitched to itself. */
+  const past = { upTo: Infinity, strands: 1000, segments: 72, motes: 10, field: 10, comets: 1 };
+  assert.ok(vortex.strandVertices(past) > vortex.VERTEX_LIMIT);
+  const refused = drawVortex({ options: { tiers: [past] } });
+  assert.ok(refused.scene, 'a scene with a budget past the limit was not made at all');
+  assert.deepStrictEqual(refused.called('drawElements'), [], 'a mesh past the limit was drawn');
+  assert.ok(!refused.called('bufferData').some(([target]) => target === GL.ELEMENT_ARRAY_BUFFER),
+    'a mesh past the limit was handed to the GPU');
 });
 
 /*
@@ -866,14 +921,45 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
   assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.column },
     'an unknown shape does not fall back to the landing default');
   assert.strictEqual(vortex.resolveShape({ waistAt: 0.3 }).waistAt, 0.3, 'a shape object is not honoured on its own');
+  /* A name is looked up among the shapes and palettes themselves, never among what every object inherits. */
+  for (const inherited of ['constructor', 'toString', '__proto__']) {
+    assert.deepStrictEqual({ ...vortex.resolveShape(inherited) }, { ...vortex.PRESETS.column },
+      `a shape named ${inherited} is not the landing default`);
+  }
+  const themed = drawVortex();
+  const blendOf = () => themed.called('blendFunc').slice(-1)[0];
+  themed.scene.setTheme('light');
+  assert.deepStrictEqual(blendOf(), [GL.ONE, GL.ONE_MINUS_SRC_ALPHA], 'a light palette is not composited normally');
+  themed.scene.setTheme('constructor');
+  assert.deepStrictEqual(blendOf(), [GL.ONE, GL.ONE], 'a palette named like an inherited property is not the dark default');
   /* The canvas fades in the scene; every side fades, and none past its middle. */
   ['left', 'right', 'top', 'bottom'].forEach(side => {
     const f = vortex.FEATHER[side];
     assert.ok(f > 0 && f < 0.45, `the ${side} edge of the scene does not fade, or fades past its middle`);
   });
-  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/vortex.js'), 'utf8');
-  assert.ok(/failIfMajorPerformanceCaveat/.test(source) && /swiftshader/i.test(source),
-    'the scene no longer asks whether it would be drawn in software, so a runner without a GPU pays for multisampling');
+});
+
+/*
+ * Whether the scene would be drawn in software decides how it is drawn: a
+ * renderer without a GPU pays for multisampling four times over, so there the
+ * scene runs lite. A browser that refuses a context it would draw in software
+ * says so; headless Chromium hands one over regardless, and names its
+ * renderer.
+ */
+check('the scene asks whether it would be drawn in software, and draws lite when it would', () => {
+  const gpu = drawVortex();
+  assert.ok(gpu.asked[0] && gpu.asked[0].failIfMajorPerformanceCaveat === true && gpu.asked[0].antialias === true,
+    'the scene no longer asks for a context the browser would refuse to draw in software');
+  assert.strictEqual(gpu.scene.budget().lite, false, 'a device with a GPU was given the lite scene');
+  for (const [device, setting] of [
+    ['a renderer named as software', { renderer: 'Google SwiftShader' }],
+    ['a browser that refuses a context it would draw in software', { refusesCaveat: true }]
+  ]) {
+    const software = drawVortex(setting);
+    assert.ok(software.scene, `${device}: the scene was not drawn at all`);
+    assert.strictEqual(software.scene.budget().lite, true, `${device}: the scene still pays for multisampling`);
+    assert.ok(software.asked.every(request => request.antialias === false), `${device}: a multisampled context was asked for`);
+  }
 });
 
 /*
@@ -893,6 +979,17 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
 function runLandingStage(options) {
   const settings = options || {};
   const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [], created: [] };
+  /* Every part of the page the module asks for, and every style it writes on one. */
+  const queried = [];
+  const styleWrites = [];
+  const styleOf = owner => new Proxy({}, {
+    get(target, name) {
+      if (name === 'setProperty') return (property, value) => styleWrites.push([owner, property, value]);
+      if (name === 'removeProperty') return property => styleWrites.push([owner, property, null]);
+      return target[name];
+    },
+    set(target, name, value) { styleWrites.push([owner, name, value]); target[name] = value; return true; }
+  });
   let running = false;
   let resting = false;
   const ring = {
@@ -916,6 +1013,7 @@ function runLandingStage(options) {
    */
   const canvas = {
     hidden: false,
+    style: styleOf('the canvas'),
     dataset: settings.vortex ? { vortex: settings.vortex } : {},
     drawnAtReveal: null,
     classList: {
@@ -942,10 +1040,12 @@ function runLandingStage(options) {
   const inside = { name: 'a field in the card' };
   const outside = { name: 'something else on the page' };
   const card = {
+    style: styleOf('the card'),
     addEventListener(name, fn) { (cardListeners[name] = cardListeners[name] || []).push(fn); },
     contains: node => node === inside
   };
   const lp = {
+    style: styleOf('the stage'),
     classList: {
       names: new Set(),
       add(n) { this.names.add(n); },
@@ -954,16 +1054,19 @@ function runLandingStage(options) {
     }
   };
   const hero = {
+    style: styleOf('the hero'),
     addEventListener(name, fn) { (hostListeners[name] = hostListeners[name] || []).push(fn); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 })
   };
   const documentStub = {
     getElementById: id => {
+      queried.push(`#${id}`);
       if (id === 'page-alpha-access') return gate;
       if (id === 'lpPortal') return settings.noCanvas ? null : canvas;
       return null;
     },
     querySelector: selector => {
+      queried.push(selector);
       if (selector === '.lp') return settings.noStage ? null : lp;
       if (selector === '.lp-card') return settings.noStage ? null : card;
       if (selector === '.lp-hero') return hero;
@@ -1020,7 +1123,7 @@ function runLandingStage(options) {
   const vortex = settings.noWebgl ? { create: () => null } : {
     create: (el, options) => { calls.created.push({ el, options }); return ring; }
   };
-  loadPageModule('apps/web/src/visualizations/landing-stage.js', sandbox, { imports: { './vortex.js': vortex } });
+  loadPageModule('apps/web/src/visualizations/landing-stage.ts', sandbox, { imports: { './vortex.ts': vortex } });
   /* An attribute changes; only the observers that asked for it hear about it. */
   const mutate = (target, attribute) => {
     const watch = mutations.get(target);
@@ -1029,7 +1132,7 @@ function runLandingStage(options) {
     watch.cb();
   };
   return {
-    calls, ring, canvas,
+    calls, ring, canvas, queried, styleWrites,
     motion: value => {
       documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
       mutate(documentStub.documentElement, 'data-motion');
@@ -1245,8 +1348,6 @@ check('the scene follows the theme rather than reading it once at load', () => {
 check('no light box sits behind the vortex, and nothing moves one', () => {
   assert.ok(!/lp-glow/.test(htmlSource), 'the landing markup still carries the old bloom layer');
   assert.ok(!/\.lp-glow\b/.test(cssSource), 'the stylesheet still styles the old bloom layer');
-  const stage = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8');
-  assert.ok(!/--gx|--gy|lp-glow/.test(stage), 'the landing script still drives a pointer-following light');
   const lpRules = rules.filter(rule => eachSelector(rule).some(one => /(^|\s)\.lp$/.test(one.selector.trim())));
   /* The paint only: the same rule also carries colour tokens for the copy. */
   const painted = lpRules.map(rule => (rule.body.match(/background(?:-image)?\s*:[^;]*/g) || []).join(' ')).join(' ');
@@ -1263,6 +1364,14 @@ check('no light box sits behind the vortex, and nothing moves one', () => {
   run.point(900, 400);
   run.depart();
   assert.strictEqual(run.pending(), queued, 'a pointer over the hero schedules work outside the scene');
+  /* Nor does the script look for the old layer, or move a light by the pointer's position, through a whole visit. */
+  run.gesture();
+  run.focusIn();
+  run.focusOut(false);
+  run.pump(4);
+  assert.ok(!run.queried.some(asked => /lp-glow/.test(asked)), 'the landing script still looks for the old bloom layer');
+  assert.ok(!run.styleWrites.some(([, property]) => /^--g[xy]$/.test(property)),
+    'the landing script still drives a pointer-following light');
 });
 
 /*
@@ -1392,7 +1501,7 @@ check('the moving ground yields where the galaxy is drawn', () => {
   assert.ok(/#page-repos\.active\)?[^{]*#lightWaves\{[^}]*display:none/.test(cssSource),
     'the waves still run underneath the galaxy on the repositories screen, where two full-bleed animations compete');
   /*
-   * display:none, not opacity: light-waves.js holds when it has no box to
+   * display:none, not opacity: light-waves.ts holds when it has no box to
    * measure, so removing it from the layout also ends its render loop.
    */
   const rule = cssSource.match(/body:has\(#page-repos\.active\) #lightWaves\{([^}]*)\}/);
@@ -2063,10 +2172,14 @@ check('the motion itself is in the cascade, gated both ways', () => {
    * directly the reduced-motion and data-motion gates below stop applying to
    * it, because they are cascade rules.
    */
-  const source = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/landing-stage.js'), 'utf8');
-  const reaching = source.slice(source.indexOf('is-reaching'));
-  assert.ok(!/\.style\./.test(reaching.slice(0, 400)),
-    'the moment writes a style directly, which no motion setting can then turn off');
+  const run = runLandingStage({});
+  run.gesture();
+  run.focusIn();
+  assert.ok(run.reaching(), 'the moment never carried its class');
+  run.focusOut(false);
+  assert.ok(!run.reaching(), 'the moment kept its class after the reader left the card');
+  const written = run.styleWrites.filter(([owner]) => owner === 'the stage' || owner === 'the card');
+  assert.deepStrictEqual(written, [], 'the moment writes a style directly, which no motion setting can then turn off');
 
   const moved = rules.filter(rule => /\.is-reaching\b/.test(rule.selector)
     && /transform\s*:|opacity\s*:/.test(rule.body));

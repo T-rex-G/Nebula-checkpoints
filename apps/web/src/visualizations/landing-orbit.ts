@@ -20,26 +20,30 @@
  * Also here: the thin progress line at the screen's right edge, which says
  * how far down the landing the reader is.
  */
-'use strict';
-import Visuals from './nebula-visuals.js';
+import Visuals from './nebula-visuals.ts';
+import type { Horizon, NebulaSingularity } from './nebula-singularity.ts';
 
-(function landingOrbit(global) {
+/* The arc as measured: its apex and radius, which the scene draws, and the stage it was measured on. */
+interface Arc extends Horizon { readonly width: number; readonly height: number }
+
+function landingOrbit(): void {
   const root = document.documentElement;
-  const section = document.querySelector('.lp-orbit');
-  const line = document.querySelector('.lp-progress i');
+  const section = document.querySelector<HTMLElement>('.lp-orbit');
+  const line = document.querySelector<HTMLElement>('.lp-progress i');
   const gate = document.getElementById('page-alpha-access');
   if (!section && !line) return;
 
-  const reduced = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : null;
-  const still = () => root.dataset.motion === 'off' || !!(reduced && reduced.matches);
+  const reduced = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const still = (): boolean => root.dataset.motion === 'off' || !!reduced?.matches;
   const art = document.getElementById('lpOrbitArt');
-  const stage = section && section.querySelector('.lp-orbit-stick');
-  const systems = section ? [...section.querySelectorAll('.lp-system')] : [];
+  const stage = section?.querySelector<HTMLElement>('.lp-orbit-stick') ?? null;
+  const systems = section ? [...section.querySelectorAll<HTMLElement>('.lp-system')] : [];
+  const sceneIn = (): NebulaSingularity | null => art?.querySelector<NebulaSingularity>('nebula-singularity') ?? null;
   let frame = 0;
   let mounted = false;
-  let arc = null;
+  let arc: Arc | null = null;
 
-  const smooth = value => { const v = Math.min(1, Math.max(0, value)); return v * v * (3 - 2 * v); };
+  const smooth = (value: number): number => { const v = Math.min(1, Math.max(0, value)); return v * v * (3 - 2 * v); };
 
   /*
    * The arc, from the stage's own size: its apex a tenth of the way down
@@ -53,10 +57,10 @@ import Visuals from './nebula-visuals.js';
    * is wide (a tablet upright, a phone showing the desktop site) keeps the
    * apex at the low end too: a tenth of that height is a band of its own.
    */
-  function measureArc() {
+  function measureArc(): Arc | null {
     if (!stage) return null;
-    const width = stage.clientWidth || global.innerWidth;
-    const height = stage.clientHeight || global.innerHeight;
+    const width = stage.clientWidth || window.innerWidth;
+    const height = stage.clientHeight || window.innerHeight;
     const narrow = width < 700;
     const tall = !narrow && height > width * 1.45;
     const top = Math.round(narrow ? Math.min(120, Math.max(72, height * 0.12)) : tall ? 88 : Math.min(130, Math.max(84, height * 0.1)));
@@ -66,22 +70,22 @@ import Visuals from './nebula-visuals.js';
     return { top, radius, width, height };
   }
 
-  function sectionProgress() {
-    const box = section.getBoundingClientRect();
-    const span = Math.max(1, box.height - global.innerHeight);
+  function sectionProgress(of: HTMLElement): number {
+    const box = of.getBoundingClientRect();
+    const span = Math.max(1, box.height - window.innerHeight);
     return Math.min(1, Math.max(0, -box.top / span));
   }
 
-  function paint() {
+  function paint(): void {
     frame = 0;
-    if (!gate || !gate.classList.contains('active')) return;
+    if (!gate?.classList.contains('active')) return;
     if (line) {
-      const height = document.documentElement.scrollHeight - global.innerHeight;
-      line.style.transform = `scaleY(${height > 0 ? Math.min(1, global.scrollY / height).toFixed(4) : 0})`;
+      const height = document.documentElement.scrollHeight - window.innerHeight;
+      line.style.transform = `scaleY(${height > 0 ? Math.min(1, window.scrollY / height).toFixed(4) : 0})`;
     }
     if (!section) return;
     if (!arc) arc = measureArc();
-    const progress = sectionProgress();
+    const progress = sectionProgress(section);
     section.style.setProperty('--orbit-p', progress.toFixed(4));
     /* The sky closes in over the first steps past the horizon, and opens to the page again as the section leaves. */
     section.style.setProperty('--orbit-sky', smooth(progress / 0.16).toFixed(4));
@@ -94,22 +98,22 @@ import Visuals from './nebula-visuals.js';
       system.dataset.on = String(calm || progress >= 0.3 + index * (0.46 / Math.max(1, systems.length - 1)));
     });
     section.dataset.ready = String(calm || progress > 0.8);
-    const scene = art && art.querySelector('nebula-singularity');
+    const scene = sceneIn();
     if (scene) {
       if (arc && scene.horizon === null) scene.horizon = arc;
       scene.progress = progress;
     }
   }
-  const schedule = () => { if (!frame) frame = global.requestAnimationFrame(paint); };
-  const remeasure = () => {
+  const schedule = (): void => { if (!frame) frame = window.requestAnimationFrame(paint); };
+  const remeasure = (): void => {
     arc = measureArc();
-    const scene = art && art.querySelector('nebula-singularity');
+    const scene = sceneIn();
     if (scene && arc) scene.horizon = arc;
     schedule();
   };
-  global.addEventListener('scroll', schedule, { passive: true });
-  global.addEventListener('resize', remeasure);
-  if (reduced && reduced.addEventListener) reduced.addEventListener('change', schedule);
+  window.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', remeasure);
+  reduced?.addEventListener?.('change', schedule);
   if (typeof MutationObserver === 'function') {
     new MutationObserver(schedule).observe(root, { attributes: true, attributeFilter: ['data-motion'] });
   }
@@ -127,8 +131,8 @@ import Visuals from './nebula-visuals.js';
       if (mounted || !entries.some(entry => entry.isIntersecting)) return;
       mounted = true;
       near.disconnect();
-      Visuals.mount('singularity', art).then(drawn => {
-        const scene = art.querySelector('nebula-singularity');
+      void Visuals.mount('singularity', art).then(drawn => {
+        const scene = sceneIn();
         if (scene && arc) scene.horizon = arc;
         if (drawn && art.dataset.nebulaMounted === 'true') section.dataset.drawn = 'true';
         schedule();
@@ -139,16 +143,18 @@ import Visuals from './nebula-visuals.js';
   }
 
   /* The gate dives in before the page moves to the card: a beat of the horizon growing, then the same jump as the bar's Enter. */
-  const reticle = section && section.querySelector('.lp-reticle');
-  if (reticle) {
+  const reticle = section?.querySelector('.lp-reticle');
+  if (section && reticle) {
     reticle.addEventListener('pointerdown', () => {
       if (still()) return;
       section.classList.remove('is-diving');
       void section.offsetWidth;
       section.classList.add('is-diving');
-      global.setTimeout(() => section.classList.remove('is-diving'), 900);
+      window.setTimeout(() => section.classList.remove('is-diving'), 900);
     });
   }
 
   schedule();
-})(window);
+}
+
+landingOrbit();

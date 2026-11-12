@@ -8,17 +8,19 @@
  *
  * What is added here is what shipping it requires. The element is decorative,
  * so it is hidden from assistive technology; it stops animating off-screen and
- * on a hidden tab; it honours a reduced-motion preference by holding a single
- * frame rather than by disappearing; and it is imported only after the caller
- * has established that this device has WebGL to draw it with, because the
- * module pulls three.js behind it.
- *
- * The import is an absolute path rather than a bare specifier on purpose. A
- * bare 'three' needs an import map, an import map is an inline script, and an
- * inline script needs the policy relaxed to allow one -- a real weakening of
- * script-src to save a path.
+ * on a hidden tab; it honours the reader's motion setting by holding a single
+ * frame rather than by disappearing (artwork.ts); and it is imported only after
+ * the loader has established that this device can draw it, because the module
+ * pulls three.js behind it. three.js is imported by its package name and the
+ * build makes it a chunk of its own, reached only through this piece and the
+ * singularity: no import map, so no inline script and no relaxing of
+ * script-src.
  */
 import * as THREE from 'three';
+
+import { motionHeld, watchMotion } from './artwork.ts';
+import type { ArtworkPiece, ArtworkReading } from './artwork.ts';
+
 
 const VERT = `
 varying vec2 vUv;
@@ -199,7 +201,14 @@ void main() {
  * magentas; Obsidian in silver on obsidian and graphite on quartz, the way a
  * long-exposure photograph of a galaxy reads on a screen built from stone.
  */
-const PALETTE = {
+type Preset = 'nebula' | 'obsidian';
+type Shade = 'dark' | 'light';
+interface Palette {
+  readonly core: number; readonly inner: number; readonly mid: number;
+  readonly deep: number; readonly mag: number; readonly crim: number;
+  readonly exposure: number;
+}
+const PALETTE: Readonly<Record<Preset, Readonly<Record<Shade, Palette>>>> = Object.freeze({
   nebula: {
     dark: {
       core:  0xfff6ff, inner: 0xd8c4ff, mid: 0x8b5cf6,
@@ -224,14 +233,68 @@ const PALETTE = {
       exposure: 0.95
     }
   }
-};
+});
 
-class NebulaGalaxy extends HTMLElement {
-  static get observedAttributes() { return ['theme', 'density', 'design']; }
+/* A held frame shows the spiral at this moment of its turn. */
+const STILL_TIME = 8;
 
-  connectedCallback() {
-    if (this._built) return;
-    this._built = true;
+interface Uniforms {
+  readonly [name: string]: THREE.IUniform;
+  readonly uT: THREE.IUniform<number>;
+  readonly uAspect: THREE.IUniform<number>;
+  readonly uZoom: THREE.IUniform<number>;
+  readonly uLight: THREE.IUniform<number>;
+  readonly uExposure: THREE.IUniform<number>;
+  readonly uStars: THREE.IUniform<number>;
+  readonly uStrands: THREE.IUniform<number>;
+  readonly uTilt: THREE.IUniform<number>;
+  readonly uSquash: THREE.IUniform<number>;
+  readonly uArms: THREE.IUniform<number>;
+  readonly uPitch: THREE.IUniform<number>;
+  readonly uCore: THREE.IUniform<THREE.Color>;
+  readonly uInner: THREE.IUniform<THREE.Color>;
+  readonly uMid: THREE.IUniform<THREE.Color>;
+  readonly uDeep: THREE.IUniform<THREE.Color>;
+  readonly uMag: THREE.IUniform<THREE.Color>;
+  readonly uCrim: THREE.IUniform<THREE.Color>;
+}
+
+/* What a connected galaxy draws with. */
+interface Drawing {
+  readonly renderer: THREE.WebGLRenderer;
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly uniforms: Uniforms;
+}
+
+export class NebulaGalaxy extends HTMLElement implements ArtworkPiece {
+  static get observedAttributes(): string[] { return ['theme', 'density', 'design']; }
+
+  #built = false;
+  #failed = false;
+  #drawing: Drawing | null = null;
+  #frame = 0;
+  #last = 0;
+  #start = 0;
+  #elapsed = 0;
+  #frames = 0;
+  #held = false;
+  #visible = true;
+  #resizes: ResizeObserver | null = null;
+  #sightings: IntersectionObserver | null = null;
+  #unwatchMotion: (() => void) | null = null;
+  readonly #onVisibility = (): void => {
+    if (document.hidden) this.stop();
+    else if (this.#visible) this.start();
+  };
+
+  get reading(): ArtworkReading {
+    return { tag: 'nebula-galaxy', held: this.#held, running: this.#frame !== 0, frames: this.#frames, failed: this.#failed };
+  }
+
+  connectedCallback(): void {
+    if (this.#built) return;
+    this.#built = true;
 
     this.style.display = this.style.display || 'block';
     if (!this.style.width) this.style.width = '100%';
@@ -241,7 +304,6 @@ class NebulaGalaxy extends HTMLElement {
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'display:block;width:100%;height:100%';
     this.appendChild(canvas);
-    this.canvas = canvas;
 
     /*
      * A device that refuses a context is not an error to report: the interface
@@ -249,22 +311,20 @@ class NebulaGalaxy extends HTMLElement {
      * and stays silent rather than leaving a blank box or throwing through the
      * caller's boot.
      */
+    let renderer: THREE.WebGLRenderer;
     try {
-      this.renderer = new THREE.WebGLRenderer({
+      renderer = new THREE.WebGLRenderer({
         canvas, alpha: true, antialias: false, preserveDrawingBuffer: true,
         premultipliedAlpha: false, powerPreference: 'high-performance'
       });
     } catch {
       canvas.remove();
-      this._failed = true;
+      this.#failed = true;
       return;
     }
-    this.renderer.setClearColor(0x000000, 0);
+    renderer.setClearColor(0x000000, 0);
 
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.Camera();
-
-    this.uniforms = {
+    const uniforms: Uniforms = {
       uT: { value: 0 }, uAspect: { value: 1 }, uZoom: { value: 1 }, uLight: { value: 0 },
       uExposure: { value: 1.35 }, uStars: { value: 1 }, uStrands: { value: 18 },
       uTilt: { value: 0.38 }, uSquash: { value: 2.05 },
@@ -273,68 +333,78 @@ class NebulaGalaxy extends HTMLElement {
       uMid: { value: new THREE.Color() }, uDeep: { value: new THREE.Color() },
       uMag: { value: new THREE.Color() }, uCrim: { value: new THREE.Color() }
     };
-
+    const scene = new THREE.Scene();
     const quad = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.ShaderMaterial({
-        uniforms: this.uniforms, vertexShader: VERT, fragmentShader: FRAG,
+        uniforms, vertexShader: VERT, fragmentShader: FRAG,
         transparent: true, depthTest: false, depthWrite: false
       })
     );
     quad.frustumCulled = false;
-    this.scene.add(quad);
+    scene.add(quad);
+    this.#drawing = { renderer, scene, camera: new THREE.Camera(), uniforms };
 
+    this.#held = motionHeld(document, window);
     this.paint();
     this.resize();
 
-    this._ro = new ResizeObserver(() => this.resize());
-    this._ro.observe(this);
+    this.#resizes = new ResizeObserver(() => this.resize());
+    this.#resizes.observe(this);
 
-    this._visible = true;
-    this._io = new IntersectionObserver((es) => {
-      this._visible = es.some(e => e.isIntersecting);
-      this._visible ? this.start() : this.stop();
+    this.#visible = true;
+    this.#sightings = new IntersectionObserver(entries => {
+      this.#visible = entries.some(entry => entry.isIntersecting);
+      if (this.#visible) this.start(); else this.stop();
     }, { rootMargin: '600px', threshold: 0 });
-    this._io.observe(this);
-
-    this._onVis = () => (document.hidden ? this.stop() : this._visible && this.start());
-    document.addEventListener('visibilitychange', this._onVis);
+    this.#sightings.observe(this);
+    document.addEventListener('visibilitychange', this.#onVisibility);
+    /* The setting can change with the backdrop on screen: hold the frame, or carry on from where it was held. */
+    this.#unwatchMotion = watchMotion(document, window, () => {
+      const held = motionHeld(document, window);
+      if (held === this.#held) return;
+      this.#held = held;
+      if (held) { this.stop(); this.render(); } else if (this.#visible && !document.hidden) this.start();
+    });
 
     this.start();
   }
 
-  disconnectedCallback() {
+  disconnectedCallback(): void {
     this.stop();
-    this._ro && this._ro.disconnect();
-    this._io && this._io.disconnect();
-    document.removeEventListener('visibilitychange', this._onVis);
+    this.#resizes?.disconnect();
+    this.#sightings?.disconnect();
+    this.#unwatchMotion?.();
+    document.removeEventListener('visibilitychange', this.#onVisibility);
   }
 
-  attributeChangedCallback(n, o, v) {
-    if (!this._built || o === v) return;
+  attributeChangedCallback(name: string, before: string | null, after: string | null): void {
+    if (!this.#built || before === after) return;
     this.paint();
-    if (n === 'density') this.resize();
+    if (name === 'density') this.resize();
   }
 
-  paint() {
-    if (this._failed) return;
+  paint(): void {
+    const drawing = this.#drawing;
+    if (!drawing) return;
     const light = (this.getAttribute('theme') || 'dark') === 'light';
     const preset = PALETTE[this.getAttribute('design') === 'obsidian' ? 'obsidian' : 'nebula'];
-    const p = preset[light ? 'light' : 'dark'];
-    const u = this.uniforms;
+    const palette = preset[light ? 'light' : 'dark'];
+    const u = drawing.uniforms;
     u.uLight.value = light ? 1 : 0;
-    u.uExposure.value = p.exposure;
-    u.uCore.value.setHex(p.core);
-    u.uInner.value.setHex(p.inner);
-    u.uMid.value.setHex(p.mid);
-    u.uDeep.value.setHex(p.deep);
-    u.uMag.value.setHex(p.mag);
-    u.uCrim.value.setHex(p.crim);
+    u.uExposure.value = palette.exposure;
+    u.uCore.value.setHex(palette.core);
+    u.uInner.value.setHex(palette.inner);
+    u.uMid.value.setHex(palette.mid);
+    u.uDeep.value.setHex(palette.deep);
+    u.uMag.value.setHex(palette.mag);
+    u.uCrim.value.setHex(palette.crim);
     this.render();
   }
 
-  resize() {
-    if (this._failed) return;
+  resize(): void {
+    const drawing = this.#drawing;
+    if (!drawing) return;
     const w = this.clientWidth || 320;
     const h = this.clientHeight || 320;
     const low = this.getAttribute('density') === 'low';
@@ -343,71 +413,50 @@ class NebulaGalaxy extends HTMLElement {
      * three-times screen the strands went soft. The cap still bounds the cost.
      */
     const cap = low ? 2 : 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
-    this.renderer.setSize(w, h, false);
+    drawing.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    drawing.renderer.setSize(w, h, false);
     const aspect = w / Math.max(h, 1);
-    this.uniforms.uAspect.value = aspect;
+    drawing.uniforms.uAspect.value = aspect;
     /*
      * The disc is drawn a box-height across; in a wide box that left most of
      * the width empty. Zoomed to the box's shape it fills it, and the tilt and
      * squash keep its height inside the box, where the mask fades it out.
      */
-    this.uniforms.uZoom.value = Math.min(1.45, Math.max(1.15, aspect * 0.95));
-    this.uniforms.uStrands.value = low ? 12 : 18;
-    this.uniforms.uStars.value = low ? 0 : 1;
+    drawing.uniforms.uZoom.value = Math.min(1.45, Math.max(1.15, aspect * 0.95));
+    drawing.uniforms.uStrands.value = low ? 12 : 18;
+    drawing.uniforms.uStars.value = low ? 0 : 1;
     this.render();
   }
 
-  start() {
-    if (this._failed) return;
-    if (this._raf || document.hidden) return;
-    /*
-     * The interface's own motion switch as well as the operating system's.
-     * This read consulted only the OS query, so turning motion off in settings
-     * left the backdrop animating -- the largest moving thing on the screen.
-     * applySettings publishes the switch as data-motion on the root element.
-     */
-    this._reduced = document.documentElement.dataset.motion === 'off' ||
-      !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    /*
-     * Re-read while running, because the switch can be thrown with the
-     * backdrop on screen. The uniform is sampled every frame, so settling it
-     * is enough to stop the motion without tearing the loop down.
-     */
-    if (!this._motionObserver) {
-      this._motionObserver = new MutationObserver(() => {
-        this._reduced = document.documentElement.dataset.motion === 'off' ||
-          !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-        if (this._reduced) { this.uniforms.uT.value = 8; this.render(); }
-        else { this._t0 = performance.now() - (this._elapsed || 0) * 1000; }
-      });
-      this._motionObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
-    }
-    this._t0 = performance.now() - (this._elapsed || 0) * 1000;
-    const loop = (now) => {
-      this._raf = requestAnimationFrame(loop);
-      if (now - (this._last || 0) < 32) return;
-      this._last = now;
-      this._elapsed = (now - this._t0) / 1000;
-      this.uniforms.uT.value = this._reduced ? 8 : this._elapsed;
+  /* Turns the spiral while it is on screen, on a visible tab, and the reader's setting lets it move. */
+  start(): void {
+    if (!this.#drawing || this.#frame || document.hidden) return;
+    if (this.#held) { this.render(); return; }
+    this.#start = performance.now() - this.#elapsed * 1000;
+    const loop = (now: number): void => {
+      this.#frame = requestAnimationFrame(loop);
+      if (now - this.#last < 32) return;
+      this.#last = now;
+      this.#elapsed = (now - this.#start) / 1000;
       this.render();
     };
-    this._raf = requestAnimationFrame(loop);
+    this.#frame = requestAnimationFrame(loop);
   }
 
-  stop() {
-    if (this._failed) return;
-    if (this._raf) cancelAnimationFrame(this._raf);
-    this._raf = null;
+  stop(): void {
+    if (this.#frame) cancelAnimationFrame(this.#frame);
+    this.#frame = 0;
   }
 
-  render() {
-    if (this.renderer) this.renderer.render(this.scene, this.camera);
+  render(): void {
+    const drawing = this.#drawing;
+    if (!drawing) return;
+    drawing.uniforms.uT.value = this.#held ? STILL_TIME : this.#elapsed;
+    drawing.renderer.render(drawing.scene, drawing.camera);
+    this.#frames += 1;
   }
 }
 
 if (!customElements.get('nebula-galaxy')) {
   customElements.define('nebula-galaxy', NebulaGalaxy);
 }
-
-export { NebulaGalaxy };

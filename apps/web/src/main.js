@@ -16,8 +16,8 @@ import './styles/style.css';
 import './styles/rendered-audit.css';
 
 import './platform/probe.ts';
-import './visualizations/landing-stage.js';
-import './visualizations/landing-orbit.js';
-import './visualizations/landing-map.js';
-import './visualizations/light-waves.js';
+import './visualizations/landing-stage.ts';
+import './visualizations/landing-orbit.ts';
+import './visualizations/landing-map.ts';
+import './visualizations/light-waves.ts';
 import './legacy/app.js';

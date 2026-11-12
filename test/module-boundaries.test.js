@@ -23,6 +23,11 @@
  *  - No dependency cycle anywhere in the backend: one graph over src, apps
  *    and packages, so a cycle that runs through a TypeScript module and back
  *    into the CommonJS code still in src/ is seen as well.
+ *  - The design's WebGL pieces are reached only through their loader, and
+ *    only when it asks for them: the loader probes the device and the
+ *    reader's data saver first, so a page that imported a piece itself would
+ *    download three.js for a device that cannot draw it, into the first
+ *    paint. three.js is imported by the pieces alone.
  */
 const assert = require('assert/strict');
 const fs = require('fs');
@@ -238,6 +243,10 @@ console.log('  ok  the root stays CommonJS; apps/ and packages/ are ES-module sc
 const scoped = [...walk(path.join(root, 'apps')), ...walk(path.join(root, 'packages'))]
   .filter(file => !/[/\\](?:public|dist)[/\\]/.test(file) && !/vite\.config\.js$/.test(file));
 const DOMAIN_FILE = /^apps\/api\/src\/modules\/([^/]+)\/domain\//;
+const ARTWORK = /^apps\/web\/src\/visualizations\/nebula-(?:galaxy|singularity)\.(?:js|ts)$/;
+const ARTWORK_LOADER = 'apps/web/src/visualizations/nebula-visuals.ts';
+const artworkImports = [];
+const threeImporters = [];
 const edges = new Map();
 const forbiddenPackages = new Map();
 const violations = [];
@@ -257,6 +266,7 @@ for (const file of scoped) {
     const target = resolveRelative(file, specifier);
     if (!target) {
       if (specifier.startsWith('.')) violations.push(`${name}: ${specifier} does not resolve`);
+      if (specifier === 'three' || specifier.startsWith('three/')) threeImporters.push(name);
       if (DOMAIN_FORBIDDEN.test(specifier)) {
         forbiddenPackages.set(name, [...(forbiddenPackages.get(name) || []), specifier]);
         if (DOMAIN_FILE.test(name)) violations.push(`${name}: domain code imports ${specifier}`);
@@ -264,6 +274,7 @@ for (const file of scoped) {
       continue;
     }
     const to = rel(target);
+    if (ARTWORK.test(to)) artworkImports.push({ name, to, statically: statics.includes(specifier) });
     if (name.startsWith('packages/') && to.startsWith('apps/')) violations.push(`${name}: the contracts import ${to}`);
     if (name.startsWith('apps/web/') && to.startsWith('apps/api/')) violations.push(`${name}: the page imports the server (${to})`);
     if (name.startsWith('apps/api/') && to.startsWith('apps/web/')) violations.push(`${name}: the server imports the page (${to})`);
@@ -301,6 +312,14 @@ for (const name of edges.keys()) {
 assert.deepStrictEqual(violations, [], `module rules broken:\n- ${violations.join('\n- ')}`);
 assert.deepStrictEqual(stronglyConnected(edges), [], 'a dependency cycle in apps/ or packages/');
 console.log(`  ok  ${scoped.length} ES modules: no top-level await, no stray entry paths, errors named first, boundaries held, no cycle`);
+
+/* The WebGL pieces, each asked for by the loader once it has probed the device, and three.js beneath them alone. */
+const artworkFiles = [...new Set(artworkImports.map(entry => entry.to))].sort();
+assert.equal(artworkFiles.length, 2, `both WebGL pieces are imported somewhere (found ${artworkFiles.join(', ') || 'none'})`);
+assert.deepStrictEqual(artworkImports.filter(entry => entry.name !== ARTWORK_LOADER || entry.statically).map(entry => `${entry.name} -> ${entry.to}${entry.statically ? ' (static)' : ''}`), [],
+  `only ${ARTWORK_LOADER} may import a WebGL piece, and only when it asks for one`);
+assert.deepStrictEqual([...new Set(threeImporters)].filter(name => !ARTWORK.test(name)), [], 'three.js is imported by the WebGL pieces alone');
+console.log('  ok  the WebGL pieces are reached only through their loader, and three.js only through them');
 
 /* --- the CommonJS server code that remains in src/ -------------------------- */
 

@@ -56,6 +56,37 @@ test('switching a policy off sends its revision, a reason and an idempotency key
   expect(sent[0].idempotencyKey).toMatch(/^governance-ui:policy-deactivate:/);
 });
 
+/*
+ * A control whose action is still running says so, and pressing it again
+ * sends nothing more. It used to be disabled for the action and enabled again
+ * after; the screen is drawn in place now, so the control pressed is still
+ * there when its action ends, and enabling it would undo whatever the view had
+ * decided for it meanwhile. It is marked busy instead, for as long as the
+ * action runs, and whether it may be pressed stays the view's to say.
+ */
+test('a control pressed again while its action runs sends nothing more, and says it is working', async ({ page }) => {
+  await openGovernance(page);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  const asked = [];
+  await page.route(/\/governance\/decisions\/verify(\?|$)/, async route => {
+    asked.push(route.request().url());
+    await held;
+    return route.fulfill({ json: { verification: { valid: true, complete: true, checked: 3 } } });
+  });
+  const verify = page.locator('[data-gov-action="verify-chain"]');
+  await verify.click();
+  await expect(verify).toHaveAttribute('aria-busy', 'true');
+  await expect(verify).toBeEnabled();
+  await verify.click();
+  await expect.poll(() => asked.length).toBe(1);
+  release();
+  await expect(verify).toHaveText('Chain verified');
+  await expect(verify).not.toHaveAttribute('aria-busy');
+  await expect(page.locator('#tab-governance .gov-banner.ok')).toHaveText('Decision chain verified · 3 records checked');
+  expect(asked).toHaveLength(1);
+});
+
 test('a lifecycle action without a reason is refused before anything is sent', async ({ page }) => {
   const sent = await openGovernance(page);
   await page.locator(`[data-gov-action="archive-policy"][data-policy-id="${ALPHA}"]`).click();
@@ -88,6 +119,25 @@ test('a JSON field that is not an object is refused before anything is sent', as
     await expect(page.locator('.toast').last()).toContainText(message);
   }
   expect(simulations).toEqual([]);
+});
+
+/*
+ * The screen is drawn in place: what the reader opened, and the control they
+ * are on, are still theirs after it is drawn again. The archive used to close
+ * at every redraw -- a filter pressed, a page of the ledger read -- because the
+ * whole screen was written anew.
+ */
+test('an archive opened stays open, and the control pressed keeps focus, when the screen is drawn again', async ({ page }) => {
+  await openGovernance(page);
+  const archive = page.locator('.gov-archived');
+  await page.locator('.gov-archived > summary').click();
+  await expect(archive).toHaveAttribute('open', '');
+  /* Any press of a ledger filter draws the screen again. */
+  const everything = page.locator('[data-gov-action="ledger-filter"][data-filter="all"]');
+  await everything.click();
+  await expect(everything).toHaveAttribute('aria-pressed', 'true');
+  await expect(archive).toHaveAttribute('open', '');
+  await expect(everything).toBeFocused();
 });
 
 test('archive, restore, discard and withdraw each reach their own route', async ({ page }) => {

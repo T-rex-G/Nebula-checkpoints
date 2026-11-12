@@ -933,6 +933,8 @@ html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-
 .btn-primary:hover{background:var(--btn-solid-hover);border-color:transparent}
 .btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+/* A control whose action is running: dimmed as a refused one is, and saying it is working rather than refusing. */
+.btn[aria-busy="true"]{opacity:.45;cursor:progress;transform:none}
 .btn-ghost{background:transparent}
 .btn-ghost{box-shadow:none}
 .btn-ghost:hover{background:color-mix(in srgb, transparent 92%, var(--fg))}

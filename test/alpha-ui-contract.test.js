@@ -154,7 +154,7 @@ assert(!safeguardsBlock.includes('setTimeout(() => {'),
   const sources = [
     ['index.html', fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8')],
     ['app.js', fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8')],
-    ['governance-ui.js', fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'features', 'governance', 'governance-ui.js'), 'utf8')]
+    ['the governance screen', require('./helpers/governance-view').markup(require('./helpers/governance-view').sample())]
   ];
   const LABEL = /<label\b([^>]*)>((?:(?!<\/label>).){0,400})<\/label>/gs;
   let checked = 0;

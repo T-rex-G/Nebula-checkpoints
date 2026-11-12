@@ -462,11 +462,11 @@ const HANDOFFS = Object.freeze({
   'CodeAudit.spdx <- work': 'reads the name and ref, strings, into a new document',
   'CodeMirror <- settings': 'takes the editor options, strings, numbers and flags, and keeps a copy of its own',
   'CodeMirror.findModeByFileName <- file': 'reads the file\'s path, a string',
-  'GovernanceUI.defaultSimulationRequest <- work': 'reads the default branch, a string, into a new request',
-  'GovernanceUI.renderGovernanceInterface <- governance': 'writes markup from what it is handed and keeps nothing',
   'SecurityPostureModel.model <- repos': 'lists the repositories anew (inventory) and filters that list',
   'SecurityPostureModel.model <- securityPosture': 'reads the summary\'s figures into new records and lists',
   'WorkspacePulseModel.model <- repos': 'measures what it is handed into a new model',
+  'defaultGovernanceSimulation <- work': 'reads the default branch, a string, into a new request',
+  'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
   'formatRoute <- work': 'writes an address from the route\'s names, strings',
   'renderGalaxyPulseGrid <- repos': 'counts the repositories and their languages into a new view, and draws that',
   'writeRoute <- work': 'writes an address from the route\'s names, strings'

@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const ui = require('../apps/web/src/features/governance/governance-ui');
+const { markup } = require('./helpers/governance-view');
 const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const twin = {
   schemaVersion: 1,
@@ -19,7 +19,7 @@ const access = {
   capabilities: { read: true, author: true, review: true, activate: true, administer: true },
   evidence: { status: 'current', expiresAt: '2099-01-01T00:00:00.000Z' }
 };
-const html = ui.renderGovernanceInterface({
+const html = markup({
   digitalTwin: twin, access,
   delivery: {
     preferences: { enabled: true, eventTypes: ['policy.activated'], lastReadSeq: 1 },

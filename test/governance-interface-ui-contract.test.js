@@ -12,7 +12,7 @@ for (const marker of [
   'data-tab="governance"', 'id="tab-governance"', 'id="govRoot"', 'id="govLive"',
   'aria-labelledby="govTabLabel"', 'data-act="governance"'
 ]) assert(html.includes(marker), `governance interface shell missing ${marker}`);
-assert(loadsInShell('apps/web/src/features/governance/governance-ui.js'), 'governance renderer must be part of the page');
+assert(loadsInShell('apps/web/src/features/governance/GovernanceView.tsx'), 'governance view must be part of the page');
 assert(html.includes('role="status"') && html.includes('aria-live="polite"'), 'governance interface needs an ARIA live region');
 for (const selector of ['.gov-shell', '.gov-summary-grid', '.gov-policy-card', '.gov-banner', '.gov-history-grid']) {
   assert(css.includes(selector), `governance interface styles missing ${selector}`);

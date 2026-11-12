@@ -182,9 +182,17 @@ test('individual Retry preserves folder, message, LFS choice and commit mode', a
   });
   await selectFiles(page, ['alpha/nested/one.txt', 'beta/two.txt']);
   await expect(page.locator('#uploadQueue .uq-item.error')).toHaveCount(1);
-  // The unfixed queue never opens the failure summary; cancel it when present.
+  /*
+   * The queue has finished when it says what failed. Asked once, straight
+   * after the second upload was sent, the summary was not open yet whenever
+   * that upload was answered a little late, and it then opened over the form
+   * the test went on to change -- or the retry went out before the second
+   * upload had landed.
+   */
   await expect.poll(() => requests.length).toBe(2);
-  if (await page.locator('#scrim').isVisible()) await page.locator('#modalCancel').click();
+  await expect(page.locator('#modalTitle')).toHaveText("1 of 2 didn't upload");
+  await page.locator('#modalCancel').click();
+  await expect(page.locator('#scrim')).toBeHidden();
   await page.locator('#uploadDir').fill('different');
   await page.locator('#uploadMsg').fill('Different message');
   await chooseTransport(page, 'auto');

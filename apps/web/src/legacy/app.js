@@ -12,7 +12,8 @@ import CodeMirror from '../components/code-editor.ts';
 import OverlayMotion from '../components/overlay-motion.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
-import GovernanceUI from '../features/governance/governance-ui.js';
+import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
+import { render as drawGovernance } from '../features/governance/GovernanceView.tsx';
 import * as WorkspacePulseModel from '../features/overview/workspace-pulse.ts';
 import { clearActivityFeed as clearActivityFeedCard, render as renderWorkspacePulseCards, renderActivityFeed } from '../features/overview/WorkspacePulse.tsx';
 import { render as renderGalaxyPulseGrid } from '../features/repositories/GalaxyPulse.tsx';
@@ -3437,7 +3438,7 @@ function clearGovernanceState() {
   governanceExpiryTimer = null;
   state.governance = { digitalTwin: null, access: null, loading: false, error: '', simulation: null, verification: null, scopeKey: '', decisionPages: [], archived: [], delivery: { notifications: { events: [] }, preferences: {}, exports: [], webhooks: [], error: '' } };
   const root = $('#govRoot');
-  if (root) root.innerHTML = GovernanceUI.renderGovernanceInterface({ loading: true });
+  drawGovernance(root, { loading: true });
   const live = $('#govLive');
   if (live) live.textContent = '';
 }
@@ -5187,7 +5188,7 @@ function repaintGovernanceView(focusKey) {
 function renderGovernanceInterface() {
   const root = $('#govRoot');
   if (!root) return;
-  $('#govRoot').innerHTML = GovernanceUI.renderGovernanceInterface({
+  drawGovernance(root, {
     view: governanceView(),
     digitalTwin: state.governance.digitalTwin,
     access: state.governance.access,
@@ -5338,7 +5339,7 @@ async function showGovernanceJson(title, value) {
 function governanceReadJson(selector, label) {
   const element = $(selector);
   if (!element) throw new Error(`${label} input is unavailable`);
-  return GovernanceUI.parseJsonObject(element.value, label);
+  return parseGovernanceJson(element.value, label);
 }
 async function createGovernancePolicy() {
   const ok = await modal({
@@ -5480,7 +5481,7 @@ async function viewGovernanceVersion(policyId, versionId) {
 async function simulateGovernanceVersion(policyId, versionId) {
   const previous = state.governance.simulation && state.governance.simulation.policyId === policyId && state.governance.simulation.versionId === versionId
     ? state.governance.simulation.request
-    : GovernanceUI.defaultSimulationRequest(state.work.default_branch || state.work.branch || 'main');
+    : defaultGovernanceSimulation(state.work.default_branch || state.work.branch || 'main');
   const ok = await modal({
     title: 'Simulate policy version', okText: 'Run simulation',
     bodyHTML: `<label class="field-label" for="govSimulationRequest">Bounded scenario request (JSON)</label><textarea id="govSimulationRequest" rows="16" class="mono" spellcheck="false">${esc(JSON.stringify(previous, null, 2))}</textarea>
@@ -5814,16 +5815,29 @@ const governanceActionHandlers = Object.freeze({
   'exports-all': button => { const view = governanceView(); pageStore.mutate('governance', () => { view.exportsAll = !view.exportsAll; }); repaintGovernanceView(button.dataset.focusKey); }
 });
 const governanceRoot = $('#govRoot');
+/*
+ * A control whose action is running is busy, not disabled. The screen is drawn
+ * in place now, so the control pressed is still there when its action ends,
+ * and whether it may be pressed is the view's to say: disabling it here and
+ * enabling it after would undo what the view decided meanwhile -- an Activate
+ * that a finished activation had just withdrawn was offered again.
+ */
+const governanceBusy = new WeakSet();
 if (governanceRoot) governanceRoot.addEventListener('click', async event => {
   const button = event.target.closest('[data-gov-action]');
-  if (!button || button.disabled) return;
+  if (!button || button.disabled || governanceBusy.has(button)) return;
   const handler = governanceActionHandlers[button.dataset.govAction];
   if (!handler) return;
   const previousFocus = document.activeElement;
-  button.disabled = true;
+  governanceBusy.add(button);
+  button.setAttribute('aria-busy', 'true');
   try { await handler(button); }
   catch (error) { toast(error.message || 'Governance action failed', 'err'); announceGovernance(error.message || 'Governance action failed'); }
-  finally { if (button.isConnected) button.disabled = false; if (previousFocus && previousFocus.isConnected) previousFocus.focus(); }
+  finally {
+    governanceBusy.delete(button);
+    button.removeAttribute('aria-busy');
+    if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+  }
 });
 
 async function refreshRate() {

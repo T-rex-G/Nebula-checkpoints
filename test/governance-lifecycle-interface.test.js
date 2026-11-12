@@ -12,7 +12,7 @@
  */
 
 const assert = require('assert');
-const ui = require('../apps/web/src/features/governance/governance-ui');
+const { markup } = require('./helpers/governance-view');
 
 const POLICY = '10000000-0000-4000-8000-000000000001';
 const ACTIVE = '20000000-0000-4000-8000-000000000002';
@@ -61,7 +61,7 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
 
 /* A reader sees the state and none of the controls. */
 {
-  const html = ui.renderGovernanceInterface({ digitalTwin: twin(), access: access('rey', {}), archived });
+  const html = markup({ digitalTwin: twin(), access: access('rey', {}), archived });
   for (const action of ['deactivate-policy', 'archive-policy', 'restore-policy', 'discard-draft', 'withdraw-version', 'reset-governance']) {
     assert(!has(html, action), `a reader must not be offered ${action}`);
   }
@@ -71,17 +71,17 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
 
 /* An author can clean up their own work, and only their own. */
 {
-  const own = ui.renderGovernanceInterface({ digitalTwin: twin(), access: access('alice', { author: true }) });
+  const own = markup({ digitalTwin: twin(), access: access('alice', { author: true }) });
   assert(has(own, 'discard-draft'), 'the author of a draft can discard it');
   assert(has(own, 'withdraw-version'));
   assert(!has(own, 'deactivate-policy') && !has(own, 'archive-policy') && !has(own, 'reset-governance'));
-  const other = ui.renderGovernanceInterface({ digitalTwin: twin(), access: access('bob', { author: true }) });
+  const other = markup({ digitalTwin: twin(), access: access('bob', { author: true }) });
   assert(!has(other, 'discard-draft'), 'another author is not offered somebody else\'s draft');
 }
 
 /* An administrator gets the whole lifecycle, the reset apart from the rest. */
 {
-  const html = ui.renderGovernanceInterface({ digitalTwin: twin(), access: access('ada', { author: true, review: true, activate: true, administer: true }), archived });
+  const html = markup({ digitalTwin: twin(), access: access('ada', { author: true, review: true, activate: true, administer: true }), archived });
   for (const action of ['deactivate-policy', 'archive-policy', 'restore-policy', 'discard-draft', 'withdraw-version', 'reset-governance']) {
     assert(has(html, action), `an administrator is offered ${action}`);
   }
@@ -89,13 +89,13 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
   assert(html.includes('Reset governance'));
   assert(html.indexOf('data-gov-action="reset-governance"') > html.indexOf('Notifications and signed evidence'),
     'the reset sits apart, after everything else on the page');
-  const ledger = ui.renderGovernanceInterface({ digitalTwin: twin(), view: { tab: 'activations' }, access: access('ada', { author: true, review: true, activate: true, administer: true }), archived });
+  const ledger = markup({ digitalTwin: twin(), view: { tab: 'activations' }, access: access('ada', { author: true, review: true, activate: true, administer: true }), archived });
   assert(ledger.includes('Switched off'), 'the history names a switch-off for what it is');
 }
 
 /* Switched off: the card says so and offers the version that was running. */
 {
-  const html = ui.renderGovernanceInterface({
+  const html = markup({
     digitalTwin: twin({ active: null, switchedOff: { versionId: ACTIVE, versionNumber: 1 } }),
     access: access('ada', { author: true, activate: true, administer: true })
   });
@@ -104,11 +104,12 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
   assert(html.includes(`data-version-id="${ACTIVE}"`));
   assert(!has(html, 'deactivate-policy'), 'nothing to switch off');
   assert(html.includes('Off · was v1'));
+  assert(html.includes('class="gov-badge neutral"><span aria-hidden="true" class="gov-badge-dot"></span>Switched off</span>'), 'the card says it is switched off');
 }
 
 /* A restore whose key is taken is drawn disabled, with the reason. */
 {
-  const html = ui.renderGovernanceInterface({
+  const html = markup({
     digitalTwin: twin(), access: access('ada', { administer: true }),
     archived: [{ ...archived[0], keyInUse: true }]
   });
@@ -120,7 +121,7 @@ const archived = [{ policyId: '60000000-0000-4000-8000-000000000006', policyKey:
 {
   const empty = twin();
   empty.current = { policyCount: 0, returnedPolicyCount: 0, activePolicyCount: 0, policies: [] };
-  const html = ui.renderGovernanceInterface({ digitalTwin: empty, access: access('ada', { administer: true, author: true }), archived });
+  const html = markup({ digitalTwin: empty, access: access('ada', { administer: true, author: true }), archived });
   assert(!has(html, 'reset-governance'));
   assert(html.includes('1 archived policy can be restored below'));
 }

@@ -24,7 +24,7 @@ import * as SecurityPostureModel from '../features/posture/security-posture.ts';
 import { render as renderSecurityPostureCard } from '../features/posture/SecurityPosture.tsx';
 import RepoSigil from '../features/repositories/repo-sigil.ts';
 import TrustUI from '../features/trust/TrustViews.tsx';
-import CodeAudit from '../features/uranus/code-audit-ui.js';
+import * as AuditScreen from '../features/uranus/AuditScreen.tsx';
 import * as AuditMemory from '../features/uranus/audit-memory.ts';
 import * as AuditReports from '../features/uranus/audit-reports.ts';
 import * as AuditSbom from '../features/uranus/audit-sbom.ts';
@@ -4403,7 +4403,7 @@ function ensureExposureTools() {
   more.textContent = 'Load more findings';
   more.addEventListener('click', () => void loadExposure({ append: true, filterOnly: true }));
   tail.append(shown, reset, more);
-  tail.appendChild(CodeAudit.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
+  tail.appendChild(AuditScreen.exportMenu(exportExposure, 'exposure-export', ['csv', 'sarif']));
   host.append(segments, row, tail);
   return host;
 }
@@ -6177,21 +6177,19 @@ function clearAuditState() {
   clearTimeout(auditHistoryArmTimer);
   clearTimeout(auditWatchTimer);
   auditView = blankAuditView();
-  const root = $('#auditRoot');
-  if (root) root.replaceChildren();
+  AuditScreen.clear($('#auditRoot'));
 }
-async function copyPrompt(text, control) {
+/* A fix prompt onto the clipboard; true once it is there, so the button that asked can say so. */
+async function copyPrompt(text) {
   try {
     await navigator.clipboard.writeText(text);
-    const label = control && (control.querySelector('.audit-btn-label') || control);
-    if (label) {
-      label.textContent = 'Copied';
-      control.dataset.copied = 'true';
-      setTimeout(() => { label.textContent = 'Copy fix prompt'; delete control.dataset.copied; }, 1600);
-    }
-  } catch { toast('The clipboard is not available here', 'err'); }
+    return true;
+  } catch {
+    toast('The clipboard is not available here', 'err');
+    return false;
+  }
 }
-function paintAudit(options = {}) {
+function paintAudit() {
   const root = $('#auditRoot');
   if (!root) return;
   if (auditView.key !== auditKey()) {
@@ -6201,8 +6199,7 @@ function paintAudit(options = {}) {
   }
   const repository = CapabilityUI.decision('code-audit');
   if (repository.status === 'Supported' && auditView.history.status === 'idle' && state.work) loadAuditHistory();
-  const draw = options.partial ? CodeAudit.update : CodeAudit.render;
-  draw(root, {
+  AuditScreen.render(root, {
     ...auditView,
     unavailable: repository.status === 'Supported' ? null : repository.reason,
     site: CapabilityUI.decision('site-check').status === 'Supported' ? auditSiteLink() : null
@@ -6266,7 +6263,7 @@ function paintAudit(options = {}) {
     onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
     onMore: limit => { auditView.limit = limit; paintAudit(); },
     onOpen: finding => openAuditFinding(finding),
-    onCopy: (finding, control) => copyPrompt(finding.prompt, control),
+    onCopy: finding => copyPrompt(finding.prompt),
     onCopyAll: async () => {
       try { await navigator.clipboard.writeText(AuditReports.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
@@ -6337,8 +6334,7 @@ function clearSiteScanState() {
   RenderedAudit.dispose($('#renderedAuditRoot'));
   siteScanRequest++;
   siteScanView = null;
-  const root = $('#siteRoot');
-  if (root) root.replaceChildren();
+  AuditScreen.clear($('#siteRoot'));
 }
 function showSiteScan() {
   showPage('site');
@@ -6351,7 +6347,7 @@ function paintSiteScan() {
   const decision = CapabilityUI.decision('site-check');
   if (decision.status !== 'Supported') {
     RenderedAudit.dispose($('#renderedAuditRoot'));
-    root.replaceChildren();
+    AuditScreen.clear(root);
     const note = document.createElement('p');
     note.className = 'audit-lede audit-muted';
     note.textContent = decision.reason;
@@ -6360,16 +6356,15 @@ function paintSiteScan() {
   }
   RenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
   const from = siteScanView.from && siteScanView.from === siteKey() ? siteScanView.from : null;
-  CodeAudit.renderSiteScan(root, { ...siteScanView, from }, {
+  AuditScreen.renderSiteScan(root, { ...siteScanView, from }, {
     onSiteBack: from ? () => { showPage('work'); switchTab('audit'); } : null,
     onSiteInput: value => { siteScanView.url = value; },
     onSiteCheck: runStandaloneSiteCheck,
-    onSiteExpand: () => paintSiteScan(),
     onSiteCopyAll: async () => {
       try { await navigator.clipboard.writeText(AuditReports.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
       catch { toast('The clipboard is not available here', 'err'); }
     },
-    onCopy: (finding, control) => copyPrompt(finding.prompt, control),
+    onCopy: finding => copyPrompt(finding.prompt),
     onExport: kind => {
       const site = siteScanView.result;
       if (!site) return;
@@ -6393,7 +6388,7 @@ async function runStandaloneSiteCheck(address) {
       current,
       onProgress: progress => {
         siteScanView.progress = progress;
-        if (!CodeAudit.siteProgress($('#siteRoot'), progress)) paintSiteScan();
+        paintSiteScan();
       }
     });
     if (!result || !current()) return;
@@ -6630,7 +6625,7 @@ async function runAudit() {
     while (answer && answer.state === 'running') {
       if (!current()) return;
       auditView.progress = answer;
-      if (shown() && !CodeAudit.progress($('#auditRoot'), answer)) paintAudit();
+      if (shown()) paintAudit();
       await pause(wait);
       if (!current()) return;
       try {
@@ -6682,7 +6677,7 @@ function auditHistoryScope() {
   return { current: () => request === auditHistoryRequest && epoch === state.uiEpoch && key === auditKey() && auditView.key === key, base: `/api/repo/${wPath()}/code-audit`, ref: encodeURIComponent(state.work.branch) };
 }
 function repaintAudit() {
-  if ($('#tab-audit')?.classList.contains('active')) paintAudit({ partial: true });
+  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
 }
 async function loadAuditHistory() {
   if (!state.work) return;

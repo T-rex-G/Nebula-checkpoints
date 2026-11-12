@@ -1,8 +1,8 @@
 /*
  * The audit's words: what Uranus calls each thing it found, how sure it is
- * and how far it read, said once for the screen (code-audit-ui.js) and for
- * every export (audit-reports.ts), so a brief, a SARIF file and the screen
- * never disagree about a finding.
+ * and how far it read, said once for the screen (AuditScreen.tsx and its
+ * models) and for every export (audit-reports.ts, audit-sbom.ts), so a
+ * brief, a SARIF file and the screen never disagree about a finding.
  *
  * Every value is read from the result as it arrived: a field of something
  * that has fields, or nothing (platform/values.ts). A name is looked up in

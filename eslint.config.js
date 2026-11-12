@@ -146,7 +146,10 @@ module.exports = [
      * no-undef stands down; what lint adds is what strict mode alone allows:
      * no explicit any, no comment that silences the compiler, type-only
      * imports written as such (Node strips them, so they must be marked), and
-     * the boundaries the import-graph test also holds.
+     * the boundaries the import-graph test also holds. A namespace is code in
+     * every spelling (`namespace X`, `module X`, declared or not); a module's
+     * types may still be added to (`declare module 'react'`), like the global
+     * scope's, since both are types only.
      */
     name: 'nebulaverse/typescript',
     files: ['apps/**/*.ts', 'apps/**/*.tsx', 'packages/**/*.ts'],
@@ -158,7 +161,8 @@ module.exports = [
       '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'separate-type-imports' }],
       'no-restricted-syntax': ['error',
         { selector: 'TSEnumDeclaration', message: 'Erasable syntax only: an enum is code, not a type (ADR-088).' },
-        { selector: 'TSModuleDeclaration[kind!="global"]', message: 'Erasable syntax only: no namespaces (ADR-088).' }]
+        { selector: 'TSModuleDeclaration[kind="namespace"]', message: 'Erasable syntax only: no namespaces (ADR-088).' },
+        { selector: 'TSModuleDeclaration[kind="module"][id.type!="Literal"]', message: 'Erasable syntax only: no namespaces (ADR-088).' }]
     }
   },
   {

@@ -457,6 +457,7 @@ const HANDOFFS = Object.freeze({
   'AuditReports.sarif <- work': 'reads the ref and repository address, strings, into a new document',
   'AuditSbom.cyclonedx <- work': 'reads the name and ref, strings, into a new document',
   'AuditSbom.spdx <- work': 'reads the name and ref, strings, into a new document',
+  'AuditScreen.render <- work': 'draws the audit from what it is handed and keeps nothing of it; the repository is read only by the page\'s own handlers, which it calls back',
   'Board.model <- repos': 'lists the repositories anew (inventory), then reads the readings against that list',
   'Board.pickRepositories <- repos': 'lists the repositories anew (inventory), then slices and maps that list',
   'CapabilityUI.load <- me': 'is handed the provider and authority, which are strings',

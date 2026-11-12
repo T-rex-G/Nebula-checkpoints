@@ -442,6 +442,8 @@ test('findings narrow by severity, status, place and words, and export without t
 
   /* Export carries the displayable path and the status, never the credential or the raw path. */
   await tools.getByRole('button', { name: 'Export', exact: true }).click();
+  /* A credential scan has no bill of materials and no brief: the menu offers the two files it has. */
+  await expect(page.getByRole('menuitem')).toHaveText([/^SARIF 2\.1\.0/, /^CSV/]);
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csv = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');

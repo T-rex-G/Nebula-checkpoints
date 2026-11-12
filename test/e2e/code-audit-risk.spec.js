@@ -163,3 +163,31 @@ test('a version declared in two places is one row that says two, however often t
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(places).toHaveText(said);
 });
+
+test('the team’s decisions and the code’s waivers each stay as the reader left them while the list is drawn again', async ({ page }) => {
+  const result = riskyResult();
+  const [first, second] = result.findings;
+  result.suppressed = [
+    { ...first, id: 'decided-1', suppression: { triage: { findingId: 'decided-1', rule: first.rule, disposition: 'false-positive', reason: 'validated', decidedBy: 'ada', decidedAt: '2026-09-20T09:00:00.000Z' } } },
+    { ...second, id: 'waived-1', suppression: { reason: 'pinned by the vendor until the next release' } }
+  ];
+  const pane = await audited(page, result);
+  const decided = pane.locator('details.audit-triaged');
+  const waived = pane.locator('details.audit-waived:not(.audit-triaged)');
+  await expect(decided.locator('.audit-waived-title')).toHaveText('Triaged by the team');
+  await expect(waived.locator('.audit-waived-title')).toHaveText('Waived in code');
+  await waived.locator('summary').click();
+  await expect(waived).toHaveAttribute('open', '');
+  /* Each press below draws the list again: what the reader opened stays open, and what they did not stays shut. */
+  const search = pane.getByRole('searchbox', { name: 'Search findings' });
+  await search.fill('jquery');
+  await expect(pane.locator('.audit-findings .audit-item')).not.toHaveCount(result.findings.length);
+  await search.press('Escape');
+  await expect(waived).toHaveAttribute('open', '');
+  await expect(decided).not.toHaveAttribute('open', /.*/);
+  await decided.locator('summary').click();
+  await waived.locator('summary').click();
+  await pane.getByRole('group', { name: 'Show by severity' }).getByRole('button', { name: /^Serious/ }).click();
+  await expect(decided).toHaveAttribute('open', '');
+  await expect(waived).not.toHaveAttribute('open', /.*/);
+});

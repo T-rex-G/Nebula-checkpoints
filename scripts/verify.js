@@ -117,8 +117,12 @@ for (const file of [
   'ci/verify-alpha17-authorization.js',
   'packages/contracts/src/offline-cache-policy.ts', 'apps/web/src/features/workbench/archive-safety.ts', 'apps/web/src/features/workbench/export-safety.ts',
   'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
-  'apps/web/src/legacy/app.js', 'apps/web/src/features/governance/governance.ts', 'apps/web/src/features/governance/GovernanceView.tsx', 'apps/web/src/visualizations/neural.js', 'apps/web/src/features/uranus/code-audit-ui.js',
+  'apps/web/src/legacy/app.js', 'apps/web/src/features/governance/governance.ts', 'apps/web/src/features/governance/GovernanceView.tsx', 'apps/web/src/visualizations/neural.js',
   'apps/web/src/features/uranus/audit-terms.ts', 'apps/web/src/features/uranus/audit-memory.ts', 'apps/web/src/features/uranus/audit-reports.ts', 'apps/web/src/features/uranus/audit-sbom.ts',
+  'apps/web/src/features/uranus/audit-marks.ts', 'apps/web/src/features/uranus/audit-screen.ts', 'apps/web/src/features/uranus/audit-cards.ts',
+  'apps/web/src/features/uranus/audit-findings.ts', 'apps/web/src/features/uranus/audit-history.ts', 'apps/web/src/features/uranus/audit-site.ts',
+  'apps/web/src/features/uranus/AuditScreen.tsx', 'apps/web/src/features/uranus/AuditParts.tsx', 'apps/web/src/features/uranus/AuditCards.tsx',
+  'apps/web/src/features/uranus/AuditFindings.tsx', 'apps/web/src/features/uranus/AuditHistory.tsx', 'apps/web/src/features/uranus/AuditSite.tsx',
   'apps/api/src/modules/uranus/index.ts', 'apps/api/src/platform/concurrency/bounded-map.ts', 'apps/api/src/modules/uranus/domain/advisories.ts',
   'apps/api/src/modules/uranus/domain/audit-catalog.ts', 'apps/api/src/modules/uranus/domain/audit-database.ts', 'apps/api/src/modules/uranus/domain/audit-files.ts',
   'apps/api/src/modules/uranus/domain/audit-findings.ts', 'apps/api/src/modules/uranus/domain/audit-infrastructure.ts', 'apps/api/src/modules/uranus/domain/audit-ledger.ts',
@@ -243,6 +247,7 @@ must(html.includes('data-act="neural"'), 'Mobile Neural entry missing');
 for (const id of ['tab-governance', 'govRoot', 'govLive']) must(ids.includes(id), `Missing #${id}`);
 must(html.includes('data-tab="governance"') && html.includes('data-act="governance"'), 'Governance desktop/mobile navigation missing');
 must(shellImports().includes('apps/web/src/features/governance/GovernanceView.tsx'), 'Governance view must be loaded and precached');
+must(shellImports().includes('apps/web/src/features/uranus/AuditScreen.tsx'), 'The code audit screen must be loaded and precached');
 /*
  * The server's half of these is asked of the server: governance's answers
  * are sent to the network only, as is every read but the sixteen a reader

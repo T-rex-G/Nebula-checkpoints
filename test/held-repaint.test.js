@@ -13,7 +13,10 @@
  *
  * The module runs whole, in a stand-in browser: elements that know what they
  * contain and which screen they are on, a window that dispatches the events
- * the module listens for, and a clock the test moves.
+ * the module listens for, and a clock the test moves. Nothing here is laid
+ * out -- every box is empty, at the top of a page that does not scroll -- so
+ * no card is ever above the reader's view and no place is kept; how a card
+ * keeps the reader's place is read in test/repaint-place.test.js.
  */
 
 const assert = require('assert');
@@ -32,10 +35,17 @@ class Node {
   }
 
   closest(selector) {
+    if (selector === '.page') return null;
     assert.strictEqual(selector, 'main', 'a card\'s screen is the main landmark it sits in');
     for (let at = this; at; at = at.parent) if (at.screen) return at;
     return null;
   }
+
+  /* Laid out nowhere: an empty box at the top, with nothing after it. */
+  get parentElement() { return this.parent; }
+  get nextElementSibling() { return null; }
+  get isConnected() { return true; }
+  getBoundingClientRect() { return { top: 0, bottom: 0, height: 0 }; }
 }
 
 function browser() {
@@ -52,6 +62,8 @@ function browser() {
   const globals = {
     window,
     Node,
+    getComputedStyle: () => ({ overflowY: 'visible', position: 'static' }),
+    document: { scrollingElement: { scrollTop: 0 } },
     setTimeout(fn, ms = 0) { const id = nextId++; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); }
   };

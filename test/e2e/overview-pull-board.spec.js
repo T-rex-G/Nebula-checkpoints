@@ -80,6 +80,19 @@ test('the board is last on the Overview, so its arrival moves nothing a reader i
   const feed = page.locator('#wpFeed');
   await feed.scrollIntoViewIfNeeded();
   await expect(page.locator('#wpPulls')).toContainText('Reading the open pull requests');
+  /*
+   * Only the board is still reading: the cards above the feed have landed. A
+   * card the reader can see fills in where it stands (overview-place.spec.js),
+   * so one landing now would move the feed for its own reason, not the board's.
+   */
+  await expect(page.locator('#wpPosture')).not.toContainText('Reading the audits and scans');
+  await expect(page.locator('#wpTrust')).toContainText('From 6 of 6 signals measured');
+  /*
+   * The cards arrive with a scroll-driven animation whose frame follows the
+   * scroll one frame later; read in the scroll's own frame, the feed is where
+   * it was drawn before it -- 25 px off, now and then, on a phone.
+   */
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
   const before = await feed.evaluate(node => node.getBoundingClientRect().top);
   release();
   await expect(page.locator('#wpPulls .pb-item')).toHaveCount(4);

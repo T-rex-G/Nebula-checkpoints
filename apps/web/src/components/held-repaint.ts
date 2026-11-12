@@ -20,6 +20,23 @@
  * while after the release when no click comes. A repaint asked for by the
  * click itself is not held -- the press is over by then -- and supersedes
  * the held one, which is dropped rather than drawn over it later.
+ *
+ * And a card the reader has scrolled past keeps their place when it is
+ * drawn. The Overview does not let the browser anchor scrolling (style.css:
+ * a card rebuilt whole is laid out half drawn part way through, and the
+ * browser scrolled to make up for a move that never happened), so a card
+ * above the reader that lands at a new height carried everything below it
+ * up or down the page: the security posture, read late, grows from its one
+ * reading line to the whole card, and on a phone the activity feed under it
+ * went 878 pixels down the page while the reader was reading it. The place
+ * is kept here, where the card is drawn whole: when a card that begins above
+ * the top of the reader's view -- scrolled past, or running off the top of
+ * the screen -- is drawn, the view moves by however far the first thing
+ * below the card moved, so what follows it stays where the reader has it. It
+ * is what follows that is measured, not the card: cards share rows of a
+ * grid, so a card's body can grow by more than its row does. A card that
+ * begins in view fills in where it stands, pushing down what follows, as the
+ * browser's own anchoring would have it.
  */
 
 /* How long a release may wait for its click: a touch can deliver it a moment after the finger lifts. */
@@ -79,12 +96,49 @@ function screenOf(host: Element): Element {
   return host.closest('main') || host;
 }
 
-/* Draw `host` now, or once the press on its screen is over. */
+/* The element whose scrolling moves `host`, and where the reader's view of it begins. */
+function viewOf(host: Element): { readonly scroller: Element; readonly top: number } {
+  for (let node = host.parentElement; node; node = node.parentElement) {
+    if (/^(?:auto|scroll|overlay)$/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight) {
+      return { scroller: node, top: node.getBoundingClientRect().top };
+    }
+  }
+  /* The page scrolls; a bar fixed over the top of the screen hides what is under it. */
+  const bar = host.closest('.page')?.querySelector('.topbar');
+  const covered = bar && getComputedStyle(bar).position === 'fixed' ? Math.max(0, bar.getBoundingClientRect().bottom) : 0;
+  return { scroller: document.scrollingElement ?? document.documentElement, top: covered };
+}
+
+/* The first thing laid out below `host` in its scrolling region: a later sibling of the card or of what holds it. */
+function followerOf(host: Element, scroller: Element): Element | null {
+  const floor = host.getBoundingClientRect().bottom - 0.5;
+  for (let node: Element | null = host; node && node !== scroller; node = node.parentElement) {
+    for (let next = node.nextElementSibling; next; next = next.nextElementSibling) {
+      const box = next.getBoundingClientRect();
+      if (box.height > 0 && box.top >= floor) return next;
+    }
+  }
+  return null;
+}
+
+/* Draws `host`, and keeps the reader's place when it is a card that begins above their view. */
+function drawKeepingPlace(host: Element, draw: () => void): void {
+  const view = viewOf(host);
+  const above = host.getBoundingClientRect().top < view.top - 0.5;
+  const follower = above ? followerOf(host, view.scroller) : null;
+  const before = follower?.getBoundingClientRect().top;
+  draw();
+  if (!follower || before === undefined || !follower.isConnected) return;
+  const moved = follower.getBoundingClientRect().top - before;
+  if (Math.abs(moved) >= 0.5) view.scroller.scrollTop += moved;
+}
+
+/* Draw `host` now, or once the press on its screen is over; either way, keeping the reader's place. */
 export function repaintCard(host: Element, draw: () => void): void {
   if (pressed && screenOf(host).contains(pressed)) {
-    held.set(host, draw);
+    held.set(host, () => drawKeepingPlace(host, draw));
     return;
   }
   held.delete(host);
-  draw();
+  drawKeepingPlace(host, draw);
 }

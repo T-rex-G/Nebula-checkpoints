@@ -10,69 +10,110 @@
  * The defect needed both halves to be wrong: every style must offer something
  * to draw, and the builder must carry whichever one the style offers. Both are
  * the graph model's now (features/neural/graph-model.ts), asked in
- * test/neural-graph-model.test.js; the canvas's half stays here.
+ * test/neural-graph-model.test.js. The canvas's half is asked here of the
+ * drawing itself (features/neural/graph-renderer.ts), on a recording canvas.
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { recordingCanvas, RecordedPath } = require('./helpers/recording-canvas');
+const { addNode } = require('../apps/web/src/features/neural/graph-model.ts');
+const { paletteFor, hexAlpha } = require('../apps/web/src/features/neural/graph-paint.ts');
+const { drawNode, drawHub, drawAnimated } = require('../apps/web/src/features/neural/graph-renderer.ts');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
+const scene = (nodes, extra = {}) => ({
+  width: 800, height: 600, dpr: 1, zoom: 1, panX: 0, panY: 0, nodes, edges: [], panels: [], panelByType: new Map(),
+  layoutMode: 'split', selected: null, hover: null, focusGroup: null, highlightNodes: new Set(), highlightEdges: new Set(),
+  interacting: false, ...extra
+});
+const node = (type, extra = {}) => {
+  const map = new Map();
+  return { ...addNode(map, `${type}:1`, type, `${type} one`), ...extra };
+};
+const NEBULA = [paletteFor('nebula', 'dark'), paletteFor('nebula', 'light')];
+
+/* ---- The canvas never paints an absent glyph ----------------------------------------- */
+{
+  /* Without Path2D no icon can be drawn: the node falls back to its mark, then its letter. */
+  delete globalThis.Path2D;
+  const colors = paletteFor('nebula', 'dark');
+  const bare = recordingCanvas();
+  drawNode(bare.ctx, scene([]), node('commit', { glyph: undefined, mark: undefined }), false, colors);
+  assert.deepStrictEqual(bare.named('fillText'), [], 'an absent glyph must not be passed to fillText');
+  assert.ok(bare.named('arc').length > 0, 'and the node is still drawn');
+
+  const letter = recordingCanvas();
+  drawNode(letter.ctx, scene([]), node('commit', { glyph: 'C', mark: undefined }), false, colors);
+  assert.deepStrictEqual(letter.named('fillText').map(entry => entry.args[0]), ['C'], 'a glyph is set as its letter');
+
+  const marked = recordingCanvas();
+  drawNode(marked.ctx, scene([]), node('snapshot', { glyph: undefined, mark: 'restore' }), false, colors);
+  assert.deepStrictEqual(marked.named('fillText'), [], 'a drawn mark sets no letter');
+  assert.ok(marked.named('lineTo').length >= 2, 'it is drawn as a path');
+}
 
 /*
- * That every style offers exactly one thing to draw, and that every node the
- * builder makes carries it, is asked of the builder itself
- * (test/neural-graph-model.test.js). What the canvas does with an absent
- * letter is still the drawing's, read below.
- */
-
-/* And the canvas must never be asked to paint an absent glyph. */
-assert(
-  /else if \(node\.glyph\) \{/.test(source),
-  'an absent glyph must not be passed to fillText'
-);
-assert(
-  !/\}\s*else \{\s*ctx\.font = `\$\{Math\.max\(7, radius/.test(source),
-  'the unguarded glyph branch must be gone'
-);
-
-/*
+ * ---- Translucent ink -------------------------------------------------------------------
  * The pager's "next" button painted as a filled disc with its chevron gone.
  * The light palettes hand group colours over as rgb() strings, and the
  * translucency helper returned anything it could not read as hex unchanged --
- * so the button's "faint" fill was the chevron's own solid colour. Evaluated
- * here from the source, so the check is on the function the page runs.
+ * so the button's "faint" fill was the chevron's own solid colour.
  */
-const helper = source.match(/function hexAlpha\(hex, alpha\) \{[\s\S]*?\n  \}\n/);
-assert(helper, 'neural.js must define hexAlpha');
-const hexAlpha = new Function(`${helper[0]}; return hexAlpha;`)();
 assert.strictEqual(hexAlpha('rgb(76, 29, 149)', 0.1), 'rgba(76,29,149,0.1)', 'rgb() ink must take the requested alpha');
 assert.strictEqual(hexAlpha('rgba(10,20,30,.9)', 0.25), 'rgba(10,20,30,0.25)', 'rgba() ink must take the requested alpha');
 assert.strictEqual(hexAlpha('#8B5CF6', 0.5), 'rgba(139,92,246,0.5)');
 assert.strictEqual(hexAlpha('#abc', 1), 'rgba(170,187,204,1)');
+for (const colors of [paletteFor('nebula', 'light'), paletteFor('obsidian', 'light')]) {
+  const ink = colors.ink('#8B5CF6');
+  assert.match(ink, /^rgb\(/, 'the light palettes darken a group\'s colour into rgb() ink');
+  assert.match(hexAlpha(ink, .12), /^rgba\(\d+,\d+,\d+,0\.12\)$/, 'which still takes a translucency');
+}
 
 /*
- * The repository hub is the product's violet mark. It was drawn under a blue
- * halo, with a white highlight, a pale blue rim and a white-and-blue N -- read
- * on a phone as layers stacked on the node. Nothing in it may be white or
- * blue again.
+ * ---- The hub is the product's violet mark --------------------------------------------
+ * It was drawn under a blue halo, with a white highlight, a pale blue rim and a
+ * white-and-blue N -- read on a phone as layers stacked on the node. On
+ * Nebula nothing in it may be white or blue again; Obsidian's hub is graphite
+ * and silver by design.
  */
-const hub = source.match(/function drawHub\([\s\S]*?\n  \}\n/);
-assert(hub, 'neural.js must define drawHub');
-const hubBody = hub[0].slice(0, hub[0].indexOf("The repository's name"));
-for (const banned of ['#ffffff', '#fff\'', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8']) {
-  assert(!hubBody.toLowerCase().includes(banned), `the hub still paints ${banned}`);
-}
-/* Its colours come from the preset's palette; Nebula's two (dark and light)
- * are violet only. Obsidian's hub is graphite and silver by design. */
-const hubTones = [...source.matchAll(/hub: \{[\s\S]*?\n\s*\}/g)].map(match => match[0]);
-assert.strictEqual(hubTones.length, 4, 'every palette must say how its hub is drawn');
-for (const tone of hubTones.slice(0, 2)) {
-  for (const banned of ['#fff', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8']) {
-    assert(!tone.toLowerCase().includes(banned), `Nebula's hub still paints ${banned}`);
+const BANNED = ['#ffffff', '#fff', '255,255,255', '224,231,255', '191,219,254', '96,165,250', '#818cf8', '#60a5fa', '#38bdf8', '129,140,248', '56,189,248'];
+const banned = colour => BANNED.some(value => String(colour).toLowerCase().replace(/\s/g, '').includes(value) && (value !== '#fff' || /^#fff$/i.test(colour)));
+globalThis.Path2D = RecordedPath;
+for (const colors of NEBULA) {
+  for (const active of [false, true]) {
+    const hub = node('repo');
+    const canvas = recordingCanvas();
+    drawHub(canvas.ctx, scene([hub], active ? { selected: hub } : {}), hub, colors, false);
+    /* The mark itself: everything drawn before the repository's name is set. */
+    const label = canvas.calls.findIndex(entry => entry.set === 'font');
+    const colours = canvas.calls.slice(0, label).flatMap(entry => {
+      if (entry.set === 'fillStyle' || entry.set === 'strokeStyle' || entry.set === 'shadowColor') {
+        return typeof entry.value === 'string' ? [entry.value] : entry.value && entry.value.stops ? entry.value.stops.map(stop => stop[1]) : [];
+      }
+      return [];
+    });
+    assert.ok(colours.length >= 8, 'the halo, the orb, its rim and the mark are drawn');
+    for (const colour of colours) assert.ok(!banned(colour), `${colors.theme}'s hub paints ${colour}`);
+    assert.strictEqual(canvas.named('fill').filter(entry => entry.args[0] instanceof RecordedPath).length, 4, 'the mark is its four plates');
   }
 }
-const arcs = source.slice(source.indexOf('if (hub) {'), source.indexOf('if (hub) {') + 900);
-assert(!/818cf8|60a5fa|38bdf8/i.test(arcs), 'the hub\'s turning arcs are still blue');
+for (const design of ['nebula', 'obsidian']) {
+  for (const theme of ['dark', 'light']) {
+    const hub = paletteFor(design, theme).hub;
+    for (const key of ['halo', 'orb', 'glow', 'rim', 'rimOn', 'arc', 'arcOuter', 'light', 'deep', 'label']) {
+      assert.ok(hub[key], `${design} ${theme} must say how its hub's ${key} is drawn`);
+    }
+  }
+}
+for (const colors of NEBULA) {
+  for (const value of JSON.stringify(colors.hub).match(/#[0-9a-f]{3,6}\b|\d+,\d+,\d+/gi)) assert.ok(!banned(value), `Nebula's hub tone holds ${value}`);
+  /* And its turning arcs. */
+  const hub = node('repo');
+  const canvas = recordingCanvas();
+  drawAnimated(canvas.ctx, scene([hub]), 1234, colors, null, hub, { minX: -1e4, minY: -1e4, maxX: 1e4, maxY: 1e4 }, true);
+  const arcs = canvas.written('strokeStyle');
+  assert.ok(arcs.length >= 2, 'the arcs are drawn');
+  for (const colour of arcs) assert.ok(!banned(colour), `the hub's turning arcs are ${colour}`);
+}
+delete globalThis.Path2D;
 
 console.log('neural node mark tests passed');

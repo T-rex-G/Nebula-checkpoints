@@ -10,118 +10,22 @@ import {
 import { probeSource } from '../platform/probe.ts';
 import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph } from '../features/neural/graph-model.ts';
 import {
-  HEAD_H, ROW_H, MAX_ROWS, PAGE_ROWS, NODE_R, HUB_R, SPINE_X, SEVERITY_RANK,
+  HEAD_H, ROW_H, MAX_ROWS, PAGE_ROWS, HUB_R, SEVERITY_RANK,
   layoutAspect, layoutModeOf, worldRadius, placeGraph, layoutBounds
 } from '../features/neural/graph-layout.ts';
+import { TYPE_ICON, inspectorMark } from '../features/neural/graph-marks.ts';
+import { paletteFor, hexAlpha } from '../features/neural/graph-paint.ts';
+import {
+  worldToScreen as sceneToScreen, screenToWorld as sceneToWorld, worldSpace, screenSpace, worldView, focusSets
+} from '../features/neural/graph-scene.ts';
+import { drawField as paintField, addRipple } from '../features/neural/graph-field.ts';
+import { drawStatic, drawAnimated, drawMinimap as paintMinimap, overflows, forgetFittedText, FOOTER } from '../features/neural/graph-renderer.ts';
 
 const neuralGraph = (() => {
 
-  /*
-   * Four node types are drawn rather than typed.
-   *
-   * Every other type is a single letter, set in Public Sans. These four were
-   * a sparkle, a restoring turn, a diamond and a check -- characters that
-   * Public Sans does not carry, so they fell through the stack to whatever
-   * font on the machine happened to have them. Two typefaces on one graph, at
-   * two optical weights, decided by the viewer's system.
-   *
-   * Drawn as paths they are the same on every machine, and they still read at
-   * these radii (9 to 22) where a detailed icon would not. The letters stay
-   * letters: at this size a legible initial beats a smudged picture.
-   */
-  /*
-   * The same four marks for the inspector, which is DOM rather than canvas.
-   * Node types that carry a letter keep it; the drawn ones get the drawing,
-   * so the panel and the graph agree about what a node looks like.
-   */
-  const INSPECTOR_MARK = Object.freeze({
-    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z"/></svg>',
-    restore: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1"/><path d="M4.8 6.2v5.1h5.1"/></svg>',
-    shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5z"/></svg>',
-    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 12.4l4.2 4.2 9-9.2"/></svg>'
-  });
-
+  /* The inspector's mark for a node: the drawn mark for the four drawn types (graph-marks.ts), its letter for the rest. */
   function nodeBadge(node) {
-    if (node.mark && INSPECTOR_MARK[node.mark]) return INSPECTOR_MARK[node.mark];
-    return nEsc(node.glyph || '');
-  }
-
-  /*
-   * Every type has an icon, drawn from the same 24-unit path in the graph and
-   * in its card, so a node and its details are recognisably the same thing.
-   *
-   * These replaced single letters. The letters were chosen when nodes were 9px
-   * spheres, where a legible initial beat a smudged picture; nodes are now drawn
-   * at 14 to 26px on a solid disc, where a stroked icon reads and "W" for a
-   * workflow never did. The letters and marks stay in TYPE_STYLE as the
-   * fallback for a canvas without Path2D.
-   */
-  const TYPE_ICON = Object.freeze({
-    repo: 'M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z',
-    user: 'M12 12.2a3.9 3.9 0 1 0 0-7.8 3.9 3.9 0 0 0 0 7.8zM4.8 20.2a7.2 7.2 0 0 1 14.4 0',
-    session: 'M4 5h16v10.5H4zM9 19.5h6M12 15.5v4',
-    branch: 'M6.5 4v11M6.5 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM17.5 9.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM17.5 9.5c0 4.5-5 5-11 7.5',
-    tag: 'M3.8 12.2L12 4h6.8A1.2 1.2 0 0 1 20 5.2V12l-8.2 8.2zM15.8 8.2h.01',
-    commit: 'M3 12h5.5M15.5 12H21M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z',
-    pull: 'M6.5 8.5v7M6.5 8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6.5 20.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM17.5 20.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM17.5 15.5V9a3 3 0 0 0-3-3H11M13 3.8L11 6l2 2.2',
-    issue: 'M12 20.2a8.2 8.2 0 1 0 0-16.4 8.2 8.2 0 0 0 0 16.4zM12 13.3a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z',
-    release: 'M5.5 20.5V4M5.5 4.5h11.8l-2.4 4 2.4 4H5.5',
-    workflow: 'M12 20.2a8.2 8.2 0 1 0 0-16.4 8.2 8.2 0 0 0 0 16.4zM10 8.6l5.4 3.4-5.4 3.4z',
-    package: 'M12 3.5l7.5 4.1v8.8L12 20.5l-7.5-4.1V7.6zM4.5 7.6l7.5 4.2 7.5-4.2M12 11.8v8.7',
-    vulnerability: 'M12 4.2l8.6 15H3.4zM12 10v4.2M12 16.8v.1',
-    protected: 'M6.5 3.5h7.5l4 4v13H6.5zM14 3.5v4h4M9.6 14.2h4.8v3.8H9.6zM10.6 14.2V13a1.4 1.4 0 0 1 2.8 0v1.2',
-    snapshot: 'M4.8 12a7.2 7.2 0 1 0 2.1-5.1M4.8 6.2v5.1h5.1',
-    safety: 'M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5zM9.2 12.1l2 2.1 3.6-3.9',
-    external: 'M12 20.2a8.2 8.2 0 1 0 0-16.4 8.2 8.2 0 0 0 0 16.4zM3.8 12h16.4M12 3.8c2.2 2.3 3.2 5 3.2 8.2s-1 5.9-3.2 8.2M12 3.8C9.8 6.1 8.8 8.8 8.8 12s1 5.9 3.2 8.2',
-    scan: 'M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8.2 12.2l2.6 2.6 5-5.2',
-    credential: 'M8 19a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM10.9 12.1L19 4M15.5 7.5l2.5 2.5M13.4 9.6l1.8 1.8',
-    /* The key, with the warning stroke where its teeth were: a credential that
-     * is out in the open. */
-    leak: 'M7.5 19.8a3.9 3.9 0 1 0 0-7.8 3.9 3.9 0 0 0 0 7.8zM10.3 13.2l5.6-5.6M13 10.5l1.7 1.7M19.5 3.6v5.2M19.5 11.6v.1',
-    integration: 'M10 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2M14 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2'
-  });
-
-  function drawNodeMark(ctx, mark, x, y, size) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.lineWidth = Math.max(1, size * 0.16);
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = ctx.fillStyle;
-    const u = size / 2;
-    ctx.beginPath();
-    if (mark === 'star') {
-      /* The brand's four-point mark, filled so the hub reads as solid. */
-      ctx.moveTo(0, -u);
-      ctx.quadraticCurveTo(u * 0.2, -u * 0.2, u, 0);
-      ctx.quadraticCurveTo(u * 0.2, u * 0.2, 0, u);
-      ctx.quadraticCurveTo(-u * 0.2, u * 0.2, -u, 0);
-      ctx.quadraticCurveTo(-u * 0.2, -u * 0.2, 0, -u);
-      ctx.fill();
-    } else if (mark === 'restore') {
-      ctx.arc(0, 0, u * 0.78, Math.PI * 0.55, Math.PI * 2.15);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-u * 0.78, -u * 0.32);
-      ctx.lineTo(-u * 0.78, u * 0.2);
-      ctx.lineTo(-u * 0.24, u * 0.2);
-      ctx.stroke();
-    } else if (mark === 'shield') {
-      ctx.moveTo(0, -u);
-      ctx.lineTo(u * 0.82, -u * 0.55);
-      ctx.lineTo(u * 0.82, u * 0.12);
-      ctx.quadraticCurveTo(u * 0.82, u * 0.76, 0, u);
-      ctx.quadraticCurveTo(-u * 0.82, u * 0.76, -u * 0.82, u * 0.12);
-      ctx.lineTo(-u * 0.82, -u * 0.55);
-      ctx.closePath();
-      ctx.stroke();
-    } else if (mark === 'check') {
-      ctx.moveTo(-u * 0.72, 0);
-      ctx.lineTo(-u * 0.16, u * 0.56);
-      ctx.lineTo(u * 0.76, -u * 0.6);
-      ctx.stroke();
-    }
-    ctx.restore();
+    return inspectorMark(node.mark) ?? nEsc(node.glyph || '');
   }
 
 
@@ -212,11 +116,6 @@ const neuralGraph = (() => {
     return Number.isFinite(n) ? Math.round(n) : 0;
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function hashCode(s) {
-    let h = 2166136261;
-    for (let i = 0; i < String(s).length; i++) { h ^= String(s).charCodeAt(i); h = Math.imul(h, 16777619); }
-    return h >>> 0;
-  }
   function timeAgoN(date) {
     if (!date) return 'unknown time';
     const d = new Date(date); if (!Number.isFinite(d.getTime())) return String(date);
@@ -570,7 +469,7 @@ const neuralGraph = (() => {
       NVN.viewObserver.observe(stage);
     }
     /* Labels were measured in the fallback font until the web fonts arrived. */
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { FIT_CACHE.clear(); invalidate(); }).catch(() => {});
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { forgetFittedText(); invalidate(); }).catch(() => {});
     loadHiddenGroups();
     bindMinimap();
     bindLight();
@@ -690,94 +589,10 @@ const neuralGraph = (() => {
     for (const n of NVN.nodes) n.wasVisible = n.visible;
   }
 
-  /* A near-white type colour (identities) cannot be darkened into contrast on
-   * a white ground, so the light theme draws it in slate instead. */
-  function luminanceOf(hex) {
-    const h = String(hex).replace('#', '');
-    if (!/^[0-9a-f]{6}$/i.test(h)) return 0;
-    const v = parseInt(h, 16);
-    return (.2126 * (v >> 16) + .7152 * ((v >> 8) & 255) + .0722 * (v & 255)) / 255;
-  }
-  function isLight() { return document.documentElement.dataset.theme === 'light'; }
-  function obsidian() { return document.documentElement.dataset.design === 'obsidian'; }
+  /* The palette for the page's design preset and theme (graph-paint.ts). */
   function palette() {
-    /* Two design presets. Nebula's panels are indigo glass with indigo ink;
-     * Obsidian's are the stone's own surface -- warm charcoal ink on quartz,
-     * cool ivory on obsidian. The theme key names both, so switching either
-     * redraws the graph. */
-    if (!obsidian()) {
-      return isLight() ? {
-        theme: 'nebula-light', surface: '#ffffff', grid: 'rgba(76,29,149,.08)', ring: 'rgba(124,58,237,.18)',
-        panel: 'rgba(255,255,255,.9)', panelEdge: .38, text: '#1e1b4b', muted: '#5b5f7a', row: 'rgba(49,46,129,.05)',
-        ink: color => (luminanceOf(color) > .78 ? '#475569' : darken(color, .28)), glow: false,
-        field: '91,33,182', fieldBase: .12, fieldDot: .7, fieldLine: .26,
-        hub: {
-          halo: 'rgba(124,58,237,.2)', orb: ['#5b3fd0', '#2e1878', '#0f0830'], glow: 'rgba(124,58,237,.7)',
-          rim: 'rgba(167,139,250,.45)', rimOn: 'rgba(196,181,253,.8)', arc: 'rgba(167,139,250,.6)', arcOuter: '#a78bfa',
-          light: ['#d9ceff', '#8b74ff'], deep: ['#7a5cff', '#3a23a8'], label: 'rgba(91,33,182,.18)'
-        },
-        spine: '#7c3aed'
-      } : {
-        theme: 'nebula-dark', surface: '#0e0a22', grid: 'rgba(196,181,253,.07)', ring: 'rgba(167,139,250,.22)',
-        panel: 'rgba(14,10,32,.8)', panelEdge: .34, text: '#eef0ff', muted: '#9aa0c3', row: 'rgba(255,255,255,.035)',
-        ink: color => color, glow: true,
-        field: '196,181,253', fieldBase: .14, fieldDot: .92, fieldLine: .34,
-        hub: {
-          halo: 'rgba(124,58,237,.42)', orb: ['#5b3fd0', '#2e1878', '#0f0830'], glow: 'rgba(124,58,237,.7)',
-          rim: 'rgba(167,139,250,.45)', rimOn: 'rgba(196,181,253,.8)', arc: 'rgba(167,139,250,.6)', arcOuter: '#a78bfa',
-          light: ['#d9ceff', '#8b74ff'], deep: ['#7a5cff', '#3a23a8'], label: 'rgba(196,181,253,.3)'
-        },
-        spine: '#a78bfa'
-      };
-    }
-    return isLight() ? {
-      theme: 'obsidian-light', surface: '#fbfaf8', grid: 'rgba(41,37,36,.07)', ring: 'rgba(120,108,98,.22)',
-      panel: 'rgba(255,255,255,.9)', panelEdge: .34, text: '#1c1917', muted: '#6b645d', row: 'rgba(41,37,36,.045)',
-      ink: color => (luminanceOf(color) > .78 ? '#57534e' : darken(color, .3)), glow: false,
-      field: '41,37,36', fieldBase: .1, fieldDot: .62, fieldLine: .22,
-      /* Obsidian's hub is a stone: a graphite sphere with the mark cut in
-       * silver, lit white rather than violet. */
-      hub: {
-        halo: 'rgba(28,25,23,.1)', orb: ['#4a4b52', '#232428', '#0b0c0e'], glow: 'rgba(28,25,23,.28)',
-        rim: 'rgba(28,25,23,.28)', rimOn: 'rgba(28,25,23,.55)', arc: 'rgba(41,37,36,.45)', arcOuter: '#57534e',
-        light: ['#fafaf9', '#b5b0aa'], deep: ['#8a847e', '#35312d'], label: 'rgba(28,25,23,.14)'
-      },
-      spine: '#57534e'
-    } : {
-      theme: 'obsidian-dark', surface: '#0c0d10', grid: 'rgba(226,232,240,.055)', ring: 'rgba(203,213,225,.17)',
-      panel: 'rgba(14,15,19,.84)', panelEdge: .3, text: '#eceef1', muted: '#9aa1ab', row: 'rgba(255,255,255,.04)',
-      ink: color => color, glow: true,
-      field: '236,238,241', fieldBase: .12, fieldDot: .85, fieldLine: .27,
-      hub: {
-        halo: 'rgba(226,232,240,.12)', orb: ['#4a4b52', '#1f2024', '#0a0b0d'], glow: 'rgba(226,232,240,.18)',
-        rim: 'rgba(255,255,255,.2)', rimOn: 'rgba(255,255,255,.55)', arc: 'rgba(226,232,240,.5)', arcOuter: '#d4d4d8',
-        light: ['#fafaf9', '#b5b0aa'], deep: ['#8a847e', '#35312d'], label: 'rgba(255,255,255,.18)'
-      },
-      spine: '#d4d4d8'
-    };
-  }
-
-  /* Paths are compiled once; a Path2D is reused every frame. */
-  const ICON_CACHE = new Map();
-  function iconPath(type) {
-    if (typeof Path2D !== 'function' || !TYPE_ICON[type]) return null;
-    if (!ICON_CACHE.has(type)) ICON_CACHE.set(type, new Path2D(TYPE_ICON[type]));
-    return ICON_CACHE.get(type);
-  }
-  function drawIcon(ctx, type, x, y, size, color) {
-    const path = iconPath(type);
-    if (!path) return false;
-    ctx.save();
-    ctx.translate(x - size / 2, y - size / 2);
-    ctx.scale(size / 24, size / 24);
-    ctx.lineWidth = 1.9;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
-    if (type === 'repo') { ctx.fillStyle = color; ctx.fill(path); }
-    else ctx.stroke(path);
-    ctx.restore();
-    return true;
+    const root = document.documentElement.dataset;
+    return paletteFor(root.design === 'obsidian' ? 'obsidian' : 'nebula', root.theme === 'light' ? 'light' : 'dark');
   }
 
   /*
@@ -789,14 +604,11 @@ const neuralGraph = (() => {
     const mini = NVN.minimap;
     if (!mini) return;
     const W = NVN.width, H = NVN.height;
-    const b = layoutBounds(NVN.panels || []);
-    const a = screenToWorld(0, 0), c = screenToWorld(W, H);
-    const overflow = b.minX < a.x - 4 || b.maxX > c.x + 4 || b.minY < a.y - 4 || b.maxY > c.y + 4;
     /* A short stage -- a phone held sideways -- keeps the minimap for the full
      * view, where it is drawn smaller; on the page it would cover half the
      * graph it maps. */
     const room = H >= 440 || (H >= 300 && stageExpanded());
-    const show = overflow && W >= 600 && room && (NVN.panels || []).length > 0 && !(NVN.selected && cardDocked());
+    const show = overflows(NVN) && W >= 600 && room && (NVN.panels || []).length > 0 && !(NVN.selected && cardDocked());
     if (mini.hidden === show) mini.hidden = !show;
     if (!show) { NVN.miniKey = ''; return; }
     const key = `${NVN.frameKeyStatic}|${W}|${H}`;
@@ -804,28 +616,7 @@ const neuralGraph = (() => {
     NVN.miniKey = key;
     const cw = mini.clientWidth || 156, ch = mini.clientHeight || 108, dpr = NVN.dpr;
     if (mini.width !== Math.round(cw * dpr) || mini.height !== Math.round(ch * dpr)) { mini.width = Math.round(cw * dpr); mini.height = Math.round(ch * dpr); }
-    const g = mini.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, cw, ch);
-    const pad = 10;
-    const scale = Math.min((cw - pad * 2) / (b.maxX - b.minX), (ch - pad * 2) / (b.maxY - b.minY));
-    const ox = (cw - (b.maxX - b.minX) * scale) / 2 - b.minX * scale;
-    const oy = (ch - (b.maxY - b.minY) * scale) / 2 - b.minY * scale;
-    NVN.miniMap = { scale, ox, oy };
-    for (const panel of NVN.panels) {
-      const st = TYPE_STYLE[panel.type] || TYPE_STYLE.repo;
-      const lit = NVN.focusGroup === panel.type || (NVN.selected && NVN.selected.type === panel.type);
-      roundRect(g, ox + panel.x * scale, oy + panel.y * scale, panel.w * scale, panel.h * scale, 3);
-      g.fillStyle = hexAlpha(colors.ink(st.color), lit ? .6 : .3); g.fill();
-      g.lineWidth = 1; g.strokeStyle = hexAlpha(colors.ink(st.color), lit ? .95 : .6); g.stroke();
-    }
-    g.beginPath(); g.arc(ox, oy, Math.max(3, HUB_R * scale), 0, Math.PI * 2);
-    g.fillStyle = '#818cf8'; g.fill();
-    const vx = ox + a.x * scale, vy = oy + a.y * scale, vw = (c.x - a.x) * scale, vh = (c.y - a.y) * scale;
-    g.fillStyle = colors.glow ? 'rgba(255,255,255,.07)' : 'rgba(49,46,129,.07)';
-    g.fillRect(vx, vy, vw, vh);
-    g.lineWidth = 1.5; g.strokeStyle = colors.glow ? 'rgba(255,255,255,.9)' : 'rgba(49,46,129,.8)';
-    g.strokeRect(vx, vy, vw, vh);
+    NVN.miniMap = paintMinimap(mini.getContext('2d'), NVN, colors, cw, ch);
   }
   function bindMinimap() {
     const mini = document.getElementById('neuralMinimap');
@@ -846,18 +637,8 @@ const neuralGraph = (() => {
     mini.addEventListener('pointerup', end); mini.addEventListener('pointercancel', end);
   }
 
-  function worldToScreen(x, y) {
-    return { x: NVN.width / 2 + NVN.panX + x * NVN.zoom, y: NVN.height / 2 + NVN.panY + y * NVN.zoom };
-  }
-  function screenToWorld(x, y) {
-    return { x: (x - NVN.width / 2 - NVN.panX) / NVN.zoom, y: (y - NVN.height / 2 - NVN.panY) / NVN.zoom };
-  }
-  /* Draw in world units: everything scales with the zoom, text included. */
-  function worldSpace(ctx) {
-    const z = NVN.zoom, d = NVN.dpr;
-    ctx.setTransform(d * z, 0, 0, d * z, d * (NVN.width / 2 + NVN.panX), d * (NVN.height / 2 + NVN.panY));
-  }
-  function screenSpace(ctx) { ctx.setTransform(NVN.dpr, 0, 0, NVN.dpr, 0, 0); }
+  function worldToScreen(x, y) { return sceneToScreen(NVN, x, y); }
+  function screenToWorld(x, y) { return sceneToWorld(NVN, x, y); }
 
   function animate(now = performance.now()) {
     /* the loop owns its own life: when the panel is not visible it ends rather than
@@ -907,29 +688,6 @@ const neuralGraph = (() => {
     return moving;
   }
 
-  /* Which nodes stay lit: the explained path, else the selection and its
-   * neighbours, else the group chosen from the legend, else the hovered node's
-   * neighbourhood. Null means nothing is dimmed. */
-  function focusSets() {
-    if (NVN.highlightNodes.size) return { nodes: NVN.highlightNodes, edges: NVN.highlightEdges };
-    const anchor = NVN.selected || (NVN.focusGroup ? null : NVN.hover);
-    if (anchor) {
-      const nodes = new Set([anchor.id]);
-      const edges = new Set();
-      for (const e of NVN.edges) {
-        if (!e.visible) continue;
-        if (e.source === anchor.id || e.target === anchor.id) { nodes.add(e.source); nodes.add(e.target); edges.add(e.id); }
-      }
-      return { nodes, edges };
-    }
-    if (NVN.focusGroup) {
-      const nodes = new Set(NVN.nodes.filter(n => n.visible && (n.type === NVN.focusGroup || n.type === 'repo')).map(n => n.id));
-      const edges = new Set(NVN.edges.filter(e => e.visible && nodes.has(e.source) && nodes.has(e.target)).map(e => e.id));
-      return { nodes, edges };
-    }
-    return null;
-  }
-
   /*
    * Drawing is two canvases.
    *
@@ -961,19 +719,19 @@ const neuralGraph = (() => {
     NVN.interacting = moving || NVN.panning || !!NVN.draggingPanel;
     /* The ground keeps its own clock: it redraws when the camera or the layout
      * changes or while its light or a ripple moves, and not otherwise. */
-    drawField(now, dt, colors);
+    if (NVN.fieldCtx) paintField(NVN.fieldCtx, NVN, NVN.fieldState, colors, now, dt, fieldMotion());
     /* Nothing moved and nothing animates: the last frame is still right. */
     if (!dirty && !animated && NVN.frameKey === key) return;
     /* At rest, the signals run at half rate. */
     if (!dirty && animated && now - NVN.lastDraw < 31) return;
     NVN.lastDraw = now;
-    const focus = focusSets();
+    const focus = focusSets(NVN);
     const hub = NVN.nodes.find(n => n.type === 'repo' && n.visible);
-    const view = worldView();
+    const view = worldView(NVN);
     if (dirty) {
-      screenSpace(ctx);
+      screenSpace(ctx, NVN);
       ctx.clearRect(0, 0, NVN.width, NVN.height);
-      drawStatic(ctx, colors, focus, hub, view);
+      drawStatic(ctx, NVN, colors, focus, hub, view, !NVN.fieldCtx);
       NVN.staticKey = NVN.interacting ? '' : key;
       NVN.frames = (NVN.frames || 0) + 1;
     }
@@ -986,836 +744,29 @@ const neuralGraph = (() => {
       const hide = together && !!NVN.fxCtx;
       if (hide !== !!NVN.fxHidden) { NVN.fx.style.visibility = hide ? 'hidden' : ''; NVN.fxHidden = hide; }
     }
-    if (fx !== ctx) { screenSpace(fx); fx.clearRect(0, 0, NVN.width, NVN.height); }
-    worldSpace(fx);
-    drawAnimated(fx, now, colors, focus, hub, view, animated);
-    screenSpace(fx);
+    if (fx !== ctx) { screenSpace(fx, NVN); fx.clearRect(0, 0, NVN.width, NVN.height); }
+    worldSpace(fx, NVN);
+    drawAnimated(fx, NVN, now, colors, focus, hub, view, animated);
+    screenSpace(fx, NVN);
     drawLeader(fx, colors);
     positionCard();
     NVN.frameKeyStatic = moving || NVN.panning ? `${now}` : key;
     drawMinimap(colors);
     NVN.frameKey = key;
   }
-  /* The part of the world on screen, with a margin, for skipping what is not. */
-  function worldView() {
-    const a = screenToWorld(-40, -40), b = screenToWorld(NVN.width + 40, NVN.height + 40);
-    return { minX: a.x, minY: a.y, maxX: b.x, maxY: b.y };
-  }
-  function inView(view, minX, minY, maxX, maxY) {
-    return maxX >= view.minX && minX <= view.maxX && maxY >= view.minY && minY <= view.maxY;
-  }
-  function curveInView(view, c) {
-    return inView(view,
-      Math.min(c.start.x, c.c1.x, c.c2.x, c.end.x) - 14, Math.min(c.start.y, c.c1.y, c.c2.y, c.end.y) - 14,
-      Math.max(c.start.x, c.c1.x, c.c2.x, c.end.x) + 14, Math.max(c.start.y, c.c1.y, c.c2.y, c.end.y) + 14);
-  }
-  function drawStatic(ctx, colors, focus, hub, view) {
-    screenSpace(ctx);
-    /* The field canvas under this one carries the ground; without it the
-     * graph keeps its plain dot grid. */
-    if (!NVN.fieldCtx) drawBackdrop(ctx, colors);
-    worldSpace(ctx);
-    drawRings(ctx, colors, hub);
-    drawPanels(ctx, colors, focus, view);
-    if (hub) drawFibers(ctx, colors, focus, hub, view);
-    for (const n of NVN.nodes) {
-      if (!n.visible || n.folded || n.type === 'repo') continue;
-      if (!inView(view, n.x - 30, n.y - 30, n.x + 30, n.y + 30)) continue;
-      drawNode(ctx, n, !!focus && !focus.nodes.has(n.id), colors);
-    }
-    if (hub) drawHub(ctx, hub, colors, !!focus && !focus.nodes.has(hub.id));
-  }
-  function drawAnimated(ctx, now, colors, focus, hub, view, animated) {
-    drawRelations(ctx, now, colors, focus, animated);
-    if (!animated) return;
-    if (hub) drawSignals(ctx, now, colors, focus, hub, view);
-    for (const n of NVN.nodes) {
-      if (!n.visible || n.folded || n.severity !== 'critical' || n.type === 'repo') continue;
-      if (focus && !focus.nodes.has(n.id)) continue;
-      if (!inView(view, n.x - 40, n.y - 40, n.x + 40, n.y + 40)) continue;
-      /* A critical node breathes: one ring, expanding and fading, in red. */
-      const phase = ((now * .0011) + (hashCode(n.id) % 100) / 100) % 1;
-      ctx.strokeStyle = hexAlpha('#F43F6E', .55 * (1 - phase) * (n.appear ?? 1));
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(n.x, n.y, NODE_R * (1.2 + phase * .9), 0, Math.PI * 2); ctx.stroke();
-    }
-    if (hub) {
-      const turn = now * .0006, r = HUB_R;
-      ctx.save();
-      ctx.globalAlpha = focus && !focus.nodes.has(hub.id) ? .55 : 1;
-      ctx.lineWidth = 2; ctx.lineCap = 'round';
-      ctx.strokeStyle = colors.hub.arc;
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn, turn + 1.2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.18, turn + Math.PI, turn + Math.PI + .8); ctx.stroke();
-      const slow = now * .00012;
-      ctx.lineWidth = 1.4;
-      ctx.strokeStyle = hexAlpha(colors.hub.arcOuter, isLight() ? .3 : .4);
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow, slow + 1.1); ctx.stroke();
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, r * 1.7, slow + Math.PI, slow + Math.PI + .6); ctx.stroke();
-      ctx.restore();
-    }
-  }
 
   /*
-   * The ground is a field, not a pattern -- after Angelo Libero's Surface
-   * Field, re-made for a graph.
-   *
-   * Its dots belong to the graph's world, so panning moves over them. They
-   * bend away from the panels standing on the ground, and flow round a panel
-   * while it is dragged; they sink toward the repository at the centre, the
-   * one mass in the picture. Under the pointer they brighten, swell and join
-   * into a fine orthogonal mesh, easing out of the hand's way; a press sends
-   * a ripple through them, and so does choosing a node from the keyboard.
-   *
-   * It is a canvas of its own under the graph, redrawn only when the camera
-   * or the layout changes, or while its light or a ripple is moving: a still
-   * graph under a still pointer costs nothing. With motion off, or where the
+   * The ground is a field (graph-field.ts). With motion off, or where the
    * system asks for reduced motion, the bends and the well stay and the light
    * and the ripples do not.
    */
-  const FIELD = Object.freeze({
-    gap: 28, focus: 210, push: 3.4, bend: 9, bendReach: 60, well: 13, wellReach: 240,
-    rippleSpeed: .52, rippleWidth: 36, ripplePush: 6.5, rippleLife: 1500, maxRipples: 4
-  });
   const REDUCED_MOTION = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
   function fieldMotion() {
     return !!state.settings.motion && !(REDUCED_MOTION && REDUCED_MOTION.matches);
   }
   function fieldRipple(sx, sy) {
     if (!NVN.fieldCtx || !fieldMotion() || !NVN.zoom) return;
-    const w = screenToWorld(sx, sy);
-    const ripples = NVN.fieldState.ripples;
-    ripples.push({ wx: w.x, wy: w.y, at: performance.now() });
-    if (ripples.length > FIELD.maxRipples) ripples.shift();
-  }
-  let fieldBuffers = { size: 0, x: null, y: null, lit: null };
-  function fieldArrays(size) {
-    if (fieldBuffers.size < size) {
-      fieldBuffers = { size, x: new Float32Array(size), y: new Float32Array(size), lit: new Float32Array(size) };
-    }
-    return fieldBuffers;
-  }
-  function drawField(now, dt, colors) {
-    const ctx = NVN.fieldCtx;
-    if (!ctx || !NVN.width || !NVN.height) return;
-    const f = NVN.fieldState;
-    const motion = fieldMotion();
-    /* The light rises quickly under the hand and fades slowly after it. */
-    const target = motion && f.pointer ? 1 : 0;
-    if (f.pointer) { f.px = f.pointer.x; f.py = f.pointer.y; }
-    /* Eased by the wall clock rather than the frame step, which the loop
-     * caps: on a device drawing few frames the light still settles on time. */
-    const elapsed = Math.min(500, Math.max(0, now - (f.at || now)));
-    f.at = now;
-    const ease = 1 - Math.exp(-(elapsed || dt) / (target ? 110 : 280));
-    f.light += (target - f.light) * ease;
-    if (Math.abs(target - f.light) < .004) f.light = target;
-    if (!motion) f.ripples.length = 0;
-    else f.ripples = f.ripples.filter(r => now - r.at < FIELD.rippleLife);
-    const settled = f.light === target && !f.ripples.length;
-    /* Keyed on the geometry the ground depends on -- the panels standing on
-     * it and the hub -- not on the graph's general version, which also moves
-     * for fonts, highlights and resizes that change nothing down here. */
-    const hubNode = NVN.nodes.find(n => n.type === 'repo' && n.visible);
-    let geometry = hubNode ? `${Math.round(hubNode.x)},${Math.round(hubNode.y)}` : '-';
-    for (const p of NVN.panels || []) geometry += `|${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.w)},${Math.round(p.h)}`;
-    const sig = [NVN.width, NVN.height, NVN.dpr, NVN.zoom.toFixed(4), NVN.panX.toFixed(2), NVN.panY.toFixed(2),
-      colors.theme, geometry,
-      f.light ? `${Math.round(f.px)},${Math.round(f.py)},${f.light.toFixed(3)}` : '', f.ripples.length].join('|');
-    if (settled && sig === f.sig) return;
-    f.sig = settled ? sig : '';
-    f.draws = (f.draws || 0) + 1;
-
-    const W = NVN.width, H = NVN.height, z = NVN.zoom;
-    ctx.setTransform(NVN.dpr, 0, 0, NVN.dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    /* Zoomed out, the grid doubles its pitch rather than thickening into a
-     * haze -- the surface is always there, never a texture. */
-    let gap = FIELD.gap;
-    while (gap * z < 13) gap *= 2;
-    const step = gap * z;
-    const origin = worldToScreen(0, 0);
-    const x0 = ((origin.x % step) + step) % step - step;
-    const y0 = ((origin.y % step) + step) % step - step;
-    const cols = Math.ceil((W - x0) / step) + 2, rows = Math.ceil((H - y0) / step) + 2;
-    const count = cols * rows;
-    const buf = fieldArrays(count);
-
-    /* The surfaces standing on the ground, in screen space. */
-    const reach = FIELD.bendReach * z, bend = FIELD.bend * z;
-    const rects = [];
-    for (const p of NVN.panels || []) {
-      const a = worldToScreen(p.x, p.y);
-      const r = { l: a.x, t: a.y, r: a.x + p.w * z, b: a.y + p.h * z };
-      if (r.r + reach < 0 || r.l - reach > W || r.b + reach < 0 || r.t - reach > H) continue;
-      rects.push(r);
-    }
-    const hub = hubNode ? worldToScreen(hubNode.x, hubNode.y) : null;
-    const hubR = HUB_R * z * 1.08, well = FIELD.well * z, wellReach = FIELD.wellReach * z;
-    const focus = FIELD.focus, light = f.light;
-    const ripples = f.ripples.map(r => {
-      const at = worldToScreen(r.wx, r.wy);
-      const age = (now - r.at) / FIELD.rippleLife;
-      return { x: at.x, y: at.y, radius: (now - r.at) * FIELD.rippleSpeed, fade: Math.pow(1 - age, 1.6) };
-    });
-
-    let anyLit = false;
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const i = row * cols + col;
-        const x = x0 + col * step, y = y0 + row * step;
-        let dx = 0, dy = 0, hidden = false;
-        for (const q of rects) {
-          if (x < q.l - reach || x > q.r + reach || y < q.t - reach || y > q.b + reach) continue;
-          const ex = x - Math.max(q.l, Math.min(x, q.r)), ey = y - Math.max(q.t, Math.min(y, q.b));
-          const d = Math.hypot(ex, ey);
-          if (d < 2) { hidden = true; break; }
-          if (d < reach) { const s = bend * (1 - d / reach) * (1 - d / reach) / d; dx += ex * s; dy += ey * s; }
-        }
-        if (!hidden && hub) {
-          const hx = hub.x - x, hy = hub.y - y, d = Math.hypot(hx, hy);
-          if (d < hubR) hidden = true;
-          else { const s = well * Math.exp(-(d * d) / (wellReach * wellReach)) / d; dx += hx * s; dy += hy * s; }
-        }
-        if (hidden) { buf.lit[i] = -1; continue; }
-        let lit = 0;
-        if (light) {
-          const px = x - f.px, py = y - f.py, d = Math.hypot(px, py);
-          if (d < focus) {
-            const t = 1 - d / focus;
-            lit = t * t * (3 - 2 * t) * light;
-            if (d > .5) { const s = FIELD.push * t * t * light / d; dx += px * s; dy += py * s; }
-          }
-        }
-        for (const r of ripples) {
-          const rx = x - r.x, ry = y - r.y, d = Math.hypot(rx, ry);
-          const off = (d - r.radius) / FIELD.rippleWidth;
-          if (off < -3 || off > 3) continue;
-          const band = Math.exp(-off * off) * r.fade;
-          lit = Math.max(lit, band * .85);
-          if (d > .5) { const s = FIELD.ripplePush * band / d; dx += rx * s; dy += ry * s; }
-        }
-        buf.x[i] = x + dx; buf.y[i] = y + dy; buf.lit[i] = lit;
-        if (lit > .03) anyLit = true;
-      }
-    }
-
-    /* The resting dots, in one colour, as squares: a field of a thousand
-     * costs a thousand rectangles and no state changes. */
-    const dot = clamp(1.1 * z, .7, 1.6);
-    ctx.fillStyle = colors.grid;
-    for (let i = 0; i < count; i++) {
-      if (buf.lit[i] < 0 || buf.lit[i] > .03) continue;
-      ctx.fillRect(buf.x[i] - dot / 2, buf.y[i] - dot / 2, dot, dot);
-    }
-    if (!anyLit) return;
-    /* The mesh and the lit dots, bucketed by strength so each level is one
-     * path and one fill. */
-    const LEVELS = 8;
-    const lines = Array.from({ length: LEVELS + 1 }, () => []);
-    const dots = Array.from({ length: LEVELS + 1 }, () => []);
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const i = row * cols + col, lit = buf.lit[i];
-        if (lit <= .03) continue;
-        dots[Math.round(lit * LEVELS)].push(i);
-        if (col + 1 < cols && buf.lit[i + 1] > .03) lines[Math.round(Math.min(lit, buf.lit[i + 1]) * LEVELS)].push(i, i + 1);
-        if (row + 1 < rows && buf.lit[i + cols] > .03) lines[Math.round(Math.min(lit, buf.lit[i + cols]) * LEVELS)].push(i, i + cols);
-      }
-    }
-    ctx.lineWidth = .8;
-    for (let level = 1; level <= LEVELS; level++) {
-      const list = lines[level];
-      if (!list.length) continue;
-      ctx.strokeStyle = `rgba(${colors.field},${(level / LEVELS * colors.fieldLine).toFixed(3)})`;
-      ctx.beginPath();
-      for (let k = 0; k < list.length; k += 2) { ctx.moveTo(buf.x[list[k]], buf.y[list[k]]); ctx.lineTo(buf.x[list[k + 1]], buf.y[list[k + 1]]); }
-      ctx.stroke();
-    }
-    for (let level = 0; level <= LEVELS; level++) {
-      const list = dots[level];
-      if (!list.length) continue;
-      const strength = level / LEVELS;
-      ctx.fillStyle = `rgba(${colors.field},${(colors.fieldBase + (colors.fieldDot - colors.fieldBase) * strength).toFixed(3)})`;
-      const radius = dot * (.55 + strength * 1.05);
-      ctx.beginPath();
-      for (const i of list) { ctx.moveTo(buf.x[i] + radius, buf.y[i]); ctx.arc(buf.x[i], buf.y[i], radius, 0, Math.PI * 2); }
-      ctx.fill();
-    }
-  }
-
-  /* A dot grid fixed to the graph rather than the screen, so panning and
-   * zooming read as moving over a surface. It thins out as it shrinks. The
-   * ground under it is the stage's CSS background. */
-  function drawBackdrop(ctx, colors) {
-    const W = NVN.width, H = NVN.height;
-    const spacing = 28 * NVN.zoom;
-    if (spacing < 9) return;
-    const origin = worldToScreen(0, 0);
-    const startX = ((origin.x % spacing) + spacing) % spacing;
-    const startY = ((origin.y % spacing) + spacing) % spacing;
-    const dot = clamp(1.1 * NVN.zoom, .7, 1.6);
-    ctx.fillStyle = colors.grid;
-    for (let x = startX; x < W; x += spacing) {
-      for (let y = startY; y < H; y += spacing) ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
-    }
-  }
-
-  /* Concentric dotted rings around the hub: the centre of the picture
-   * announces itself. Two arcs turn on the inner ring in the animated layer. */
-  function drawRings(ctx, colors, hub) {
-    if (!hub) return;
-    ctx.save();
-    ctx.strokeStyle = colors.ring;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 7]);
-    for (const r of [HUB_R * 1.7, HUB_R * 2.6, HUB_R * 3.7]) {
-      ctx.beginPath(); ctx.arc(hub.x, hub.y, r, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function roundRect(ctx, x, y, w, h, r) {
-    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
-    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-  }
-  function hexAlpha(hex, alpha) {
-    /* Ink can arrive as rgb() -- the light palettes darken a group's colour --
-     * and returning it unchanged painted a pager button solid in its own
-     * chevron's colour, so the chevron vanished into a filled disc. */
-    const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(String(hex));
-    if (rgb) return `rgba(${rgb[1]},${rgb[2]},${rgb[3]},${alpha})`;
-    const h = String(hex).replace('#', '');
-    if (!/^[0-9a-f]{3}([0-9a-f]{3})?$/i.test(h)) return hex;
-    const v = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
-    return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${alpha})`;
-  }
-  function darken(hex, amount) {
-    const h = String(hex).replace('#', ''); let v = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
-    const f = 1 - amount; return `rgb(${Math.round((v >> 16) * f)},${Math.round(((v >> 8) & 255) * f)},${Math.round((v & 255) * f)})`;
-  }
-  /* Text that fits a width, ellipsised once per label and width rather than
-   * measured down character by character every frame. */
-  const FIT_CACHE = new Map();
-  function fitText(ctx, text, width) {
-    const key = `${ctx.font}|${width}|${text}`;
-    if (FIT_CACHE.has(key)) return FIT_CACHE.get(key);
-    let out = String(text);
-    if (ctx.measureText(out).width > width) {
-      while (out.length > 1 && ctx.measureText(`${out}…`).width > width) out = out.slice(0, -1);
-      out = `${out.trimEnd()}…`;
-    }
-    if (FIT_CACHE.size > 800) FIT_CACHE.clear();
-    FIT_CACHE.set(key, out);
-    return out;
-  }
-
-  /*
-   * A group's panel: a glass card with its icon, name and count in the header,
-   * a row per member, and "+ n more" where the group folds. The member's node
-   * sits on the edge facing the hub and its name on the other side, so the
-   * strands arriving from the hub never cross a word.
-   */
-  function drawPanels(ctx, colors, focus, view) {
-    const selectedType = NVN.selected && NVN.selected.type;
-    for (const panel of NVN.panels || []) {
-      if (!inView(view, panel.x - 24, panel.y - 24, panel.x + panel.w + 24, panel.y + panel.h + 24)) continue;
-      const st = TYPE_STYLE[panel.type] || TYPE_STYLE.repo;
-      const ink = colors.ink(st.color);
-      const lit = NVN.focusGroup === panel.type || selectedType === panel.type;
-      const dim = !!focus && !lit && !panel.members.some(n => focus.nodes.has(n.id));
-      ctx.save();
-      ctx.globalAlpha = dim ? .4 : 1;
-      roundRect(ctx, panel.x, panel.y, panel.w, panel.h, 18);
-      ctx.fillStyle = colors.panel; ctx.fill();
-      const wash = ctx.createLinearGradient(panel.x, panel.y, panel.x + panel.w * .7, panel.y + panel.h);
-      wash.addColorStop(0, hexAlpha(st.color, isLight() ? .11 : .15));
-      wash.addColorStop(1, hexAlpha(st.color, 0));
-      ctx.fillStyle = wash; ctx.fill();
-      if (lit && colors.glow) { ctx.shadowColor = hexAlpha(st.color, .55); ctx.shadowBlur = 22; }
-      ctx.lineWidth = lit ? 1.6 : 1;
-      ctx.strokeStyle = hexAlpha(st.color, lit ? .8 : colors.panelEdge);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      /* Where the light catches the glass: a bright hairline along the top
-       * edge, fading out toward the corners. */
-      const edge = ctx.createLinearGradient(panel.x, 0, panel.x + panel.w, 0);
-      const shine = colors.glow ? .2 : .95;
-      edge.addColorStop(0, `rgba(255,255,255,0)`);
-      edge.addColorStop(.5, `rgba(255,255,255,${shine})`);
-      edge.addColorStop(1, `rgba(255,255,255,0)`);
-      ctx.beginPath(); ctx.moveTo(panel.x + 18, panel.y + 1); ctx.lineTo(panel.x + panel.w - 18, panel.y + 1);
-      ctx.lineWidth = 1; ctx.strokeStyle = edge; ctx.stroke();
-      /* Header: the group's mark and name, and its count in a pill -- "60 of
-       * 312" (60/312) where the repository has more than the graph holds. */
-      const hx = panel.x + 30, hy = panel.y + HEAD_H / 2 + 2;
-      ctx.beginPath(); ctx.arc(hx, hy, 17, 0, Math.PI * 2);
-      ctx.fillStyle = hexAlpha(st.color, isLight() ? .12 : .18); ctx.fill();
-      ctx.lineWidth = 1.2; ctx.strokeStyle = hexAlpha(st.color, .7); ctx.stroke();
-      if (!drawIcon(ctx, panel.type, hx, hy, 18, ink) && st.glyph) {
-        ctx.fillStyle = ink; ctx.font = "700 13px 'Public Sans Variable', system-ui, sans-serif";
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(st.glyph, hx, hy);
-      }
-      ctx.textBaseline = 'middle';
-      ctx.font = "600 11px 'JetBrains Mono Variable', ui-monospace, monospace";
-      const count = panel.total > panel.members.length ? `${panel.members.length}/${panel.total}` : String(panel.members.length);
-      const pillW = ctx.measureText(count).width + 16;
-      const pillX = panel.x + panel.w - 16 - pillW;
-      roundRect(ctx, pillX, hy - 11, pillW, 22, 11);
-      ctx.fillStyle = hexAlpha(st.color, isLight() ? .12 : .16); ctx.fill();
-      ctx.fillStyle = isLight() ? ink : colors.text;
-      ctx.textAlign = 'center';
-      ctx.fillText(count, pillX + pillW / 2, hy + .5);
-      ctx.font = "700 12px 'JetBrains Mono Variable', ui-monospace, monospace";
-      if ('letterSpacing' in ctx) ctx.letterSpacing = '1.6px';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = ink;
-      ctx.fillText(fitText(ctx, (st.plural || st.label).toUpperCase(), pillX - panel.x - 66), panel.x + 58, hy);
-      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
-      /* Rows. */
-      const labelWidth = panel.w - 78;
-      ctx.font = ROW_FONT;
-      panel.shown.forEach((n, i) => {
-        const rowY = panel.y + HEAD_H + i * ROW_H;
-        if (!inView(view, panel.x, rowY, panel.x + panel.w, rowY + ROW_H)) return;
-        const selected = NVN.selected && NVN.selected.id === n.id;
-        const hover = NVN.hover && NVN.hover.id === n.id;
-        if (selected || hover) {
-          roundRect(ctx, panel.x + 8, rowY + 3, panel.w - 16, ROW_H - 6, 12);
-          ctx.fillStyle = selected ? hexAlpha(st.color, isLight() ? .14 : .2) : colors.row; ctx.fill();
-        }
-        const rowDim = !!focus && !focus.nodes.has(n.id) && !dim;
-        ctx.globalAlpha = (dim ? .4 : 1) * (rowDim ? .45 : 1) * Math.min(1, (n.appear ?? 1) * 1.4);
-        ctx.fillStyle = colors.text;
-        const font = selected ? ROW_FONT_BOLD : ROW_FONT;
-        if (ctx.font !== font) ctx.font = font;
-        const text = fitText(ctx, n.label, labelWidth);
-        if (panel.side === 'left') { ctx.textAlign = 'right'; ctx.fillText(text, panel.x + panel.w - 58, rowY + ROW_H / 2); }
-        else { ctx.textAlign = 'left'; ctx.fillText(text, panel.x + 58, rowY + ROW_H / 2); }
-        ctx.globalAlpha = dim ? .4 : 1;
-      });
-      if (panel.moreY != null) drawPanelFooter(ctx, panel, colors, ink);
-      ctx.restore();
-    }
-  }
-  const ROW_FONT = "500 13px 'Public Sans Variable', system-ui, sans-serif";
-  const ROW_FONT_BOLD = "700 13px 'Public Sans Variable', system-ui, sans-serif";
-  /* Where the footer's controls sit, in world units from the panel's left. */
-  const FOOTER = { lessEnd: 118, prevX: -140, nextX: -26, rangeX: -83, hit: 15 };
-  function drawPanelFooter(ctx, panel, colors, ink) {
-    const y = panel.moreY;
-    ctx.beginPath();
-    ctx.moveTo(panel.x + 16, y - ROW_H / 2); ctx.lineTo(panel.x + panel.w - 16, y - ROW_H / 2);
-    ctx.lineWidth = 1; ctx.strokeStyle = hexAlpha(panel.members[0] ? panel.members[0].color : '#818cf8', .18); ctx.stroke();
-    ctx.textBaseline = 'middle';
-    ctx.font = "600 12px 'Public Sans Variable', system-ui, sans-serif";
-    ctx.fillStyle = ink;
-    if (panel.footer === 'more') {
-      ctx.textAlign = 'left';
-      ctx.fillText(`+ ${panel.hiddenCount} more`, panel.x + 20, y);
-      chevron(ctx, panel.x + panel.w - 26, y, 'down', ink, 1);
-      return;
-    }
-    ctx.textAlign = 'left';
-    ctx.fillText('Show fewer', panel.x + 20, y);
-    if (panel.pages <= 1) return;
-    const first = panel.page * PAGE_ROWS + 1;
-    const last = Math.min(panel.members.length, first + PAGE_ROWS - 1);
-    ctx.font = "600 11px 'JetBrains Mono Variable', ui-monospace, monospace";
-    ctx.fillStyle = colors.muted;
-    ctx.textAlign = 'center';
-    ctx.fillText(`${first}–${last} of ${panel.members.length}`, panel.x + panel.w + FOOTER.rangeX, y + .5);
-    chevron(ctx, panel.x + panel.w + FOOTER.prevX, y, 'left', ink, panel.page > 0 ? 1 : .3);
-    chevron(ctx, panel.x + panel.w + FOOTER.nextX, y, 'right', ink, panel.page < panel.pages - 1 ? 1 : .3);
-  }
-  function chevron(ctx, x, y, direction, color, alpha) {
-    ctx.save();
-    ctx.globalAlpha *= alpha;
-    ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2);
-    ctx.fillStyle = hexAlpha(color, .12); ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = hexAlpha(color, .45); ctx.stroke();
-    ctx.beginPath();
-    const d = 3.6;
-    if (direction === 'down') { ctx.moveTo(x - d, y - d / 2); ctx.lineTo(x, y + d / 2); ctx.lineTo(x + d, y - d / 2); }
-    else if (direction === 'left') { ctx.moveTo(x + d / 2, y - d); ctx.lineTo(x - d / 2, y); ctx.lineTo(x + d / 2, y + d); }
-    else { ctx.moveTo(x - d / 2, y - d); ctx.lineTo(x + d / 2, y); ctx.lineTo(x - d / 2, y + d); }
-    ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = color; ctx.stroke();
-    ctx.restore();
-  }
-
-  /*
-   * One strand from the hub to a node.
-   *
-   * On a wide stage it is a cubic that leaves the hub's rim level and arrives
-   * level, so a column of strands fans out like fibres rather than crossing.
-   * On a tall stage every group has a single trunk down from the rim, and each
-   * row takes a short branch off its group's trunk: as many wires as there are
-   * groups run the length of the stage, not one per row.
-   *
-   * The strand is returned as the segments a signal travels along -- the
-   * trunk's run and the branch -- and as the branch drawn for this row.
-   */
-  function fiberGeometry(hub, n) {
-    if (NVN.layoutMode === 'stack') {
-      const tx = hub.x + SPINE_X;
-      const reach = Math.sqrt(Math.max(0, HUB_R * HUB_R - (tx - hub.x) ** 2));
-      const below = n.y >= hub.y;
-      const rim = { x: tx, y: hub.y + (below ? reach : -reach) * .98 };
-      const sign = n.x >= tx ? 1 : -1;
-      const end = { x: n.x - sign * NODE_R, y: n.y };
-      const bendY = below ? Math.max(rim.y + 8, n.y - 26) : Math.min(rim.y - 8, n.y + 26);
-      const branch = {
-        start: { x: tx, y: bendY }, c1: { x: tx, y: n.y + (below ? -4 : 4) },
-        c2: { x: tx + (end.x - tx) * .45, y: n.y }, end
-      };
-      return { branch, rim, bendY, segs: [{ line: [rim, branch.start] }, { cubic: branch }], tail: [{ cubic: branch }] };
-    }
-    const panel = NVN.panelByType && NVN.panelByType.get(n.type);
-    if (panel && panel.placed) {
-      /* A panel the reader moved can be anywhere, even under the hub: the
-       * strand leaves the rim toward it and arrives from outside the panel,
-       * on the side its rows face, so it never crosses a label. */
-      const approach = panel.side === 'left' ? 1 : -1;
-      const end = { x: n.x + approach * NODE_R, y: n.y };
-      const toward = Math.atan2(end.y - hub.y, end.x - hub.x);
-      const start = { x: hub.x + Math.cos(toward) * HUB_R * .96, y: hub.y + Math.sin(toward) * HUB_R * .96 };
-      const d = Math.hypot(end.x - start.x, end.y - start.y);
-      const branch = {
-        start, c1: { x: start.x + Math.cos(toward) * d * .35, y: start.y + Math.sin(toward) * d * .35 },
-        c2: { x: end.x + approach * Math.max(50, d * .35), y: end.y }, end
-      };
-      return { branch, segs: [{ cubic: branch }] };
-    }
-    const sign = n.x >= hub.x ? 1 : -1;
-    const angle = clamp(Math.atan2(n.y - hub.y, Math.abs(n.x - hub.x)) * .55, -1.05, 1.05);
-    const start = { x: hub.x + sign * HUB_R * .96 * Math.cos(angle), y: hub.y + HUB_R * .96 * Math.sin(angle) };
-    const end = { x: n.x - sign * NODE_R, y: n.y };
-    const dx = Math.abs(end.x - start.x);
-    const branch = { start, c1: { x: start.x + sign * dx * .5, y: start.y }, c2: { x: end.x - sign * dx * .5, y: end.y }, end };
-    return { branch, segs: [{ cubic: branch }] };
-  }
-  /* The length of each segment, measured once, so a signal moves at an even
-   * pace along a trunk and its branch. */
-  function measurePath(segs) {
-    let total = 0;
-    for (const seg of segs) {
-      if (seg.line) seg.len = Math.hypot(seg.line[1].x - seg.line[0].x, seg.line[1].y - seg.line[0].y);
-      else {
-        const c = seg.cubic;
-        const chord = Math.hypot(c.end.x - c.start.x, c.end.y - c.start.y);
-        const poly = Math.hypot(c.c1.x - c.start.x, c.c1.y - c.start.y) + Math.hypot(c.c2.x - c.c1.x, c.c2.y - c.c1.y) + Math.hypot(c.end.x - c.c2.x, c.end.y - c.c2.y);
-        seg.len = (chord + poly) / 2;
-      }
-      total += seg.len;
-    }
-    return { segs, total: Math.max(1, total) };
-  }
-  function pathPoint(path, t) {
-    let d = clamp(t, 0, 1) * path.total;
-    for (const seg of path.segs) {
-      if (d <= seg.len || seg === path.segs[path.segs.length - 1]) {
-        const f = seg.len ? clamp(d / seg.len, 0, 1) : 0;
-        if (seg.line) return { x: seg.line[0].x + (seg.line[1].x - seg.line[0].x) * f, y: seg.line[0].y + (seg.line[1].y - seg.line[0].y) * f };
-        return cubicPoint(seg.cubic, f);
-      }
-      d -= seg.len;
-    }
-    return path.segs.length ? cubicPoint(path.segs[path.segs.length - 1].cubic, 1) : { x: 0, y: 0 };
-  }
-  function cubicPoint(c, t) {
-    const u = 1 - t;
-    return {
-      x: u * u * u * c.start.x + 3 * u * u * t * c.c1.x + 3 * u * t * t * c.c2.x + t * t * t * c.end.x,
-      y: u * u * u * c.start.y + 3 * u * u * t * c.c1.y + 3 * u * t * t * c.c2.y + t * t * t * c.end.y
-    };
-  }
-  function strokeCubic(ctx, c, offset = 0) {
-    ctx.beginPath();
-    ctx.moveTo(c.start.x, c.start.y);
-    ctx.bezierCurveTo(c.c1.x, c.c1.y + offset, c.c2.x, c.c2.y - offset, c.end.x, c.end.y);
-    ctx.stroke();
-  }
-
-  /*
-   * The strands. Each member of each group is joined to the hub; the strand
-   * wears its group's colour, or red for a critical node. A selection lights
-   * its own strands and dims the rest. The signals that run along them are
-   * the animated layer's (drawSignals).
-   */
-  function fiberStyle(n, focus, hub, colors) {
-    const lit = !!focus && focus.nodes.has(n.id) && (focus.nodes.has(hub.id) || NVN.focusGroup === n.type);
-    const dim = !!focus && !lit;
-    /* The strand wears its group's colour, so a column of strands reads as
-     * that group from across the stage; only a critical node turns it red.
-     * A warning stays on the node's badge. */
-    const color = n.severity === 'critical' ? '#F43F6E' : n.color;
-    const base = (n.appear ?? 1) * (dim ? .2 : 1);
-    return { lit, dim, color, stroke: colors.ink(color), base };
-  }
-  function drawFibers(ctx, colors, focus, hub, view) {
-    ctx.save();
-    if (colors.glow) ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    /* The strands' fine offset threads are invisible past a certain distance
-     * and while the graph is moving; they are drawn only when they can be
-     * seen, which is most of the cost of a frame spent dragging. */
-    const fine = NVN.zoom > .45 && !NVN.interacting;
-    const stack = NVN.layoutMode === 'stack';
-    /* On a tall stage: one spine each way from the rim, as far as its furthest
-     * branch; a band in each group's colour where its rows branch off; and
-     * the stretch to a lit node drawn lit. */
-    const spine = { reaches: new Map(), bands: new Map() };
-    for (const n of NVN.nodes) {
-      if (!n.visible || n.folded || n.type === 'repo') continue;
-      const geo = fiberGeometry(hub, n);
-      n.curve = geo.branch;
-      n.path = measurePath(geo.segs);
-      n.tail = geo.tail ? measurePath(geo.tail) : null;
-      n.onView = geo.segs.some(seg => seg.line
-        ? inView(view, Math.min(seg.line[0].x, seg.line[1].x) - 14, Math.min(seg.line[0].y, seg.line[1].y), Math.max(seg.line[0].x, seg.line[1].x) + 14, Math.max(seg.line[0].y, seg.line[1].y))
-        : curveInView(view, seg.cubic));
-      const style = fiberStyle(n, focus, hub, colors);
-      if (stack) {
-        const way = geo.bendY < geo.rim.y ? -1 : 1;
-        const reach = spine.reaches.get(way) || { x: geo.rim.x, from: geo.rim.y, to: geo.rim.y, lit: null, base: 0 };
-        if (Math.abs(geo.bendY - reach.from) > Math.abs(reach.to - reach.from)) reach.to = geo.bendY;
-        if (style.lit && (!reach.lit || Math.abs(geo.bendY - reach.from) > Math.abs(reach.lit.to - reach.from))) reach.lit = { to: geo.bendY, color: style.color };
-        reach.base = Math.max(reach.base, n.appear ?? 1);
-        spine.reaches.set(way, reach);
-        const key = `${n.type}:${way}`;
-        const band = spine.bands.get(key) || { x: geo.rim.x, from: geo.bendY, to: geo.bendY, color: n.color, dim: true, base: 0 };
-        band.from = Math.min(band.from, geo.bendY); band.to = Math.max(band.to, geo.bendY);
-        band.dim = band.dim && style.dim;
-        band.base = Math.max(band.base, n.appear ?? 1);
-        spine.bands.set(key, band);
-      }
-      if (!curveInView(view, geo.branch)) continue;
-      const { lit, color, stroke, base } = style;
-      if (colors.glow) {
-        ctx.globalAlpha = base * (lit ? .24 : .1);
-        ctx.strokeStyle = color; ctx.lineWidth = lit ? 8 : 5.5;
-        strokeCubic(ctx, geo.branch);
-      }
-      ctx.globalAlpha = base * (lit ? 1 : colors.glow ? .62 : .5);
-      ctx.strokeStyle = stroke; ctx.lineWidth = lit ? 2 : 1.3;
-      strokeCubic(ctx, geo.branch);
-      if (!fine || stack) continue;
-      const seed = (hashCode(n.id) % 1000) / 1000;
-      ctx.globalAlpha = base * (lit ? .6 : .3);
-      ctx.lineWidth = .8;
-      strokeCubic(ctx, geo.branch, (seed - .5) * 26);
-      ctx.globalAlpha = base * (lit ? .45 : .2);
-      strokeCubic(ctx, geo.branch, (.5 - seed) * 18 + 6);
-    }
-    const run = (x, from, to, color, alpha, width, glow) => {
-      if (!inView(view, x - 14, Math.min(from, to), x + 14, Math.max(from, to))) return;
-      ctx.beginPath(); ctx.moveTo(x, from); ctx.lineTo(x, to);
-      if (colors.glow && glow) {
-        ctx.globalAlpha = alpha * glow;
-        ctx.strokeStyle = color; ctx.lineWidth = width * 3.6;
-        ctx.stroke();
-      }
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = colors.ink(color); ctx.lineWidth = width;
-      ctx.stroke();
-    };
-    const spineColor = colors.spine;
-    for (const reach of spine.reaches.values()) {
-      run(reach.x, reach.from, reach.to, spineColor, reach.base * (focus ? .45 : colors.glow ? .78 : .6), 2.4, .16);
-    }
-    for (const band of spine.bands.values()) {
-      /* A group's band covers the stretch its rows branch from, and a little
-       * either side so a single row's is still seen. */
-      run(band.x, band.from - 9, band.to + 9, band.color, band.base * (band.dim && focus ? .2 : colors.glow ? .9 : .75), 3, .22);
-    }
-    for (const reach of spine.reaches.values()) {
-      if (reach.lit) run(reach.x, reach.from, reach.lit.to, reach.lit.color, reach.base, 2.6, .3);
-    }
-    ctx.restore();
-  }
-  /* A glowing dot, drawn once per colour and size and stamped from then on:
-   * a radial gradient per signal per frame was most of the frame's cost. */
-  const SPRITES = new Map();
-  function signalSprite(color) {
-    if (SPRITES.has(color)) return SPRITES.get(color);
-    const size = 64;
-    const sprite = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(size, size) : document.createElement('canvas');
-    sprite.width = size; sprite.height = size;
-    const g = sprite.getContext('2d');
-    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    grad.addColorStop(0, '#ffffff'); grad.addColorStop(.35, color); grad.addColorStop(1, hexAlpha(color, 0));
-    g.fillStyle = grad; g.fillRect(0, 0, size, size);
-    SPRITES.set(color, sprite);
-    return sprite;
-  }
-  function drawSignals(ctx, now, colors, focus, hub, view) {
-    ctx.save();
-    if (colors.glow) ctx.globalCompositeOperation = 'lighter';
-    for (const n of NVN.nodes) {
-      if (!n.visible || n.folded || n.type === 'repo' || !n.path || n.onView === false) continue;
-      const { lit, dim, color, base } = fiberStyle(n, focus, hub, colors);
-      if (dim) continue;
-      const seed = (hashCode(n.id) % 1000) / 1000;
-      /* On the spine, only what matters travels all the way to the hub -- a
-       * critical node's signal, or the lit node's; the rest pulse along their
-       * own branch at the same pace, so the spine stays readable however
-       * many rows hang from it. */
-      const full = !n.tail || lit || n.severity === 'critical';
-      const path = full ? n.path : n.tail;
-      const speed = (n.severity === 'critical' ? .00042 : .00017) * Math.min(4, n.path.total / path.total);
-      const r = lit ? 7 : 5;
-      const sprite = signalSprite(color);
-      for (const phase of lit ? [0, .5] : [0]) {
-        const t = 1 - ((seed + phase + now * speed) % 1);
-        /* Signals fade in and out at the ends rather than popping over the
-         * hub and the node they run between. */
-        const edge = Math.min(1, t / .08, (1 - t) / .08);
-        const p = pathPoint(path, t);
-        ctx.globalAlpha = base * (lit ? 1 : .85) * edge;
-        ctx.drawImage(sprite, p.x - r, p.y - r, r * 2, r * 2);
-      }
-    }
-    ctx.restore();
-  }
-
-  /*
-   * The relationships between members -- a branch to the workflow it ran, a
-   * package to its advisory, one commit to the next -- drawn only for what is
-   * in focus. Drawn always, they were the tangle that made the old graph hard
-   * to read; drawn on demand, they answer "what is this connected to".
-   */
-  function drawRelations(ctx, now, colors, focus, animated) {
-    if (!focus) return;
-    const byId = new Map(NVN.nodes.map(n => [n.id, n]));
-    ctx.save();
-    ctx.lineCap = 'round';
-    for (const e of NVN.edges) {
-      if (!e.visible || !focus.edges.has(e.id)) continue;
-      const a = byId.get(e.source), b = byId.get(e.target);
-      if (!a || !b || a.type === 'repo' || b.type === 'repo' || a.folded || b.folded) continue;
-      const bend = Math.max(60, Math.abs(b.x - a.x) * .45);
-      /* Each end leaves its disc on the side facing the hub -- the side the
-       * strands arrive on -- so the dashes never cross an icon. */
-      const sa = NVN.layoutMode === 'stack' || a.x >= 0 ? 1 : -1, sb = NVN.layoutMode === 'stack' || b.x >= 0 ? 1 : -1;
-      const curve = {
-        start: { x: a.x - sa * (NODE_R + 2), y: a.y }, end: { x: b.x - sb * (NODE_R + 2), y: b.y },
-        c1: { x: a.x - sa * bend, y: a.y }, c2: { x: b.x - sb * bend, y: b.y }
-      };
-      const color = e.severity === 'critical' ? '#F43F6E' : e.severity === 'warning' ? '#F59E0B' : '#a78bfa';
-      ctx.globalAlpha = .9;
-      ctx.strokeStyle = colors.ink(color); ctx.lineWidth = 1.6;
-      if (animated) { ctx.setLineDash([6, 7]); ctx.lineDashOffset = -now * .03; }
-      strokeCubic(ctx, curve);
-      ctx.setLineDash([]);
-    }
-    ctx.restore();
-  }
-
-  function drawNode(ctx, node, dim, colors) {
-    const selected = (NVN.selected && NVN.selected.id === node.id) || NVN.highlightNodes.has(node.id);
-    const hover = NVN.hover && NVN.hover.id === node.id;
-    const appear = node.appear ?? 1;
-    let radius = NODE_R * (.55 + .45 * appear);
-    if (hover || selected) radius *= 1.12;
-    const severity = node.severity === 'critical' ? '#F43F6E' : node.severity === 'warning' ? '#F59E0B' : null;
-    const ink = colors.ink(node.color);
-    const x = node.x, y = node.y;
-    ctx.save();
-    ctx.globalAlpha = appear * (dim ? .35 : 1);
-    if (colors.glow) { ctx.shadowColor = hexAlpha(severity || node.color, selected ? .9 : .55); ctx.shadowBlur = selected ? 22 : hover ? 16 : 9; }
-    ctx.fillStyle = colors.surface;
-    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    const tint = ctx.createRadialGradient(x - radius * .35, y - radius * .4, radius * .1, x, y, radius);
-    tint.addColorStop(0, hexAlpha(node.color, isLight() ? .2 : .34));
-    tint.addColorStop(1, hexAlpha(node.color, isLight() ? .08 : .1));
-    ctx.fillStyle = tint; ctx.fill();
-    ctx.lineWidth = selected ? 2.4 : 1.6;
-    ctx.strokeStyle = severity || ink;
-    ctx.stroke();
-    if (selected) {
-      ctx.lineWidth = 1.4;
-      ctx.strokeStyle = isLight() ? hexAlpha('#312e81', .5) : 'rgba(255,255,255,.75)';
-      ctx.beginPath(); ctx.arc(x, y, radius + 5, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (drawIcon(ctx, node.type, x, y, radius * 1.08, ink)) { /* drawn */ }
-    else if (node.mark) { ctx.fillStyle = ink; drawNodeMark(ctx, node.mark, x, y, radius * 1.02); }
-    else if (node.glyph) {
-      ctx.fillStyle = ink;
-      ctx.font = `600 ${Math.round(radius * .85)}px 'Public Sans Variable', system-ui, sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(node.glyph, x, y + .3);
-    }
-    /* Severity is a badge on the rim as well as a colour, so it survives
-     * colour blindness and a glance. */
-    if (severity) {
-      const bx = x + radius * .72, by = y - radius * .72, br = Math.max(3.8, radius * .28);
-      ctx.fillStyle = colors.surface; ctx.beginPath(); ctx.arc(bx, by, br + 2, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = severity; ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      if (node.severity === 'critical') { ctx.fillRect(bx - .8, by - br * .55, 1.6, br * .7); ctx.fillRect(bx - .8, by + br * .3, 1.6, 1.6); }
-    }
-    ctx.restore();
-  }
-
-  /* The brand mark, in the hub. The same four triangles as the #nvMark symbol,
-   * so the centre of the graph is the product's own mark. */
-  const HUB_MARK = [
-    { d: 'M79 25 L40 217 L106 116 Z', tone: 'deep' },
-    { d: 'M79 25 L106 116 L171 112 Z', tone: 'light' },
-    { d: 'M244 23 L178 124 L205 215 Z', tone: 'deep' },
-    { d: 'M178 124 L113 128 L205 215 Z', tone: 'light' }
-  ];
-  let hubMarkPaths = null;
-  function drawHub(ctx, node, colors, dim) {
-    const x = node.x, y = node.y, r = HUB_R;
-    const active = (NVN.selected && NVN.selected.id === node.id) || (NVN.hover && NVN.hover.id === node.id);
-    ctx.save();
-    ctx.globalAlpha = dim ? .55 : 1;
-    /* One colour family per preset: the orb, its glow and its edge are the
-     * preset's -- Nebula's violet, Obsidian's graphite and silver -- and
-     * nothing else; a blue halo, a white highlight and a pale rim read as
-     * layers stacked on the mark rather than as the mark. */
-    const tone = colors.hub;
-    const halo = ctx.createRadialGradient(x, y, r * .6, x, y, r * 2.6);
-    halo.addColorStop(0, tone.halo);
-    halo.addColorStop(1, hexAlpha(tone.halo, 0));
-    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, Math.PI * 2); ctx.fill();
-    /* The orb is the app icon's own ground, so the mark on it can be the
-     * icon's plates rather than white on blue. */
-    const orb = ctx.createRadialGradient(x + r * .34, y - r * .5, r * .08, x, y, r * 1.05);
-    orb.addColorStop(0, tone.orb[0]); orb.addColorStop(.5, tone.orb[1]); orb.addColorStop(1, tone.orb[2]);
-    if (colors.glow) { ctx.shadowColor = tone.glow; ctx.shadowBlur = active ? 40 : 26; }
-    ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = active ? 2.2 : 1.4; ctx.strokeStyle = active ? tone.rimOn : tone.rim; ctx.stroke();
-    if (typeof Path2D === 'function') {
-      if (!hubMarkPaths) hubMarkPaths = HUB_MARK.map(item => ({ path: new Path2D(item.d), tone: item.tone }));
-      const size = r * 1.18, scale = size / 228;
-      ctx.save();
-      ctx.translate(x - 142 * scale, y - 120 * scale);
-      ctx.scale(scale, scale);
-      const light = ctx.createLinearGradient(40, 23, 244, 217);
-      light.addColorStop(0, tone.light[0]); light.addColorStop(1, tone.light[1]);
-      const deep = ctx.createLinearGradient(244, 23, 40, 217);
-      deep.addColorStop(0, tone.deep[0]); deep.addColorStop(1, tone.deep[1]);
-      for (const item of hubMarkPaths) {
-        ctx.fillStyle = item.tone === 'light' ? light : deep;
-        ctx.fill(item.path);
-      }
-      ctx.restore();
-    }
-    /* The repository's name, under the hub -- or above it where the spine of
-     * the stacked layout runs down from its bottom. */
-    ctx.font = "700 14px 'Public Sans Variable', system-ui, sans-serif";
-    const name = fitText(ctx, node.label, 240);
-    const w = ctx.measureText(name).width + 22;
-    const ly = NVN.layoutMode === 'stack' ? y - r - 30 : y + r + 30;
-    roundRect(ctx, x - w / 2, ly - 14, w, 28, 10);
-    ctx.fillStyle = isLight() ? 'rgba(255,255,255,.94)' : 'rgba(10,12,30,.9)'; ctx.fill();
-    ctx.lineWidth = 1; ctx.strokeStyle = tone.label; ctx.stroke();
-    ctx.fillStyle = colors.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(name, x, ly + .5);
-    ctx.restore();
+    addRipple(NVN.fieldState, NVN, sx, sy, performance.now());
   }
 
   /*

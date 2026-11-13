@@ -231,6 +231,42 @@ test('a panel dragged by its header stays where it was put, and Reset layout put
   await expect(page.locator('#neuralLegend [data-neural-groups="reset-layout"]')).toHaveCount(0);
 });
 
+/* Where a reader puts a panel is kept for the shape of stage they put it on:
+ * a wide stage's two columns and a tall stage's one are different pictures. */
+test('a panel moved on a wide stage stays there, and a tall stage lays out its own', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'resizing a window is a desktop gesture');
+  await openGraph(page);
+  await expand(page);
+  const grip = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const panel = s.panels[s.panels.length - 1];
+    const rect = document.getElementById('neuralCanvas').getBoundingClientRect();
+    return {
+      type: panel.type,
+      x: rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom,
+      y: rect.top + s.height / 2 + s.panY + (panel.y + 26) * s.zoom
+    };
+  });
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 90, grip.y - 60, { steps: 10 });
+  await page.mouse.up();
+  const kept = await page.evaluate(type => JSON.parse(localStorage.getItem('nv_neural_layout'))['sandbox/demo|security|split'][type], grip.type);
+  const panel = () => page.evaluate(type => {
+    const s = window.__NV_PROBE__.read('neural');
+    const p = s.panels.find(item => item.type === type);
+    return { mode: s.layoutMode, x: p.x, y: p.y, placed: !!p.placed };
+  }, grip.type);
+  expect(await panel()).toEqual({ mode: 'split', x: kept.x, y: kept.y, placed: true });
+
+  /* Turned tall, the stack is laid out afresh: the panel stands in its column. */
+  await page.setViewportSize({ width: 700, height: 1100 });
+  await expect.poll(panel).toMatchObject({ mode: 'stack', x: 64, placed: false });
+  /* Turned back, it is where the reader put it. */
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect.poll(panel).toEqual({ mode: 'split', x: kept.x, y: kept.y, placed: true });
+});
+
 test('at 1024 pixels the graph has the pane to itself, not the rail\'s column', async ({ page }) => {
   test.skip((page.viewportSize() || {}).width < 900, 'a laptop width');
   await page.setViewportSize({ width: 1024, height: 768 });

@@ -9,6 +9,10 @@ import {
 } from '../legacy/app.js';
 import { probeSource } from '../platform/probe.ts';
 import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph } from '../features/neural/graph-model.ts';
+import {
+  HEAD_H, ROW_H, MAX_ROWS, PAGE_ROWS, NODE_R, HUB_R, SPINE_X, SEVERITY_RANK,
+  layoutAspect, layoutModeOf, worldRadius, placeGraph, layoutBounds
+} from '../features/neural/graph-layout.ts';
 
 const neuralGraph = (() => {
 
@@ -630,8 +634,8 @@ const neuralGraph = (() => {
     /* A rotation or a resize that changes the stage's shape re-lays the
      * graph for it -- including every time the shape crosses from wide to
      * tall, however small the change. */
-    const nextMode = layoutAspect() > 1.05 ? 'stack' : 'split';
-    if (NVN.nodes.length && NVN.layoutAspectUsed && (nextMode !== NVN.layoutMode || Math.abs(layoutAspect() - NVN.layoutAspectUsed) > .2)) {
+    const nextMode = layoutModeOf(stageAspect());
+    if (NVN.nodes.length && NVN.layoutAspectUsed && (nextMode !== NVN.layoutMode || Math.abs(stageAspect() - NVN.layoutAspectUsed) > .2)) {
       clearTimeout(NVN.reshapeTimer);
       NVN.reshapeTimer = setTimeout(() => { layoutGraph(); renderLegend(); fitGraph(true); }, 120);
     } else if (resized && NVN.nodes.length && !NVN.userCamera && !NVN.fitPending) {
@@ -652,183 +656,38 @@ const neuralGraph = (() => {
   }
 
   /*
-   * The layout.
-   *
-   * The repository is the hub in the middle, and every other node belongs to a
-   * group drawn as a panel: a header with the group's icon, name and count, and
-   * one row per member with its name always printed beside it. On a wide stage
-   * the panels form two columns, one each side of the hub, with each member's
-   * node on the edge that faces it; on a tall stage they stack in one column
-   * beside a spine that runs down from the hub. Either way the picture reads
-   * like a table of contents rather than a cloud: a reader finds "workflows" by
-   * reading, not by hunting.
-   *
-   * A group longer than a few rows folds its tail into "+ n more", which opens
-   * it; selecting a folded node from anywhere else opens its group too.
-   *
-   * Positions are targets: the frame loop eases every node toward its row, so
-   * changing mode, filtering, searching or opening a group moves the graph
-   * instead of cutting to a new one.
+   * The layout (features/neural/graph-layout.ts) decides where each panel
+   * stands and where each node belongs; the map hands it what the reader has
+   * opened, paged and moved, and keeps what it answers. Positions are
+   * targets: the frame loop eases every node toward its row, so changing
+   * mode, filtering, searching or opening a group moves the graph instead of
+   * cutting to a new one.
    */
-  const PANEL_W = 272;
-  const HEAD_H = 56;
-  const ROW_H = 44;
-  const PANEL_PAD = 12;
-  const PANEL_GAP = 22;
-  const COLUMN_GAP = 300;
-  const MAX_ROWS = 6;
-  /* An opened group shows this many rows at a time and pages through the
-   * rest, so no panel becomes a column taller than the stage. */
-  const PAGE_ROWS = 10;
-  const NODE_R = 16;
-  const HUB_R = 58;
-  /* On a tall stage the spine every row branches from: straight down from
-   * the bottom of the hub, on its centre line. */
-  const SPINE_X = 0;
-  const LEFT_GROUPS = ['user', 'credential', 'leak', 'session', 'protected', 'safety', 'snapshot', 'scan', 'release', 'tag'];
-  const RIGHT_GROUPS = ['branch', 'commit', 'workflow', 'pull', 'issue', 'integration', 'external', 'package', 'vulnerability'];
-  const SEVERITY_RANK = { critical: 0, warning: 1, normal: 2 };
-
-  /* The stage's shape: below about 1 the stage is wider than tall. */
-  function layoutAspect() {
-    return NVN.width && NVN.height ? clamp((NVN.height / NVN.width) * .92, .66, 1.55) : .8;
-  }
-  function worldRadius(node) { return node.type === 'repo' ? HUB_R : NODE_R; }
+  function stageAspect() { return layoutAspect(NVN.width, NVN.height); }
   function nodeRadius(node) { return worldRadius(node) * NVN.zoom; }
-  function groupOrder(type) {
-    const left = LEFT_GROUPS.indexOf(type);
-    if (left >= 0) return left;
-    const right = RIGHT_GROUPS.indexOf(type);
-    return right >= 0 ? 100 + right : 200;
-  }
-  function stackHeight(list) {
-    return list.reduce((sum, panel) => sum + panel.h, 0) + PANEL_GAP * Math.max(0, list.length - 1);
-  }
 
   function layoutGraph(options = {}) {
-    const visible = NVN.nodes.filter(n => n.visible);
     const expanded = NVN.expandedGroups || (NVN.expandedGroups = new Set());
-    const groups = new Map();
-    for (const n of visible) {
-      if (n.type === 'repo') continue;
-      if (!groups.has(n.type)) groups.set(n.type, []);
-      groups.get(n.type).push(n);
-    }
-    const panels = [...groups.keys()].sort((a, b) => groupOrder(a) - groupOrder(b)).map(type => {
-      /* Critical first, then in the source's own order where it has one --
-       * newest commit, default branch -- then by name. */
-      const members = groups.get(type).slice().sort((a, b) =>
-        (SEVERITY_RANK[a.severity] ?? 2) - (SEVERITY_RANK[b.severity] ?? 2)
-        || (a.order ?? 1e9) - (b.order ?? 1e9)
-        || a.label.localeCompare(b.label));
-      let shown = members, footer = null, page = 0, pages = 1, slots = members.length;
-      if (members.length > MAX_ROWS && !expanded.has(type)) {
-        shown = members.slice(0, MAX_ROWS - 1); footer = 'more'; slots = shown.length;
-      } else if (members.length > MAX_ROWS) {
-        pages = Math.ceil(members.length / PAGE_ROWS);
-        page = clamp(NVN.groupPages.get(type) || 0, 0, pages - 1);
-        NVN.groupPages.set(type, page);
-        shown = members.slice(page * PAGE_ROWS, (page + 1) * PAGE_ROWS);
-        footer = 'pager';
-        /* Every page is as tall as the first, so paging never moves the
-         * panels below. */
-        slots = pages > 1 ? PAGE_ROWS : shown.length;
-      }
-      const rows = slots + (footer ? 1 : 0);
-      return {
-        type, members, shown, rows, footer, page, pages, slots,
-        hiddenCount: members.length - shown.length,
-        total: Math.max(members.length, (NVN.totals || {})[type] || 0),
-        w: PANEL_W, h: HEAD_H + rows * ROW_H + PANEL_PAD
-      };
-    });
-    const aspect = layoutAspect();
+    const aspect = stageAspect();
     NVN.layoutAspectUsed = aspect;
-    NVN.layoutMode = aspect > 1.05 ? 'stack' : 'split';
-    if (NVN.layoutMode === 'stack') {
-      let y = HUB_R + 58;
-      for (const panel of panels) { panel.side = 'right'; panel.x = 64; panel.y = y; y += panel.h + PANEL_GAP; }
-    } else {
-      const left = panels.filter(panel => LEFT_GROUPS.includes(panel.type));
-      const right = panels.filter(panel => !LEFT_GROUPS.includes(panel.type));
-      /* When one column is far longer than the other, groups without a natural
-       * side cross over. Groups that belong together -- packages and their
-       * advisories, branches, commits and the workflows they run, identities
-       * and their credentials -- never do. */
-      const FLEX = new Set(['release', 'tag', 'pull', 'issue', 'external', 'scan', 'snapshot', 'safety', 'integration']);
-      for (let guard = 0; guard < 16; guard++) {
-        const hl = stackHeight(left), hr = stackHeight(right);
-        if (Math.max(hl, hr) < Math.min(hl, hr) * 1.12 + 60) break;
-        const from = hl > hr ? left : right, to = hl > hr ? right : left;
-        const index = from.map(panel => FLEX.has(panel.type)).lastIndexOf(true);
-        if (index < 0 || from.length < 2) break;
-        const moving = from[index];
-        if (Math.abs(Math.abs(hl - hr) - 2 * (moving.h + PANEL_GAP)) >= Math.abs(hl - hr)) break;
-        from.splice(index, 1);
-        to.push(moving);
-      }
-      for (const [list, side] of [[left, 'left'], [right, 'right']]) {
-        let y = -stackHeight(list) / 2;
-        for (const panel of list) {
-          panel.side = side;
-          panel.x = side === 'left' ? -COLUMN_GAP - PANEL_W : COLUMN_GAP;
-          panel.y = y;
-          y += panel.h + PANEL_GAP;
-        }
-      }
-    }
-    /* A panel the reader has moved keeps where they put it, in this browser,
-     * for this repository, mode and shape of stage. Its rows face the hub from
-     * whichever side of it the panel now stands. */
-    const placed = savedPlacements();
-    for (const panel of panels) {
-      const at = placed[panel.type];
-      if (at && Number.isFinite(at.x) && Number.isFinite(at.y)) { panel.x = at.x; panel.y = at.y; panel.placed = true; }
-    }
-    /* A moved panel's rows face whatever they are wired to: the hub on a wide
-     * stage, the spine on a tall one. */
-    for (const panel of panels) {
-      if (!panel.placed) continue;
-      const toward = NVN.layoutMode === 'stack' ? SPINE_X : 0;
-      panel.side = panel.x + panel.w / 2 < toward ? 'left' : 'right';
-    }
-    NVN.panelByType = new Map(panels.map(panel => [panel.type, panel]));
-    for (const panel of panels) {
-      panel.nodeX = panel.side === 'left' ? panel.x + panel.w - 30 : panel.x + 30;
-      panel.shown.forEach((n, i) => {
-        n.tx = panel.nodeX; n.ty = panel.y + HEAD_H + i * ROW_H + ROW_H / 2; n.folded = false;
-      });
-      panel.moreY = panel.footer ? panel.y + HEAD_H + panel.slots * ROW_H + ROW_H / 2 : null;
-      /* Everything not on the panel's current page waits behind its footer. */
-      const onPage = new Set(panel.shown);
-      for (const n of panel.members) {
-        if (onPage.has(n)) continue;
-        n.tx = panel.nodeX; n.ty = panel.moreY == null ? panel.y + HEAD_H : panel.moreY; n.folded = true;
-      }
-    }
-    for (const n of visible) if (n.type === 'repo') { n.tx = 0; n.ty = 0; n.folded = false; }
-    NVN.panels = panels;
+    /* Set before the placements are read: they are kept for each mode. */
+    NVN.layoutMode = layoutModeOf(aspect);
+    const layout = placeGraph({ nodes: NVN.nodes, expanded, pages: NVN.groupPages, totals: NVN.totals || {}, aspect, placed: savedPlacements() });
+    for (const [type, page] of layout.pages) NVN.groupPages.set(type, page);
+    for (const [n, target] of layout.targets) { n.tx = target.x; n.ty = target.y; n.folded = target.folded; }
+    NVN.panelByType = layout.byType;
+    NVN.panels = layout.panels;
     invalidate();
     const snap = options.instant || !state.settings.motion;
-    for (const n of visible) {
+    for (const n of NVN.nodes) {
+      if (!n.visible) continue;
       /* A node arriving in this mode grows out of the hub it belongs to. */
-      if (snap || n.x == null || !n.wasVisible) {
-        if (snap || n.x == null) { n.x = n.tx; n.y = n.ty; }
-        else { n.x = 0; n.y = 0; }
+      if (snap || !n.wasVisible) {
+        if (snap) { n.x = n.tx; n.y = n.ty; } else { n.x = 0; n.y = 0; }
         n.appear = snap ? 1 : 0;
       }
     }
     for (const n of NVN.nodes) n.wasVisible = n.visible;
-  }
-
-  /* The whole picture's extent in world units, for fitting it to the stage. */
-  function layoutBounds() {
-    let minX = -HUB_R - 20, maxX = HUB_R + 20, minY = -HUB_R - 30, maxY = HUB_R + 50;
-    for (const panel of NVN.panels || []) {
-      minX = Math.min(minX, panel.x); maxX = Math.max(maxX, panel.x + panel.w);
-      minY = Math.min(minY, panel.y); maxY = Math.max(maxY, panel.y + panel.h);
-    }
-    return { minX: minX - 16, minY: minY - 16, maxX: maxX + 16, maxY: maxY + 16 };
   }
 
   /* A near-white type colour (identities) cannot be darkened into contrast on
@@ -930,7 +789,7 @@ const neuralGraph = (() => {
     const mini = NVN.minimap;
     if (!mini) return;
     const W = NVN.width, H = NVN.height;
-    const b = layoutBounds();
+    const b = layoutBounds(NVN.panels || []);
     const a = screenToWorld(0, 0), c = screenToWorld(W, H);
     const overflow = b.minX < a.x - 4 || b.maxX > c.x + 4 || b.minY < a.y - 4 || b.maxY > c.y + 4;
     /* A short stage -- a phone held sideways -- keeps the minimap for the full
@@ -2519,7 +2378,7 @@ const neuralGraph = (() => {
   const READABLE_ZOOM = .78;
   function fitGraph(animateFit = true) {
     if (!(NVN.panels || []).length && !visibleNodes().length) return;
-    fitRect(layoutBounds(), animateFit);
+    fitRect(layoutBounds(NVN.panels || []), animateFit);
   }
 
   /*

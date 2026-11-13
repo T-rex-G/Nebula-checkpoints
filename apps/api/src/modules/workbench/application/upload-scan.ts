@@ -4,7 +4,10 @@
  * A file a signature rule matches is refused with 422 MALWARE_DETECTED,
  * naming the rules, and -- when the upload was for a repository -- recorded on
  * that repository's evidence chain with the actor, the path, the size and the
- * matches, each bounded. A record that cannot be appended does not change the
+ * matches, each bounded. The record is appended before the refusal is
+ * answered, as every other evidence the server keeps is, so a reader who is
+ * told of the refusal finds it on the chain, and the chain holds it in the
+ * order it happened. A record that cannot be appended does not change the
  * refusal. A clean file answers what was asked of it: the built-in signatures
  * always, and YARA as it is configured and available, with its error when it
  * failed.
@@ -57,7 +60,7 @@ export function createUploadScan(deps: UploadScanDeps) {
         severity: cleanText(match.severity || 'critical', 20)
       }));
       if (req.params && req.params.owner && req.params.repo) {
-        deps.appendEvidence(deps.evidenceKey(req), 'malware-blocked', randomUUID(), {
+        await deps.appendEvidence(deps.evidenceKey(req), 'malware-blocked', randomUUID(), {
           actor: deps.retainedActor(req),
           path: cleanText(repoPath || 'batch blob', 500),
           size: Number(size || 0),

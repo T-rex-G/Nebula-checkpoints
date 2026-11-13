@@ -31,23 +31,33 @@ function trackHeavyRequests(page) {
 }
 
 /*
- * The device the loader sees: a renderer that names a GPU, and frames that
- * come every `frameMs`. The runner draws WebGL on its CPU, which the loader
- * rightly refuses by name and then by its frame budget; presented as a GPU
- * that keeps sixty frames a second, the pieces mount and stay, and presented
- * as one that keeps ten, the budget takes them down -- whatever this
- * machine's own speed.
+ * The device the loader sees: a GPU, and frames that come every `frameMs`.
+ * The runner draws WebGL on its CPU, which the loader rightly refuses, by the
+ * browser's refusal and by the renderer's name, and then by its frame budget;
+ * presented as a GPU that keeps sixty frames a second, the pieces mount and
+ * stay, and presented as one that keeps ten, the budget takes them down --
+ * whatever this machine's own speed.
  */
 async function presentAsDevice(page, { frameMs }) {
   await page.addInitScript(gap => {
+    /* A GPU names itself: RENDERER, and UNMASKED_RENDERER_WEBGL from the debug extension. */
     for (const proto of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
       if (!proto) continue;
       const original = proto.prototype.getParameter;
       proto.prototype.getParameter = function getParameter(name) {
-        const value = original.call(this, name);
-        return typeof value === 'string' && /swiftshader|llvmpipe/i.test(value) ? 'Browser Suite Renderer' : value;
+        return name === 0x1F01 || name === 0x9246 ? 'Browser Suite Renderer' : original.call(this, name);
       };
     }
+    /*
+     * And it draws without a major performance caveat, so the browser never
+     * refuses a context for one. Chromium 149 refuses it on a runner without
+     * a GPU, where 141 handed the context over, so presenting the name alone
+     * mounted the pieces on one and nothing on the other.
+     */
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, options) {
+      return getContext.call(this, kind, options && options.failIfMajorPerformanceCaveat ? { ...options, failIfMajorPerformanceCaveat: false } : options);
+    };
     /* One time for every callback of a frame, advanced once per frame the browser draws. */
     const frame = window.requestAnimationFrame.bind(window);
     let drawn = null;

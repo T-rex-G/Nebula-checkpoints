@@ -164,7 +164,7 @@ const INSTALLATION_TOKEN = `ghs_${'i'.repeat(36)}`;
       const blocked = await first.request('/api/repo/acme/demo/upload?path=docs%2Fsample.txt&branch=main', { method: 'POST', body: EICAR, headers: { 'x-nv-csrf': await first.csrf() } });
       const after = Date.now();
       assert.equal(blocked.status, 422, 'a file with a malware signature is refused');
-      await new Promise(resolve => setTimeout(resolve, 50));
+      /* Recorded before the refusal was answered: no wait. */
       const [{ payload_hash: hashed }] = (await client.query("SELECT payload_hash FROM nv_evidence_chain WHERE kind='malware-blocked'")).rows;
       const named = actor => {
         for (let at = before; at <= after; at += 1) {

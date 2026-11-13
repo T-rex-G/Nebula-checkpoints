@@ -69,6 +69,24 @@ process.on('exit', code => { if (!finished && code === 0) { console.error('the u
     assert.match(details.blockedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
   }
   {
+    /* The refusal waits for its record: a reader told of it finds it on the chain. */
+    let recorded = null;
+    const held = createUploadScan({
+      scan: async () => ({ blocked: true, matches: [{ rule: 'EICAR' }] }),
+      evidenceKey: () => 'evidence:alice/demo',
+      appendEvidence: () => new Promise(resolve => { recorded = resolve; }),
+      retainedActor: () => 'actor:alice'
+    });
+    let settled = false;
+    const refusal = held(REQ, '/tmp/x', 'a', 1).then(() => { settled = true; }, error => { settled = true; return error; });
+    for (let turn = 0; turn < 20 && !recorded; turn += 1) await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(typeof recorded, 'function', 'the record is being appended');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(settled, false, 'and the refusal is not answered until it is');
+    recorded();
+    assert.strictEqual((await refusal).code, 'MALWARE_DETECTED', 'then it is');
+  }
+  {
     const { scan, calls } = scanner({ blocked: true }, { appendFails: true });
     await assert.rejects(scan({ params: { owner: 'alice', repo: 'demo' }, gh: { login: 'alice' } }, '/tmp/x', '', undefined), error => error.code === 'MALWARE_DETECTED' && error.message === 'Upload blocked by malware signature rule: ', 'a record that cannot be appended does not change the refusal');
     assert.deepStrictEqual([calls[1][4].path, calls[1][4].size, calls[1][4].matches], ['batch blob', 0, []], 'a batch blob, without a size or matches');

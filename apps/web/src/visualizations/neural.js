@@ -8,30 +8,9 @@ import {
   dlFile, currentTab, purgeLocalData
 } from '../legacy/app.js';
 import { probeSource } from '../platform/probe.ts';
+import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph } from '../features/neural/graph-model.ts';
 
 const neuralGraph = (() => {
-  const TYPE_STYLE = {
-    repo:          { color: '#9a8cff', mark: 'star', radius: 22, label: 'Repository', plural: 'Repositories' },
-    user:          { color: '#f3f5ff', glyph: 'U', radius: 13, label: 'Identity', plural: 'Identities' },
-    session:       { color: '#61d8ff', glyph: 'S', radius: 11, label: 'Session', plural: 'Sessions' },
-    branch:        { color: '#63a8ff', glyph: 'B', radius: 12, label: 'Branch', plural: 'Branches' },
-    tag:           { color: '#ffc96b', glyph: 'T', radius: 10, label: 'Tag', plural: 'Tags' },
-    commit:        { color: '#7f90ff', glyph: 'C', radius: 9, label: 'Commit', plural: 'Commits' },
-    pull:          { color: '#d582ff', glyph: 'P', radius: 11, label: 'Pull request', plural: 'Pull requests' },
-    issue:         { color: '#ff9c66', glyph: 'I', radius: 10, label: 'Issue', plural: 'Issues' },
-    release:       { color: '#49d9ad', glyph: 'R', radius: 11, label: 'Release', plural: 'Releases' },
-    workflow:      { color: '#55d7f4', glyph: 'W', radius: 11, label: 'Workflow', plural: 'Workflows' },
-    package:       { color: '#b795ff', glyph: 'D', radius: 10, label: 'Dependency', plural: 'Dependencies' },
-    vulnerability: { color: '#F43F6E', glyph: '!', radius: 13, label: 'Vulnerability', plural: 'Vulnerabilities' },
-    protected:     { color: '#22D3EE', glyph: 'L', radius: 12, label: 'Protected asset', plural: 'Protected assets' },
-    snapshot:      { color: '#5c9fff', mark: 'restore', radius: 13, label: 'Recovery snapshot', plural: 'Recovery' },
-    safety:        { color: '#ff6d8d', mark: 'shield', radius: 13, label: 'Safety control', plural: 'Safety controls' },
-    external:      { color: '#ff7469', glyph: 'X', radius: 12, label: 'External destination', plural: 'Destinations' },
-    scan:          { color: '#50e6c2', mark: 'check', radius: 12, label: 'Security scan', plural: 'Scans' },
-    credential:    { color: '#ffd166', glyph: 'K', radius: 12, label: 'Deploy credential', plural: 'Credentials' },
-    leak:          { color: '#ff8a5c', glyph: '!', radius: 12, label: 'Leaked credential', plural: 'Leaked credentials', short: 'Leaked keys' },
-    integration:   { color: '#ff8fab', glyph: 'H', radius: 12, label: 'Webhook integration', plural: 'Webhooks' }
-  };
 
   /*
    * Four node types are drawn rather than typed.
@@ -141,13 +120,6 @@ const neuralGraph = (() => {
     ctx.restore();
   }
 
-  const MODE_TYPES = {
-    security: new Set(['repo', 'user', 'session', 'branch', 'commit', 'workflow', 'protected', 'package', 'vulnerability', 'safety', 'snapshot', 'external', 'credential', 'leak', 'integration']),
-    recovery: new Set(['repo', 'branch', 'tag', 'commit', 'release', 'snapshot', 'safety', 'protected']),
-    dependencies: new Set(['repo', 'package', 'vulnerability', 'workflow', 'protected', 'scan']),
-    governance: new Set(['repo', 'user', 'session', 'branch', 'protected', 'safety', 'pull', 'workflow', 'snapshot', 'credential', 'leak', 'integration']),
-    activity: new Set(['repo', 'user', 'branch', 'commit', 'pull', 'issue', 'release', 'workflow', 'protected'])
-  };
 
   const NVN = {
     active: false,
@@ -251,7 +223,6 @@ const neuralGraph = (() => {
     if (sec < 2592000) return `${Math.floor(sec / 86400)}d ago`;
     return d.toLocaleDateString();
   }
-  function short(s, n = 44) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   function workPath() {
     const w = state && state.work;
     return w ? `${encodeURIComponent(w.owner)}/${encodeURIComponent(w.repo)}` : '';
@@ -262,30 +233,6 @@ const neuralGraph = (() => {
   }
   function settledValue(result, fallback) { return result && result.status === 'fulfilled' ? result.value : fallback; }
 
-  function addNode(map, id, type, label, meta = {}, severity = 'normal') {
-    if (!id || map.has(id)) return map.get(id);
-    const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
-    const node = {
-      id, type, label: String(label || id), meta, severity,
-      color: st.color, glyph: st.glyph, mark: st.mark, r: st.radius,
-      x: 0, y: 0, vx: 0, vy: 0, fixed: type === 'repo',
-      visible: true, match: false, activity: 0
-    };
-    map.set(id, node);
-    return node;
-  }
-  function addEdge(edges, source, target, type = 'relation', severity = 'normal', meta = {}) {
-    if (!source || !target || source === target) return;
-    const id = `${source}>${target}:${type}`;
-    if (edges.some(e => e.id === id)) return;
-    edges.push({ id, source, target, type, severity, meta, activity: 0 });
-  }
-  function addEvent(events, type, label, detail, time, nodeId, edgeId = '', severity = 'normal') {
-    if (time == null || time === '') return;
-    const d = new Date(time);
-    if (!Number.isFinite(d.getTime())) return;
-    events.push({ id: `${type}:${nodeId}:${d.getTime()}:${events.length}`, type, label, detail, time: d.toISOString(), nodeId, edgeId, severity });
-  }
 
   /*
    * Which repository the graph belongs to. Opening another bumps it (see
@@ -441,380 +388,30 @@ const neuralGraph = (() => {
     } catch { return null; }
   }
 
+  /*
+   * The graph of the readings is features/neural/graph-model.ts's; where each
+   * node sits and which one is selected stay the map's. A refresh keeps every
+   * node where it was: only what changed moves, and the selection survives as
+   * long as its node does.
+   */
   function buildGraph(data) {
-    const nodeMap = new Map();
-    const edges = [];
-    const events = [];
-    /* A large repository has more of most things than a graph can show. The
-     * inventories keep their most telling members -- a branch list starts
-     * with the default, the working and the protected branches -- and record
-     * how many there were, so a panel says "60 of 312" instead of letting the
-     * reader believe 60 is all there is. */
-    const totals = {};
-    const keep = (type, list, max) => {
-      const all = list || [];
-      if (all.length > max) totals[type] = (totals[type] || 0) + all.length;
-      return all.slice(0, max);
-    };
-    const ordered = (node, order) => { if (node && node.order == null) node.order = order; return node; };
-    const w = state.work;
-    const repoId = 'repo:current';
-    addNode(nodeMap, repoId, 'repo', `${w.owner}/${w.repo}`, {
-      owner: w.owner, repository: w.repo, branch: w.branch, provider: (state.me && state.me.provider) || 'github',
-      description: 'Central repository intelligence node.'
-    }, data.deps.vulnerable && data.deps.vulnerable.length ? 'warning' : 'normal');
-
-    const login = (state.me && (state.me.login || state.me.name)) || 'Current user';
-    addNode(nodeMap, 'user:current', 'user', login, {
-      provider: (state.me && state.me.provider) || 'github', role: 'Authenticated operator',
-      description: 'The identity currently controlling this Nebulaverse-X session.'
+    const graph = buildNeuralGraph(data, {
+      work: state.work,
+      me: state.me,
+      now: Date.now(),
+      ruleLabel: rule => (typeof exposureRuleLabel === 'function' ? exposureRuleLabel(rule) : String(rule || 'Credential')),
+      dispositionWords: EXPOSURE_DISPOSITION_WORDS && typeof EXPOSURE_DISPOSITION_WORDS === 'object' ? EXPOSURE_DISPOSITION_WORDS : {}
     });
-    addEdge(edges, 'user:current', repoId, 'authenticated access');
-
-    const sessionList = (data.sessions && data.sessions.sessions) || [];
-    keep('session', sessionList, 12).forEach((s, i) => {
-      const id = `session:${i}`;
-      addNode(nodeMap, id, 'session', s.current ? 'Current session' : `Active session ${i + 1}`, {
-        current: !!s.current, updated: s.updated || '', provider: s.provider || '',
-        description: s.current ? 'This browser session.' : 'Another active Nebulaverse-X session for this identity.'
-      }, s.current ? 'normal' : 'warning');
-      addEdge(edges, 'user:current', id, 'owns session', s.current ? 'normal' : 'warning');
-      addEdge(edges, id, repoId, 'repository access', s.current ? 'normal' : 'warning');
-    });
-
-    const branchRank = b => (b.name === data.refs.defaultBranch ? 0 : b.name === w.branch ? 1 : b.protected ? 2 : 3);
-    const branches = keep('branch', (data.refs.refs || []).slice().sort((a, b) =>
-      branchRank(a) - branchRank(b) || String(a.name).localeCompare(String(b.name))), 60);
-    branches.forEach((b, i) => {
-      const id = `branch:${b.name}`;
-      const sev = b.protected ? 'normal' : (b.name === data.refs.defaultBranch ? 'warning' : 'normal');
-      ordered(addNode(nodeMap, id, 'branch', b.name, {
-        sha: b.sha, protected: !!b.protected, default: b.name === data.refs.defaultBranch,
-        description: b.protected ? 'Provider-protected branch.' : 'Repository branch reference.'
-      }, sev), i);
-      addEdge(edges, repoId, id, b.protected ? 'protected ref' : 'branch ref', sev);
-    });
-    keep('tag', data.refs.tags, 24).forEach(t => {
-      const id = `tag:${t.name}`;
-      addNode(nodeMap, id, 'tag', t.name, { sha: t.sha, description: 'Immutable release or version marker.' });
-      addEdge(edges, repoId, id, 'tag ref');
-    });
-
-    const currentBranch = nodeMap.get(`branch:${w.branch}`);
-    const commits = (data.activity.commits || []).slice(0, 22);
-    commits.forEach((c, i) => {
-      const id = `commit:${c.sha}`;
-      const suspicious = /force|secret|password|disable|bypass|hotfix/i.test(`${c.message || ''}`);
-      ordered(addNode(nodeMap, id, 'commit', short(c.message || c.sha.slice(0, 8), 34), {
-        sha: c.sha, author: c.author, date: c.date, message: c.message,
-        description: 'Recent commit observed in repository activity.'
-      }, suspicious ? 'warning' : 'normal'), i);
-      if (currentBranch && currentBranch.meta.sha === c.sha) {
-        addEdge(edges, currentBranch.id, id, 'head commit', suspicious ? 'warning' : 'normal', { time: c.date });
-      } else addEdge(edges, repoId, id, 'observed commit', suspicious ? 'warning' : 'normal', { time: c.date });
-      addEvent(events, 'commit', c.message || 'Commit', `${c.author || 'Unknown author'} · ${c.sha.slice(0, 8)}`, c.date, id, '', suspicious ? 'warning' : 'normal');
-    });
-    // Provider list order is not Git ancestry (merges may interleave histories).
-    for (const c of commits) {
-      for (const parent of Array.isArray(c.parentShas) ? c.parentShas : []) {
-        if (nodeMap.has(`commit:${parent}`)) addEdge(edges, `commit:${c.sha}`, `commit:${parent}`, 'parent commit');
-      }
-    }
-
-    (data.activity.pulls || []).slice(0, 10).forEach((p, order) => {
-      const id = `pull:${p.number}`;
-      ordered(addNode(nodeMap, id, 'pull', `#${p.number} ${short(p.title, 30)}`, {
-        number: p.number, state: p.state, updated: p.updated, title: p.title,
-        description: `Pull request currently ${p.state}.`
-      }, p.state === 'open' ? 'warning' : 'normal'), order);
-      addEdge(edges, repoId, id, 'pull request', p.state === 'open' ? 'warning' : 'normal', { time: p.updated });
-      addEvent(events, 'pull', p.title, `Pull request #${p.number} · ${p.state}`, p.updated, id, '', p.state === 'open' ? 'warning' : 'normal');
-    });
-    (data.activity.issues || []).slice(0, 8).forEach((i, order) => {
-      const id = `issue:${i.number}`;
-      ordered(addNode(nodeMap, id, 'issue', `#${i.number} ${short(i.title, 30)}`, {
-        number: i.number, state: i.state, updated: i.updated, title: i.title,
-        description: `Issue currently ${i.state}.`
-      }, i.state === 'open' ? 'warning' : 'normal'), order);
-      addEdge(edges, repoId, id, 'issue', i.state === 'open' ? 'warning' : 'normal', { time: i.updated });
-      addEvent(events, 'issue', i.title, `Issue #${i.number} · ${i.state}`, i.updated, id, '', i.state === 'open' ? 'warning' : 'normal');
-    });
-    (data.activity.releases || []).slice(0, 7).forEach((r, order) => {
-      const id = `release:${r.tag}`;
-      ordered(addNode(nodeMap, id, 'release', r.name || r.tag, { tag: r.tag, published: r.published, description: 'Published repository release.' }), order);
-      addEdge(edges, repoId, id, 'release', 'normal', { time: r.published });
-      addEvent(events, 'release', r.name || r.tag, `Release ${r.tag}`, r.published, id);
-    });
-
-    (data.actions || []).slice(0, 14).forEach((a, order) => {
-      const id = `workflow:${a.id}`;
-      const failed = a.conclusion === 'failure' || a.conclusion === 'cancelled';
-      const running = a.status !== 'completed';
-      const sev = failed ? 'critical' : running ? 'warning' : 'normal';
-      ordered(addNode(nodeMap, id, 'workflow', short(a.name || `Workflow #${a.number}`, 31), {
-        status: a.status, conclusion: a.conclusion || 'running', branch: a.branch, event: a.event,
-        created: a.created_at, url: a.html_url, runId: a.id,
-        description: failed ? 'A recent workflow did not complete successfully.' : 'Recent GitHub Actions workflow run.'
-      }, sev), order);
-      addEdge(edges, nodeMap.has(`branch:${a.branch}`) ? `branch:${a.branch}` : repoId, id, 'triggered workflow', sev, { time: a.created_at });
-      addEvent(events, 'workflow', a.name || 'Workflow', `${a.conclusion || a.status} · ${a.event || 'event'}`, a.created_at, id, '', sev);
-    });
-
-    const verifiedEvents = ((data.intelligence || {}).events || []).slice(-120);
-    verifiedEvents.forEach(ev => {
-      const actorId = ev.actor && ev.actor !== login ? `actor:${ev.actor}` : 'user:current';
-      if (actorId !== 'user:current') {
-        addNode(nodeMap, actorId, 'user', ev.actor, { role: 'Verified webhook actor', description: 'Identity observed in a signature-verified GitHub event.' }, ev.severity || 'normal');
-        addEdge(edges, actorId, repoId, 'provider activity', ev.severity || 'normal', { time: ev.createdAt });
-      }
-      let targetId = repoId;
-      if (ev.targetType === 'branch') {
-        targetId = `branch:${ev.targetId || ev.ref}`;
-        addNode(nodeMap, targetId, 'branch', ev.targetId || ev.ref || 'branch', { sha: ev.afterSha, verifiedEvent: true, description: 'Branch observed through a signature-verified GitHub webhook.' }, ev.severity);
-        addEdge(edges, repoId, targetId, 'branch ref', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'workflow') {
-        targetId = `workflow:live:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'workflow', short((ev.metadata && ev.metadata.name) || ev.summary || 'Workflow', 32), { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, nodeMap.has(`branch:${ev.ref}`) ? `branch:${ev.ref}` : repoId, targetId, 'verified workflow event', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'pull_request') {
-        targetId = `pull:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'pull', `#${ev.targetId} ${short(ev.metadata && ev.metadata.title || '', 26)}`, { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, repoId, targetId, 'verified pull request event', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'issue') {
-        targetId = `issue:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'issue', `#${ev.targetId} ${short(ev.metadata && ev.metadata.title || '', 26)}`, { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, repoId, targetId, 'verified issue event', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'release') {
-        targetId = `release:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'release', ev.targetId || 'Release', { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, repoId, targetId, 'verified release event', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'deployment') {
-        targetId = `external:deployment:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'external', short((ev.metadata && ev.metadata.environment) || 'Deployment target', 32), { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, repoId, targetId, 'deployment activity', ev.severity, { time: ev.createdAt });
-      } else if (ev.targetType === 'vulnerability') {
-        targetId = `vulnerability:live:${ev.targetId}`;
-        addNode(nodeMap, targetId, 'vulnerability', `Security alert ${ev.targetId}`, { ...(ev.metadata || {}), verifiedEvent: true, riskScore: ev.score, description: ev.summary }, ev.severity);
-        addEdge(edges, repoId, targetId, 'verified security alert', ev.severity, { time: ev.createdAt });
-      }
-      const edgeType = `${ev.eventType}${ev.action ? ` · ${ev.action}` : ''}`;
-      addEdge(edges, actorId, targetId, edgeType, ev.severity || 'normal', { time: ev.createdAt, verified: true, eventId: ev.id });
-      if (ev.eventType === 'push' && ev.afterSha && !/^0+$/.test(ev.afterSha)) {
-        const commitId = `commit:${ev.afterSha}`;
-        addNode(nodeMap, commitId, 'commit', short((ev.metadata && ev.metadata.headMessage) || ev.afterSha.slice(0, 8), 34), {
-          sha: ev.afterSha, actor: ev.actor, verifiedEvent: true, riskScore: ev.score, riskReasons: (ev.reasons || []).map(r => r.message).join(' · '), description: ev.summary
-        }, ev.severity);
-        addEdge(edges, actorId, commitId, 'verified push', ev.severity, { time: ev.createdAt, eventId: ev.id });
-        addEdge(edges, commitId, targetId, 'updated ref', ev.severity, { time: ev.createdAt, eventId: ev.id });
-        targetId = commitId;
-      }
-      addEvent(events, 'verified', ev.summary || ev.eventType, `${ev.actor || 'unknown'} · risk ${ev.score || 0}${ev.reasons && ev.reasons.length ? ` · ${ev.reasons[0].message}` : ''}`, ev.createdAt, targetId, '', ev.severity || 'normal');
-    });
-
-    const access = data.access || { collaborators: [], deployKeys: [], webhooks: [], risk: { score: 0, severity: 'normal', reasons: [] } };
-    keep('user', access.collaborators, 60).forEach(collaborator => {
-      const id = collaborator.login === login ? 'user:current' : `access:user:${collaborator.login}`;
-      const privileged = ['admin', 'maintain', 'write'].includes(String(collaborator.permission || '').toLowerCase());
-      addNode(nodeMap, id, 'user', collaborator.login, {
-        permission: collaborator.permission || 'unknown', accountType: collaborator.type || 'User',
-        description: `Repository collaborator with ${collaborator.permission || 'unknown'} permission.`
-      }, String(collaborator.permission || '').toLowerCase() === 'admin' ? 'warning' : 'normal');
-      addEdge(edges, id, repoId, privileged ? 'can modify repository' : 'can read repository', privileged ? 'warning' : 'normal');
-    });
-    keep('credential', access.deployKeys, 30).forEach(key => {
-      const id = `credential:${key.id}`;
-      const severity = key.readOnly === false ? 'critical' : key.verified === false ? 'warning' : 'normal';
-      addNode(nodeMap, id, 'credential', key.title || `Deploy key ${key.id}`, {
-        readOnly: key.readOnly !== false, verified: key.verified !== false, createdAt: key.createdAt || '',
-        description: key.readOnly === false ? 'A deploy key with repository write access.' : 'A read-only repository deploy key.'
-      }, severity);
-      addEdge(edges, id, repoId, key.readOnly === false ? 'write credential' : 'read credential', severity);
-    });
-    /*
-     * Credentials an Exposure scan found, including those that survive only in
-     * history. Each is shown by what it is and where, as the Exposure screen
-     * shows it: the rule, the masked path and line, whether deleting the file
-     * helped. The secret itself never reaches the browser. How loud a finding
-     * is follows what is known about it: one the provider confirmed live, or
-     * of a critical kind, is critical; one refused by its provider no longer
-     * works and is quiet.
-     */
-    const exposure = data.exposure || { findings: [], verifications: {} };
-    const verifications = exposure.verifications || {};
-    const ruleLabel = rule => (typeof exposureRuleLabel === 'function' ? exposureRuleLabel(rule) : String(rule || 'Credential'));
-    keep('leak', (exposure.findings || []).filter(finding => finding && finding.fingerprint), 60).forEach(finding => {
-      const id = `leak:${finding.fingerprint}`;
-      const disposition = finding.disposition || 'open';
-      const verification = verifications[finding.fingerprint] || null;
-      const kind = finding.narration && finding.narration.severity;
-      const severity = disposition === 'credential-rejected' || (verification && verification.state === 'rejected') ? 'normal'
-        : disposition === 'open' && ((verification && verification.state === 'verified') || kind === 'critical') ? 'critical'
-          : 'warning';
-      const occurrence = Array.isArray(finding.occurrences) ? finding.occurrences[0] : null;
-      const line = occurrence && Number.isInteger(occurrence.line) ? occurrence.line : null;
-      const where = `${finding.displayPath || 'a file'}${line ? `:${line}` : ''}`;
-      const file = String(finding.displayPath || '').split('/').filter(Boolean).pop() || '';
-      const commit = /^[0-9a-f]{7,40}$/i.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit) : '';
-      addNode(nodeMap, id, 'leak', file ? `${ruleLabel(finding.rule)} · ${file}` : ruleLabel(finding.rule), {
-        where,
-        foundIn: finding.inTree === false ? `History only${commit ? ` · ${commit.slice(0, 7)}` : ''}` : 'Current tree',
-        encoding: finding.decodedFrom === 'base64' ? 'Base64-encoded' : '',
-        status: (typeof EXPOSURE_DISPOSITION_WORDS === 'object' && EXPOSURE_DISPOSITION_WORDS[disposition]) || disposition,
-        providerCheck: verification ? (verification.narration || verification.state || '') : '',
-        description: (finding.narration && finding.narration.what) || 'A credential an Exposure scan found in this repository.'
-      }, severity);
-      addEdge(edges, id, repoId, 'exposed in repository', severity);
-      if (commit) {
-        const commitId = [...nodeMap.keys()].find(key => key.startsWith('commit:') && key.slice(7).startsWith(commit.toLowerCase()));
-        if (commitId) addEdge(edges, commitId, id, 'introduced credential', severity);
-      }
-    });
-    keep('integration', access.webhooks, 30).forEach(hook => {
-      const id = `integration:${hook.id}`;
-      const severity = hook.insecureSsl ? 'critical' : hook.active === false ? 'warning' : 'normal';
-      addNode(nodeMap, id, 'integration', hook.host || hook.name || `Webhook ${hook.id}`, {
-        active: hook.active !== false, insecureTls: !!hook.insecureSsl, events: (hook.events || []).join(', '), updatedAt: hook.updatedAt || '',
-        description: hook.insecureSsl ? 'Webhook TLS certificate verification is disabled.' : 'Repository webhook destination.'
-      }, severity);
-      addEdge(edges, repoId, id, 'delivers events to', severity);
-    });
-    if (access.available && access.risk && access.risk.score > 0) {
-      const severity = access.risk.severity || 'warning';
-      addNode(nodeMap, 'safety:access-risk', 'safety', `Access risk ${access.risk.score}/100`, {
-        reasons: (access.risk.reasons || []).map(reason => reason.message).join(' · '),
-        partial: !!access.partial,
-        description: 'Deterministic score from collaborators, deploy keys and repository webhooks.'
-      }, severity);
-      addEdge(edges, 'safety:access-risk', repoId, 'access posture', severity);
-    }
-
-    const protectedMap = ((data.safety || {}).protected || {});
-    const requestedProtectedKey = `${w.owner}/${w.repo}`.toLowerCase();
-    const protectedRepoKey = Object.keys(protectedMap).find(key => key.toLowerCase() === requestedProtectedKey);
-    const repoProtected = keep('protected', protectedRepoKey ? protectedMap[protectedRepoKey] : [], 60);
-    repoProtected.forEach(p => {
-      const id = `protected:${p}`;
-      addNode(nodeMap, id, 'protected', short(p, 36), {
-        path: p, enforcement: 'Nebulaverse-X server', description: 'Writes through Nebulaverse-X are blocked until this asset is unlocked.'
-      });
-      addEdge(edges, repoId, id, 'protected by policy');
-    });
-
-    if (data.safety.readOnly) {
-      addNode(nodeMap, 'safety:readonly', 'safety', 'Read-only mode', { enabled: true, description: 'All mutating Nebulaverse-X API requests are blocked.' }, 'critical');
-      addEdge(edges, 'safety:readonly', repoId, 'write containment', 'critical');
-      addEvent(events, 'safety', 'Read-only containment active', 'Nebulaverse-X writes are blocked', Date.now(), 'safety:readonly', '', 'critical');
-    }
-    if (data.safety.freezeSync) {
-      addNode(nodeMap, 'safety:freeze', 'safety', 'Synchronization frozen', { enabled: true, description: 'Background offline queue synchronization is paused.' }, 'warning');
-      addEdge(edges, 'safety:freeze', repoId, 'automation containment', 'warning');
-      addEvent(events, 'safety', 'Synchronization frozen', 'Background synchronization is paused', Date.now(), 'safety:freeze', '', 'warning');
-    }
-
-    const allVulnerable = data.deps.vulnerable || [];
-    const vulnerable = keep('package', allVulnerable, 40);
-    const allAlerts = (data.deps.dependabot || {}).alerts || [];
-    const advisoryCount = new Set(allVulnerable.flatMap(p => p.ids || [])).size + allAlerts.length;
-    vulnerable.forEach((p, idx) => {
-      const pkgId = `package:${p.ecosystem}:${p.name}@${p.version}`;
-      addNode(nodeMap, pkgId, 'package', `${p.name}@${p.version}`, {
-        ecosystem: p.ecosystem, version: p.version, sources: (data.deps.sources || []).map(s => s.file).join(', '),
-        description: 'Dependency version resolved from a supported project manifest.'
-      }, 'warning');
-      addEdge(edges, repoId, pkgId, 'uses dependency', 'warning');
-      (p.ids || []).slice(0, 4).forEach(vId => {
-        const detail = data.deps.details && data.deps.details[vId] || {};
-        const sevText = String(detail.severity || '').toLowerCase();
-        const sev = /critical|9\.|10\./.test(sevText) ? 'critical' : 'warning';
-        const vulnId = `vulnerability:${vId}`;
-        addNode(nodeMap, vulnId, 'vulnerability', vId, {
-          package: `${p.name}@${p.version}`, summary: detail.summary || 'Known vulnerability reported by OSV.',
-          severity: detail.severity || 'See advisory', aliases: (detail.aliases || []).join(', '),
-          description: detail.summary || 'Known vulnerability affecting a resolved dependency.'
-        }, sev);
-        addEdge(edges, pkgId, vulnId, 'affected by', sev);
-        addEvent(events, 'vulnerability', vId, `${p.name}@${p.version} · ${detail.summary || 'Known vulnerability'}`, Date.now() - idx * 1200, vulnId, `${pkgId}>${vulnId}:affected by`, sev);
-      });
-    });
-    const depAlerts = allAlerts.slice(0, 12);
-    depAlerts.forEach((a, i) => {
-      const id = `vulnerability:dependabot:${i}`;
-      const sev = /critical|high/i.test(a.severity || '') ? 'critical' : 'warning';
-      addNode(nodeMap, id, 'vulnerability', `${a.package || 'package'} alert`, {
-        package: a.package, severity: a.severity, summary: a.summary,
-        description: a.summary || 'Open Dependabot security alert.'
-      }, sev);
-      addEdge(edges, repoId, id, 'Dependabot alert', sev);
-    });
-    const osv = data.deps.osv || { available: false, error: 'OSV scan status unavailable' };
-    if (data.deps.scanned && osv && data.deps.osv && data.deps.osv.available === false) {
-      addNode(nodeMap, 'scan:unavailable', 'scan', 'Dependency scan incomplete', {
-        sources: (data.deps.sources || []).map(s => s.file).join(', '),
-        error: osv.error || 'OSV did not return a usable response.',
-        description: 'Dependencies were resolved, but the vulnerability database could not be verified. This is not a clean scan.'
-      }, 'warning');
-      addEdge(edges, repoId, 'scan:unavailable', 'scan unavailable', 'warning');
-      addEvent(events, 'scan', 'Dependency scan incomplete', osv.error || 'OSV unavailable', Date.now(), 'scan:unavailable', '', 'warning');
-    } else if (!vulnerable.length && data.deps.scanned) {
-      addNode(nodeMap, 'scan:clean', 'scan', `${data.deps.scanned} packages checked`, {
-        sources: (data.deps.sources || []).map(s => s.file).join(', '),
-        description: 'No matching OSV vulnerabilities were returned for the scanned dependency versions.'
-      });
-      addEdge(edges, repoId, 'scan:clean', 'security scan');
-    }
-
-    const uploadScanner = data.scanner || { builtin: { available: false }, yara: { configured: false, required: false } };
-    const scannerWarning = !uploadScanner.builtin || !uploadScanner.builtin.available || (uploadScanner.yara && uploadScanner.yara.required && !uploadScanner.yara.configured);
-    addNode(nodeMap, 'scan:upload-gate', 'scan', scannerWarning ? 'Upload malware gate incomplete' : 'Upload malware gate active', {
-      builtin: !!(uploadScanner.builtin && uploadScanner.builtin.available),
-      yaraConfigured: !!(uploadScanner.yara && uploadScanner.yara.configured),
-      yaraRequired: !!(uploadScanner.yara && uploadScanner.yara.required),
-      rules: uploadScanner.yara && uploadScanner.yara.rulesPath || '',
-      description: scannerWarning
-        ? 'Upload signature scanning is not fully available for the configured policy.'
-        : `Whole-file built-in signature scanning is active${uploadScanner.yara && uploadScanner.yara.configured ? ' with an administrator-managed YARA adapter.' : '; YARA is optional and not configured.'}`
-    }, scannerWarning ? 'warning' : 'normal');
-    addEdge(edges, repoId, 'scan:upload-gate', 'screens uploaded content', scannerWarning ? 'warning' : 'normal');
-
-    const signedSnapshot = data.signedSnapshots && data.signedSnapshots.snapshots && data.signedSnapshots.snapshots[0];
-    const signatureValid = !!(signedSnapshot && signedSnapshot.signatureValid === true);
-    const recoverySnapshot = signedSnapshot && signedSnapshot.snapshot || data.storedSnapshot;
-    if (recoverySnapshot) {
-      const s = recoverySnapshot;
-      addNode(nodeMap, 'snapshot:stored', 'snapshot', signedSnapshot ? (signatureValid ? 'Signed recovery evidence' : 'Unverified recovery evidence') : 'Emergency reference snapshot', {
-        capturedAt: signedSnapshot ? signedSnapshot.createdAt : s.capturedAt, refs: (s.refs || []).length, tags: (s.tags || []).length,
-        files: s.manifest && s.manifest.files ? s.manifest.files.length : 0,
-        snapshotId: signedSnapshot && signedSnapshot.snapshotId || '', signatureValid: signedSnapshot ? !!signedSnapshot.signatureValid : false,
-        signature: signedSnapshot && signedSnapshot.signature ? signedSnapshot.signature.slice(0, 16) + '…' : 'local-only',
-        description: signedSnapshot ? (signatureValid ? 'A server-persisted, signature-verified reference and file manifest retained in Neon.' : 'The retained snapshot signature could not be verified. It is not verified recovery protection.') : 'A locally retained manifest of repository refs and optional file hashes.'
-      }, signedSnapshot && !signatureValid ? 'warning' : 'normal');
-      addEdge(edges, 'snapshot:stored', repoId, signedSnapshot ? (signatureValid ? 'cryptographically protects' : 'unverified recovery evidence') : 'local recovery reference', signedSnapshot && !signatureValid ? 'warning' : 'normal');
-      addEvent(events, 'snapshot', signedSnapshot ? (signatureValid ? 'Signed recovery evidence captured' : 'Unverified recovery evidence retained') : 'Recovery reference captured', `${(s.refs || []).length} branch refs preserved`, signedSnapshot ? signedSnapshot.createdAt : s.capturedAt, 'snapshot:stored');
-    } else {
-      addNode(nodeMap, 'snapshot:missing', 'snapshot', 'No retained snapshot', {
-        description: 'Capture repository refs before an incident. This is not a complete off-platform backup.'
-      }, 'warning');
-      addEdge(edges, repoId, 'snapshot:missing', 'recovery gap', 'warning');
-    }
-
-    /* A refresh keeps every node where it was: only what changed moves, and
-     * the selection survives as long as its node does. */
     const previous = new Map(NVN.nodes.map(n => [n.id, n]));
-    const next = [...nodeMap.values()];
-    for (const n of next) {
+    for (const n of graph.nodes) {
       const old = previous.get(n.id);
       if (old && old.x != null) { n.x = old.x; n.y = old.y; n.appear = old.appear; n.wasVisible = old.wasVisible; }
     }
     const selectedId = NVN.selected && NVN.selected.id;
-    /* A total is only worth printing where it is more than the graph holds. */
-    const inGraph = {};
-    for (const n of next) inGraph[n.type] = (inGraph[n.type] || 0) + 1;
-    if (advisoryCount > (inGraph.vulnerability || 0)) totals.vulnerability = advisoryCount;
-    for (const type of Object.keys(totals)) if (!(totals[type] > (inGraph[type] || 0))) delete totals[type];
-    NVN.totals = totals;
-    NVN.nodes = next;
-    NVN.edges = edges;
-    NVN.events = events.sort((a, b) => new Date(a.time) - new Date(b.time)).slice(-80);
+    NVN.totals = graph.totals;
+    NVN.nodes = graph.nodes;
+    NVN.edges = graph.edges;
+    NVN.events = graph.events;
     NVN.hover = null;
     NVN.selected = selectedId ? nodeById(selectedId) || null : null;
     if (!NVN.selected) closeCard();
@@ -3355,9 +2952,12 @@ const neuralGraph = (() => {
     } finally {
       if (mine === generation) {
         NVN.catchUpBusy = false; NVN.catchUpController = null;
-        if (NVN.catchUpError) {
+        /* A Refresh pressed while an attempt was in flight is read as soon as
+         * the attempt fails, not after every retry: the reload reads the
+         * history afresh. One that succeeds still finishes catching up first. */
+        if (NVN.catchUpError && NVN.reloadPending) { NVN.reloadPending = false; load(true); }
+        else if (NVN.catchUpError) {
           if (NVN.catchUpRetries <= 3) scheduleCatchUp(Math.min(30000, 1000 * 2 ** NVN.catchUpRetries));
-          else if (NVN.reloadPending) { NVN.reloadPending = false; load(true); }
         } else if (hasMore || NVN.catchUpPending) scheduleCatchUp();
         else if (NVN.reloadPending) { NVN.reloadPending = false; load(true); }
       }

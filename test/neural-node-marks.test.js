@@ -7,9 +7,10 @@
  * "undefined" in the middle of the node -- on the repository itself, which is
  * the largest node on the screen.
  *
- * Two assertions, because the defect needed both halves to be wrong: every
- * style must offer something to draw, and the builder must carry whichever one
- * the style offers.
+ * The defect needed both halves to be wrong: every style must offer something
+ * to draw, and the builder must carry whichever one the style offers. Both are
+ * the graph model's now (features/neural/graph-model.ts), asked in
+ * test/neural-graph-model.test.js; the canvas's half stays here.
  */
 
 const assert = require('assert');
@@ -18,40 +19,12 @@ const path = require('path');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
-const tableStart = source.indexOf('TYPE_STYLE');
-assert(tableStart > 0, 'neural.js must define a node style table');
-const tableEnd = source.indexOf('};', tableStart);
-assert(tableEnd > tableStart, 'the node style table must be bounded');
-const table = source.slice(tableStart, tableEnd);
-
-const rows = [...table.matchAll(/^\s{4}([a-z]+):\s*\{([^}]*)\}/gm)].map(match => ({
-  type: match[1],
-  body: match[2]
-}));
-assert(rows.length >= 15, `expected the full node style table, found ${rows.length} rows`);
-
-const withMark = [];
-for (const row of rows) {
-  const hasMark = /\bmark:\s*'/.test(row.body);
-  const hasGlyph = /\bglyph:\s*'/.test(row.body);
-  assert(
-    hasMark || hasGlyph,
-    `node type ${row.type} has neither a drawn mark nor a glyph, so it would render as nothing or as text`
-  );
-  assert(!(hasMark && hasGlyph), `node type ${row.type} declares both a mark and a glyph`);
-  if (hasMark) withMark.push(row.type);
-}
-assert(withMark.length >= 4, `expected the drawn-mark node types, found ${withMark.join(', ') || 'none'}`);
-for (const type of ['repo', 'snapshot', 'safety', 'scan']) {
-  assert(withMark.includes(type), `${type} must keep its drawn mark`);
-}
-
-/* The builder has to carry the mark, or a marked type arrives at the canvas
- * with nothing to draw. */
-assert(
-  /color: st\.color, glyph: st\.glyph, mark: st\.mark, r: st\.radius/.test(source),
-  'the node builder must copy the drawn mark alongside the glyph'
-);
+/*
+ * That every style offers exactly one thing to draw, and that every node the
+ * builder makes carries it, is asked of the builder itself
+ * (test/neural-graph-model.test.js). What the canvas does with an absent
+ * letter is still the drawing's, read below.
+ */
 
 /* And the canvas must never be asked to paint an absent glyph. */
 assert(

@@ -466,6 +466,8 @@ const HANDOFFS = Object.freeze({
   'SecurityPostureModel.model <- repos': 'lists the repositories anew (inventory) and filters that list',
   'SecurityPostureModel.model <- securityPosture': 'reads the summary\'s figures into new records and lists',
   'WorkspacePulseModel.model <- repos': 'measures what it is handed into a new model',
+  'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',
+  'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
   'defaultGovernanceSimulation <- work': 'reads the default branch, a string, into a new request',
   'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
   'formatRoute <- work': 'writes an address from the route\'s names, strings',

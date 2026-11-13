@@ -106,6 +106,26 @@ test('a refresh after event history failed reloads the map instead of retrying t
   assert.equal(snapshots(),before+1,'Refresh reads the topology again');
 });
 
+test('a refresh pressed while a failing catch-up is in flight reads the map as soon as the attempt fails', async () => {
+  let fail = null;
+  const h=harness({api:url=>{
+    if(!url.includes('/intelligence/events'))return undefined;
+    if(url.includes('after='))return new Promise((resolve,reject)=>{fail=()=>reject(new Error('history unavailable'));});
+    return {available:true,events:[],cursor:'cursor0',hasMore:true};
+  }});
+  h.ui.state.active=true;await h.ui.refresh();h.streams[0].handlers.ready();
+  for(let turn=0;turn<20&&!fail;turn++)await new Promise(setImmediate);
+  assert.equal(h.ui.state.catchUpBusy,true,'the catch-up is reading the history');
+  const snapshots=()=>h.requests.filter(url=>url.includes('/refs-snapshot')).length;
+  const before=snapshots();
+  await h.ui.refresh();
+  assert.equal(snapshots(),before,'a Refresh waits for the attempt in flight');
+  fail();await settleCatchup(h);
+  for(let turn=0;turn<20&&snapshots()===before;turn++)await new Promise(setImmediate);
+  assert.equal(snapshots(),before+1,'and reads the map as soon as it fails, not after every retry');
+  assert.equal(h.timers.size,0,'with no retry left waiting behind it');
+});
+
 test('catch-up pagination budget remains explicit and schedules bounded continuation', async () => {
   let sequence=0;
   const h=harness({api:url=>{

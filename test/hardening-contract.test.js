@@ -45,12 +45,17 @@ assert(neural.includes('catchUpIntelligence'), 'Neural SSE reconnect must catch 
 assert(neural.includes('after=${encodeURIComponent(after)}') && neural.includes('hasMore'), 'Neural catch-up must page from a persisted event cursor');
 assert(neural.includes('/emergency-manifest'), 'Emergency Shield must use the signed server-side containment transaction');
 assert(neural.includes('/access-surface'), 'Neural Shadow Access Radar data source is missing');
-assert(neural.includes('/api/security/scanner-status') && neural.includes('Upload malware gate'), 'Neural dependency/security view must expose upload scanner posture');
+assert(neural.includes('/api/security/scanner-status'), 'Neural dependency/security view must read the upload scanner posture');
+/* What the map makes of the readings is its graph model's: asked, not read. */
+const neuralGraph = require('../apps/web/src/features/neural/graph-model.ts');
+const graphOf = data => neuralGraph.buildGraph(data, { work: { owner: 'o', repo: 'r', branch: 'main' }, me: null, now: 0, ruleLabel: String, dispositionWords: {} });
+assert(/^Upload malware gate/.test(graphOf({ scanner: { builtin: { available: true } } }).nodes.find(n => n.id === 'scan:upload-gate').label), 'Neural dependency/security view must expose upload scanner posture');
 assert(app.includes('function activityCsv'), 'Activity export must support CSV');
 assert(app.includes("snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest'"), 'Recovery must accept signed emergency manifests as snapshot inputs');
 assert(app.includes('/snapshot-compare') && app.includes('/restore-preview'), 'Recovery workflow must compare snapshots and preview ref changes');
 assert(app.includes("authorization: preview.authorization") && app.includes("confirm: 'RESTORE'"), 'Client restore must submit only the preview authorization and typed confirmation');
-assert(neural.includes("osv && data.deps.osv.available === false"), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
+assert(graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:unavailable')
+  && !graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:clean'), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
 assert(app.includes('Dependency scan incomplete'), 'Dependency scan dialog must not report a clean result when OSV is unavailable');
 assert(app.includes('/api/security/scanner-status') && app.includes('Upload malware gate'), 'Security scan dialog must disclose built-in and optional YARA upload protection');
 assert(app.includes("k.startsWith('nv_draft:')") && app.includes("k.startsWith('nv_recent:')"), 'Sign-out/account switching must clear repository drafts and recent-file history');

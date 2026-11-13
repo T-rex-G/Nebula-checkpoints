@@ -205,6 +205,65 @@ test('pressing a node opens its card, named for it, with its connections', async
   expect(await page.evaluate(() => window.__NV_PROBE__.read('neural').selected)).toBeNull();
 });
 
+/* The map is read again every two minutes, on a live event and on Refresh;
+ * each time the graph is built anew, and the reader must not see it. */
+test('a refresh leaves every node where it was, drawn whole, and the reader\'s card open on its node', async ({ page }) => {
+  await openGraph(page);
+  const target = await nodePoint(page, n => n.type !== 'repo');
+  expect(target).not.toBeNull();
+  await page.mouse.click(target.x, target.y);
+  const card = page.locator('#neuralCard');
+  await expect(card.locator('#neuralCardTitle')).toHaveText(target.label);
+
+  /* Every node at rest: where the layout put it, and fully drawn. */
+  const resting = () => page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const shown = s.nodes.filter(n => n.visible);
+    return shown.every(n => n.x === n.tx && n.y === n.ty && (n.appear ?? 1) === 1)
+      ? Object.fromEntries(shown.map(n => [n.id, [n.x, n.y]])) : null;
+  });
+  await expect.poll(resting).not.toBeNull();
+  const before = await resting();
+
+  /* Each frame from the press until the map has been read again: the least
+   * drawn any node was. The status says SYNCING while the map is read -- a
+   * read already under way when Refresh is pressed is the one it waits for. */
+  await page.evaluate(() => {
+    const label = document.getElementById('neuralStreamLabel');
+    const watch = window.__refreshWatch = { least: 1, syncing: label.textContent === 'SYNCING', synced: false, stop: false };
+    new MutationObserver(() => {
+      if (label.textContent === 'SYNCING') watch.syncing = true;
+      else if (watch.syncing) watch.synced = true;
+    }).observe(label, { childList: true, characterData: true, subtree: true });
+    const frame = () => {
+      for (const n of window.__NV_PROBE__.read('neural').nodes) if (n.visible) watch.least = Math.min(watch.least, n.appear ?? 1);
+      if (!watch.stop) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  /* Sent to the control, as the live stream's and the timer's refreshes run: no press lands on the page. */
+  await page.locator('#neuralRefreshBtn').dispatchEvent('click');
+  await expect.poll(() => page.evaluate(() => window.__refreshWatch.synced)).toBe(true);
+  /* Longer than a node takes to grow in, were it drawn again from nothing. */
+  await page.waitForTimeout(500);
+  const after = await page.evaluate(() => {
+    window.__refreshWatch.stop = true;
+    const s = window.__NV_PROBE__.read('neural');
+    return {
+      least: window.__refreshWatch.least,
+      nodes: Object.fromEntries(s.nodes.filter(n => n.visible).map(n => [n.id, [n.x, n.y]])),
+      selected: s.selected && s.selected.id
+    };
+  });
+
+  expect(after.least).toBe(1);
+  expect(Object.keys(after.nodes).sort()).toEqual(Object.keys(before).sort());
+  for (const [id, [x, y]] of Object.entries(before)) expect(after.nodes[id], id).toEqual([x, y]);
+  expect(after.selected).toBe(target.id);
+  await expect(card).toBeVisible();
+  await expect(card.locator('#neuralCardTitle')).toHaveText(target.label);
+});
+
 test('dragging from a row moves the stage, keeps the node in its row, and opens nothing', async ({ page }) => {
   await openGraph(page);
   const target = await nodePoint(page, n => n.type !== 'repo');

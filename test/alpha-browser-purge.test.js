@@ -6,9 +6,9 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const serviceWorker = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const serviceWorker = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 
 for (const label of [
   'Disconnect from Nebulaverse-X',
@@ -53,7 +53,7 @@ function functionSource(name) {
 
 function browserFunction(name, sandbox) {
   vm.runInNewContext(`${functionSource(name)}\nthis.target = ${name};`, sandbox, {
-    filename: 'public/app.js'
+    filename: 'apps/web/src/legacy/app.js'
   });
   return sandbox.target;
 }
@@ -141,6 +141,12 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
      * so the assertion can prove it happened.
      */
     clearExposureState: () => operations.push(['exposure']),
+    /*
+     * A repaint the overview held for a press was read for the leaving
+     * account; drawn after the purge it would put that reader's feed back on
+     * screen, so it is dropped before anything is cleared.
+     */
+    discardHeldRepaints: () => operations.push(['held-repaints']),
     clearActivityFeed: () => operations.push(['activity-feed']),
     clearPosture: () => operations.push(['posture']),
     clearAuditState: () => operations.push(['audit']),
@@ -210,6 +216,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     'the purge must abandon a repository still opening, or it lands in the next session\'s workbench');
   assert.deepStrictEqual(operations.find(([kind]) => kind === 'posture'), ['posture'],
     'the purge must clear the workspace posture, or the next session is scored with the previous one\'s credential and leaks');
+  assert.strictEqual(operations.findIndex(([kind]) => kind === 'held-repaints'), 0,
+    'the purge must drop the repaints a press was holding before it clears anything, or one drawn afterwards brings the previous reader back');
 }
 
 (async () => {

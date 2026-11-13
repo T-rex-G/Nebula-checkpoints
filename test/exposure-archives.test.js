@@ -22,14 +22,14 @@ const {
   archiveKind,
   openArchive,
   safeMemberPath
-} = require('../src/exposure-archives');
+} = require('../apps/api/src/modules/quasar/index.ts');
 const {
   BINARY_EXTENSIONS,
   readArchive,
   readFileAtCommit,
   textFromBytes
-} = require('../src/exposure-reader');
-const { detectInText } = require('../src/exposure-detection');
+} = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
+const { detectInText } = require('../apps/api/src/modules/quasar/index.ts');
 
 /* Built from parts: this file is scanned by the gate it is testing. */
 const TOKEN = ['gh', 'p_', 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5b'].join('');

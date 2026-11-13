@@ -4,9 +4,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const root = path.resolve(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
-const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const css = fs.readFileSync(path.join(root, 'public', 'style.css'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
 
 assert(app.includes("api('/api/github-app/status')"), 'settings must load GitHub App connection status');
 assert(app.includes("api('/api/github-app/connect'"), 'settings must start the optional connection flow');
@@ -22,7 +22,7 @@ assert(css.includes('.github-app-panel') && css.includes('.github-app-connection
 for (const secretName of ['GITHUB_APP_PRIVATE_KEY', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_WEBHOOK_SECRET', 'installationToken', 'access_token']) {
   assert(!app.includes(secretName), `public application must not reference secret field ${secretName}`);
 }
-assert(app.includes('window._oauthOn'), 'existing OAuth control must remain present');
+/* The OAuth controls -- sign-in, and the wider grant from Accounts -- follow /api/config: test/e2e/github-only.spec.js. */
 assert(html.includes('GitHub Personal Access Token'), 'existing PAT login must remain present');
 assert(html.includes('id="tokenInput"') && html.includes('id="loginBtn"'), 'PAT login controls must remain present');
 assert(app.includes("body: { token, provider: 'github' }"), 'PAT login must use GitHub without a custom authority');

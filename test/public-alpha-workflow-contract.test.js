@@ -523,7 +523,7 @@ assert(/^on:\n(?:[\s\S]*\n)?  pull_request:/m.test(workflow), 'pull_request trig
 assert(/^  workflow_dispatch:/m.test(workflow), 'workflow_dispatch trigger is required');
 assert(!/^\s{2}push:/m.test(workflow), 'qualification must not run on push');
 assert(/^permissions:\n  contents: read$/m.test(workflow), 'default permissions must be contents: read');
-assert(/node-version:\s*['"]?22\.23\.1['"]?/m.test(workflow), 'exact Node 22.23.1 setup is required');
+assert(/node-version:\s*['"]?22\.23\.5['"]?/m.test(workflow), 'exact Node 22.23.5 setup is required');
 assert(!/group:[^\n]*github\.run_id/.test(workflow), 'live runs must not use a run-unique concurrency group');
 assert(workflow.includes('live-shared-targets'), 'all live dispatches must share one concurrency group');
 assert(/^  cancel-in-progress: false$/m.test(workflow), 'a running destructive qualification must not be cancelled');
@@ -623,8 +623,20 @@ assert(
 const playwrightCacheBinding = automated.indexOf('PLAYWRIGHT_BROWSERS_PATH=%s');
 const playwrightInstall = automated.indexOf('bash ci/install-browser.sh');
 const browserInstaller = fs.readFileSync(path.join(__dirname, '..', 'ci', 'install-browser.sh'), 'utf8');
-assert(browserInstaller.includes('npx playwright install --with-deps "${browsers[@]}"') && browserInstaller.includes('browsers=(chromium)'),
+assert(browserInstaller.includes('npx playwright install "${browsers[@]}"') && browserInstaller.includes('browsers=(chromium)'),
   'browser provisioning must install the pinned browser and its system dependencies');
+/*
+ * The system packages are Playwright's own list, installed under bounds of the
+ * script's: apt gives up on a silent connection, every step that only reads
+ * the network has a wall clock and is retried, dpkg is never the step a retry
+ * cuts short, and Playwright's dry run must then report nothing missing.
+ */
+assert(browserInstaller.includes('Acquire::http::Timeout') && browserInstaller.includes('Acquire::https::Timeout'), 'apt must give up on a silent mirror');
+assert(/bounded \d+ \d+ sudo apt-get update/.test(browserInstaller), "the index refresh must be bounded and retried");
+assert(/bounded \d+ \d+ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --download-only "\$\{packages\[@\]\}"/.test(browserInstaller),
+  'the packages must be fetched, bounded and retried, before dpkg installs them');
+assert(/npx playwright install-deps --dry-run "\$\{browsers\[@\]\}"\n$/.test(browserInstaller), "the install must end with Playwright's dry run reporting nothing missing");
+assert(!browserInstaller.includes('install --with-deps "'), "apt must not run under Playwright's installer, which bounds nothing");
 assert(automated.includes('bash ci/install-browser.sh chromium webkit'),
   'the extracted candidate must have both browsers for the real integration gate');
 assert(!browserInstaller.includes('PLAYWRIGHT_BROWSERS_PATH='),
@@ -668,6 +680,36 @@ assert(/fail-fast:\s*false/.test(browserMatrix),
   'one failing shard must not cancel the others, which is how you tell a local break from a general one');
 assert(browserMatrix.includes('bash ci/install-browser.sh'),
   'the browser-matrix job provisions its own browser, having no cache to share');
+/*
+ * Every browser install sits inside the package cache (ci/browser-packages.sh):
+ * restored into apt's archive before it, collected and saved after it whether
+ * or not it finished, under a key for its own set of browsers. A slow mirror
+ * then costs only what changed since the last run.
+ */
+const browserPackages = fs.readFileSync(path.join(__dirname, '..', 'ci', 'browser-packages.sh'), 'utf8');
+assert(browserPackages.includes('APT::Keep-Downloaded-Packages "true";'), 'apt must keep what it downloads for the browsers');
+assert(browserPackages.includes('apt-get autoclean'), 'versions the index no longer offers must not be kept');
+for (const [label, source] of [['standard CI', ciWorkflow], ['the qualification workflow', workflow]]) {
+  const jobs = source.slice(source.indexOf('\njobs:\n')).split(/^  (?=[a-zA-Z0-9_-]+:\n)/m).slice(1);
+  const installing = jobs.filter(text => text.includes('bash ci/install-browser.sh'));
+  assert(installing.length >= 2, `${label} installs browsers in at least two jobs`);
+  for (const text of installing) {
+    const name = text.slice(0, text.indexOf(':'));
+    const set = /bash ci\/install-browser\.sh chromium webkit\n/.test(text) ? 'chromium-webkit' : 'chromium';
+    const order = [
+      'uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830',
+      `key: browser-packages-ubuntu-24.04-${set}.\n`,
+      'bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"',
+      'bash ci/install-browser.sh',
+      `bash ci/browser-packages.sh collect "\${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-${set}.\n`,
+      'uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830'
+    ].map(marker => text.indexOf(marker));
+    assert(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])),
+      `${label} ${name}: the browser install must sit between the package cache's restore and its keeping`);
+    const collect = text.slice(text.lastIndexOf('- name:', order[4]), order[4]);
+    assert(/if: always\(\)/.test(collect), `${label} ${name}: packages must be collected even when the install fails`);
+  }
+}
 assert(
   automated.includes('playwright_browsers="${RUNNER_TEMP}/ms-playwright"') &&
     automated.includes('>> "${GITHUB_ENV}"'),
@@ -880,7 +922,7 @@ for (const name of ['github-live', 'hosted-live', 'hosted-drills']) {
   assert(!block.includes('${{ inputs.subject_sha256 }}'), `${name} must not interpolate an untrusted subject input`);
   assert(!block.includes('${{ inputs.source_commit }}'), `${name} must not interpolate an untrusted source input`);
   assert(block.includes(`actions/setup-node@${actionPins['actions/setup-node']}`), `${name} must pin Node before candidate execution`);
-  assert(/node-version:\s*['"]?22\.23\.1['"]?/.test(block), `${name} must execute with Node 22.23.1`);
+  assert(/node-version:\s*['"]?22\.23\.5['"]?/.test(block), `${name} must execute with Node 22.23.5`);
   const preflightIndex = block.indexOf('Verify signed live target');
   const firstSecretIndex = block.indexOf('${{ secrets.');
   assert(preflightIndex >= 0, `${name} must run a signed-target preflight`);

@@ -2,6 +2,100 @@
 
 ## Unreleased
 
+### Without a database, what is kept offline stays kept
+
+- **A session kept in its cookie alone never kept anything offline.** The
+  browser files the API answers it keeps under a scope the account is told,
+  bound to its session and its identity. A session the database keeps is
+  named by its id. Without a database, the session lives in its cookie, and
+  the scope was bound to the cookie itself. The cookie is sealed afresh every
+  time the session is written, and the first answer after signing in writes
+  it. So the scope the account was told stopped matching at once, and no
+  answer was ever bound for the browser to keep.
+- **The fix.** Such a session is named by its security nonce, which lasts
+  exactly as long as the session does. A session with neither an id nor a
+  nonce has no scope, and nothing of it is kept offline; it used to be bound
+  by the digest of an empty cookie. Deployments with a database are
+  unchanged. The production baseline has the same defect where it runs
+  without one.
+- Pinned in `test/session-security.test.js`, the binding for both kinds of
+  session, and in `test/composition.test.js`, on the composed server without
+  a database: the scope the account is told still binds after the first
+  answer and after a step-up grant, each of which writes the session again.
+
+### A governance webhook to a name that does not resolve is refused as such
+
+- **Adding or changing a governance webhook whose destination does not
+  resolve** -- a mistyped host, a name since removed -- answered
+  `500 Governance operation failed`, and logged it as the service failing. The
+  destination's name is looked up before the webhook is kept, and a lookup that
+  finds nothing was already refused as the destination's
+  (`422 GOVERNANCE_WEBHOOK_DNS_INVALID`); a lookup that failed outright was not.
+  It now gets the same answer. The production baseline does the same.
+- Pinned in `test/governance-delivery-api.test.js`, for adding and changing a
+  webhook, before the store is asked, and in
+  `test/composition-postgres.test.js`, on the composed server: refused, and
+  nothing kept.
+
+### Connecting the GitHub App on a database completes
+
+- **The App's setup finds the account it added.** On a deployment with a
+  database and without invitations, connecting the GitHub App added the
+  installation's account to the stored session. The request still held the
+  session as first read, so the setup could not find the account it had just
+  added:
+  - it answered with an error, though the account was connected;
+  - and neither the installation's record nor its `installation.connected`
+    audit was written.
+
+  Writing a session to the database now leaves the request holding the session
+  as stored, as the other two ways of keeping a session already did. The
+  hosted alpha, which runs invite-only, was not affected.
+- Pinned in `test/provider-sessions.test.js` and in
+  `test/composition-postgres.test.js`, on the composed server: the App's
+  connection completes, and the installation and its connection are recorded.
+
+### A tester's disconnect removes the webhooks it should
+
+- **Disconnecting GitHub in the invite-only alpha now completes.** Signing
+  out, removing an account, disconnecting GitHub or the App, and deleting
+  alpha data all run the central disconnect. It removes the webhooks the
+  account registered for live events, then ends the provider session. Each
+  removal was made outside the mutation gateway, which refuses every provider
+  write made outside a mutation, so nothing reached GitHub:
+  - the webhook stayed on the repository;
+  - the cleanup was left pending for the operator;
+  - and the tester stayed connected.
+
+  Each removal now runs inside the gateway as that repository's
+  `webhook.disconnect`, authorized for the account and put to policy like any
+  other change. A removal GitHub refuses still leaves the cleanup pending, as
+  before.
+- **The privacy store asks one question at a time.** Checking whether a
+  tester's cleanup is complete handed one database client five queries at
+  once. pg 8 queues them with a deprecation warning, and pg 9 refuses them.
+  They now run one after another.
+- Pinned in `test/composition-alpha.test.js`, on the composed invite-only
+  server: a connected tester disconnects, the webhook is deleted and read back
+  gone, the removal is put to policy, the provider session ends, the access
+  session stays, and no database client is handed overlapping queries. Also in
+  `test/mutation-context.test.js` and `test/account-lifecycle.test.js`.
+
+### A protected folder written with its slash protects it
+
+- **`docs/` now protects what `docs` does.** Safeguards take "a file, folder
+  or wildcard pattern". A folder written with its trailing slash covered only
+  the literal `docs/`, which no file is. Writes beneath it went through, a
+  pushed change beneath it scored no `PROTECTED_PATH_CHANGED`, and the page
+  showed nothing beneath it as protected. The server and the page now both read
+  a pattern ending in `/` as a folder: `docs/` covers the folder and everything
+  beneath it, and `src/*/` each folder one level down and its contents. Stored
+  protections are unchanged; those written with a slash now take effect as
+  written. The page also reads doubled slashes as the server does.
+- Pinned in `test/protected-path-patterns.test.js`: one table put to the
+  server's matcher and the page's, and the write guard refusing what a folder
+  protection covers, written either way.
+
 ### The scale-to-zero drill reads Neon's record, not a moment
 
 - **A compute the deployment wakes again at once still counts as suspended.**

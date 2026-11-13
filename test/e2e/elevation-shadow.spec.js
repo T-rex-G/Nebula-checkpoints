@@ -2,10 +2,13 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 // Pixel subtraction measures only the shadow when the decorative background
 // stays at the same phase in both captures. Keep the shadow bound unchanged.
-test.use({ contextOptions: { reducedMotion: 'reduce' } });
+// The worker is blocked so the fixture answers the session: with it running,
+// its own requests skip the routes and the page stops at sign-in.
+test.use({ contextOptions: { reducedMotion: 'reduce' }, serviceWorkers: 'block' });
 
 /*
  * The primary button was reported twice as having "visible box edges, not a
@@ -43,7 +46,7 @@ async function shadowReach(page, theme) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
   await page.waitForTimeout(600);
-  await page.evaluate(() => { if (window.showPage) window.showPage('repos'); });
+  await ui.enterRepositories(page);
   const button = page.locator('#reposRefreshBtn');
   await button.waitFor({ state: 'visible' });
   await page.waitForTimeout(900);

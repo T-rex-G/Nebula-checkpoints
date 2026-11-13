@@ -1,8 +1,8 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
-const app = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'app.js'), 'utf8');
-const neural = fs.readFileSync(require('path').join(__dirname, '..', 'public', 'neural.js'), 'utf8');
+const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
+const neural = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
 assert(/await purgeLocalData\(true\);[\s\S]{0,500}api\('\/api\/login'/.test(app), 'login must clear prior identity data before authentication');
 assert(/data-switch[\s\S]{0,1200}await purgeLocalData\(false\);[\s\S]{0,500}accounts\/switch-idx/.test(app), 'account switch must await cache purge before switching');
@@ -19,5 +19,5 @@ assert(/async function receiveIdentityBoundary\(\)[\s\S]{0,300}await purgeLocalD
   'other tabs must purge identity-bound state before reloading');
 assert(app.includes('x-nv-offline-scope') && app.includes('x-nv-offline-repo'), 'eligible API reads must carry scoped offline headers');
 assert(app.includes('Enable offline access for this repository'), 'settings must expose explicit per-repository opt-in');
-assert(neural.includes("addEventListener('session-revoked'") && neural.includes('purgePrivateData'), 'remote session revocation must purge private local data');
+/* A session revoked elsewhere purges this browser's private data before the reload: test/pulsar-reliability.test.js. */
 console.log('account boundary tests passed');

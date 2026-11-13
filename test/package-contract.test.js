@@ -21,7 +21,7 @@ const phaseOneGovernanceHistory = [
 
 const required = [
   'config/historical-document-integrity.json',
-  'src/alpha-access.js', 'src/alpha-access-store.js', 'scripts/alpha-invites.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts', 'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts', 'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql', 'test/alpha-access.test.js',
   'test/alpha-access-persistence-contract.test.js', 'test/alpha-access-store.test.js',
   'test/alpha-access-server-contract.test.js', 'test/alpha-repository-boundary.test.js',
@@ -53,7 +53,7 @@ const required = [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -61,13 +61,13 @@ const required = [
   'docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md',
   'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js',
   'staging/TASK_20_EVIDENCE_TEMPLATE.json', 'playwright.config.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'apps/web/src/features/governance/governance.ts', 'apps/web/src/features/governance/GovernanceView.tsx',
   'docs/current/PROJECT_STATE.md', 'docs/history/phase-1/ROADMAP.md',
   'docs/architecture/ARCHITECTURE_DECISIONS.md', 'docs/current/CONTINUATION_PROMPT.md',
-  'src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js',
-  'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js',
-  'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'db/migrations/007_governance.sql',
+  'apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'apps/api/src/modules/kepler/domain/governance-model.ts',
+  'apps/api/src/modules/kepler/persistence/governance-store.ts', 'apps/api/src/modules/kepler/application/governance-api.ts', 'apps/api/src/modules/kepler/domain/governance-simulation.ts',
+  'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts', 'apps/api/src/modules/kepler/domain/governance-exceptions.ts',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'db/migrations/007_governance.sql',
   'db/migrations/008_governance_drafts.sql', 'db/migrations/009_governance_reviews.sql',
   'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql',
   'db/migrations/012_governance_exceptions.sql', 'db/migrations/013_governance_notifications_exports.sql', 'scripts/package-release.js', 'scripts/foundation-gate.js'
@@ -82,7 +82,8 @@ for (const value of ['node_modules/', '.env', '*.log', '.DS_Store', '__MACOSX/',
 const render = read('render.yaml');
 assert.match(render, /name:\s*nebulaverse-x-public-alpha/);
 assert.match(render, /plan:\s*free/);
-assert.match(render, /buildCommand:\s*npm ci --omit=dev\s*$/m);
+assert.match(render, /buildCommand:\s*npm ci && npm run build && npm prune --omit=dev\s*$/m,
+  'the service builds the browser application, then drops the build tools from what it runs');
 assert(!/^databases:/m.test(render));
 assert(!render.includes('fromDatabase:'));
 assert(render.includes('NV_GOVERNANCE_AUDIT_SECRET'));
@@ -93,7 +94,19 @@ const syntaxGate = [
   pkg.scripts['check:syntax'],
   pkg.scripts['postcheck:syntax']
 ].filter(Boolean).join(' && ');
-const syntaxChecks = source => syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
+/*
+ * `node --check` reads JavaScript only. TypeScript is parsed by the strict
+ * checker of the project that holds it, so a .ts source counts as checked when
+ * the typecheck gate runs that project.
+ */
+const TYPED_PROJECTS = Object.freeze([['apps/api/src/', 'apps/api'], ['apps/web/src/', 'apps/web'], ['packages/contracts/src/', 'packages/contracts']]);
+const syntaxChecks = source => {
+  if (/\.tsx?$/.test(source)) {
+    const project = TYPED_PROJECTS.find(([prefix]) => source.startsWith(prefix));
+    return Boolean(project) && String(pkg.scripts.typecheck || '').split(/\s*&&\s*/).includes(`tsc --project ${project[1]}`);
+  }
+  return syntaxGate.split(/\s*&&\s*/).includes(`node --check ${source}`);
+};
 const dependencyLock = JSON.parse(read('package-lock.json'));
 /* 3.4.17: GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr and GHSA-c6gr-qvv4-5v3f, after the alpha.17 XSS fix in 3.4.16. */
 assert.strictEqual(pkg.dependencies.dompurify, '3.4.17', 'DOMPurify must include the October 2026 sanitizer fixes');
@@ -134,15 +147,28 @@ assert.deepStrictEqual(
   { ...pkg.dependencies, ...pkg.devDependencies },
   'the lockfile root must declare the same versions as package.json'
 );
-for (const source of ['public/index.html', 'public/sw.js', 'server.js', 'scripts/copy-vendor.js', 'scripts/verify.js']) {
-  assert(read(source).includes('dompurify/3.4.17/purify.min.js'), `${source} has a stale DOMPurify asset path`);
+/*
+ * The page's DOMPurify is the pinned, patched package, bundled: the installed
+ * copy is the pinned version, and the built entry carries that version's own
+ * licence header, which only the package's code brings with it.
+ */
+assert.strictEqual(JSON.parse(read('node_modules/dompurify/package.json')).version, '3.4.17', 'the installed DOMPurify is not the pinned one');
+{
+  const builtEntry = fs.readdirSync(path.join(root, 'dist', 'web', 'build')).find(file => /^index-.+\.js$/.test(file));
+  assert(builtEntry && read(`dist/web/build/${builtEntry}`).includes('DOMPurify 3.4.17'), 'the built page does not carry the pinned DOMPurify');
+}
+assert(read('scripts/copy-vendor.js').includes('dompurify/3.4.17/purify.min.js'), 'scripts/copy-vendor.js has a stale DOMPurify asset path');
+{
+  /* The vendor route serves the pinned DOMPurify and no other: its allowlist, as the route holds it. */
+  const { VENDOR_ALLOWLIST } = require('../apps/api/src/http/routes/vendor.ts');
+  assert.deepStrictEqual([...VENDOR_ALLOWLIST].filter(file => file.startsWith('dompurify/')), ['dompurify/3.4.17/purify.min.js'], 'the vendor route serves a stale DOMPurify');
 }
 assert(fs.existsSync(path.join(root, 'public/vendor/dompurify/3.4.17/purify.min.js')));
 assert(['3.4.12', '3.4.13', '3.4.16'].every(version => !fs.existsSync(path.join(root, 'public/vendor/dompurify', version))),
   'the vulnerable DOMPurify browser asset must not remain releasable');
 const task6Artifacts = [
-  'src/alpha-access.js',
-  'src/alpha-access-store.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts',
   'scripts/alpha-invites.js',
   'db/migrations/014_alpha_access.sql',
   'test/alpha-access.test.js',
@@ -161,8 +187,8 @@ const task6Programs = [
   'test/alpha-invite-cli.test.js'
 ];
 const task6SyntaxSources = [
-  'src/alpha-access.js',
-  'src/alpha-access-store.js',
+  'apps/api/src/modules/identity-access/domain/alpha-access.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-access-store.ts',
   'scripts/alpha-invites.js'
 ];
 const task6Omissions = [];
@@ -232,7 +258,7 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr57)) {
 assert.deepStrictEqual(task6Omissions, [], `Task 6 binding omissions:\n- ${task6Omissions.join('\n- ')}`);
 
 const uxArtifacts = [
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/public-errors.test.js', 'test/public-errors-server-contract.test.js',
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
@@ -244,7 +270,7 @@ const uxPrograms = [
   'test/alpha-ui-contract.test.js', 'test/capability-ui-contract.test.js', 'test/trust-ui-contract.test.js'
 ];
 const uxSyntaxSources = [
-  'src/public-errors.js', 'public/alpha-ui.js', 'public/capability-ui.js', 'public/trust-ui.js',
+  'apps/api/src/http/errors.ts', 'apps/web/src/features/access/alpha-ui.ts', 'apps/web/src/features/capabilities/capability-ui.ts', 'apps/web/src/features/trust/trust-ui.ts',
   'test/e2e/public-alpha-fixtures.js', 'test/e2e/public-alpha-golden-path.spec.js',
   'test/e2e/public-alpha-states.spec.js', 'test/e2e/public-alpha-accessibility.spec.js'
 ];
@@ -276,9 +302,9 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr59)) uxOmis
 assert.deepStrictEqual(uxOmissions, [], `UX accessibility binding omissions:\n- ${uxOmissions.join('\n- ')}`);
 
 const privacyArtifacts = [
-  'src/alpha-privacy.js',
-  'src/alpha-privacy-store.js',
-  'src/provider-disconnect.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts',
+  'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js',
   'db/migrations/015_alpha_privacy.sql',
   'test/alpha-privacy.test.js',
@@ -294,9 +320,9 @@ const privacyArtifacts = [
 ];
 const privacyPrograms = privacyArtifacts.filter(file => file.startsWith('test/'));
 const privacySyntaxSources = [
-  'src/alpha-privacy.js',
-  'src/alpha-privacy-store.js',
-  'src/provider-disconnect.js',
+  'apps/api/src/modules/identity-access/domain/alpha-privacy.ts',
+  'apps/api/src/modules/identity-access/persistence/alpha-privacy-store.ts',
+  'apps/api/src/modules/identity-access/domain/provider-disconnect.ts',
   'scripts/alpha-privacy.js'
 ];
 const privacyOmissions = [];
@@ -347,8 +373,8 @@ if (!read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(adr58)) {
 assert.deepStrictEqual(privacyOmissions, [], `Privacy lifecycle binding omissions:\n- ${privacyOmissions.join('\n- ')}`);
 assert.strictEqual(pkg.name, 'nebulaverse-x');
 assert.strictEqual(pkg.version, '5.3.0-alpha.17.0');
-assert.strictEqual(pkg.engines.node, '22.23.1');
-assert.strictEqual(read('.nvmrc'), '22.23.1\n');
+assert.strictEqual(pkg.engines.node, '22.23.5');
+assert.strictEqual(read('.nvmrc'), '22.23.5\n');
 assert.strictEqual(pkg.scripts['package:release'], 'node scripts/package-release.js');
 assert.strictEqual(pkg.scripts['foundation:gate'], 'node scripts/foundation-gate.js');
 assert.strictEqual(pkg.scripts['test:e2e:evidence'], 'playwright test --reporter=json');
@@ -463,7 +489,7 @@ for (const program of publicAlphaPrograms) {
   assert(programIndex > previousProgramIndex, `test:unit must run ${program} after ${releaseProgram}`);
   previousProgramIndex = programIndex;
 }
-for (const source of ['src/authorization-resolver.js', 'src/mutation-gateway.js', 'src/governance-model.js', 'src/governance-store.js', 'src/governance-api.js', 'src/governance-simulation.js', 'src/control-catalog.js', 'src/governance-enforcement.js', 'src/governance-exceptions.js', 'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'public/governance-ui.js', 'src/capability-registry.js']) {
+for (const source of ['apps/api/src/platform/authorization/authorization-resolver.ts', 'apps/api/src/platform/mutation-gateway/mutation-gateway.ts', 'apps/api/src/modules/kepler/domain/governance-model.ts', 'apps/api/src/modules/kepler/persistence/governance-store.ts', 'apps/api/src/modules/kepler/application/governance-api.ts', 'apps/api/src/modules/kepler/domain/governance-simulation.ts', 'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts', 'apps/api/src/modules/kepler/domain/governance-exceptions.ts', 'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'src/staging-validation.js', 'src/test-matrix.js', 'scripts/staging-gate.js', 'scripts/test-matrix.js', 'scripts/foundation-gate.js', 'test/e2e/task20-fixtures.js', 'test/e2e/task20-accessibility.spec.js', 'playwright.config.js', 'apps/web/src/features/governance/governance.ts', 'src/capability-registry.js']) {
   assert(syntaxChecks(source), `syntax gate missing ${source}`);
 }
 const verifyScript = read('scripts/verify.js');
@@ -477,18 +503,14 @@ for (const artifact of [
   'docs/vision/UX_VISION.md', 'docs/release/EVIDENCE_INDEX.md',
   'test/public-alpha-provenance.test.js', 'test/capability-registry.test.js',
   'test/capability-registry-server-contract.test.js', 'test/public-alpha-documentation.test.js',
-  'src/governance-templates.js', 'src/governance-digital-twin.js', 'src/governance-interface.js', 'src/mutation-coverage.js', 'src/governance-delivery.js', 'src/governance-webhook-worker.js', 'public/governance-ui.js',
-  'src/control-catalog.js', 'src/governance-enforcement.js',
+  'apps/api/src/modules/kepler/domain/governance-templates.ts', 'apps/api/src/modules/kepler/domain/governance-digital-twin.ts', 'apps/api/src/modules/kepler/domain/governance-interface.ts', 'apps/api/src/platform/mutation-gateway/mutation-coverage.ts', 'apps/api/src/modules/kepler/delivery/governance-delivery.ts', 'apps/api/src/modules/kepler/delivery/governance-webhook-worker.ts', 'apps/web/src/features/governance/governance.ts', 'apps/web/src/features/governance/GovernanceView.tsx',
+  'apps/api/src/modules/kepler/domain/control-catalog.ts', 'apps/api/src/modules/kepler/domain/governance-enforcement.ts',
   'db/migrations/010_governance_activation_evidence.sql', 'db/migrations/011_governance_policy_decisions.sql'
 ]) {
   assert(verifyScript.includes(artifact), `build verification missing ${artifact}`);
 }
-const stagingValidation = read('src/staging-validation.js');
-assert(stagingValidation.includes("const EVIDENCE_SCHEMA_VERSION = '1.2.0'"));
-assert(stagingValidation.includes('expectedSubjectHash is required'));
-assert(stagingValidation.includes('evidence requires at least one artifact file'));
-assert(stagingValidation.includes('verifyArtifact is required when evidence contains artifacts'));
-assert(stagingValidation.includes('commandHash does not match the prescribed command'));
+assert.strictEqual(require('../src/staging-validation').EVIDENCE_SCHEMA_VERSION, '1.2.0');
+/* Staging evidence refused without its subject, an artifact, a way to verify one, or the prescribed command: test/staging-validation.test.js's. */
 const stagingCli = read('scripts/staging-gate.js');
 assert(stagingCli.includes('NV_STAGING_SUBJECT_SHA256'));
 assert(stagingCli.includes('evidence subjectHash does not match NV_STAGING_SUBJECT_SHA256'));
@@ -501,7 +523,8 @@ assert.strictEqual(
   'node scripts/test-matrix.js --require-all --require-subject --report staging/evidence/public-alpha-matrix.json'
 );
 const publicAlphaQualificationArtifacts = [
-  'src/secret-scanner.js',
+  'apps/api/src/platform/release/secret-scanner.ts',
+  'apps/api/src/platform/release/secret-rules.ts',
   'scripts/check-secrets.js',
   'src/qualification-evidence.js',
   'src/public-alpha-qualification.js',
@@ -577,14 +600,14 @@ for (const forbidden of [
   'backups/db-backup-manifest.json'
 ]) assert.strictEqual(shouldInclude(forbidden), false, forbidden);
 for (const allowed of [
-  'server.js', '.env.example', '.gitignore', '.github/workflows/ci.yml',
-  'public/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
+  'apps/api/src/main.ts', '.env.example', '.gitignore', '.github/workflows/ci.yml',
+  'apps/web/src/legacy/app.js', 'public/vendor/marked/15.0.12/marked.min.js',
   ...task6Artifacts
 ]) assert.strictEqual(shouldInclude(allowed), true, allowed);
 
 const hostedOperationsSources = [
-  'src/hosted-readiness.js',
-  'src/backup-format.js',
+  'apps/api/src/platform/persistence/hosted-readiness.ts',
+  'apps/api/src/platform/persistence/backup-format.ts',
   'scripts/alpha-db.js',
   'scripts/alpha-smoke.js',
   'scripts/alpha-load.js'
@@ -655,7 +678,7 @@ assert(read('docs/architecture/ARCHITECTURE_DECISIONS.md').includes(
  * Asserted against the file rather than a rendered page: a browser test waits
  * for the app to settle, and settling is precisely what hides this.
  */
-const shell = read('public/index.html');
+const shell = read('apps/web/index.html');
 const fabTag = shell.slice(shell.indexOf('id="paletteFab"'));
 assert(
   /^[^>]*\shidden[\s>]/.test(fabTag.slice(0, fabTag.indexOf('>') + 1)) ||
@@ -692,7 +715,8 @@ const unitGateChain = [
    under the same terms: it starts two real server processes against one
    database, which is the one claim no fake can settle. */
 /* test:code-audit-history is the audit history's store against the same server: its privacy rests on CHECK constraints and a cascade. */
-const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store', 'test:code-audit-history', 'test:governance-lifecycle'];
+/* test:composition-postgres builds the composed server on a database of its own: where a session lives and what a delivery leaves behind are the store's to show. */
+const externallyGatedScripts = ['test:migrations', 'test:multi-instance', 'test:exposure-store', 'test:code-audit-history', 'test:governance-lifecycle', 'test:composition-postgres'];
 const workflow = read('.github/workflows/ci.yml');
 for (const script of externallyGatedScripts) {
   assert(pkg.scripts[script], `externally gated script is missing: ${script}`);

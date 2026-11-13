@@ -17,6 +17,8 @@
 const { test, expect } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn, installClock, heldReading } = require('./press');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
@@ -78,6 +80,19 @@ test('the board is last on the Overview, so its arrival moves nothing a reader i
   const feed = page.locator('#wpFeed');
   await feed.scrollIntoViewIfNeeded();
   await expect(page.locator('#wpPulls')).toContainText('Reading the open pull requests');
+  /*
+   * Only the board is still reading: the cards above the feed have landed. A
+   * card the reader can see fills in where it stands (overview-place.spec.js),
+   * so one landing now would move the feed for its own reason, not the board's.
+   */
+  await expect(page.locator('#wpPosture')).not.toContainText('Reading the audits and scans');
+  await expect(page.locator('#wpTrust')).toContainText('From 6 of 6 signals measured');
+  /*
+   * The cards arrive with a scroll-driven animation whose frame follows the
+   * scroll one frame later; read in the scroll's own frame, the feed is where
+   * it was drawn before it -- 25 px off, now and then, on a phone.
+   */
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
   const before = await feed.evaluate(node => node.getBoundingClientRect().top);
   release();
   await expect(page.locator('#wpPulls .pb-item')).toHaveCount(4);
@@ -91,6 +106,22 @@ test('a card opens its pull request in its own repository', async ({ page }) => 
   await expect(page.locator('#tab-pulls')).toBeVisible();
   await expect(page).toHaveURL(/#\/sandbox\/demo@main\/pulls$/);
   await expect(page.locator('#prDetail')).toContainText('Pin the release workflow\'s actions to commits');
+});
+
+/* A press on a pull request is delivered even when the board is redrawn under it. */
+test('a redraw that lands during the press on a pull request does not swallow it', async ({ page }) => {
+  await installClock(page);
+  const card = await board(page);
+  /* Registered after the fixture's routes, so it is asked first. */
+  const reading = await heldReading(page);
+  const pull = card.getByRole('button', { name: /Open pull request #42 in sandbox\/demo/ });
+  await expect(pull).toBeVisible();
+  await reading.start();
+  await pressOn(page, pull);
+  await reading.land();
+  await page.mouse.up();
+  await expect(page.locator('#tab-pulls')).toBeVisible();
+  await expect(page).toHaveURL(/#\/sandbox\/demo@main\/pulls$/);
 });
 
 test('repositories it could not read are named, and it says how many it read, a few at a time', async ({ page }) => {
@@ -137,6 +168,11 @@ test('repositories it could not read are named, and it says how many it read, a 
   await waiting.getByRole('button', { name: 'Show 2 more' }).click();
   await expect(waiting.locator('.pb-item')).toHaveCount(7);
   await expect(waiting.getByRole('button', { name: 'Show fewer' })).toHaveAttribute('aria-expanded', 'true');
+  /* The control pressed is the control that answers: the reader's focus stays on it, not on the page. */
+  await expect(waiting.getByRole('button', { name: 'Show fewer' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(waiting.locator('.pb-item')).toHaveCount(5);
+  await expect(waiting.getByRole('button', { name: 'Show 2 more' })).toBeFocused();
 });
 
 test('a GitHub rate limit says so and how long to wait, rather than "could not be read"', async ({ page }) => {
@@ -287,6 +323,11 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   const held = new Promise(resolve => { release = resolve; });
   let calls = 0;
   await mockPublicAlphaApi(page, { access: 'active' });
+  /* Two GitHub accounts, so the reader has one to switch to. */
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'alpha-tester', provider: 'github' }, { login: 'second-github', provider: 'github' }
+  ] } }));
+  await page.route('**/api/accounts/switch-idx', route => route.fulfill({ json: { ok: true, login: 'second-github' } }));
   await page.route('**/api/repo/sandbox/demo/pulls?*', async route => {
     calls += 1;
     if (calls === 1) await held;
@@ -297,9 +338,17 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   await card.scrollIntoViewIfNeeded();
   await expect(card).toContainText('Reading the open pull requests');
   await expect.poll(() => calls).toBe(1);
-  /* The signed-in identity is replaced while the first reading is on its way. */
-  await page.evaluate(() => { state.me = { ...state.me }; });
+  /* The reader switches account while the first reading is on its way. */
+  await ui.button(page, 'Accounts').click();
+  await ui.dialog(page, 'Accounts').getByRole('button', { name: 'Switch' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
   release();
+  /*
+   * The page was emptied for the new account and filled again, which can
+   * leave the reader at its top with the card below the fold: it reads when
+   * it is in view, so the reader goes back to it.
+   */
+  await card.scrollIntoViewIfNeeded();
   /* Read again (from the lists already fetched, within their five minutes), not left reading. */
   await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');
   await expect(card).not.toContainText('Reading the open pull requests');

@@ -2,8 +2,8 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const { loadGithubAppConfig } = require('../src/config');
-const { GithubAppBroker, GithubAppError } = require('../src/github-app');
+const { loadGithubAppConfig } = require('../apps/api/src/platform/config/config.ts');
+const { GithubAppBroker, GithubAppError } = require('../apps/api/src/modules/github-provider/index.ts');
 
 function json(status, body) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

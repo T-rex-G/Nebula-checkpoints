@@ -77,6 +77,12 @@ test('beside the shape, each language is ranked with its count and share', async
   await expect(rows.first().locator('.gx-lang-n')).toHaveText('2');
   await expect(rows.first().locator('.gx-lang-pc')).toHaveText('40%');
   await expect(rows.nth(1).locator('.gx-lang-pc')).toHaveText('20%');
+  /* Each bar is drawn against the largest, on one baseline: the leader fills its track, a language with half as many half of it. */
+  const filled = await rows.locator('.gx-lang-bar').evaluateAll(bars => bars.map(bar => {
+    const fill = bar.querySelector('i');
+    return Math.round((parseFloat(getComputedStyle(fill).width) / bar.clientWidth) * 100) / 100;
+  }));
+  expect(filled).toEqual([1, 0.5, 0.5, 0.5]);
 });
 
 test('the ranked list names the folded tail by its size', async ({ page }) => {

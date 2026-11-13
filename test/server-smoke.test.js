@@ -1,17 +1,20 @@
 'use strict';
 
+const { serverEntry, serverIdentity } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const port = 22000 + Math.floor(Math.random() * 5000);
+const port = freePort();
 const root = path.resolve(__dirname, '..');
-const { ASSET_VERSION, APP_VERSION } = require('../src/version');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { APP_VERSION } = require('../apps/api/src/platform/release/version.ts');
+const { servedAssetsDigest } = require('../apps/api/src/platform/release/web-build.ts');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const releaseTreeSha256 = computeReleaseFingerprint(root);
 const sessionSecret = ['smoke-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['smoke-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,
@@ -100,23 +103,48 @@ async function waitForServer() {
     /* The maintainers' commentary stays in the source: the page, scripts and stylesheet are served without it. */
     const page = await (await request('/')).text();
     assert(!page.includes('<!--'), 'the page is served without comments');
-    const script = await request('/app.js');
+    /* Built, so named by content: the page links its entry and stylesheet by those names. */
+    const entryPath = (/<script type="module" crossorigin src="(\/build\/[^"]+\.js)"><\/script>/.exec(page) || [])[1];
+    const sheetPath = (/<link rel="stylesheet" crossorigin href="(\/build\/[^"]+\.css)">/.exec(page) || [])[1];
+    assert(entryPath && sheetPath, 'the page must link its built entry and stylesheet');
+    const script = await request(entryPath);
     assert.strictEqual(script.status, 200);
     assert.match(script.headers.get('content-type'), /^application\/javascript/);
+    assert.strictEqual(script.headers.get('cache-control'), 'public, max-age=31536000, immutable',
+      'a file named by its content never changes under that name');
     const scriptBody = await script.text();
-    assert(!/^\s*\/\*|^\s*\/\//m.test(scriptBody), 'no comment lines in the served script');
+    /* A bundled library's licence notice is the one comment that ships; a shader's comments are string content. */
+    const acorn = require(require.resolve('acorn', { paths: [path.dirname(require.resolve('eslint'))] }));
+    const scriptComments = [];
+    acorn.parse(scriptBody, { ecmaVersion: 'latest', sourceType: 'module', onComment: scriptComments });
+    assert.deepStrictEqual(scriptComments.filter(comment => !/^!|@license|@preserve/.test(comment.value.trim())), [],
+      'no comment in the served script');
+    /* Recognised by what each says, which survives the build, not by a global name the page no longer publishes. */
+    assert.match(scriptBody, /Unsafe archive file path traversal/, 'the archive validator is part of the entry');
+    assert.match(scriptBody, /sha_or_tag/, 'the export helper is part of the entry');
     const etag = script.headers.get('etag');
     assert(etag, 'the served script has a validator');
-    assert.strictEqual((await request('/app.js', { headers: { 'If-None-Match': etag } })).status, 304);
-    /* Render's proxy compresses and weakens the tag; the browser sends it back as W/"...". */
-    assert.strictEqual((await request('/app.js', { headers: { 'If-None-Match': `W/${etag}` } })).status, 304);
-    const sheet = await (await request('/style.css')).text();
+    /*
+     * As a browser revalidates. fetch() adds Cache-Control: no-cache to a request
+     * that carries a validator unless one is given, and no-cache rightly forbids
+     * answering from the validator alone.
+     */
+    const revalidate = tag => request(entryPath, { headers: { 'If-None-Match': tag, 'Cache-Control': 'max-age=0' } });
+    assert.strictEqual((await revalidate(etag)).status, 304);
+    /* Render's proxy compresses and weakens the tag; If-None-Match compares weakly either way. */
+    const strong = etag.replace(/^W\//, '');
+    assert.strictEqual((await revalidate(`W/${strong}`)).status, 304);
+    assert.strictEqual((await revalidate(strong)).status, 304);
+    const sheet = await (await request(sheetPath)).text();
     assert(!sheet.includes('/*'), 'the stylesheet is served without comments');
+    const boot = await request('/theme-boot.js');
+    assert.strictEqual(boot.headers.get('cache-control'), 'no-cache', 'a file whose name does not change is revalidated');
+    assert(!/\/\*|^\s*\/\//m.test(await boot.text()), 'the classic script is served without comments');
     const worker = await (await request('/sw.js')).text();
-    assert(!/^\s*\/\*|^\s*\/\//m.test(worker), 'the service worker is served without comments');
+    assert(!/^\s*\/\*(?!!)|^\s*\/\//m.test(worker), 'the service worker is served without comments');
 
     /* A file that is not there is not there: no shell page at 200 for a dotfile or a file name. */
-    for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/backup.zip']) {
+    for (const missing of ['/.env', '/.git/HEAD', '/.git/config', '/package.json', '/server.js', '/apps/api/src/main.ts', '/backup.zip']) {
       const response = await request(missing);
       assert.strictEqual(response.status, 404, `${missing} must be a 404`);
       assert(!/html/i.test(response.headers.get('content-type') || ''), `${missing} must not answer with the app`);
@@ -134,7 +162,9 @@ async function waitForServer() {
     assert.strictEqual(version.status, 200);
     assert.deepStrictEqual(await version.json(), {
       product: 'Nebulaverse-X',
-      releaseTreeSha256
+      releaseTreeSha256,
+      servedAssetsSha256: servedAssetsDigest(path.join(root, 'dist', 'web')),
+      ...serverIdentity(root)
     });
 
     /*
@@ -203,7 +233,6 @@ async function waitForServer() {
       assert(expired.every(value => /Expires=Thu, 01 Jan 1970/.test(value)));
     }
 
-    const archiveValidator = await request(`/archive-safety.js?v=${ASSET_VERSION}`);
     /*
      * A refused callback returns to the application carrying the reason rather
      * than ending on a bare page the reader can only leave by retyping the
@@ -226,12 +255,6 @@ async function waitForServer() {
     assert.strictEqual(await refusedOAuth('code=not-exchanged'), '/?oauth=state_mismatch',
       'an OAuth callback without a state cookie must fail before exchange');
     await refusedOAuth('code=not-exchanged&state=obsolete', { cookie: 'nv_workspace_oauth_intent=obsolete' });
-    assert.strictEqual(archiveValidator.status, 200);
-    assert.match(await archiveValidator.text(), /NebulaArchiveSafety/);
-
-    const exportSafety = await request(`/export-safety.js?v=${ASSET_VERSION}`);
-    assert.strictEqual(exportSafety.status, 200);
-    assert.match(await exportSafety.text(), /NebulaExportSafety/);
 
     const missingAppHeader = await request('/api/login', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: 'not-used' })

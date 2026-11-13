@@ -146,7 +146,7 @@ function tally(outcomes) {
   };
 }
 
-function runBenchmark({ root = ROOT, analyse = require('../src/code-audit').analyse } = {}) {
+function runBenchmark({ root = ROOT, analyse = require('../apps/api/src/modules/uranus/index.ts').analyse } = {}) {
   const outcomes = cases(root).map(entry => scoreCase(entry, analyse));
   return { outcomes, totals: tally(outcomes) };
 }

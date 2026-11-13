@@ -1,8 +1,8 @@
 'use strict';
 const assert = require('assert');
-const { GovernanceStore } = require('../src/governance-store');
-const { policyDocumentHash } = require('../src/governance-model');
-const { normalizeExceptionTarget } = require('../src/governance-exceptions');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
+const { normalizeExceptionTarget } = require('../apps/api/src/modules/kepler/index.ts');
 
 class ScriptedClient {
   constructor(steps) { this.steps = [...steps]; this.calls = []; }

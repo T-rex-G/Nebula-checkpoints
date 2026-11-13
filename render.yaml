@@ -3,7 +3,10 @@ services:
     name: nebulaverse-x-public-alpha
     runtime: node
     plan: free
-    buildCommand: npm ci --omit=dev
+    # The browser application is built here (ADR-091): every dependency is
+    # installed to build it, then the build tools are pruned, so the running
+    # service carries only its runtime dependencies and dist/web.
+    buildCommand: npm ci && npm run build && npm prune --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:

@@ -1,6 +1,7 @@
 'use strict';
 
 const { test, expect } = require('@playwright/test');
+const ui = require('./semantic');
 const { mockTask20Api, openRepository } = require('./task20-fixtures');
 
 test.use({ serviceWorkers: 'block' });
@@ -100,7 +101,9 @@ function anonKeyFinding(overrides = {}) {
 
 async function mockExposure(page, {
   findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201,
-  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201
+  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201, verifyStatus = 201,
+  /* The refusals the server sends: governanceAccess('administrator') guards both checks. */
+  probeRefusal = { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
 } = {}) {
   const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [],
     currentScan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }),
@@ -150,10 +153,7 @@ async function mockExposure(page, {
     if (url.pathname.endsWith('/probe-readability') && request.method() === 'POST') {
       state.probeBodies.push(request.postDataJSON());
       if (probeStatus !== 201) {
-        return route.fulfill({
-          status: probeStatus,
-          json: { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
-        });
+        return route.fulfill({ status: probeStatus, json: probeRefusal });
       }
       return route.fulfill({
         status: 201,
@@ -194,6 +194,12 @@ async function mockExposure(page, {
     }
     if (url.pathname.endsWith('/verify') && request.method() === 'POST') {
       state.verifyBodies.push(request.postDataJSON());
+      if (verifyStatus !== 201) {
+        return route.fulfill({
+          status: verifyStatus,
+          json: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+        });
+      }
       return route.fulfill({
         status: 201,
         json: {
@@ -436,6 +442,8 @@ test('findings narrow by severity, status, place and words, and export without t
 
   /* Export carries the displayable path and the status, never the credential or the raw path. */
   await tools.getByRole('button', { name: 'Export', exact: true }).click();
+  /* A credential scan has no bill of materials and no brief: the menu offers the two files it has. */
+  await expect(page.getByRole('menuitem')).toHaveText([/^SARIF 2\.1\.0/, /^CSV/]);
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csv = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
@@ -490,7 +498,11 @@ test('a late status response cannot restore a cleared repository scan', async ({
   await openExposure(page);
   await page.locator('#exposureScanBtn').click();
   await page.waitForRequest(request => request.method() === 'GET' && /\/exposure\/scans\//.test(request.url()));
-  await page.evaluate(() => window.clearExposureState());
+  /* The reader clears this browser's data while the scan's status is still on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const response = page.waitForResponse(url => /\/exposure\/scans\//.test(url.url()));
   release();
   await response;
@@ -655,6 +667,38 @@ test('a refusal to accept says it is the role, not that something went wrong', a
   /* The finding is unchanged: a refused acceptance must not look accepted. */
   await expect(page.locator('.exposure-item').first()).toHaveAttribute('data-disposition', 'open');
   await expect(page.locator('.exposure-item-provenance')).toHaveCount(0);
+});
+
+test('a refusal to check a credential says it is the role, not that something went wrong', async ({ page }) => {
+  /* The same role as accepting: the server sends GOVERNANCE_ROLE_REQUIRED, and the reader is told who can do it. */
+  await mockExposure(page, { findings: [finding()], verifyStatus: 403 });
+  await openExposure(page);
+  await expandFindings(page);
+
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await verify.click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('#exposureProofLine')).not.toContainText(/could not be checked/i);
+  await expect(page.locator('.exposure-item-liveness')).toHaveCount(0);
+});
+
+test('a refusal to ask a project says it is the role, not that something went wrong', async ({ page }) => {
+  await mockExposure(page, {
+    findings: [anonKeyFinding()], probeStatus: 403,
+    probeRefusal: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+  });
+  await openExposure(page);
+  await expandFindings(page);
+
+  await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
+  await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
+  await page.locator('.exposure-probe').click();
+  await page.locator('.exposure-probe').click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('.exposure-item-readability')).toHaveCount(0);
 });
 
 test('an anonymous key is not reported as a leak, and asks the question instead', async ({ page }) => {
@@ -926,10 +970,18 @@ test('a finding says its whole path and line, even on a phone', async ({ page })
 /* ---- History: every scan, by time, each opening into its report --------- */
 
 test('scan history is grouped by day, newest first, and each scan opens into its report', async ({ page }) => {
-  const now = Date.now();
-  const today = new Date(now);
-  const earlierToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 30);
-  const threeDaysAgo = new Date(now - 3 * 86_400_000);
+  /*
+   * The page names a day by its own clock, so it is given the instant the
+   * scans are dated from, and held there. Dated by the runner's clock alone, a
+   * run that crossed midnight between building the scans and drawing them read
+   * today's scans as "Yesterday". The morning scan falls halfway between
+   * midnight and that instant, so it is earlier the same day at any hour.
+   */
+  const today = new Date();
+  await page.clock.setFixedTime(today);
+  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const earlierToday = new Date(midnight + Math.floor((today.getTime() - midnight) / 2));
+  const threeDaysAgo = new Date(today.getTime() - 3 * 86_400_000);
   const latest = historyScan({
     scanId: '90000000-0000-4000-8000-00000000000a', createdAt: today.toISOString(),
     state: 'complete', coverage: 'complete', findingCount: 2, severityCounts: { critical: 2, serious: 0, warning: 0 }
@@ -1118,6 +1170,12 @@ test('the screen is operable from the keyboard and announces changes', async ({ 
 test('both themes and a 320px screen keep it readable', async ({ page }) => {
   await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  /*
+   * The tab is shown before its findings arrive. Read straight after it
+   * opened, the finding was not there yet whenever the scan answered a little
+   * late, and the check failed on an element it never waited for.
+   */
+  await expect(page.locator('.exposure-item-consequence').first()).toBeAttached();
 
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
@@ -1162,12 +1220,21 @@ test('switching repository does not leave the previous findings on screen', asyn
   await openExposure(page);
   await expect(page.locator('.exposure-item')).toHaveCount(1);
 
-  await page.evaluate(() => window.clearExposureState());
   /*
-   * Whether or not the helper is reachable from here, the guarantee is that
-   * findings belong to one repository and one identity: leaving them up after
-   * a switch would show somebody another repository's exposures.
+   * Findings belong to one repository and one identity: leaving them up after
+   * a switch would show somebody another repository's exposures. The other
+   * repository is opened by its address, and holds its answer back, so what
+   * is on screen meanwhile can only be what the switch left.
    */
-  const stale = await page.evaluate(() => document.querySelectorAll('.exposure-item').length);
-  expect(stale).toBe(0);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/repo/acme/other', async route => {
+    await held;
+    return route.fulfill({ json: { full_name: 'acme/other', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: 'c'.repeat(40) }] } });
+  });
+  await page.route('**/api/repo/acme/other/**', route => route.fulfill({ json: [] }));
+  await page.evaluate(() => { location.hash = '#/acme/other@main/exposure'; });
+  await expect(page.locator('#workRepoName')).toHaveText('acme/other');
+  await expect(page.locator('.exposure-item')).toHaveCount(0);
+  release();
 });

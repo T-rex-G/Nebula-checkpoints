@@ -87,7 +87,7 @@ test('the upload queue sends one file at a time', async ({ page }) => {
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
 
-  await page.evaluate(() => { if (window.switchTab) window.switchTab('upload'); });
+  await ui.openTab(page, 'upload');
   await page.locator('#filePicker').waitFor({ state: 'attached' });
   await page.locator('#filePicker').setInputFiles(QUEUED.map(name => ({
     name,
@@ -120,28 +120,30 @@ async function chooseTransport(page, value) {
   await page.locator(`#uploadTransport [data-v="${value}"]`).click();
 }
 
-async function openUploads(page) {
+/* `prepare` adds routes after the fixture's, so they answer first, before the page loads. */
+async function openUploads(page, prepare = null) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  if (prepare) await prepare();
   await page.goto('/');
   await ui.enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('upload'));
+  await ui.openTab(page, 'upload');
 }
 
-async function selectFiles(page, paths = ['one.txt', 'two.txt']) {
+async function selectFiles(page, paths = ['one.txt', 'two.txt'], bytes = 0) {
   // A directory selection supplies webkitRelativePath; preserve it at the DOM seam.
-  await page.evaluate(({ paths, content }) => {
+  await page.evaluate(({ paths, content, bytes }) => {
     const transfer = new DataTransfer();
     for (const path of paths) {
-      const file = new File([content], path.split('/').pop(), { type: 'text/plain' });
+      const file = new File([bytes ? new Uint8Array(bytes).fill(65) : content], path.split('/').pop(), { type: 'text/plain' });
       Object.defineProperty(file, 'webkitRelativePath', { value: path });
       transfer.items.add(file);
     }
     const picker = document.querySelector('#folderPicker');
     picker.files = transfer.files;
     picker.dispatchEvent(new Event('change', { bubbles: true }));
-  }, { paths, content: CONTENT });
+  }, { paths, content: CONTENT, bytes });
 }
 
 test('failed files are reported and group retry keeps nested paths without stripping again', async ({ page }) => {
@@ -180,9 +182,17 @@ test('individual Retry preserves folder, message, LFS choice and commit mode', a
   });
   await selectFiles(page, ['alpha/nested/one.txt', 'beta/two.txt']);
   await expect(page.locator('#uploadQueue .uq-item.error')).toHaveCount(1);
-  // The unfixed queue never opens the failure summary; cancel it when present.
+  /*
+   * The queue has finished when it says what failed. Asked once, straight
+   * after the second upload was sent, the summary was not open yet whenever
+   * that upload was answered a little late, and it then opened over the form
+   * the test went on to change -- or the retry went out before the second
+   * upload had landed.
+   */
   await expect.poll(() => requests.length).toBe(2);
-  if (await page.locator('#scrim').isVisible()) await page.locator('#modalCancel').click();
+  await expect(page.locator('#modalTitle')).toHaveText("1 of 2 didn't upload");
+  await page.locator('#modalCancel').click();
+  await expect(page.locator('#scrim')).toBeHidden();
   await page.locator('#uploadDir').fill('different');
   await page.locator('#uploadMsg').fill('Different message');
   await chooseTransport(page, 'auto');
@@ -259,13 +269,19 @@ for (const failure of ['network', 'malformed', 'abort']) {
   });
 }
 
+/* A deployment whose per-file limit is one megabyte, and two files over it. */
 test('files exceeding the limit are failures in the summary', async ({ page }) => {
-  await openUploads(page);
-  await page.evaluate(() => { state.runtime.uploadMaxMb = 0; });
-  await selectFiles(page);
+  await openUploads(page, () => page.route('**/api/config', route => route.fulfill({ json: {
+    oauth: false, uploadMaxMb: 1, gitDataMaxMb: 16, nativePushMaxMb: 16, contentsMaxMb: 40,
+    githubApp: { enabled: true, webhookConfigured: true }
+  } })));
+  const writes = [];
+  await page.route('**/api/repo/sandbox/demo/upload?**', route => { writes.push(route.request().url()); return route.fulfill({ json: GOOD }); });
+  await selectFiles(page, ['one.txt', 'two.txt'], 2 * 1048576);
   await expect(page.locator('#modalTitle')).toHaveText("2 of 2 didn't upload");
-  await expect(page.locator('#modalBody')).toContainText('per-file limit');
+  await expect(page.locator('#modalBody')).toContainText('exceeds the 1 MB per-file limit');
   await expect(page.locator('.toast.ok')).not.toContainText(['2 files uploaded']);
+  expect(writes).toEqual([]);
 });
 
 test('form changes during a queue do not retarget the remaining files', async ({ page }) => {
@@ -299,20 +315,58 @@ test('security-context failure is retryable and is never counted as uploaded', a
   await expect(page.locator('#uploadQueue .done')).toHaveCount(1);
 });
 
+/*
+ * The reader switches account while a file is still being prepared -- its
+ * folder is being read to see whether it is new. Accounts are changed from
+ * the overview, so the reader goes there and switches, and then opens the
+ * same repository on the same branch as the second account before the file
+ * is ready: everything about the upload's place matches except whose it is.
+ * The file was queued for the first account, so it is not sent under the
+ * second: the queue says to return to the account it was chosen under, and
+ * nothing is written.
+ */
 test('an account change during preparation prevents an upload under the new account', async ({ page }) => {
   await openUploads(page);
+  let switched = false;
+  /* After the switch the session is the second account's, with its own scope. */
+  await page.route('**/api/me', route => (switched ? route.fulfill({ json: {
+    login: 'second-github', name: 'Second Account', avatar: '', provider: 'github', authMethod: 'token',
+    offlineCacheScope: 'second-account-scope-0123456789',
+    caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
+  } }) : route.fallback()));
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'alpha-tester', provider: 'github' }, { login: 'second-github', provider: 'github' }
+  ] } }));
+  await page.route('**/api/accounts/switch-idx', route => { switched = true; return route.fulfill({ json: { ok: true, login: 'second-github' } }); });
   const writes = [];
   await page.route('**/api/repo/sandbox/demo/upload?**', route => {
     writes.push(route.request().url());
     return route.fulfill({ json: GOOD });
   });
-  await page.route('**/api/security/csrf', async route => {
-    await page.evaluate(() => { state.me.offlineCacheScope = 'different-account-scope'; });
-    return route.fulfill({ json: {
-      token: 'upload-account-fixture', expiresAt: new Date(Date.now() + 600000).toISOString()
-    } });
+  /* The folder read that prepares the file is held until the switch is over. */
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let preparing = 0;
+  await page.route('**/api/repo/sandbox/demo/tree?**', async route => {
+    preparing += 1;
+    await held;
+    return route.fallback();
   });
+
   await selectFiles(page, ['one.txt']);
+  await expect.poll(() => preparing).toBeGreaterThan(0);
+  await ui.rail(page, 'overview');
+  await ui.button(page, 'Accounts').click();
+  const accounts = ui.dialog(page, 'Accounts');
+  await accounts.getByRole('button', { name: 'Switch' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
+  const repos = await ui.enterRepositories(page);
+  await repos.locator('.repo-card').first().click();
+  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await expect(page.locator('#workRepoName')).toHaveText('sandbox/demo');
+  await expect(page.locator('#branchSelect')).toHaveValue('main');
+  release();
+
   await expect(page.locator('#modalTitle')).toHaveText("1 of 1 didn't upload");
   await expect(page.locator('#modalBody')).toContainText('Return to the original account');
   expect(writes).toEqual([]);
@@ -533,17 +587,22 @@ test('ZIP extraction also requires approval before forced LFS uses separate comm
   await expect(page.locator('#batchBar')).toBeHidden();
 });
 
+/*
+ * Git LFS cannot ride the ordinary batch commit, so choosing both asks first.
+ * Declined, nothing from the selection is queued, raw or otherwise, and
+ * nothing is sent.
+ */
 test('an unapproved forced-batch entry is refused before any raw blob is queued', async ({ page }) => {
   await openUploads(page);
+  const writes = [];
+  await page.route('**/api/repo/sandbox/demo/upload?**', route => { writes.push(route.request().url()); return route.fulfill({ json: GOOD }); });
   await page.locator('#uploadMode [data-v="batch"]').click();
   await chooseTransport(page, 'lfs');
-  // Exercise the per-file boundary too: a future caller must not bypass consent.
-  const outcome = await page.evaluate(async () => {
-    const result = await window.uploadOne(new File(['fixture'], 'one.txt'), 'one.txt');
-    return result.status;
-  });
-  expect(outcome).toBe('failed');
-  await expect(page.locator('#uploadQueue .error')).toContainText('confirm separate LFS commits');
+  await selectFiles(page, ['one.txt']);
+  await expect(page.locator('#modalTitle')).toHaveText('Git LFS uses separate commits');
+  await page.locator('#modalCancel').click();
+  await expect(page.locator('#modal')).toBeHidden();
+  await expect(page.locator('#uploadQueue .uq-item')).toHaveCount(0);
   await expect(page.locator('#batchBar')).toBeHidden();
-  await expect(page.locator('#uploadQueue .done')).toHaveCount(0);
+  expect(writes).toEqual([]);
 });

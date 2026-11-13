@@ -2,8 +2,8 @@
 
 // Synthetic transport regression coverage for the defects found by the audit.
 const assert = require('node:assert/strict');
-const { checkSite, LIMITS, PROBES, emailDomain } = require('../src/site-check');
-const { normalizeTarget } = require('../src/guarded-fetch');
+const { checkSite, LIMITS, PROBES, emailDomain } = require('../apps/api/src/modules/parallax/index.ts').siteCheck;
+const { normalizeTarget } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const NOW = Date.UTC(2026, 8, 30);
 const HEADERS = {
   'content-type': 'text/html',

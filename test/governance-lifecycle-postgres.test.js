@@ -21,10 +21,10 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { GovernanceStore } = require('../src/governance-store');
-const { createGovernanceApiService } = require('../src/governance-api');
-const { DEFAULT_NOTIFICATION_EVENT_TYPES } = require('../src/governance-delivery');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
+const { DEFAULT_NOTIFICATION_EVENT_TYPES } = require('../apps/api/src/modules/kepler/index.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -103,7 +103,7 @@ async function rejects(promise, code) {
   const scratchUrl = urlForDatabase(ADMIN_URL, databaseName);
   const pool = new Pool({ connectionString: scratchUrl, max: 4 });
   try {
-    await withClient(scratchUrl, client => runMigrations(client, loadMigrations(DIRECTORY)));
+    await withClient(scratchUrl, client => runMigrations(client, { directory: DIRECTORY }));
     const store = new GovernanceStore(pool, { secret: 'governance-lifecycle-secret-0123456789abcdef' });
     const service = createGovernanceApiService({ store });
     const call = (method, authorization, extra = {}) => service[method]({ scope, authorization, ...extra });
@@ -144,6 +144,62 @@ async function rejects(promise, code) {
     await approve(policy.policyId, v1.versionId);
     await switchOn('activateVersion', policy.policyId, v1.versionId);
     assert.strictEqual((await enforced()).length, 1, 'the activated policy is enforced');
+
+    /*
+     * ---- The active policy set is read, and nothing is written ----
+     * Safe passage asks the store which policies apply to a refused write.
+     * Asking the runtime instead would append a decision to the hash chain for
+     * a mutation nobody performed. Asked through a pool whose every statement
+     * is seen, the store reads in one read-only transaction, writes nothing,
+     * takes no lock and mints no identifier, and every governance table holds
+     * what it held.
+     */
+    {
+      const statements = [];
+      const seen = {
+        query: (...args) => pool.query(...args),
+        async connect() {
+          const client = await pool.connect();
+          return new Proxy(client, {
+            get(target, key) {
+              if (key === 'query') {
+                return (text, ...rest) => {
+                  statements.push(String(typeof text === 'string' ? text : text.text).replace(/\s+/g, ' ').trim());
+                  return target.query(text, ...rest);
+                };
+              }
+              const value = target[key];
+              return typeof value === 'function' ? value.bind(target) : value;
+            }
+          });
+        }
+      };
+      let minted = 0;
+      const watched = new GovernanceStore(seen, {
+        secret: 'governance-lifecycle-secret-0123456789abcdef',
+        idFactory: () => { minted += 1; return crypto.randomUUID(); }
+      });
+      const tables = (await pool.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'nv\\_governance\\_%' ORDER BY table_name"
+      )).rows.map(row => row.table_name);
+      assert(tables.length > 10, 'the governance tables are found');
+      const held = async () => {
+        const counts = {};
+        for (const table of tables) counts[table] = (await pool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n;
+        return counts;
+      };
+      const before = await held();
+      const resolved = await watched.resolveActivePolicySetInScope({ scope, action: 'branch.reset' });
+      assert.deepStrictEqual(resolved.activePolicies.map(active => active.policyId), [policy.policyId], 'it finds the active policy');
+      assert.match(statements[0], /^BEGIN TRANSACTION\b.*\bREAD ONLY$/, `in one read-only transaction: ${statements[0]}`);
+      assert.deepStrictEqual(statements.filter(statement => /^BEGIN\b/.test(statement)).length, 1, 'and only one');
+      assert.deepStrictEqual(
+        statements.filter(statement => /\b(?:INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|FOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE)|pg_advisory\w*lock)\b/i.test(statement)),
+        [], 'writing nothing, and taking no lock'
+      );
+      assert.strictEqual(minted, 0, 'minting no identifier');
+      assert.deepStrictEqual(await held(), before, 'and every governance table holds what it held');
+    }
 
     /* ---- Switching it off ---------------------------------------------- */
 

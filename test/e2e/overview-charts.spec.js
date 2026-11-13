@@ -53,11 +53,32 @@ test('the feed says that today is still being counted', async ({ page }) => {
  */
 test('the grid is a solid hairline, not a dashed rule', async ({ page }) => {
   await overview(page);
+  await expect(page.locator('#wpActivity .wp-grid-line').first()).toBeAttached();
   const dashes = await page.evaluate(() => [...document.querySelectorAll('.wp-grid-line')]
     .map(line => getComputedStyle(line).strokeDasharray)
     .filter(value => /[1-9]/.test(value)));
   expect(dashes).toEqual([]);
   await expect(page.locator('#wpActivity .wp-area-axis').first()).toBeVisible();
+});
+
+/*
+ * Every chart takes its colours from the preset: a gradient that carried a
+ * colour of its own would stay Nebula violet under Obsidian, and stay
+ * whatever theme was current when it was drawn. The stops carry classes the
+ * stylesheet colours, and change with the preset without being drawn again.
+ */
+test('the charts take their colours from the preset, not from their markup', async ({ page }) => {
+  await overview(page);
+  await expect(page.locator('#wpActivity svg.wp-area')).toBeVisible();
+  const stops = page.locator('#page-overview svg.wp-area stop');
+  expect(await stops.count()).toBeGreaterThan(0);
+  expect(await stops.evaluateAll(nodes => nodes.filter(stop => stop.hasAttribute('stop-color')).length), 'a stop names a colour of its own').toBe(0);
+  const ink = () => page.locator('#wpActivity svg.wp-area .wp-stroke-to').evaluate(stop => getComputedStyle(stop).stopColor);
+  const before = await ink();
+  const drawn = await page.locator('#wpActivity svg.wp-area').elementHandle();
+  await page.evaluate(() => { document.documentElement.dataset.design = document.documentElement.dataset.design === 'obsidian' ? 'nebula' : 'obsidian'; });
+  await expect.poll(ink, { message: 'the series ink follows the preset' }).not.toBe(before);
+  expect(await drawn.evaluate(node => node.isConnected), 'without the chart being drawn again').toBe(true);
 });
 
 /*
@@ -68,6 +89,7 @@ test('the grid is a solid hairline, not a dashed rule', async ({ page }) => {
  */
 test('a dense series draws no dots, and still names its latest reading', async ({ page }) => {
   await overview(page);
+  await expect(page.locator('#wpActivity .wp-area-line')).toBeAttached();
   /* Segment count off the curve: one cubic per gap between readings. */
   const segments = await page.evaluate(() =>
     ((document.querySelector('#wpActivity .wp-area-line')?.getAttribute('d') || '').match(/C/g) || []).length);
@@ -185,6 +207,8 @@ test('the series is curved and never dips below its own baseline', async ({ page
   }));
   await page.goto('/');
   await expect(ui.screen(page, 'overview')).toBeVisible();
+  /* Read once the series is drawn: a card not laid out yet draws its chart at its first real width. */
+  await expect(page.locator('#wpActivity .wp-area-line')).toBeAttached();
 
   const geometry = await page.evaluate(() => {
     const path = document.querySelector('#wpActivity .wp-area-line');
@@ -222,6 +246,8 @@ test('the endpoint pings, and does not when motion is off', async ({ page }) => 
   });
   await page.reload();
   await expect(ui.screen(page, 'overview')).toBeVisible();
+  /* Counted once the chart is there: an overview still arriving has no ping either. */
+  await expect(page.locator('#wpActivity .wp-area-head')).toBeVisible();
   await expect(page.locator('#wpActivity .wp-area-ping')).toHaveCount(0);
 });
 
@@ -242,6 +268,32 @@ test('the chart is drawn at the width it is shown, not stretched to it', async (
 });
 
 /*
+ * On a phone each card arrives as it is scrolled to, drawn slightly smaller
+ * until it has (a scroll-driven entrance). A chart is drawn at its card's
+ * laid-out width all the same. Measured from the card's box on screen, a chart
+ * drawn while its card was still below the fold came out 1.5% narrower than
+ * the card and was stretched to fill it -- every line and label blurred, and
+ * the card 2px taller than when a reading next redrew it, which moved the page
+ * under the reader. A transform never reaches a resize observer, so nothing
+ * refitted it.
+ */
+test('a chart is drawn at its card\'s laid-out width, arrived or not', async ({ page }) => {
+  await overview(page);
+  const charts = ['#wpActivity svg.wp-area', '#wpPosture svg.pp-chart-svg', '#wpFeed svg.wp-area'];
+  for (const selector of charts) await expect(page.locator(selector)).toBeAttached();
+  const fit = () => page.evaluate(selectors => selectors.map(selector => {
+    const chart = document.querySelector(selector);
+    return { selector, drawn: chart.viewBox.baseVal.width, laid: chart.clientWidth };
+  }).filter(entry => Math.abs(entry.drawn - entry.laid) > 1), charts);
+  /* As first drawn, the lower cards still arriving on a phone. */
+  await expect.poll(fit, { message: 'every chart is drawn at the width it is laid out at' }).toEqual([]);
+  /* Back to the overview from its own mark: every card is drawn again where it stands, the lower ones arriving again. */
+  await page.locator('#ovHomeBtn').click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect.poll(fit, { message: 'every chart is drawn at the width it is laid out at' }).toEqual([]);
+});
+
+/*
  * A reading can land while its card is not laid out yet -- the overview still
  * hidden behind the screen before it. Drawn then, the chart had no width to
  * take, played its arrival at a 380-pixel guess, and was replaced at its real
@@ -252,7 +304,7 @@ test('the chart is drawn at the width it is shown, not stretched to it', async (
 test('a chart whose card is hidden when the reading lands is drawn once, at the width it is shown', async ({ page }) => {
   await overview(page);
   await expect(page.locator('#wpFeed .wp-area')).toBeVisible();
-  await page.evaluate(() => {
+  const reading = await page.evaluate(() => {
     const feed = document.querySelector('#wpFeed');
     window.__charts = [];
     new MutationObserver(records => {
@@ -263,9 +315,13 @@ test('a chart whose card is hidden when the reading lands is drawn once, at the 
       }
     }).observe(feed, { childList: true, subtree: true });
     feed.style.display = 'none';
-    /* The overview's own read, while its card is out of the layout. */
-    return loadActivityFeed(true);
+    /* The card's own Refresh, pressed while the card is out of the layout. */
+    document.getElementById('wpFeedRefresh').click();
+    return feed.textContent.includes('Reading recent activity');
   });
+  expect(reading, 'the read started while the card was hidden').toBe(true);
+  /* The reading lands, still hidden. */
+  await expect(page.locator('#wpFeed')).not.toContainText('Reading recent activity');
   await page.evaluate(() => { document.querySelector('#wpFeed').style.display = ''; });
   const chart = page.locator('#wpFeed .wp-area');
   await expect(chart).toBeVisible();
@@ -275,6 +331,46 @@ test('a chart whose card is hidden when the reading lands is drawn once, at the 
   const shown = await chart.evaluate(svg => svg.getBoundingClientRect().width);
   expect(drawn, `charts drawn ${JSON.stringify(drawn)} for a card ${Math.round(shown)} wide`).toHaveLength(1);
   expect(Math.abs(drawn[0] - shown)).toBeLessThanOrEqual(26);
+});
+
+/*
+ * The posture chart, the same way. Its reading can land while the card is out
+ * of the layout; it used to be drawn then at a 480-pixel guess, and the hair a
+ * chart is not redrawn for was measured from the guess, so a card that turned
+ * out 499 pixels wide -- the desktop default -- kept a chart drawn for 480,
+ * stretched to fit. It waits for the card's real width instead.
+ */
+test('a posture reading that lands while its card is hidden is drawn at the width the card is shown', async ({ page }) => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/workspace/security-posture', async route => { await held; await route.fallback(); });
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = 'none'; });
+  release();
+  /* The reading has landed: the card holds its plot, still out of the layout, and no chart drawn at a guess. */
+  await expect(page.locator('#wpPosture .pp-plot')).toBeAttached();
+  await expect(page.locator('#wpPosture svg.pp-chart-svg')).toHaveCount(0);
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = ''; });
+  const fit = () => page.evaluate(() => {
+    const chart = document.querySelector('#wpPosture svg.pp-chart-svg');
+    return chart ? Math.abs(chart.viewBox.baseVal.width - chart.clientWidth) : null;
+  });
+  await expect.poll(fit, { message: 'the posture chart is drawn at the width its card is shown' }).toBeLessThanOrEqual(1);
+  const settled = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 300)))));
+  const drawnAt = () => page.locator('#wpPosture svg.pp-chart-svg').evaluate(chart => chart.viewBox.baseVal.width);
+  /* And stays so: nothing redraws it at another width a frame later. */
+  await settled();
+  expect(await fit()).toBeLessThanOrEqual(1);
+  /* A card taken out of the layout keeps the chart it has, rather than one drawn for no width. */
+  const shown = await drawnAt();
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = 'none'; });
+  await settled();
+  expect(await drawnAt()).toBe(shown);
+  await page.evaluate(() => { document.querySelector('#wpPosture').style.display = ''; });
+  await settled();
+  expect(await fit()).toBeLessThanOrEqual(1);
 });
 
 /*

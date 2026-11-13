@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>__NV_PRODUCT_NAME__ — Git, from orbit</title>
+<meta name="description" content="Public alpha Git workspace for GitHub. Review staged changes, audit repositories and inspect supported provider capabilities. Deployment limits apply.">
+<meta name="theme-color" content="#06030F">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#06030F">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F3FB">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="__NV_PRODUCT_NAME__">
+<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<!--
+  In <head>, and blocking, on purpose: it decides which theme the very first
+  paint uses. Deferring it to the end of <body> with every other script would
+  paint the shell in the wrong theme and then correct it, and the landing page
+  is the one screen where that flash is the whole first impression.
+-->
+<script src="/theme-boot.js"></script>
+</head>
+<body>
+
+<!--
+  The ground. The reference draws exactly two violet blooms over the page
+  colour and nothing else: no drifting orbs, no star field, no grain. Those
+  belonged to the interface this one replaces, and they were what kept the
+  background reading as the old product however well the tokens matched.
+-->
+<div id="nebula" aria-hidden="true"></div>
+<!--
+  The application shell's plate. An element of its own, not a pseudo-element:
+  it used to be body::after, which the standalone status-bar backdrop also
+  claims, and an element has only one ::after. The two rules merged, the
+  status bar's height:env(safe-area-inset-top) survived the merge -- nothing in
+  the plate's own rule set a height -- and an explicit height beats the bottom
+  offset, so the plate computed to zero pixels tall. What reached the screen
+  was its two borders: a 2px strip across the top of the page whose radii CSS
+  clamps to nothing at that height, which is the hard square-ended band visible
+  above the top bar. The workspace ground was never drawn at all.
+-->
+<div id="shellPlate" aria-hidden="true"></div>
+<canvas id="lightWaves" aria-hidden="true"></canvas>
+
+<!--
+  The mark, once, as a sprite.
+
+  Its geometry is the design's own: the four plates are the same triangles
+  the trust panel cuts as a faceted stone, so the flat mark and the one in
+  the panel are the same shape rather than two drawings that resemble each
+  other. Defined once and referenced, so the gradients cannot collide between
+  instances.
+-->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <!-- Classed stops: each preset repaints the mark from CSS, so the brand
+         wears the preset's ink rather than Nebula's violet everywhere. -->
+    <linearGradient id="nvMarkLight" x1="0" y1="0" x2="1" y2="1">
+      <stop class="nvm-light-a" offset="0%" stop-color="#C4B1FB"/><stop class="nvm-light-b" offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="nvMarkDeep" x1="1" y1="0" x2="0" y2="1">
+      <stop class="nvm-deep-a" offset="0%" stop-color="#8B5CF6"/><stop class="nvm-deep-b" offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+    <symbol id="nvMark" viewBox="28 11 228 218">
+      <path d="M79 25 L40 217 L106 116 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M79 25 L106 116 L171 112 Z" fill="url(#nvMarkLight)"/>
+      <path d="M244 23 L178 124 L205 215 Z" fill="url(#nvMarkDeep)"/>
+      <path d="M178 124 L113 128 L205 215 Z" fill="url(#nvMarkLight)"/>
+    </symbol>
+  </defs>
+</svg>
+
+
+
+<!-- ======================= CONTROLLED ALPHA ACCESS ======================= -->
+<!--
+  The landing page and the gate are one screen.
+  ---------------------------------------------------------------------------
+  A visitor arriving at a controlled alpha needs two things at once: a reason to
+  want in, and the way in. Splitting those across two screens costs a click
+  before the reason has landed, and the gate raises itself on boot anyway --
+  alpha-ui's activateAccessPage() clears every other page the moment readiness
+  resolves, so a separate landing screen would be painted and then taken away.
+
+  So the invitation card is the action panel of the landing page rather than a
+  page of its own. Every id, label and control the access flow owns is
+  unchanged; what is new is the stage around them.
+-->
+<main class="page active" id="page-alpha-access" aria-labelledby="alphaAccessTitle">
+  <div class="lp">
+    <!--
+      The nav is a child of .lp rather than of .lp-hero so that it can stick to
+      the viewport. A sticky box resolves against its nearest scrollport, and
+      .lp-hero's overflow:hidden makes one that never scrolls -- so inside it
+      the bar simply scrolled away with the hero, and a visitor on a phone had
+      to scroll back to the top of the page to reach the theme control.
+    -->
+    <header class="lp-nav">
+      <span class="lp-brand">
+        <!--
+          The product's own mark, from the same symbol the rail and the login
+          screen use. A ringed planet drawn in place here was a second brand:
+          the first screen a visitor ever sees is the last place to invent one.
+        -->
+        <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+        <span class="lp-word">__NV_PRODUCT_NAME__</span>
+      </span>
+      <!--
+        The page's own sections, one tap away. Buttons rather than #anchors:
+        the address belongs to the workbench's router, and a fragment written
+        here would be read as a route. landing-stage.ts scrolls to the section
+        and marks the one being read.
+      -->
+      <nav class="lp-links" aria-label="On this page">
+        <button type="button" class="lp-link" data-lp-goto="lpOrbitTitle">Systems</button>
+        <button type="button" class="lp-link" data-lp-goto="lpPlayTitle">Audit</button>
+        <button type="button" class="lp-link" data-lp-goto="lpShowTitle">Map</button>
+        <button type="button" class="lp-link" data-lp-goto="lpChecksTitle">Coverage</button>
+        <button type="button" class="lp-link" data-lp-goto="lpProofTitle">Proof</button>
+        <button type="button" class="lp-link" data-lp-goto="lpFaqTitle">FAQ</button>
+        <span class="lp-links-ink" aria-hidden="true"></span>
+      </nav>
+      <span class="lp-nav-end">
+        <span class="lp-state"><span class="lp-state-dot" aria-hidden="true"></span>Controlled alpha</span>
+        <!--
+          app.js restores nv_theme in boot() and delegates clicks on
+          .theme-toggle at module scope, so this control rides the mechanism
+          the rest of the product already uses rather than a second one. A
+          visitor whose stored theme is light had no way to change it before
+          the gate: the only other switch is inside the application. Drawn
+          here as one icon that turns into the other, not a slider.
+        -->
+        <button class="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+          <svg class="tt-ico tt-sun" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+          <svg class="tt-ico tt-moon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+          <span class="tt-knob"></span>
+        </button>
+        <button class="lp-nav-cta" type="button" data-lp-jump aria-label="Enter the alpha">Enter</button>
+      </span>
+    </header>
+
+    <div class="lp-hero">
+
+    <div class="lp-body">
+      <div class="lp-copy">
+        <p class="lp-eyebrow"><span class="lp-eyebrow-dot" aria-hidden="true"></span>Controlled hosted public alpha</p>
+        <!--
+          This heading is the screen's accessible name, so its text is fixed:
+          the browser suite finds this landmark by it. The emphasis is markup
+          inside it, which the name computation flattens back to the same
+          string.
+        -->
+        <h1 id="alphaAccessTitle" class="lp-title"><span class="lp-line" style="--i:0">Enter the</span> <span class="lp-line" style="--i:1">Nebulaverse-X</span> <span class="lp-line" style="--i:2"><em>test orbit</em></span></h1>
+        <p class="lp-lede">Connect one sandbox repository. Audit what it ships and the site it runs as,
+          then review every staged change before it reaches GitHub.</p>
+
+      </div>
+
+      <div class="lp-art">
+        <!-- Decorative, but pointer-reactive. Its own box keeps the card and
+             copy from intercepting gestures intended for the vortex.
+             data-vortex names its shape: column, hourglass, spire, funnel
+             or chalice. -->
+        <div class="lp-stage" aria-hidden="true">
+          <canvas class="lp-portal" id="lpPortal" data-vortex="column"></canvas>
+        </div>
+        <!--
+          Three readings of a sandbox repository floating at the vortex's edge,
+          the way the product shows them: decoration, so hidden from readers
+          and transparent to the pointer, and kept off the middle of the scene
+          so the vortex stays the thing under the hand.
+        -->
+        <div class="lp-float" aria-hidden="true">
+          <div class="lp-chip lp-chip-a" style="--f:0"><span class="lp-chip-ring"><b>A</b></span><span class="lp-chip-t"><b>Uranus Engine</b><span>Grade A &middot; 100/100</span></span></div>
+          <div class="lp-chip lp-chip-b" style="--f:1"><span class="lp-chip-ico"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg></span><span class="lp-chip-t"><b>Quasar Scanner</b><span>History read &middot; no live leaks</span></span></div>
+          <div class="lp-chip lp-chip-c" style="--f:2"><span class="lp-chip-ico"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><span class="lp-chip-t"><b>Kepler Twin</b><span>Merge policy &middot; passed</span></span></div>
+        </div>
+        <p class="lp-art-note"><span class="lp-drag-hint">Drag to explore · </span>Scroll to discover</p>
+      </div>
+
+      <!--
+        The entry, set the way product sites set their one action: not a card
+        of its own but a single field and its button on one line under the
+        promise, a quiet state beside it and one line of small print under it.
+        Every id, label and control the access flow owns is unchanged; the
+        field and its button share a row so they read as one control.
+      -->
+      <section class="alpha-access lp-card lp-entry" aria-labelledby="lpEntryTitle">
+        <div class="lp-entry-head">
+          <p class="eyebrow" id="lpEntryTitle">Request entry</p>
+          <div class="alpha-wake-state" id="alphaWakeState" role="status" aria-live="polite" aria-label="Service readiness">Checking service readiness…</div>
+        </div>
+        <!--
+          Hidden until the gate is known to be on.
+          ---------------------------------------------------------------
+          This was the card's default paint, which made it the answer to every
+          question the page could not yet answer. A deployment whose database
+          was behind never reached the status request at all, so an open gate
+          served a visitor an invitation field it would never have asked for,
+          under a readiness line that would never clear. The form is a claim
+          about how entry works; nothing should make that claim before the
+          server has been asked. alpha-ui reveals it in showAccessGate().
+        -->
+        <label class="field-label lp-entry-label" for="alphaInviteInput" hidden>One-time invitation</label>
+        <div class="lp-entry-row">
+          <svg class="lp-entry-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="15" r="4"/><path d="M10.9 12.1 19 4M16 7l2.5 2.5M14 9l2 2"/></svg>
+          <input id="alphaInviteInput" type="password" autocomplete="one-time-code" spellcheck="false" autocorrect="off" autocapitalize="off" placeholder="Paste your invitation" hidden>
+          <button class="btn btn-primary lp-entry-go" id="alphaRedeemBtn" hidden>Continue</button>
+        </div>
+        <label class="check lp-entry-terms" for="alphaTermsAccept" hidden>
+          <input id="alphaTermsAccept" type="checkbox" hidden>
+          <span>I accept <strong id="alphaTermsVersion">the current alpha terms</strong> and the sandbox-repository rule.</span>
+        </label>
+        <div class="login-error" id="alphaAccessError" role="alert" hidden></div>
+        <!--
+          The way through when the gate is off.
+          ---------------------------------------------------------------
+          alpha-ui reveals this only when /api/alpha/status reports mode
+          "off"; with the gate on it stays hidden and the invitation is the
+          only way in. It sits with the entry rather than at the foot of the
+          scroll because a control a reader has to go looking for is not a
+          way out, and this is already where the eye is.
+        -->
+        <div class="alpha-open" id="alphaOpenAccess" hidden>
+          <!--
+            Two paths, the way product sites offer them: the filled one for a
+            reader ready to go in, and a quiet outlined one for a reader still
+            deciding, which takes them to the audit played step by step.
+          -->
+          <div class="lp-actions">
+            <button class="btn btn-primary lp-entry-go" id="alphaPassThrough" type="button">Get started</button>
+            <button class="btn lp-ghost" type="button" data-lp-tour="lpPlayTitle"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M10.2 8.8l5 3.2-5 3.2z"/></svg>See how it works</button>
+          </div>
+          <p class="alpha-open-note" id="alphaOpenNote">Entry is open.</p>
+        </div>
+        <p class="alpha-access-rule">Use only a sandbox/test repository containing no real secrets, personal data, production deployments, or irreplaceable source.</p>
+      </section>
+      <!-- Three promises the product keeps, each said in full further down the page. -->
+      <ul class="lp-promise" aria-label="What it promises">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Diff review before commit</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Secrets named, never shown</li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>OWASP Top&nbsp;10:2025</li>
+      </ul>
+      <ol class="lp-steps" aria-label="Your path through the alpha">
+        <li class="lp-step">
+          <span class="lp-step-n">01</span>
+          <span class="lp-step-t">Connect</span>
+          <span class="lp-step-d">One sandbox repository</span>
+        </li>
+        <li class="lp-step">
+          <span class="lp-step-n">02</span>
+          <span class="lp-step-t">Understand</span>
+          <span class="lp-step-d">Health and live signals</span>
+        </li>
+        <li class="lp-step">
+          <span class="lp-step-n">03</span>
+          <span class="lp-step-t">Prove</span>
+          <span class="lp-step-d">Staged changes previewed</span>
+        </li>
+      </ol>
+    </div>
+    </div><!-- /.lp-hero -->
+
+    <!--
+      The singularity: six systems around one core, shown rather than told.
+      Only Uranus is called an engine, because only Uranus is one: it parses
+      code and traces values through it. The others are named for what they
+      are -- a map, a twin, a scanner, a probe and a guard.
+      The section is taller than the screen and its stage holds still while
+      the reader scrolls through it; the disc banks from broad to edge-on and
+      each system lights as it is reached, ending at a gate that is the same
+      control as the bar's Enter. Without WebGL the stage draws the horizon in
+      CSS; without script, or with motion off, every system is lit at once.
+    -->
+    <section class="lp-orbit" aria-labelledby="lpOrbitTitle">
+      <div class="lp-orbit-stick">
+        <div class="lp-orbit-art" id="lpOrbitArt" aria-hidden="true"><span class="lp-orbit-fallback"></span></div>
+        <div class="lp-orbit-copy">
+          <p class="lp-orbit-eyebrow">Magnetar Sec</p>
+          <h2 class="lp-orbit-title" id="lpOrbitTitle">Six systems<span class="lp-orbit-ghost">around one repository</span></h2>
+        </div>
+        <ol class="lp-systems" aria-label="The systems">
+          <li class="lp-system" style="--k:0" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg></span><b>Pulsar Map</b><span>How code connects</span></li>
+          <li class="lp-system" style="--k:1" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><b>Kepler Twin</b><span>Policy rules</span></li>
+          <li class="lp-system" style="--k:2" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg></span><b>Quasar Scanner</b><span>Leaked secrets</span></li>
+          <li class="lp-system" style="--k:3" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span><b>Uranus Engine</b><span>Code and packages</span></li>
+          <li class="lp-system" style="--k:4" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span><b>Parallax Probe</b><span>Live site check</span></li>
+          <li class="lp-system" style="--k:5" data-on="true"><span class="lp-system-i" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span><b>Corona Guard</b><span>Lockdown switches</span></li>
+        </ol>
+        <div class="lp-orbit-gate">
+          <button type="button" class="lp-reticle" data-lp-jump aria-label="Enter through the horizon"><i class="lp-ret-c lp-ret-c1"></i><i class="lp-ret-c lp-ret-c2"></i><i class="lp-ret-c lp-ret-c3"></i><i class="lp-ret-c lp-ret-c4"></i><span>Enter</span><span class="lp-reticle-arr" aria-hidden="true">&rarr;</span></button>
+          <p class="lp-orbit-hint" aria-hidden="true">Scroll to cross the horizon</p>
+        </div>
+      </div>
+    </section>
+    <div class="lp-progress" aria-hidden="true"><i></i></div>
+
+    <!--
+      The page used to stop at the gate. That left a dead band under the card
+      on a desktop and told a visitor without an invitation nothing at all
+      about what they would be asking for. Every claim below is something the
+      product does today; the limits are the terms the gate already enforces.
+    -->
+    <section class="lp-more">
+      <!-- The three providers the alpha works against, named plainly. -->
+      <div class="lp-providers">
+        <span class="lp-providers-k">Works against the real provider</span>
+        <ul class="lp-providers-list" aria-label="Supported providers">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>GitHub</li>
+        </ul>
+      </div>
+      <!--
+        The promise in one sentence, lit a word at a time as it is read. The
+        sentence is in the markup whole; without script, or with motion off,
+        it is simply there. Every clause is something the product does.
+      -->
+      <section class="lp-statement" aria-labelledby="lpStatementTitle">
+        <p class="lp-sec-eyebrow" id="lpStatementTitle">Why it exists</p>
+        <p class="lp-statement-text" data-lp-lit>Most scanners hand you a list and leave the arguing to you. This one reads the branch you ship, files every finding under the names your team already reports in &mdash; OWASP Top&nbsp;10:2025 and the CWE Top&nbsp;25 &mdash; says how much it read, and proves the fix is gone.</p>
+      </section>
+      <!--
+        The audit, played at the pace of the scroll. The frame holds still
+        while four moves pass it and it shows each one: the branch being read,
+        what was found and the grade it earns, the fix handed over, and the
+        next audit proving it gone. Without script it rests on the findings,
+        which is the state worth reading. The words are the rules' own titles,
+        and a unit test holds every one to the engine.
+      -->
+      <section class="lp-play" aria-labelledby="lpPlayTitle">
+        <div class="lp-play-head">
+          <p class="lp-sec-eyebrow">Audit and site check</p>
+          <h2 class="lp-show-title" id="lpPlayTitle">Find it. Fix it. Prove it is gone.</h2>
+          <p class="lp-show-lede">The code, workflows, packages and live site &mdash; graded, explained, checked again.</p>
+        </div>
+        <div class="lp-play-body">
+          <ol class="lp-play-steps">
+            <li class="lp-play-step" data-stage="read">
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5.5h10M4 10h16M4 14.5h12M4 19h8"/><circle cx="18.5" cy="17.5" r="2.6"/><path d="m20.4 19.4 1.6 1.6"/></svg>
+                <span class="lp-play-n">01</span>
+                <h3 class="lp-play-t">Read what ships</h3>
+                <p class="lp-play-d">File by file, then dropped &mdash; and it says how much it read.</p>
+              </div>
+            </li>
+            <li class="lp-play-step" data-stage="find">
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg>
+                <span class="lp-play-n">02</span>
+                <h3 class="lp-play-t">Grade what an attacker would find</h3>
+                <p class="lp-play-d">Secrets, injection, workflows, open rules and exploited packages, ranked.</p>
+              </div>
+            </li>
+            <li class="lp-play-step" data-stage="fix">
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.7 6.3a4.5 4.5 0 0 0-5.9 5.6l-6 6a1.6 1.6 0 0 0 2.3 2.3l6-6a4.5 4.5 0 0 0 5.6-5.9l-2.7 2.7-2.3-.5-.5-2.3z"/></svg>
+                <span class="lp-play-n">03</span>
+                <h3 class="lp-play-t">Hand over the fix</h3>
+                <p class="lp-play-d">Why, how, the line, and a prompt for your assistant &mdash; never the code.</p>
+              </div>
+            </li>
+            <li class="lp-play-step" data-stage="again">
+              <div class="lp-play-card">
+                <svg class="lp-play-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.5 4.5 5.5v6c0 4.6 3.1 8.5 7.5 10 4.4-1.5 7.5-5.4 7.5-10v-6z"/><path d="m8.6 12.2 2.4 2.4 4.6-4.8"/></svg>
+                <span class="lp-play-n">04</span>
+                <h3 class="lp-play-t">Prove it is gone</h3>
+                <p class="lp-play-d">Audit again: what is new, what is resolved, the same answer every time.</p>
+              </div>
+            </li>
+          </ol>
+          <div class="lp-play-stick">
+            <figure class="lp-frame lp-play-frame" data-stage="find" aria-hidden="true">
+              <div class="lp-frame-bar"><i></i><i></i><i></i><span class="lp-frame-url">Audit · sandbox/demo @ main</span></div>
+              <div class="lp-au-tabs"><span data-tab="read">Read</span><span data-tab="find">Grade</span><span data-tab="fix">Fix</span><span data-tab="again">Verify</span><i class="lp-au-ink"></i></div>
+              <div class="lp-au">
+                <i class="lp-au-sweep"></i>
+                <div class="lp-au-top">
+                  <div class="lp-au-grade">
+                    <b class="lp-au-letter"><span data-only="read">&mdash;</span><span data-only="find fix">F</span><span data-only="again">A</span></b>
+                    <span class="lp-au-score"><span data-only="read">reading</span><span data-only="find fix">49/100</span><span data-only="again">100/100</span></span>
+                  </div>
+                  <div class="lp-au-read">
+                    <p class="lp-au-lede"><span data-only="read">Reading the branch and checking its packages…</span><span data-only="find fix">2 findings: 1 critical, 1 warning.</span><span data-only="again">No findings in what was read.</span></p>
+                    <p class="lp-au-cap" data-only="find fix">Held below 50 while a confirmed critical finding is open.</p>
+                    <p class="lp-au-diff" data-only="again">0 new findings, 2 resolved since the audit of 10:42.</p>
+                    <p class="lp-au-cov">Read <b class="lp-au-count">212</b> of 212 files at a1c9f2e · 38 of 38 packages checked against OSV.</p>
+                    <span class="lp-au-bar" data-only="read"><i></i></span>
+                  </div>
+                </div>
+                <ul class="lp-au-fams">
+                  <li data-family="supply-chain" style="--find:94%;--again:100%"><span>Supply</span><b><span data-only="read">&mdash;</span><span data-only="find fix">94</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="code" style="--find:60%;--again:100%"><span>Code</span><b><span data-only="read">&mdash;</span><span data-only="find fix">60</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="access" style="--find:100%;--again:100%"><span>Access</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="secrets" style="--find:100%;--again:100%"><span>Secrets</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="dependencies" style="--find:100%;--again:100%"><span>Packages</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="infrastructure" style="--find:100%;--again:100%"><span>Infra</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                  <li data-family="hygiene" style="--find:100%;--again:100%"><span>Hygiene</span><b><span data-only="read">&mdash;</span><span data-only="find fix">100</span><span data-only="again">100</span></b><i></i></li>
+                </ul>
+                <ul class="lp-au-list" data-only="find fix">
+                  <li class="lp-au-item" data-sev="critical" data-rule="SEC-001">
+                    <span class="lp-au-pill">✕ Critical</span><span class="lp-au-title">A SQL statement is built by string interpolation</span>
+                    <span class="lp-au-where">SEC-001 · api/users.js:2</span>
+                    <span class="lp-au-open" data-only="fix">
+                      <span class="lp-au-why">Values spliced into SQL text are parsed as SQL.</span>
+                      <span class="lp-au-fix"><b>Fix:</b> Use parameterised queries or the query builder’s placeholders, and pass values separately from the statement text.</span>
+                      <span class="lp-au-prompt"><span data-prompt="SEC-001">In api/users.js (line 2): a sql statement is built by string interpolation. Values spliced into SQL text are parsed as SQL.</span><em>Copied</em></span>
+                    </span>
+                  </li>
+                  <li class="lp-au-item" data-sev="warning" data-rule="SUP-008">
+                    <span class="lp-au-pill">○ Warning</span><span class="lp-au-title">A third-party action is not pinned to a commit</span>
+                    <span class="lp-au-where">SUP-008 · .github/workflows/deploy.yml:7</span>
+                  </li>
+                </ul>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!--
+        The product, shown rather than described: a faithful miniature of the
+        Neural command center -- the hub, the group panels and the strands in
+        each group's colour -- that settles flat as it scrolls into view.
+      -->
+      <section class="lp-show" aria-labelledby="lpShowTitle">
+        <div class="lp-show-head">
+          <p class="lp-sec-eyebrow">The Neural command center</p>
+          <h2 class="lp-show-title" id="lpShowTitle">Your repository, drawn as one living map</h2>
+          <p class="lp-show-lede">Branches, workflows, identities, sessions and leaked credentials, each wired to the
+            repository it belongs to &mdash; every signal the provider will vouch for, and nothing it will not.</p>
+        </div>
+        <figure class="lp-frame">
+          <div class="lp-frame-bar" aria-hidden="true"><i></i><i></i><i></i><span class="lp-frame-url">Neural · signal topology</span><span class="lp-frame-live">Live</span></div>
+          <div class="lp-frame-view"><svg class="lp-map lp-map-wide" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false"><defs><radialGradient id="lpOrbV" cx=".68" cy=".22" r=".95"><stop offset="0" class="lp-orb-a"/><stop offset=".5" class="lp-orb-b"/><stop offset="1" class="lp-orb-c"/></radialGradient><radialGradient id="lpHaloG"><stop offset="0" class="lp-halo-a"/><stop offset="1" class="lp-halo-b"/></radialGradient></defs><circle class="lp-map-ring" cx="480" cy="270" r="78"/><circle class="lp-map-ring" cx="480" cy="270" r="118"/><circle class="lp-map-ring" cx="480" cy="270" r="164"/><g class="lp-map-strands"><path class="lp-map-strand" d="M248 135 C358 135 360 230 440 251" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M248 165 C358 165 360 238 440 255" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M248 267 C358 267 360 269 440 270" style="--c:#F43F6E"/><path class="lp-map-strand" d="M248 297 C358 297 360 278 440 274" style="--c:#ff8a5c"/><path class="lp-map-strand" d="M248 399 C358 399 360 309 440 288" style="--c:#61d8ff"/><path class="lp-map-strand" d="M248 429 C358 429 360 318 440 292" style="--c:#61d8ff"/><path class="lp-map-strand" d="M712 135 C602 135 600 230 520 251" style="--c:#63a8ff"/><path class="lp-map-strand" d="M712 165 C602 165 600 238 520 255" style="--c:#63a8ff"/><path class="lp-map-strand" d="M712 267 C602 267 600 269 520 270" style="--c:#55d7f4"/><path class="lp-map-strand" d="M712 297 C602 297 600 278 520 274" style="--c:#55d7f4"/><path class="lp-map-strand" d="M712 399 C602 399 600 309 520 288" style="--c:#F43F6E"/><path class="lp-map-strand" d="M712 429 C602 429 600 318 520 292" style="--c:#F43F6E"/></g><g class="lp-map-flows"><path class="lp-map-flow" d="M248 135 C358 135 360 230 440 251" style="--c:#f3f5ff;--d:2.20s;--o:0"/><path class="lp-map-flow" d="M248 165 C358 165 360 238 440 255" style="--c:#f3f5ff;--d:2.55s;--o:33"/><path class="lp-map-flow" d="M248 267 C358 267 360 269 440 270" style="--c:#F43F6E;--d:2.90s;--o:26"/><path class="lp-map-flow" d="M248 297 C358 297 360 278 440 274" style="--c:#ff8a5c;--d:3.25s;--o:19"/><path class="lp-map-flow" d="M248 399 C358 399 360 309 440 288" style="--c:#61d8ff;--d:3.60s;--o:12"/><path class="lp-map-flow" d="M248 429 C358 429 360 318 440 292" style="--c:#61d8ff;--d:2.20s;--o:5"/><path class="lp-map-flow" d="M712 135 C602 135 600 230 520 251" style="--c:#63a8ff;--d:2.55s;--o:38"/><path class="lp-map-flow" d="M712 165 C602 165 600 238 520 255" style="--c:#63a8ff;--d:2.90s;--o:31"/><path class="lp-map-flow" d="M712 267 C602 267 600 269 520 270" style="--c:#55d7f4;--d:3.25s;--o:24"/><path class="lp-map-flow" d="M712 297 C602 297 600 278 520 274" style="--c:#55d7f4;--d:3.60s;--o:17"/><path class="lp-map-flow" d="M712 399 C602 399 600 309 520 288" style="--c:#F43F6E;--d:2.20s;--o:10"/><path class="lp-map-flow" d="M712 429 C602 429 600 318 520 292" style="--c:#F43F6E;--d:2.55s;--o:3"/></g><g class="lp-map-panel" style="--c:#f3f5ff"><rect x="36" y="84" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="84" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="103" r="9"/><text class="lp-map-h" x="76" y="107">IDENTITIES</text><text class="lp-map-count" x="250" y="107" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#ff8a5c"><rect x="36" y="216" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="216" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="235" r="9"/><text class="lp-map-h" x="76" y="239">LEAKED CREDENTIALS</text><text class="lp-map-count" x="250" y="239" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#61d8ff"><rect x="36" y="348" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="36" y="348" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="58" cy="367" r="9"/><text class="lp-map-h" x="76" y="371">SESSIONS</text><text class="lp-map-count" x="250" y="371" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#63a8ff"><rect x="692" y="84" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="84" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="103" r="9"/><text class="lp-map-h" x="732" y="107">BRANCHES</text><text class="lp-map-count" x="906" y="107" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#55d7f4"><rect x="692" y="216" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="216" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="235" r="9"/><text class="lp-map-h" x="732" y="239">WORKFLOWS</text><text class="lp-map-count" x="906" y="239" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#F43F6E"><rect x="692" y="348" width="232" height="108" rx="14"/><rect class="lp-map-wash" x="692" y="348" width="232" height="108" rx="14"/><circle class="lp-map-hico" cx="714" cy="367" r="9"/><text class="lp-map-h" x="732" y="371">VULNERABILITIES</text><text class="lp-map-count" x="906" y="371" text-anchor="end">2</text></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="230" y="139" text-anchor="end">alpha-tester</text><circle cx="248" cy="135" r="9"/></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="230" y="169" text-anchor="end">maya</text><circle cx="248" cy="165" r="9"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="230" y="271" text-anchor="end">AWS key · settings.py</text><circle cx="248" cy="267" r="9"/><circle class="lp-map-sev lp-map-crit" cx="255" cy="260" r="3.2"/><circle class="lp-map-breathe" cx="248" cy="267" r="12"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="230" y="301" text-anchor="end">GitHub token · release.sh</text><circle cx="248" cy="297" r="9"/><circle class="lp-map-sev lp-map-warn" cx="255" cy="290" r="3.2"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="230" y="403" text-anchor="end">Active session</text><circle cx="248" cy="399" r="9"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="230" y="433" text-anchor="end">Current session</text><circle cx="248" cy="429" r="9"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="730" y="139" text-anchor="start">main</text><circle cx="712" cy="135" r="9"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="730" y="169" text-anchor="start">release/2.4</text><circle cx="712" cy="165" r="9"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="730" y="271" text-anchor="start">Deploy production</text><circle cx="712" cy="267" r="9"/><circle class="lp-map-sev lp-map-warn" cx="719" cy="260" r="3.2"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="730" y="301" text-anchor="start">CodeQL</text><circle cx="712" cy="297" r="9"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="730" y="403" text-anchor="start">jsonwebtoken@8.5.1</text><circle cx="712" cy="399" r="9"/><circle class="lp-map-sev lp-map-crit" cx="719" cy="392" r="3.2"/><circle class="lp-map-breathe" cx="712" cy="399" r="12"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="730" y="433" text-anchor="start">lodash@4.17.15</text><circle cx="712" cy="429" r="9"/><circle class="lp-map-sev lp-map-warn" cx="719" cy="422" r="3.2"/></g><g class="lp-map-hub"><circle class="lp-map-halo" cx="480" cy="270" r="106"/><circle class="lp-map-orb" cx="480" cy="270" r="44"/><g transform="translate(447.67 242.68) scale(0.2277)"><path class="lp-map-deep" d="M79 25 L40 217 L106 116 Z"/><path class="lp-map-light" d="M79 25 L106 116 L171 112 Z"/><path class="lp-map-deep" d="M244 23 L178 124 L205 215 Z"/><path class="lp-map-light" d="M178 124 L113 128 L205 215 Z"/></g><g class="lp-map-arcs"><path d="M532 270 A52 52 0 0 1 460 318"/><path d="M428 270 A52 52 0 0 1 506 225"/></g><rect class="lp-map-pill" x="428" y="330" width="104" height="24" rx="8"/><text class="lp-map-name" x="480" y="346" text-anchor="middle">sandbox/demo</text></g></svg><svg class="lp-map lp-map-tall" viewBox="0 0 480 640" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false"><defs><radialGradient id="lpOrbT" cx=".68" cy=".22" r=".95"><stop offset="0" class="lp-orb-a"/><stop offset=".5" class="lp-orb-b"/><stop offset="1" class="lp-orb-c"/></radialGradient><radialGradient id="lpHaloT"><stop offset="0" class="lp-halo-a"/><stop offset="1" class="lp-halo-b"/></radialGradient></defs><circle class="lp-map-ring" cx="240" cy="320" r="70"/><circle class="lp-map-ring" cx="240" cy="320" r="104"/><circle class="lp-map-ring" cx="240" cy="320" r="140"/><g class="lp-map-strands"><path class="lp-map-strand" d="M61.6 120.0 C61.6 190.0 204.3 212.4 204.3 282.4" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M108.4 120.0 C108.4 190.0 213.7 212.4 213.7 282.4" style="--c:#f3f5ff"/><path class="lp-map-strand" d="M216.6 120.0 C216.6 190.0 235.3 212.4 235.3 282.4" style="--c:#F43F6E"/><path class="lp-map-strand" d="M263.4 120.0 C263.4 190.0 244.7 212.4 244.7 282.4" style="--c:#ff8a5c"/><path class="lp-map-strand" d="M371.6 120.0 C371.6 190.0 266.3 212.4 266.3 282.4" style="--c:#61d8ff"/><path class="lp-map-strand" d="M418.4 120.0 C418.4 190.0 275.7 212.4 275.7 282.4" style="--c:#61d8ff"/><path class="lp-map-strand" d="M61.6 520.0 C61.6 450.0 204.3 427.6 204.3 357.6" style="--c:#63a8ff"/><path class="lp-map-strand" d="M108.4 520.0 C108.4 450.0 213.7 427.6 213.7 357.6" style="--c:#63a8ff"/><path class="lp-map-strand" d="M216.6 520.0 C216.6 450.0 235.3 427.6 235.3 357.6" style="--c:#55d7f4"/><path class="lp-map-strand" d="M263.4 520.0 C263.4 450.0 244.7 427.6 244.7 357.6" style="--c:#55d7f4"/><path class="lp-map-strand" d="M371.6 520.0 C371.6 450.0 266.3 427.6 266.3 357.6" style="--c:#F43F6E"/><path class="lp-map-strand" d="M418.4 520.0 C418.4 450.0 275.7 427.6 275.7 357.6" style="--c:#F43F6E"/></g><g class="lp-map-flows"><path class="lp-map-flow" d="M61.6 120.0 C61.6 190.0 204.3 212.4 204.3 282.4" style="--c:#f3f5ff;--d:2.20s;--o:0"/><path class="lp-map-flow" d="M108.4 120.0 C108.4 190.0 213.7 212.4 213.7 282.4" style="--c:#f3f5ff;--d:2.55s;--o:33"/><path class="lp-map-flow" d="M216.6 120.0 C216.6 190.0 235.3 212.4 235.3 282.4" style="--c:#F43F6E;--d:2.90s;--o:26"/><path class="lp-map-flow" d="M263.4 120.0 C263.4 190.0 244.7 212.4 244.7 282.4" style="--c:#ff8a5c;--d:3.25s;--o:19"/><path class="lp-map-flow" d="M371.6 120.0 C371.6 190.0 266.3 212.4 266.3 282.4" style="--c:#61d8ff;--d:3.60s;--o:12"/><path class="lp-map-flow" d="M418.4 120.0 C418.4 190.0 275.7 212.4 275.7 282.4" style="--c:#61d8ff;--d:2.20s;--o:5"/><path class="lp-map-flow" d="M61.6 520.0 C61.6 450.0 204.3 427.6 204.3 357.6" style="--c:#63a8ff;--d:2.55s;--o:38"/><path class="lp-map-flow" d="M108.4 520.0 C108.4 450.0 213.7 427.6 213.7 357.6" style="--c:#63a8ff;--d:2.90s;--o:31"/><path class="lp-map-flow" d="M216.6 520.0 C216.6 450.0 235.3 427.6 235.3 357.6" style="--c:#55d7f4;--d:3.25s;--o:24"/><path class="lp-map-flow" d="M263.4 520.0 C263.4 450.0 244.7 427.6 244.7 357.6" style="--c:#55d7f4;--d:3.60s;--o:17"/><path class="lp-map-flow" d="M371.6 520.0 C371.6 450.0 266.3 427.6 266.3 357.6" style="--c:#F43F6E;--d:2.20s;--o:10"/><path class="lp-map-flow" d="M418.4 520.0 C418.4 450.0 275.7 427.6 275.7 357.6" style="--c:#F43F6E;--d:2.55s;--o:3"/></g><g class="lp-map-panel" style="--c:#f3f5ff"><rect x="12.0" y="22" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="12.0" y="22" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="29.0" cy="39" r="7"/><text class="lp-map-h" x="42.0" y="43">IDENTITIES</text><text class="lp-map-count" x="146.0" y="43" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#ff8a5c"><rect x="167.0" y="22" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="167.0" y="22" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="184.0" cy="39" r="7"/><text class="lp-map-h" x="197.0" y="43">LEAKED CREDS</text><text class="lp-map-count" x="301.0" y="43" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#61d8ff"><rect x="322.0" y="22" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="322.0" y="22" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="339.0" cy="39" r="7"/><text class="lp-map-h" x="352.0" y="43">SESSIONS</text><text class="lp-map-count" x="456.0" y="43" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#63a8ff"><rect x="12.0" y="520" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="12.0" y="520" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="29.0" cy="537" r="7"/><text class="lp-map-h" x="42.0" y="541">BRANCHES</text><text class="lp-map-count" x="146.0" y="541" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#55d7f4"><rect x="167.0" y="520" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="167.0" y="520" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="184.0" cy="537" r="7"/><text class="lp-map-h" x="197.0" y="541">WORKFLOWS</text><text class="lp-map-count" x="301.0" y="541" text-anchor="end">2</text></g><g class="lp-map-panel" style="--c:#F43F6E"><rect x="322.0" y="520" width="146.0" height="98" rx="12"/><rect class="lp-map-wash" x="322.0" y="520" width="146.0" height="98" rx="12"/><circle class="lp-map-hico" cx="339.0" cy="537" r="7"/><text class="lp-map-h" x="352.0" y="541">VULNS</text><text class="lp-map-count" x="456.0" y="541" text-anchor="end">2</text></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="26.0" y="73.5">alpha-tester</text><circle cx="61.6" cy="120.0" r="6.5"/></g><g class="lp-map-node" style="--c:#f3f5ff"><text x="26.0" y="100.5">maya</text><circle cx="108.4" cy="120.0" r="6.5"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="181.0" y="73.5">AWS key</text><circle cx="216.6" cy="120.0" r="6.5"/><circle class="lp-map-sev lp-map-crit" cx="221.6" cy="115.0" r="2.6"/><circle class="lp-map-breathe" cx="216.6" cy="120.0" r="9"/></g><g class="lp-map-node" style="--c:#ff8a5c"><text x="181.0" y="100.5">GitHub token</text><circle cx="263.4" cy="120.0" r="6.5"/><circle class="lp-map-sev lp-map-warn" cx="268.4" cy="115.0" r="2.6"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="336.0" y="73.5">Active</text><circle cx="371.6" cy="120.0" r="6.5"/></g><g class="lp-map-node" style="--c:#61d8ff"><text x="336.0" y="100.5">Current</text><circle cx="418.4" cy="120.0" r="6.5"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="26.0" y="571.5">main</text><circle cx="61.6" cy="520.0" r="6.5"/></g><g class="lp-map-node" style="--c:#63a8ff"><text x="26.0" y="598.5">release/2.4</text><circle cx="108.4" cy="520.0" r="6.5"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="181.0" y="571.5">Deploy prod</text><circle cx="216.6" cy="520.0" r="6.5"/><circle class="lp-map-sev lp-map-warn" cx="221.6" cy="515.0" r="2.6"/></g><g class="lp-map-node" style="--c:#55d7f4"><text x="181.0" y="598.5">CodeQL</text><circle cx="263.4" cy="520.0" r="6.5"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="336.0" y="571.5">jsonwebtoken</text><circle cx="371.6" cy="520.0" r="6.5"/><circle class="lp-map-sev lp-map-crit" cx="376.6" cy="515.0" r="2.6"/><circle class="lp-map-breathe" cx="371.6" cy="520.0" r="9"/></g><g class="lp-map-node" style="--c:#F43F6E"><text x="336.0" y="598.5">lodash</text><circle cx="418.4" cy="520.0" r="6.5"/><circle class="lp-map-sev lp-map-warn" cx="423.4" cy="515.0" r="2.6"/></g><g class="lp-map-hub"><circle class="lp-map-halo" cx="240" cy="320" r="96"/><circle class="lp-map-orb" cx="240" cy="320" r="40"/><g transform="translate(210.61 295.16) scale(0.2070)"><path class="lp-map-deep" d="M79 25 L40 217 L106 116 Z"/><path class="lp-map-light" d="M79 25 L106 116 L171 112 Z"/><path class="lp-map-deep" d="M244 23 L178 124 L205 215 Z"/><path class="lp-map-light" d="M178 124 L113 128 L205 215 Z"/></g><g class="lp-map-arcs"><path d="M288 320 A48 48 0 0 1 222 364"/><path d="M192 320 A48 48 0 0 1 264 279"/></g><rect class="lp-map-pill" x="294" y="308" width="104" height="24" rx="8"/><text class="lp-map-name" x="346" y="324" text-anchor="middle">sandbox/demo</text></g></svg></div>
+          <figcaption class="lp-frame-cap">A repository with its identities, branches, workflows, sessions, vulnerabilities and leaked credentials, as the Neural view draws them.</figcaption>
+        </figure>
+        <!-- What to read off the picture, in three lines under it. -->
+        <ul class="lp-show-notes">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="8.4"/><path d="M12 3.6V1.8M12 22.2v-1.8M3.6 12H1.8M22.2 12h-1.8"/></svg><b>One hub, every group</b><span>Each strand runs from a signal to the repository it belongs to.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M12 8.4v4.4M12 15.6v.2"/></svg><b>Leaks shown, never revealed</b><span>A leaked credential is named by where it is, not by what it is.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M13 3.5 5.5 13.2H12l-1 7.3 7.5-9.7H12z"/></svg><b>Live from the provider</b><span>Verified events arrive on the map as they happen.</span></li>
+        </ul>
+      </section>
+      <!--
+        Coverage, counted. Every figure is counted from the code that runs,
+        and test/landing-claims.test.js fails the build when the page and the
+        code disagree -- the page cannot drift into a number it no longer
+        ships.
+      -->
+      <section class="lp-checks" aria-labelledby="lpChecksTitle">
+        <div class="lp-checks-head">
+          <p class="lp-sec-eyebrow">Coverage</p>
+          <h2 class="lp-show-title" id="lpChecksTitle">Everything it checks, counted</h2>
+          <p class="lp-show-lede">Each number is counted from the code that runs, and the build fails if this page ever says otherwise.</p>
+        </div>
+        <ul class="lp-checks-grid">
+          <li class="lp-check">
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="99" data-claim="secret-detectors">99</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 6l2.5 2.5M14 8.5l2 2"/></svg></span>
+            </div>
+            <h3 class="lp-check-t">Secret detectors</h3>
+            <p class="lp-check-d">In files, git history, archives and encoded text &mdash; each named by where it is, never by what it is.</p>
+            <ul class="lp-check-eg"><li>Cloud and database</li><li>AI and payment keys</li><li>Registry tokens</li><li>Private keys and webhooks</li></ul>
+          </li>
+          <li class="lp-check">
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="43" data-claim="credential-verifiers">43</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span>
+            </div>
+            <h3 class="lp-check-t">Live verifiers</h3>
+            <p class="lp-check-d">Ask the issuing service whether a leaked key still works &mdash; only when you ask, for that one finding.</p>
+            <ul class="lp-check-eg"><li>GitHub, GitLab, Slack</li><li>OpenAI, Anthropic, Stripe</li><li>npm, Datadog</li><li>Neon, Render, Netlify</li></ul>
+          </li>
+          <li class="lp-check lp-check-lead">
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="84" data-claim="audit-rules">84</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span>
+            </div>
+            <h3 class="lp-check-t">Uranus audit rules</h3>
+            <p class="lp-check-d">Follows what a caller sends to the call that misuses it, maps every endpoint and what guards it, and files each finding under its CWE and OWASP Top&nbsp;10:2025 category.</p>
+            <ul class="lp-check-eg"><li>Injection, SSRF, XSS, XXE</li><li>JS, TS, Python, Go, Java, PHP</li><li>Missing authorization</li><li>Model output and prompts</li><li>Advisories in 8 ecosystems</li><li>Supabase RLS</li><li>Malicious packages</li><li>Licence policy</li></ul>
+            <p class="lp-check-bench">Measured on <b data-claim="benchmark-cases">138</b> cases <i aria-hidden="true">&middot;</i> <b data-claim="benchmark-precision">100%</b> precision <i aria-hidden="true">&middot;</i> <b data-claim="benchmark-recall">98%</b> recall</p>
+          </li>
+          <li class="lp-check">
+            <div class="lp-check-top">
+              <span class="lp-check-v" data-count="37" data-claim="site-rules">37</span>
+              <span class="lp-check-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
+            </div>
+            <h3 class="lp-check-t">Deployed-site checks</h3>
+            <p class="lp-check-d">The certificate, headers, exposed files, the scripts a visitor loads, vulnerable libraries and email spoofing &mdash; anonymous and bounded, nothing kept.</p>
+            <ul class="lp-check-eg"><li>Security headers</li><li>Cookies and CORS</li><li>Served .env and .git</li><li>Mixed content</li><li>Third-party scripts</li><li>SPF and DMARC</li></ul>
+          </li>
+        </ul>
+        <div class="lp-ticker" aria-hidden="true">
+          <div class="lp-ticker-track">
+            <span data-rule="SUP-001">SUP-001 · An install script fetches or evaluates code</span>
+            <span data-rule="SUP-007">SUP-007 · A privileged workflow checks out pull-request code</span>
+            <span data-rule="SUP-008">SUP-008 · A third-party action is not pinned to a commit</span>
+            <span data-rule="SEC-006">SEC-006 · A secret is placed in a variable the browser receives</span>
+            <span data-rule="SEC-007">SEC-007 · A webhook endpoint never verifies its sender</span>
+            <span data-rule="DEP-001">DEP-001 · A dependency does not exist in the public registry</span>
+            <span data-rule="WEB-002">WEB-002 · The Git repository is served publicly</span>
+            <span data-rule="WEB-005">WEB-005 · No Content-Security-Policy</span>
+            <span data-rule="WEB-010">WEB-010 · Any origin may make credentialed requests</span>
+            <span data-rule="HYG-001">HYG-001 · An environment file is committed</span>
+          </div>
+        </div>
+      </section>
+
+      <!--
+        What the alpha does with the one repository it connects, as a bento:
+        four cards on one anatomy -- a working picture above, a kicker, a
+        title and a sentence below -- so every row reads at the same height.
+        Each picture is the product's own surface in miniature, and none of
+        it is a claim the product does not keep.
+      -->
+      <div class="lp-sec lp-sec-wide">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Inside the orbit</p>
+          <h2 class="lp-sec-title">One repository, read honestly</h2>
+          <p class="lp-sec-lede">The alpha connects a single sandbox repository and works against the
+            real provider behind it. Nothing here is a mock.</p>
+        </div>
+        <ul class="lp-caps lp-bento">
+          <li class="lp-cap lp-bento-c lp-bento-wide">
+            <div class="lp-bento-art lp-art-diff" aria-hidden="true">
+              <span class="lp-diff-bar">
+                <span class="lp-diff-file"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>config/deploy.yml</span>
+                <span class="lp-diff-stat"><b class="a">+2</b><b class="d">&minus;1</b></span>
+              </span>
+              <span class="lp-diff-body">
+                <span class="lp-diff-l" style="--i:0"><i>11</i><s></s>service: api</span>
+                <span class="lp-diff-l" style="--i:1"><i>12</i><s></s>environment: staging</span>
+                <span class="lp-diff-l lp-diff-del" style="--i:2"><i>13</i><s>&minus;</s>replicas: 2</span>
+                <span class="lp-diff-l lp-diff-add" style="--i:3"><i>13</i><s>+</s>replicas: 3</span>
+                <span class="lp-diff-l lp-diff-add" style="--i:4"><i>14</i><s>+</s>healthcheck: /healthz</span>
+                <span class="lp-diff-l" style="--i:5"><i>15</i><s></s>region: eu-west</span>
+              </span>
+              <span class="lp-diff-foot">
+                <span class="lp-diff-head"><i></i>head <b>a1c9f2e</b> <em>matches live</em></span>
+                <span class="lp-diff-btn">Approve change</span>
+              </span>
+            </div>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7M3 12h5M3 18h7"/><path d="M14 5l6 7-6 7"/></svg></span>Change review</span>
+              <h3 class="lp-cap-t">Review staged changes</h3>
+              <p class="lp-cap-d">Staged file changes show a diff, repository, branch and expected commit before confirmation.
+                If that head moves, the write is refused so you can review again.</p>
+            </div>
+          </li>
+          <li class="lp-cap lp-bento-c">
+            <div class="lp-bento-art lp-art-paths" aria-hidden="true">
+              <span class="lp-path lp-path-ok"><code>src/app.js</code><i>allowed</i></span>
+              <span class="lp-path lp-path-no"><code>.github/<wbr>workflows/<wbr>ci.yml</code><i>approval</i></span>
+              <span class="lp-path-route"><svg viewBox="0 0 24 24"><path d="M6 4v8a4 4 0 0 0 4 4h8"/><path d="M15 13l3 3-3 3"/></svg><span>Safe Passage &middot; branch, pull request, reviewers</span></span>
+              <span class="lp-path lp-path-ok"><code>docs/guide.md</code><i>allowed</i></span>
+            </div>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10.5" width="16" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg></span>Policy</span>
+              <h3 class="lp-cap-t">Blocked work is not lost work</h3>
+              <p class="lp-cap-d">A policy decides which paths a run may touch. When it refuses one, the
+                work comes back intact with a safe way to land it, instead of on the floor.</p>
+            </div>
+          </li>
+          <li class="lp-cap lp-bento-c">
+            <div class="lp-bento-art lp-art-matrix" aria-hidden="true">
+              <span class="lp-mx-row lp-mx-head"><span></span>
+                <b><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>GitHub</b>
+              </span>
+              <span class="lp-mx-row"><em>Push</em><i class="y"></i></span>
+              <span class="lp-mx-row"><em>LFS</em><i class="y"></i></span>
+              <span class="lp-mx-row"><em>Actions</em><i class="y"></i></span>
+              <span class="lp-mx-key"><span><i class="y"></i>proved by a live run</span><span><i class="n"></i>not yet proved</span></span>
+            </div>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3.6v5c0 4.4-3.1 8.2-7.5 9.4-4.4-1.2-7.5-5-7.5-9.4v-5z"/><path d="M9 12.2l2.2 2.2L15.4 10"/></svg></span>Capabilities</span>
+              <h3 class="lp-cap-t">Capabilities are earned, not declared</h3>
+              <p class="lp-cap-d">What GitHub can do here is established by a live
+                run against GitHub. A capability nothing has proved does not get a badge.</p>
+            </div>
+          </li>
+          <li class="lp-cap lp-bento-c lp-bento-wide">
+            <div class="lp-bento-art lp-art-signal" aria-hidden="true">
+              <span class="lp-sig-who"><i></i><b>github.com</b><em>authority for this session</em></span>
+              <span class="lp-sig-stats">
+                <span><b>79</b><em>Trust score</em></span>
+                <span><b>12<small>/14</small></b><em>Provider-verified</em></span>
+                <span><b>2</b><em>Need attention</em></span>
+              </span>
+              <span class="lp-sig-bars">
+                <i style="--h:.34;--i:0"></i><i style="--h:.52;--i:1"></i><i style="--h:.4;--i:2"></i><i style="--h:.66;--i:3"></i><i style="--h:.48;--i:4"></i><i style="--h:.78;--i:5"></i><i style="--h:.6;--i:6"></i><i style="--h:.86;--i:7"></i><i style="--h:.7;--i:8"></i><i style="--h:.94;--i:9"></i><i style="--h:.74;--i:10"></i><i style="--h:1;--i:11"></i>
+              </span>
+              <span class="lp-sig-axis"><span>Commits, 12 weeks</span><span>this week</span></span>
+            </div>
+            <div class="lp-bento-copy">
+              <span class="lp-bento-k"><span class="lp-cap-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13.5h4l2.4-6.6 3.6 12 2.6-8.2 1.6 2.8H21"/></svg></span>Signals</span>
+              <h3 class="lp-cap-t">Signals, not badges</h3>
+              <p class="lp-cap-d">The overview reads the repository&rsquo;s own health and names the
+                authority this session is actually talking to, so nothing can claim to be live with
+                no identity behind it.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!--
+        What sets it apart, said as behaviour rather than adjectives: for each
+        thing a scan reports, what a scan usually does and what this one does.
+        Nothing on the left names anyone; everything on the right is a rule
+        the product enforces and a test holds.
+      -->
+      <section class="lp-proof" aria-labelledby="lpProofTitle">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Shows its working</p>
+          <h2 class="lp-sec-title" id="lpProofTitle">A scanner tells you. This one shows you why to believe it.</h2>
+        </div>
+        <ul class="lp-proof-rows">
+          <li class="lp-proof-row lp-proof-cols" aria-hidden="true"><span></span><span>What a scan usually does</span><span>What Nebulaverse-X does</span></li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A key in the code</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Flags a pattern.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Asks the issuing service whether it still works, only when you say so &mdash; and never tries one key's parts against another.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A served .env</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Reports a 200 on the path.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Reports it only when the body has the shape of an environment file, so an app's catch-all page is not a leak.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">The grade</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Averages everything together.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Holds below 50 while a confirmed critical finding is open, never shows an A over a confirmed serious one, weighs a lead to confirm at half, and prints the reason beside the number.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">What was not read</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Silence.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>States how many files and packages it read, and what it skipped, before any finding.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">The secret itself</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Quoted in the report.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Never quoted and never stored. A finding names a file, a line and a rule.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">A write to the repository</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>Sent.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Staged file changes require a diff review before commit. Other write actions use their own confirmation controls and provider policy checks.</p>
+          </li>
+          <li class="lp-proof-row">
+            <h3 class="lp-proof-k">What each provider can do</h3>
+            <p class="lp-proof-them"><span class="lp-proof-tag">Usually</span>A feature list.</p>
+            <p class="lp-proof-us"><span class="lp-proof-tag">Here</span>Offers only what is backed, and says how: Provider-verified only after a live run against that provider, Deterministic where tested rules decide. Anything neither backs is not offered.</p>
+          </li>
+        </ul>
+      </section>
+
+      <!--
+        How it works, told at the pace of the scroll: the heading holds still
+        while the three moves pass it, and a rail fills as they do.
+      -->
+      <section class="lp-story" aria-labelledby="lpStoryTitle">
+        <div class="lp-story-rail">
+          <p class="lp-sec-eyebrow">How it works</p>
+          <h2 class="lp-sec-title" id="lpStoryTitle">From connection to proof in three moves</h2>
+          <p class="lp-sec-lede">Choose the repository, understand its evidence, and review the changes you stage.</p>
+        </div>
+        <div class="lp-story-track">
+        <div class="lp-story-progress" aria-hidden="true"><span></span></div>
+        <ol class="lp-story-steps">
+          <li class="lp-story-step">
+            <span class="lp-story-n">01</span>
+            <h3 class="lp-story-t">Connect one sandbox</h3>
+            <p class="lp-story-d">GitHub &mdash; one test repository, credentials sealed.</p>
+            <div class="lp-story-art lp-art-connect" aria-hidden="true"><span class="on">sandbox/demo</span><span>acme/website</span><span>acme/billing</span></div>
+          </li>
+          <li class="lp-story-step">
+            <span class="lp-story-n">02</span>
+            <h3 class="lp-story-t">Understand what is there</h3>
+            <p class="lp-story-d">Trust score, live signals, leaked secrets and the map of what is wired in.</p>
+            <div class="lp-story-art lp-art-rings" aria-hidden="true">
+              <svg viewBox="0 0 120 120"><circle class="t" cx="60" cy="60" r="46"/><circle class="v" cx="60" cy="60" r="46" pathLength="100"/><circle class="t" cx="60" cy="60" r="32"/><circle class="w" cx="60" cy="60" r="32" pathLength="100"/></svg>
+              <span><b>79</b>trust score</span>
+            </div>
+          </li>
+          <li class="lp-story-step">
+            <span class="lp-story-n">03</span>
+            <h3 class="lp-story-t">Prove the next move</h3>
+            <p class="lp-story-d">Staged changes reviewed against the expected head before any commit.</p>
+            <div class="lp-story-art lp-art-prove" aria-hidden="true"><span class="k">Preview</span><span class="ok">3 files · policy passed</span><span class="go">Approve</span></div>
+          </li>
+        </ol>
+        </div>
+      </section>
+      <div class="lp-sec lp-limits-sec">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Before you enter</p>
+          <h2 class="lp-sec-title" id="lpLimitsTitle">What this alpha will not do</h2>
+          <p class="lp-sec-lede">A controlled alpha is defined by its edges. These are the ones worth
+            knowing before you spend an invitation.</p>
+        </div>
+        <ul class="lp-limits">
+          <li class="lp-limit">
+            <svg class="lp-limit-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2l8.4 14.6H3.6z"/><path d="M12 10v3.6M12 16.4v.1"/></svg>
+            <span><span class="lp-limit-b">Sandbox repositories only</span>
+              <span class="lp-limit-d">Connect a sandbox or test repository containing no real secrets,
+                personal data, production deployments, or irreplaceable source. This is the rule the
+                gate asks you to accept, and it is the one that matters most.</span></span>
+          </li>
+          <li class="lp-limit">
+            <svg class="lp-limit-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 8.5a3.5 3.5 0 1 1-4.9 4.9l-5.4 5.4H3v-2.2l5.4-5.4a3.5 3.5 0 0 1 4.9-4.9z"/></svg>
+            <span><span class="lp-limit-b">Invitations when the gate is enabled</span>
+              <span class="lp-limit-d">When required, an invitation is redeemed once against the
+                terms shown beside it. When entry is open, continue without an invitation.</span></span>
+          </li>
+          <li class="lp-limit">
+            <svg class="lp-limit-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M8 7l.8 12.2h6.4L16 7"/></svg>
+            <span><span class="lp-limit-b">Leaving is part of the product</span>
+              <span class="lp-limit-d">What this browser holds can be cleared from inside the
+                interface, without asking anyone.</span></span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- The questions a careful reader asks before connecting anything. -->
+      <section class="lp-faq" aria-labelledby="lpFaqTitle">
+        <div class="lp-sec-head">
+          <p class="lp-sec-eyebrow">Questions</p>
+          <h2 class="lp-sec-title" id="lpFaqTitle">Before you connect anything</h2>
+          <p class="lp-sec-lede">What it reads, what it keeps, what it sends and what it will write &mdash; answered the way the product behaves.</p>
+        </div>
+        <div class="lp-faq-list">
+          <details class="lp-faq-item">
+            <summary>Does it keep my code or my secrets?</summary>
+            <p>No. Files are read, judged and dropped. A finding carries a path, a line and a rule &mdash; never the
+              content &mdash; and a leaked credential is shown by where it is, never by what it is. What this browser
+              holds can be cleared from inside the product, without asking anyone.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Will it write to my repository?</summary>
+            <p>Only through an action you confirm. Staged file changes include a diff review; other actions, such as a rename or deletion, use their own confirmation controls. Expected-head checks refuse writes when the reviewed branch head has changed.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>What does "verified" mean for a leaked key?</summary>
+            <p>You asked, for that one finding, and the issuing service was asked whether the key still works. The
+              request is authorised separately, expires, and is bound to you, the repository, the commit, the finding
+              and the target. The answer is one of three: live, not live, or could not tell.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>What does the site check send to my site?</summary>
+            <p>At most sixty anonymous GET requests, over forty-five seconds at most, to the address you give: the page,
+              following up to three redirects; one plain-HTTP request to see that it redirects; about twenty fixed paths
+              such as <code>/.env</code> and <code>/.well-known/security.txt</code>; up to five pages the landing page
+              links to (never one <code>robots.txt</code> closes to crawlers, and never a sign-out); and the scripts those
+              pages load from your site. The libraries it recognises are looked up by name and version in OSV, and the
+              domain's SPF and DMARC records in public DNS. No credential, no cookie, nothing from your session, nothing
+              submitted; bodies are cut at a bound and never kept, and a secret it finds is named by its kind, never shown.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Is the audit an AI?</summary>
+            <p>No. It is deterministic rules, each tested firing on the mistake and quiet on the safe way to write
+              it, so the same branch gets the same answer. The prompts it writes are for your assistant, to fix what
+              it found.</p>
+          </details>
+          <details class="lp-faq-item">
+            <summary>Which repository provider does it work with?</summary>
+            <p>GitHub is the supported repository provider. Connect with a GitHub token or OAuth;
+              a configured GitHub App can be connected from Settings. Each capability states its availability
+              and supporting evidence. Repository tools remain subject to this deployment’s permissions and limits.</p>
+          </details>
+        </div>
+      </section>
+
+      <!-- The close: one clear next step, back to the card at the top. -->
+      <section class="lp-cta" aria-labelledby="lpCtaTitle">
+        <span class="lp-cta-horizon" aria-hidden="true"></span>
+        <p class="lp-sec-eyebrow lp-cta-eyebrow">Controlled public alpha</p>
+        <h2 class="lp-cta-title" id="lpCtaTitle">Ready when your sandbox is.</h2>
+        <p class="lp-cta-lede">One sandbox repository, with changes you can review. Leave whenever you like; this browser forgets on your word.</p>
+        <div class="lp-cta-actions">
+          <button class="btn btn-primary lp-cta-btn" type="button" data-lp-jump>Request entry</button>
+          <button class="btn lp-ghost lp-cta-ghost" type="button" data-lp-tour="lpPlayTitle"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M10.2 8.8l5 3.2-5 3.2z"/></svg>See how it works</button>
+        </div>
+      </section>
+      <footer class="lp-foot">
+        <div class="lp-foot-about">
+          <span class="lp-foot-brand">
+            <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+            __NV_PRODUCT_NAME__
+          </span>
+          <p class="lp-foot-tag">Security that shows its working, one sandbox repository at a time.</p>
+        </div>
+        <!-- The page's own map: every link scrolls to a section here; nothing leaves the page. -->
+        <nav class="lp-foot-nav" aria-label="Sections">
+          <div class="lp-foot-col">
+            <p class="lp-foot-h">Product</p>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpOrbitTitle">Systems</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpPlayTitle">Audit</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpShowTitle">Map</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpChecksTitle">Coverage</button>
+          </div>
+          <div class="lp-foot-col">
+            <p class="lp-foot-h">Trust</p>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpProofTitle">Proof</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpStoryTitle">How it works</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpLimitsTitle">Limits</button>
+            <button type="button" class="lp-foot-link" data-lp-tour="lpFaqTitle">Questions</button>
+          </div>
+        </nav>
+        <!--
+          The build used to be printed here, on a page that requires no
+          invitation to read. A tester still needs to be able to quote it, so
+          it moved to Settings, where a session has already been established --
+          /api/me carries it. What is left is the thing a visitor to this page
+          actually needs to know about the deployment.
+        -->
+        <div class="lp-foot-base">
+          <span class="lp-foot-meta">
+            <span>Controlled hosted public alpha</span>
+          </span>
+          <span class="lp-foot-note">Sandbox repositories only &middot; nothing it reads is kept</span>
+        </div>
+      </footer>
+    </section>
+  </div>
+</main>
+
+<!-- ======================= LOGIN ======================= -->
+<main class="page" id="page-login" aria-labelledby="loginTitle">
+  <div class="login-wrap">
+    <div class="login-back">
+      <button class="btn btn-ghost small" id="loginBackBtn" hidden><svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>Back</button>
+    </div>
+    <div class="login-theme">
+      <button class="theme-toggle" type="button" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
+    </div>
+    <!--
+      The mark at hero size. What stood here was an orbiting-comet emblem whose
+      gradient ran to teal -- the previous brand's colour, on the first screen
+      anyone sees. It is the same mark as the sidebar's and the same geometry
+      as the one that folds in the trust panel.
+    -->
+    <div class="nv-logo nv-logo-lg" aria-hidden="true">
+      <svg class="nv-mark nv-mark-lg" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+    </div>
+    <h1 class="brand-title" id="loginTitle">__NV_PRODUCT_NAME__</h1>
+    <p class="brand-sub">GitHub — a public alpha workspace for sandbox repositories.</p>
+    <div class="card login-card">
+      <label class="field-label" for="tokenInput" id="tokenLabel">GitHub Personal Access Token</label>
+      <input id="tokenInput" type="password" placeholder="ghp_••••••••••••••••" autocomplete="off" spellcheck="false" aria-describedby="loginHint">
+      <button class="btn btn-primary btn-block" id="loginBtn">Enter orbit</button>
+      <button class="btn btn-ghost btn-block" id="oauthBtn" hidden>Continue with GitHub (OAuth)</button>
+      <p class="hint" id="loginHint">Use a short-lived fine-grained token limited to selected repositories. Grant Contents read access for browsing; add write permission only for changes you intend to make. Sessions use an HttpOnly cookie stored by your browser.</p>
+      <p class="hint" id="loginLimits" role="status">Deployment upload limits are loading. Provider limits also apply.</p>
+      <div class="login-error" id="loginError" role="alert" hidden></div>
+    </div>
+  </div>
+</main>
+
+<!--
+  Primary navigation. One instance rather than a copy inside each screen: the
+  rail is chrome around the screens, not part of any one of them, so it is a
+  sibling of them and is shown once a session is authenticated. Below the wide
+  breakpoint it gives way to the bottom navigation the workspace already has.
+-->
+<nav class="nv-rail" id="navRail" aria-label="Primary" hidden>
+  <div class="nv-rail-head" style="--i:0">
+    <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+    <span class="nv-rail-brand">__NV_PRODUCT_NAME__</span>
+    <span class="nv-rail-sub">Trust operations</span>
+  </div>
+
+  <!--
+    The section label and its collapse control, as the reference draws them.
+    Collapsing narrows the rail to its icons; the entries keep their names for
+    assistive technology, so the rail never becomes a row of unlabelled marks.
+  -->
+  <div class="nv-rail-section" style="--i:1">
+    <span class="nv-rail-section-t">Workspace</span>
+    <button type="button" class="nv-rail-collapse" id="railCollapse"
+      aria-expanded="true" aria-controls="navRail" aria-label="Collapse the sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
+    </button>
+    <!-- The drawer's way out, in the same place and shape as the desktop control
+         it stands in for: standing chrome narrows, a drawer is put away. -->
+    <button type="button" class="nv-rail-collapse nv-rail-close" id="navClose" aria-label="Close navigation" title="Close">
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 7l-5 5 5 5"/><path d="M19 7l-5 5 5 5"/></svg>
+    </button>
+  </div>
+
+  <ul class="nv-rail-nav">
+    <li style="--i:2"><button type="button" class="nv-rail-item" data-rail="overview">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
+      <span class="nv-rail-t">Overview</span>
+      <span class="nv-rail-d">Workspace pulse</span></button></li>
+    <li style="--i:3"><button type="button" class="nv-rail-item" data-rail="repos">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
+      <span class="nv-rail-t">Galaxies</span>
+      <span class="nv-rail-d">Your repositories</span></button></li>
+    <li style="--i:4"><button type="button" class="nv-rail-item" data-rail="findings" data-feature="findings.inbox">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 12h16M4 18.5h10"/><circle cx="19" cy="18.5" r="1.6"/></svg>
+      <span class="nv-rail-t">Findings</span>
+      <span class="nv-rail-d">Everything open</span></button></li>
+  </ul>
+
+  <!--
+    The places that answer "is this repository safe": what it touches, what
+    it is allowed to do, what it has leaked, what a reviewer or an attacker
+    would find in its code and on its site, and the switches that stop it.
+    They sit together so a reader looking for one finds the others beside it.
+    Safeguards is a section like the others, with its own address.
+  -->
+  <!--
+    Magnetar Sec: the security tools, under one heading that opens and closes
+    like a menu. Folded, the heading stays and says how many it holds; the
+    entry for the screen in front of the reader opens it again by itself.
+  -->
+  <button type="button" class="nv-rail-group" id="railSecurityLabel" style="--i:5"
+    aria-expanded="true" aria-controls="railSecurityFold">
+    <span class="nv-rail-group-t">Magnetar Sec</span>
+    <span class="nv-rail-group-n" aria-hidden="true">6</span>
+    <svg class="nv-rail-group-chev" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+  <div class="nv-rail-fold" id="railSecurityFold" data-open="true">
+  <ul class="nv-rail-nav nv-rail-nav-security" aria-labelledby="railSecurityLabel">
+    <li style="--j:0;--i:6"><button type="button" class="nv-rail-item" data-rail="neural">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22"/></svg>
+      <span class="nv-rail-t">Pulsar Map</span>
+      <span class="nv-rail-d">Neural · how code connects</span></button></li>
+    <li style="--j:1;--i:7"><button type="button" class="nv-rail-item" data-feature="governance" data-rail="governance">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg>
+      <span class="nv-rail-t">Kepler Twin</span>
+      <span class="nv-rail-d">Governance · policy rules</span></button></li>
+    <li style="--j:2;--i:8"><button type="button" class="nv-rail-item" data-feature="exposure.scan" data-rail="exposure">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg>
+      <span class="nv-rail-t">Quasar Scanner</span>
+      <span class="nv-rail-d">Exposure · leaked secrets</span></button></li>
+    <li style="--j:3;--i:9"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="audit">
+      <svg class="nv-rail-i nv-audit-mark" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg>
+      <span class="nv-rail-t">Uranus Engine</span>
+      <span class="nv-rail-d">Audit · code and packages</span></button></li>
+    <li style="--j:4;--i:10"><button type="button" class="nv-rail-item" data-feature="site-check" data-rail="site">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>
+      <span class="nv-rail-t">Parallax Probe</span>
+      <span class="nv-rail-d">Website · live site check</span></button></li>
+    <li style="--j:5;--i:11"><button type="button" class="nv-rail-item" data-feature="recovery" data-rail="safeguards">
+      <svg class="nv-rail-i" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg>
+      <span class="nv-rail-t">Corona Guard</span>
+      <span class="nv-rail-d">Safeguards · lockdown</span></button></li>
+  </ul>
+  </div>
+
+  <div class="nv-rail-foot" style="--i:12">
+    <!-- Painted from the server's own report (/api/workspace/posture); it
+         says "checking" until that report arrives rather than claiming a
+         state nobody has asked about. -->
+    <p class="nv-rail-state" id="navBoundary" data-state="checking" aria-live="polite">
+      <span class="nv-rail-dot" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t">Checking boundary</span>
+        <span class="nv-rail-d">Waiting for the server&rsquo;s report</span></span>
+    </p>
+    <p class="nv-rail-user" id="navUser" hidden>
+      <span class="nv-rail-avatar" id="navUserInitial" aria-hidden="true"></span>
+      <span><span class="nv-rail-state-t" id="navUserName"></span>
+        <span class="nv-rail-d" id="navUserSub"></span></span>
+    </p>
+  </div>
+</nav>
+<div class="side-scrim" id="navScrim" hidden></div>
+
+<!-- ======================= OVERVIEW ======================= -->
+<!--
+  The deployed-site check, Parallax, for any address a reader may test. It
+  is the only place a site is checked: the Audit tab links here with the
+  repository's homepage, and the rail reaches it without a repository.
+-->
+<!--
+  The findings inbox: every open finding across the workspace, in one list to
+  work through (public/findings-inbox-ui.js). Its filters live in the address,
+  so a filtered list survives a reload and can be sent to someone.
+-->
+<main class="page" id="page-findings" aria-labelledby="findingsTitle">
+  <header class="topbar glass">
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
+    <button class="topbar-brand" id="findingsHomeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <nav class="ov-crumbs" aria-label="Location">
+      <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Findings</span>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost small" id="findingsRefresh" type="button" aria-label="Read the findings again">Refresh</button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtnFindings" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="theme-toggle" id="themeBtnFindings" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
+    </div>
+  </header>
+  <div class="container">
+    <div class="exposure-shell fi-page">
+      <header class="exposure-intro sec-hero">
+        <span class="sec-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5h16M4 12h16M4 18.5h10"/><circle cx="19" cy="18.5" r="1.6"/></svg></span>
+        <div class="sec-hero-text">
+          <p class="exposure-kicker">Magnetar Sec · Workspace</p>
+          <h2 id="findingsTitle">Findings</h2>
+          <p>Every open finding the audits and exposure scans have kept, across your repositories: what came back after a fix, what is new this week, who owns it, and what the team has decided.</p>
+        </div>
+      </header>
+      <div id="findingsRoot" class="fi-shell" aria-live="polite"></div>
+    </div>
+  </div>
+</main>
+
+<main class="page" id="page-site" aria-labelledby="siteTitle">
+  <header class="topbar glass">
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
+    <button class="topbar-brand" id="siteHomeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <nav class="ov-crumbs" aria-label="Location">
+      <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Website</span>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost icon-btn" id="settingsBtnSite" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="theme-toggle" id="themeBtnSite" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
+    </div>
+  </header>
+  <div class="container">
+    <div class="exposure-shell audit-shell site-shell">
+      <header class="exposure-intro sec-hero">
+        <span class="sec-mark sec-mark-site" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
+        <div class="sec-hero-text">
+          <p class="exposure-kicker">Magnetar Sec · Parallax Probe</p>
+          <h2 id="siteTitle">Website</h2>
+          <p>Check a public website&rsquo;s security, then inspect its rendered desktop and mobile experience. Review findings alongside coverage, screenshots and the limits of each check.</p>
+        </div>
+      </header>
+      <div id="siteRoot" aria-live="polite"></div>
+      <section id="renderedAuditRoot" class="rendered-audit" aria-label="Rendered website audit" hidden></section>
+    </div>
+  </div>
+</main>
+
+<main class="page" id="page-overview" aria-label="Workspace overview">
+  <header class="topbar glass">
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
+    <!--
+      The mark, not only the wordmark. This button's sole child was a .hide-sm
+      span, and .hide-sm is display:none below 900px -- so on a phone the
+      button held nothing, collapsed to zero width, and the bar lost the
+      product's name and face together. The crumbs beside it are display:none
+      below 901px as well, so nothing else on the bar said where the reader
+      was. The mark carries the identity at 22px where the word will not fit,
+      and the word returns beside it on a wide screen.
+    -->
+    <button class="topbar-brand" id="ovHomeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <nav class="ov-crumbs" aria-label="Location">
+      <span>__NV_PRODUCT_NAME__</span><span aria-hidden="true">/</span><span aria-current="page">Overview</span>
+    </nav>
+    <!--
+      The overview is where a signed-in session now starts, so it carries the
+      account controls the inventory carries. A home screen a reader cannot
+      sign out of is not a home screen.
+    -->
+    <div class="topbar-actions">
+      <!--
+        Named by aria-label rather than by its own text, because on a phone the
+        text is not drawn. A name taken from content disappears with the
+        content, and this control is how a reader -- and the suite's journey
+        helper -- reaches the repositories screen.
+      -->
+      <button class="btn btn-ghost" id="ovGoRepos" aria-label="Galaxies, your repositories">
+        <svg class="ico ov-repos-ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-28 12 12)"/></svg>
+        <span class="ov-repos-word">Galaxies</span>
+      </button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtnOv" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <!--
+        The overview is where a signed-in session starts, and it was the one
+        screen with no way to change the theme: the inventory and the workbench
+        each carry this control, the overview did not, so a reader who landed
+        here had to leave to reach it. app.js delegates .theme-toggle at module
+        scope and syncs aria-checked across every copy, so this rides the
+        existing mechanism rather than adding a second.
+      -->
+      <button class="theme-toggle" id="themeBtnOv" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
+      <button class="avatar-btn" id="accountBtnOv" title="Accounts" aria-label="Accounts"><svg class="ico avatar-fallback" width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.7"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg><img class="avatar" id="meAvatarOv" alt="" hidden></button>
+      <button class="btn btn-ghost icon-btn btn-signout" id="logoutBtnOv" title="Sign out" aria-label="Sign out"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/></svg></button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Scroll progress for the phone. Decorative: it reports where the reader
+         already knows they are, so it carries no name and no role. -->
+    <div class="ov-scroll-progress" aria-hidden="true"></div>
+    <!--
+      The hero is a statement and a stage, not one card.
+      ---------------------------------------------------------------------
+      A greeting, the move the reader is here to make, and the mark given room
+      of its own. Folding all of that into a single small panel shrank the
+      headline to a label and the mark to a decoration in a corner; the reader
+      arrived at a box rather than at a workspace. The two halves sit side by
+      side on a wide screen and stack on a narrow one, and the mark keeps its
+      own framed ground either way.
+    -->
+    <section class="ov-hero">
+      <div class="ov-hero-copy">
+        <p class="gx-eyebrow"><span>Trust operations</span><span aria-hidden="true">/</span><span>Authenticated workspace</span></p>
+        <h2 class="gx-title" id="ovTitle">Good to see you,<br><em id="ovWho">tester</em>.<br>Make <em>one</em> safe move.</h2>
+        <p class="gx-lede">Connect a repository, understand its current health, and review the next change
+          before you commit it.</p>
+        <div class="gx-hero-actions">
+          <button class="btn btn-primary" id="ovOpenBrowser">Open repository browser</button>
+          <span class="ov-hero-hint">or press <kbd>Ctrl</kbd><kbd>K</kbd></span>
+        </div>
+      </div>
+      <aside class="ov-core" id="ovCore" aria-labelledby="ovCoreTitle">
+        <!--
+          The rail reads the authority this session is actually talking to --
+          the same one the capability set was loaded against -- so the panel
+          cannot claim a connection it does not have.
+        -->
+        <p class="ov-core-head">
+          <span id="ovCoreTitle">Trust core</span>
+          <span class="ov-core-state">
+            <span class="ov-live is-idle" id="ovCoreLive">Not connected</span>
+            <span class="ov-core-dot" aria-hidden="true"></span>
+            <span class="ov-core-scope" id="ovCoreScope">github.com</span>
+          </span>
+        </p>
+        <!--
+          The core: the product's mark cut as a faceted stone -- violet in
+          Nebula, obsidian or quartz in Obsidian -- seated in an instrument's
+          rings, with the orbit's node riding the leading end of its arc.
+          Sharp at any resolution and the same on every device, with nothing
+          to download and nothing that needs a GPU.
+        -->
+        <div class="ov-core-art" id="ovCoreArt" aria-hidden="true"><span class="ov-core-glow"></span><svg class="ov-core-emblem" viewBox="0 0 400 220" focusable="false">
+          <defs>
+            <linearGradient id="ocDeep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-deep-a"/><stop offset="1" class="oc-deep-b"/></linearGradient>
+            <linearGradient id="ocLight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-light-a"/><stop offset="1" class="oc-light-b"/></linearGradient>
+            <linearGradient id="ocEdge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="oc-edge-a"/><stop offset=".55" class="oc-edge-b"/><stop offset="1" class="oc-edge-c"/></linearGradient>
+            <linearGradient id="ocArc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="oc-arc-a"/><stop offset="1" class="oc-arc-b"/></linearGradient>
+            <linearGradient id="ocSweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" class="oc-sweep-a"/><stop offset=".5" class="oc-sweep-b"/><stop offset="1" class="oc-sweep-a"/></linearGradient>
+            <radialGradient id="ocFloor" cx=".5" cy=".5" r=".5"><stop offset="0" class="oc-floor-a"/><stop offset="1" class="oc-floor-b"/></radialGradient>
+            <clipPath id="ocMarkClip"><path d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z"/></clipPath>
+          </defs>
+          <ellipse class="oc-floor" cx="200" cy="168" rx="70" ry="10" fill="url(#ocFloor)"/>
+          <circle class="oc-ticks" cx="200" cy="110" r="96"/>
+          <circle class="oc-ring" cx="200" cy="110" r="80"/>
+          <circle class="oc-ring oc-ring-fine" cx="200" cy="110" r="60"/>
+          <path class="oc-cardinal" d="M200 6v8M200 206v8M96 110h8M296 110h8"/>
+          <g class="oc-orbit">
+            <path class="oc-arc" d="M131.4 50.3A92 92 0 0 1 247.8 31.6" stroke="url(#ocArc)"/>
+            <circle class="oc-node" cx="247.8" cy="31.6" r="3"/>
+          </g>
+          <g class="oc-float">
+            <g class="oc-mark" transform="translate(200 112) scale(.34) translate(-142 -120)">
+              <path d="M79 25 L40 217 L106 116 Z" fill="url(#ocDeep)"/>
+              <path d="M79 25 L106 116 L171 112 Z" fill="url(#ocLight)"/>
+              <path d="M244 23 L178 124 L205 215 Z" fill="url(#ocDeep)"/>
+              <path d="M178 124 L113 128 L205 215 Z" fill="url(#ocLight)"/>
+              <g clip-path="url(#ocMarkClip)"><rect class="oc-sweep" x="-90" y="0" width="90" height="240" fill="url(#ocSweep)"/></g>
+              <path class="oc-facets" d="M79 25 L40 217 L106 116 Z M79 25 L106 116 L171 112 Z M244 23 L178 124 L205 215 Z M178 124 L113 128 L205 215 Z" stroke="url(#ocEdge)"/>
+            </g>
+          </g>
+        </svg></div>
+        <p class="ov-core-line" id="ovCoreLine" aria-live="polite">Measuring this workspace&hellip;</p>
+      </aside>
+    </section>
+
+    <section class="ov-path" aria-labelledby="ovPathTitle">
+      <p class="gx-eyebrow" id="ovPathTitle"><span>Golden path</span></p>
+      <p class="ov-path-lede">The fastest safe route through the overview.</p>
+      <ol class="ov-steps">
+        <li><span class="ov-step-n">01</span><span class="ov-step-t">Connect</span><span class="ov-step-d">Choose one repository</span></li>
+        <li><span class="ov-step-n">02</span><span class="ov-step-t">Understand</span><span class="ov-step-d">See health and signals</span></li>
+        <li><span class="ov-step-n">03</span><span class="ov-step-t">Prove</span><span class="ov-step-d">Review staged changes</span></li>
+      </ol>
+    </section>
+
+    <!--
+      Overview pulse. Same rule as the inventory: every figure is computed
+      from what the session loaded, and a measure without a source is absent
+      rather than filled with a plausible number.
+    -->
+    <section class="gx-pulse" id="ovPulse" aria-label="Workspace pulse" hidden>
+      <dl class="gx-pulse-grid" id="ovPulseGrid"></dl>
+    </section>
+
+    <!--
+      The trust score and live-signal count the design calls for. Both are
+      computed in workspace-pulse.js from signals this session actually holds,
+      and both say "not measured" rather than showing a number when they have
+      no source. The score is never shown alone: the components that produced
+      it are on screen so a reader can argue with it.
+    -->
+    <section class="wp-grid" aria-labelledby="wpTitle">
+      <h2 class="sr-only" id="wpTitle">Workspace trust</h2>
+      <article class="card wp-card wp-card-trust" id="wpTrust" aria-labelledby="wpTrustTitle">
+        <h3 class="sr-only" id="wpTrustTitle">Trust score</h3>
+        <div class="wp-body"></div>
+      </article>
+      <div class="wp-column">
+        <article class="card wp-card" id="wpSignals" aria-labelledby="wpSignalsTitle">
+          <h3 class="sr-only" id="wpSignalsTitle">Capabilities</h3>
+          <div class="wp-body"></div>
+        </article>
+        <article class="card wp-card wp-card-activity" id="wpActivity" aria-labelledby="wpActivityTitle">
+          <h3 class="sr-only" id="wpActivityTitle">Repository activity</h3>
+          <div class="wp-body"></div>
+        </article>
+      </div>
+    </section>
+
+    <!--
+      Security posture: how the code stands, beside how the session stands.
+      --------------------------------------------------------------------
+      The cards above read the session -- its credential, its recovery points,
+      what the deployment offers. This reads what the audits, the exposure
+      scans and governance already hold across every repository this account
+      has looked at (features/posture/security-posture.ts; the figures are decided on the
+      server, in the posture module's summary). Full width, like the feed
+      below it: a weekly chart and a ranked list side by side do not fit a
+      cell sized for one figure.
+
+      Hidden until the deployment is known to offer it. A deployment that does
+      not offer the posture draws none of it, and never asks for it.
+    -->
+    <section class="wp-posture-section" id="wpPostureSection" hidden>
+      <article class="card wp-card wp-card-posture" id="wpPosture" aria-labelledby="ovPostureTitle">
+        <h2 class="sr-only" id="ovPostureTitle">Security posture</h2>
+        <div class="wp-body"></div>
+      </article>
+    </section>
+
+    <!--
+      Recent activity: what happened, where the card above says how much.
+      -------------------------------------------------------------------
+      The activity card beside the trust score plots a trailing seven-day count
+      of repositories pushed. It is a real measure and it answers a question
+      nobody arrives at the overview asking -- a reader wants to know what has
+      been going on, and a count cannot tell them.
+
+      This reads commits across the most recently pushed repositories the
+      session may see. It is its own section rather than a fourth card in the
+      grid because rows of text and a column of numbers do not share a shape,
+      and cramming a list into a card sized for a figure is how the list ends
+      up three rows tall with a scrollbar.
+
+      aria-live is deliberately absent: the feed arrives once, on its own, and
+      announcing a screenful of commits to a screen reader that was reading
+      something else is an interruption nobody asked for. The heading names it
+      and the reader reaches it when they reach it.
+    -->
+    <section class="wp-feed-section">
+      <!-- The name goes on the card, as it does on every card in the grid
+           above: the card is the region a reader lands in, and the section is
+           only here to carry the spacing. -->
+      <article class="card wp-card wp-card-feed" id="wpFeed" aria-labelledby="ovFeedTitle">
+        <h2 class="sr-only" id="ovFeedTitle">Recent activity</h2>
+        <div class="wp-feed-toolbar">
+          <span class="wp-label">RECENT ACTIVITY</span>
+          <button class="btn btn-ghost small" id="wpFeedRefresh" type="button" aria-label="Refresh recent activity">Refresh</button>
+        </div>
+        <div class="wp-body"></div>
+      </article>
+    </section>
+
+    <!--
+      Open pull requests across the workspace (public/pull-board.js).
+      ----------------------------------------------------------------
+      Read-only: the list route the workbench already uses, asked for the
+      repositories most recently pushed to, and only once the card is in
+      view. A card opens that pull request in its own repository, where
+      reviewing and merging live behind their own checks. Hidden until the
+      deployment is known to offer pull-request reads.
+
+      Last on the page, after the feed: it is read only when it comes into
+      view and grows when the lists arrive, and below everything else that
+      growth moves nothing a reader is already looking at.
+    -->
+    <section class="wp-pulls-section" id="wpPullsSection" hidden>
+      <article class="card wp-card wp-card-pulls" id="wpPulls" aria-labelledby="ovPullsTitle">
+        <h2 class="sr-only" id="ovPullsTitle">Open pull requests</h2>
+        <div class="wp-body"></div>
+      </article>
+    </section>
+  </div>
+</main>
+
+<!-- ======================= REPOS ======================= -->
+<main class="page" id="page-repos" aria-labelledby="reposTitle">
+  <header class="topbar glass">
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
+    <button class="topbar-brand" id="homeBtn" type="button" aria-label="Workspace overview">
+      <svg class="nv-mark" aria-hidden="true" focusable="false"><use href="#nvMark"/></svg>
+      <span class="hide-sm">__NV_PRODUCT_NAME__</span>
+    </button>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost icon-btn" data-feature="notifications" id="notifBtn" title="Notifications" aria-label="Notifications"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15.5 18 9.5zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg><span class="nv-unread" id="notifUnread" hidden></span></button>
+      <button class="btn btn-ghost icon-btn" id="settingsBtnRepos" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="theme-toggle" id="themeBtn" role="switch" aria-checked="true" aria-label="Toggle dark or light theme">
+        <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
+        <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
+        <span class="tt-knob"></span>
+      </button>
+      <button class="avatar-btn" id="accountBtn" title="Accounts" aria-label="Accounts"><svg class="ico avatar-fallback" width="17" height="17" viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.7"/><path d="M4.8 19.5a7.2 7.2 0 0 1 14.4 0"/></svg><img class="avatar" id="meAvatar" alt="" hidden></button>
+      <button class="btn btn-ghost icon-btn btn-signout hide-sm" id="logoutBtn" title="Sign out" aria-label="Sign out"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 17l5-5-5-5"/><path d="M20 12H9"/><path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/></svg></button>
+    </div>
+  </header>
+  <div class="container">
+    <section class="gx-hero" aria-labelledby="gxHeroTitle">
+        <!--
+          The galaxy sits beside the hero copy, in the hero's right half, on a
+          phone as on a desk. It is decoration and carries no meaning, so it is
+          hidden from assistive technology and takes no pointer events -- the
+          text its fading edge meets stays selectable.
+        -->
+        <div class="gx-hero-art" id="gxHeroArt" aria-hidden="true">
+          <!-- The galaxy held still: drawn where the live one cannot run, so the header never ends on an empty smudge of light. -->
+          <svg class="gx-hero-still" viewBox="0 0 400 260" focusable="false">
+            <defs>
+              <radialGradient id="gxStillGlow"><stop offset="0" class="gx-still-g0"/><stop offset=".3" class="gx-still-g1"/><stop offset="1" class="gx-still-g2"/></radialGradient>
+            </defs>
+            <circle cx="200" cy="130" r="118" fill="url(#gxStillGlow)"/>
+            <g transform="rotate(-16 200 130)">
+              <ellipse class="gx-still-ring gx-still-r3" cx="200" cy="130" rx="178" ry="58"/>
+              <ellipse class="gx-still-ring gx-still-r2" cx="200" cy="130" rx="128" ry="41"/>
+              <ellipse class="gx-still-ring gx-still-r1" cx="200" cy="130" rx="78" ry="25"/>
+              <circle class="gx-still-dot" cx="32.7" cy="110.2" r="3.4"/>
+              <circle class="gx-still-dot gx-still-hot" cx="354.2" cy="159" r="4.4"/>
+              <circle class="gx-still-dot" cx="136" cy="165.5" r="3"/>
+              <circle class="gx-still-dot gx-still-hot" cx="298" cy="103.6" r="3.6"/>
+              <circle class="gx-still-dot" cx="173.3" cy="106.5" r="2.6"/>
+              <circle class="gx-still-dot" cx="239" cy="151.7" r="2.8"/>
+            </g>
+            <circle class="gx-still-core" cx="200" cy="130" r="8"/>
+          </svg>
+        </div>
+        <p class="gx-eyebrow"><span>Your workspace</span><span aria-hidden="true">/</span><span>Galaxies</span></p>
+        <h2 class="gx-title" id="gxHeroTitle">Choose a <em>repository.</em></h2>
+        <p class="gx-lede">Open a repository to browse files, review changes, or run an audit.</p>
+      </section>
+
+      <!--
+        Galaxy pulse. Every figure is computed from what this session actually
+        loaded. A measure with no source is left out rather than shown with a
+        placeholder: a surface whose whole claim is trust cannot invent a
+        number on it.
+      -->
+      <button class="btn btn-ghost gx-summary-toggle" id="reposSummaryToggle" aria-expanded="false" aria-controls="reposPulse">Repository summary</button>
+      <section class="gx-pulse" id="reposPulse" aria-label="Galaxy pulse" hidden>
+        <dl class="gx-pulse-grid" id="reposPulseGrid"></dl>
+      </section>
+
+      <div class="page-head">
+      <h2 id="reposTitle" class="sr-only">Your galaxies</h2>
+      <div class="page-head-tools">
+        <select id="repoSort" class="branch-select" aria-label="Sort repositories">
+          <option value="pushed">Recently pushed</option>
+          <option value="updated">Recently updated</option>
+          <option value="created">Newest</option>
+          <option value="full_name">Name</option>
+        </select>
+        <input id="repoFilter" class="search-input" type="search" placeholder="Filter, or paste any public repository…" aria-label="Filter repositories, or paste any public repository address" aria-describedby="repoOpenAnyHint">
+        <button class="btn btn-ghost" id="reposRefreshBtn" aria-label="Refresh repositories">Refresh</button>
+        <!--
+          Creating a repository is what this screen is for: it lists the ones
+          that exist, so the way to add one belongs beside the list rather
+          than in the standing chrome. It is the only action here, at every
+          width, and the top bar no longer carries a second copy.
+
+          Code search used to sit here and does not belong to an inventory:
+          searching inside a repository is the workbench's job, reached from
+          the workbench's own search field. The control is gone rather than
+          renamed, and the filter beside it filters -- it no longer escalates
+          into a cross-repository search on Enter.
+        -->
+        <button class="btn nv-create-repo" id="newRepoBtnRepos" data-feature="repository.create" aria-label="Create repository"><svg class="nv-planet" viewBox="0 0 24 24" aria-hidden="true"><ellipse class="nv-planet-ring" cx="9.6" cy="9.6" rx="8.5" ry="3.05"/><circle class="nv-planet-body" cx="9.6" cy="9.6" r="4.9"/><path class="nv-planet-plus" d="M18.7 15.8v5.4M16 18.5h5.4"/></svg><span>Create repository</span></button>
+      </div>
+    </div>
+    <!--
+      Any repository the account can read, not only its own: a pasted address
+      or owner/name that is not in the list offers to open it. Somebody
+      else's repository opens read-only -- audited, scanned and browsed, with
+      nothing offered that would change it.
+    -->
+    <div class="repo-open-any" id="repoOpenAny" hidden>
+      <button type="button" class="repo-open-any-btn" id="repoOpenAnyBtn">
+        <span class="repo-open-any-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg></span>
+        <span class="repo-open-any-text"><span class="repo-open-any-name" id="repoOpenAnyName"></span><span class="repo-open-any-sub" id="repoOpenAnySub"></span></span>
+        <span class="repo-open-any-go" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></span>
+      </button>
+    </div>
+    <p class="repo-open-any-hint" id="repoOpenAnyHint" hidden></p>
+    <div class="repo-grid" id="repoGrid"></div>
+    <div class="load-more-wrap"><button class="btn btn-ghost" id="moreReposBtn" hidden>Load more</button></div>
+    <button class="btn btn-ghost btn-block show-sm" id="logoutBtnM" style="margin-top:26px">Sign out</button>
+  </div>
+</main>
+
+<!-- ======================= WORKSPACE ======================= -->
+<main class="page" id="page-work" aria-label="Repository workspace">
+  <header class="topbar glass">
+    <button type="button" class="btn btn-ghost icon-btn nav-menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="navRail"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path class="nmb-l1" d="M4 7h16"/><path class="nmb-l2" d="M4 12h16"/><path class="nmb-l3" d="M4 17h16"/></svg></button>
+    <button class="topbar-brand" id="backBtn" type="button" title="Back to repositories" aria-label="Back to repositories">
+      <span class="back-chev">‹</span>
+      <span id="workRepoName" class="mono repo-name-trunc"></span>
+      <span class="badge repo-vis-badge" id="workPrivateBadge" hidden title="Private repository"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2l7 2.9v5.3c0 4.3-2.9 7.9-7 9.4-4.1-1.5-7-5.1-7-9.4V6.1z"/><circle cx="12" cy="10.6" r="1.9"/><path d="M12 12.5v3.2"/></svg><span class="repo-vis-word">Private</span></span>
+      <span class="badge repo-vis-badge repo-visitor-badge" id="workVisitorBadge" hidden title="You can read this repository but not change it"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.8 12s3.4-6.2 9.2-6.2 9.2 6.2 9.2 6.2-3.4 6.2-9.2 6.2S2.8 12 2.8 12z"/><circle cx="12" cy="12" r="2.6"/></svg><span class="repo-vis-word">Read only</span></span>
+    </button>
+    <div class="topbar-actions">
+      <span class="rate mono hide-sm" id="rateChip" title="GitHub API calls remaining this hour" hidden><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12l1-8z"/></svg><span id="rateVal"></span></span>
+      <button class="btn btn-ghost icon-btn hide-sm" id="settingsBtnWork" title="Settings" aria-label="Settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      <button class="btn btn-ghost icon-btn hide-sm" id="paletteBtn" title="Command palette (Ctrl+K)" aria-label="Command palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg></button>
+      <button class="btn btn-ghost icon-btn hide-sm" id="filesToggle" type="button" title="Hide files" aria-label="Hide files" aria-controls="side" aria-expanded="true"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.6"/><path d="M9.5 4.5v15"/><path class="files-toggle-chev" d="M15.6 9.6L13.2 12l2.4 2.4"/></svg></button>
+      <button class="btn btn-ghost icon-btn" id="syncBtn" title="Refresh repo" aria-label="Refresh repo"><svg class="ico" width="17" height="17" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 3.5v4h-4"/></svg></button>
+      <span class="ro-chip" id="roChip" hidden title="Read-only mode"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span class="ro-word">READ-ONLY</span></span><span class="ro-chip freeze" id="freezeChip" hidden title="Sync frozen"><svg class="ro-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/></svg><span class="ro-word">SYNC FROZEN</span></span><span class="shield-chip" id="branchShield" hidden title="This branch is protected"><svg class="ico" width="13" height="13" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/></svg></span><span class="branch-pick"><svg class="branch-pick-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg><select id="branchSelect" class="branch-select" title="Branch" aria-label="Repository branch"></select></span>
+      <button class="btn btn-ghost icon-btn staged-btn" id="stagedBtn" title="Staged changes" aria-label="Staged changes">
+        <svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5l8.5 4.7L12 12.9 3.5 8.2 12 3.5z"/><path d="M3.5 13l8.5 4.7L20.5 13"/><path d="M3.5 17.3L12 22l8.5-4.7"/></svg><span class="staged-count" id="stagedCount" hidden>0</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <div class="side-scrim" id="sideScrim" hidden></div>
+    <aside class="side glass" id="side">
+      <div class="side-head">
+        <input id="codeSearch" class="search-input small" type="search" data-feature="search" placeholder="Search code…  ⏎">
+        <button class="side-collapse hide-sm" id="filesCollapse" type="button" title="Hide files (Ctrl+B)" aria-label="Hide files" aria-controls="side"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6.5L9 12l5.5 5.5"/></svg></button>
+      </div>
+      <div class="side-actions">
+        <button class="chip" id="newFileBtn" data-feature="file.write"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> File</button>
+        <button class="chip" id="newBranchBtn" data-feature="branches.write"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg> Branch</button>
+        <button class="chip" id="refreshTreeBtn" aria-label="Refresh tree"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M19.5 11a7.7 7.7 0 1 0-2.2 6.1M19.5 5.5V11H14"/></svg></button>
+        <button class="chip" id="zipBtn" data-feature="repository.read" title="Download repo as zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg> zip</button>
+      </div>
+      <p class="hint" style="margin:0 4px 8px">Tip: long-press (or right-click) a file or folder for rename, download &amp; delete.</p>
+      <nav class="tree" id="tree" aria-label="Repository files"></nav>
+    </aside>
+
+    <section class="main-pane">
+      <section class="trust-summary" id="trustSummary" aria-label="Repository trust summary" hidden>
+        <button class="trust-rollup" id="trustRollup" type="button" aria-expanded="false" aria-controls="trustDetail">
+          <span class="trust-rollup-title">Repository trust</span>
+          <span class="trust-rollup-states" id="trustRollupStates"></span>
+          <svg class="trust-rollup-chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="trust-detail" id="trustDetail">
+          <article id="trustConnection" aria-label="Connection trust"></article>
+          <article id="trustPipeline" aria-label="Pipeline trust"></article>
+          <article id="trustRisk" aria-label="Risk"></article>
+          <article id="trustAction" aria-label="Next action"></article>
+          <article id="trustEvidence" aria-label="Evidence"></article>
+        </div>
+      </section>
+      <div class="sr-only" id="a11yStatus" role="status" aria-live="polite" aria-label="Workspace updates" aria-atomic="true"></div>
+      <!--
+        Two groups that wrap as wholes: the repository's own sections, then the
+        security tools. When the pane is too narrow for one row, the security
+        group moves down together rather than leaving one or two tabs alone
+        on a second line.
+      -->
+      <nav class="tabs glass" id="deskTabs" aria-label="Repository sections">
+        <span class="tab-group">
+        <button class="tab active" data-tab="editor">Editor</button>
+        <button class="tab" data-tab="upload" data-feature="native-push">Push files</button>
+        <button class="tab" data-tab="commits">Commits</button>
+        <button class="tab" data-feature="pulls.read" data-tab="pulls">Pull requests</button>
+        <button class="tab" data-feature="issues.read" data-tab="issues">Issues</button>
+        <button class="tab" data-feature="releases.read" data-tab="releases">Releases</button>
+        <button class="tab" data-feature="workflows.read" data-tab="actions">Actions</button>
+        <button class="tab" data-feature="recovery" data-tab="compare">Compare</button>
+        </span>
+        <span class="tab-group tab-group-security" role="group" aria-label="Magnetar Sec">
+        <button class="tab neural-tab" data-feature="access-surface" data-tab="neural"><span class="neural-tab-dot"></span>Neural</button>
+        <button class="tab" data-feature="governance" data-tab="governance" id="govTabLabel">Governance</button>
+        <button class="tab" data-feature="exposure.scan" data-tab="exposure" id="exposureTabLabel">Exposure</button>
+        <button class="tab" data-feature="site-check" data-tab="audit" id="auditTabLabel">Audit</button>
+        <button class="tab" data-feature="recovery" data-tab="safeguards" id="safeguardsTabLabel">Safeguards</button>
+        </span>
+      </nav>
+
+      <!-- EDITOR -->
+      <div class="tabpane active" id="tab-editor">
+        <div class="editor-empty card" id="editorEmpty">
+          <div class="empty-icon"><svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg></div>
+          <p class="editor-empty-pick">Pick a file from the constellation<span class="hide-sm"> on the left</span>,<br>
+          <span class="show-sm">tap <b>Files</b> below, </span>or press <span class="kbd">Ctrl K</span> to jump anywhere.</p>
+          <p class="editor-empty-bare" hidden>This repository has no files yet.<br>
+          Add the first one with <b>+&nbsp;File</b><span class="show-sm"> in the Files drawer</span>, or push a folder from <b>Push files</b>.</p>
+          <p class="editor-empty-visitor" hidden>This branch has no files yet.<br>
+          Pick another branch above, or come back when its owners have pushed some.</p>
+        </div>
+        <div class="editor-shell card" id="editorShell" hidden>
+          <div class="editor-bar">
+            <span class="mono file-path" id="filePath"></span>
+            <span class="file-size mono" id="fileSize"></span>
+            <div class="editor-bar-actions">
+              <button class="btn btn-ghost small" id="mdPreviewBtn" hidden>Preview</button>
+              <button class="btn btn-ghost small" id="findBtn" title="Find in file" aria-label="Find in file"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+              <button class="btn btn-ghost small" id="diffBtn" title="Diff unsaved edits" aria-label="Diff unsaved edits" disabled><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M9 5h7M12.5 1.5V8.5M8 19h8M4 12.5h16"/></svg></button>
+              <button class="btn btn-ghost small" id="fileHistoryBtn" title="File history" aria-label="File history"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M12 7.2V12l3.4 2"/></svg></button>
+              <button class="btn btn-ghost small" id="renameFileBtn" data-feature="file.rename" title="Rename or move" aria-label="Rename or move file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4 12h13.5M13 6l6 6-6 6"/></svg></button>
+              <button class="btn btn-ghost small danger" id="deleteFileBtn" title="Delete file" aria-label="Delete file"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg></button>
+              <button class="btn btn-ghost small" id="stageFileBtn" disabled>Stage</button>
+              <button class="btn btn-primary small" id="commitFileBtn" disabled>Commit</button>
+            </div>
+          </div>
+          <div class="find-bar" id="findBar" hidden>
+            <div class="find-row">
+              <input id="findInput" type="text" placeholder="Find…" autocomplete="off" spellcheck="false">
+              <span class="find-count mono" id="findCount">0/0</span>
+              <button class="fb-btn" id="findPrev" title="Previous (Shift+Enter)" aria-label="Previous match"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+              <button class="fb-btn" id="findNext" title="Next (Enter)" aria-label="Next match"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+              <button class="fb-btn fb-tog" id="findCase" title="Match case">Aa</button>
+              <button class="fb-btn fb-tog mono" id="findRegex" title="Regular expression">.*</button>
+              <button class="fb-btn" id="findClose" title="Close (Esc)" aria-label="Close find panel"><svg class="ico" width="14" height="14" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            </div>
+            <div class="find-row">
+              <input id="replaceInput" type="text" placeholder="Replace with…" autocomplete="off" spellcheck="false">
+              <button class="fb-btn fb-word" id="replaceOne">Replace</button>
+              <button class="fb-btn fb-word" id="replaceAll">All</button>
+            </div>
+          </div>
+          <div class="editor-host" id="editorHost"></div>
+          <div class="md-preview" id="mdPreview" hidden></div>
+          <div class="edit-diff" id="editDiff" hidden><div class="diff-patch mono" id="editDiffBody"></div></div>
+          <div class="binary-preview" id="binaryPreview" hidden></div>
+        </div>
+      </div>
+
+      <!-- UPLOAD -->
+      <div class="tabpane" id="tab-upload">
+        <div class="card upload-card">
+          <div class="dropzone" id="dropzone">
+            <div class="dz-ring"><svg class="dz-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19.5V5.2M5.8 11.4L12 5.2l6.2 6.2"/></svg></div>
+            <p class="dz-title">Drop files here, or <label class="dz-browse" for="filePicker">browse</label></p>
+            <p class="dz-sub">Per-file limits are set by this deployment. Each queued file shows its upload route.</p>
+            <p class="dz-sub">Smart sync: each file is <b>compared with the repo first</b> — unchanged files are skipped, changed ones are replaced, new ones are added.</p>
+            <div data-feature="lfs" class="strategy-row">
+              <span class="strategy"><b>Standard files</b><i>Git Data API</i></span>
+              <span class="strategy"><b>Larger Git files</b><i>Native Git push</i></span>
+              <span class="strategy glow"><b>LFS files</b><i>Git LFS ✦</i></span>
+            </div>
+            <input type="file" id="filePicker" multiple hidden>
+          </div>
+          <div class="upload-opts">
+            <span class="field-label" id="uploadModeLabel">Commit mode</span>
+            <div class="seg" data-feature="file.batch" id="uploadMode" role="radiogroup" aria-labelledby="uploadModeLabel">
+              <button class="seg-btn active" data-v="single" role="radio" aria-checked="true">One commit per file</button>
+              <button class="seg-btn" data-v="batch" role="radio" aria-checked="false">All as one commit</button>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-ghost small" data-feature="native-push" id="folderPickBtn">Select a whole folder…</button>
+              <button class="btn btn-ghost small" data-feature="native-push" id="zipUploadBtn">Upload a .zip (auto-extract)…</button>
+            </div>
+            <input type="file" id="folderPicker" webkitdirectory multiple hidden>
+            <input type="file" id="zipPicker" accept=".zip,application/zip" hidden>
+            <label class="field-label" for="uploadDir">Destination folder <span class="muted">(optional)</span></label>
+            <input id="uploadDir" type="text" placeholder="repository root" spellcheck="false">
+            <label class="field-label" for="uploadMsg">Commit message</label>
+            <input id="uploadMsg" type="text" placeholder="Add files via __NV_PRODUCT_NAME__" spellcheck="false">
+            <span class="field-label" id="uploadTransportLabel" style="margin-top:12px">File transport</span>
+            <div class="seg" id="uploadTransport" role="radiogroup" aria-labelledby="uploadTransportLabel">
+              <button class="seg-btn active" data-v="auto" role="radio" aria-checked="true">Automatic</button>
+              <button class="seg-btn" data-v="git" role="radio" aria-checked="false">Git</button>
+              <button class="seg-btn" data-v="lfs" role="radio" aria-checked="false" data-feature="lfs">Git LFS</button>
+            </div>
+            <p class="hint" id="uploadTransportHint">Automatic chooses by size. Git and Git LFS are honoured whenever this deployment can carry the file that way; if one cannot, the other is used and the swap is named on the file.</p>
+          </div>
+          <div class="batch-bar" id="batchBar" hidden>
+            <span id="batchInfo"></span>
+            <button class="btn btn-primary small" id="batchCommitBtn">Commit all as one ✦</button>
+          </div>
+          <div class="upload-queue" id="uploadQueue"></div>
+        </div>
+      </div>
+
+      <!-- COMMITS -->
+      <div class="tabpane" id="tab-commits">
+        <button class="btn btn-ghost small" data-feature="recovery" id="tmOpenBtn" style="margin-bottom:12px"><svg class="ico" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2M4.5 4.5L7 7M19.5 4.5L17 7"/></svg>Time Machine — travel this branch</button>
+        <div class="commit-list" id="commitList"></div>
+        <div class="load-more-wrap"><button class="btn btn-ghost" id="moreCommitsBtn" hidden>Load more</button></div>
+      </div>
+
+      <!-- PULLS -->
+      <div class="tabpane" id="tab-pulls">
+        <div class="list-toolbar">
+          <div class="seg" id="prState" role="radiogroup" aria-label="Pull request state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
+            <button class="seg-btn" data-v="all" role="radio" aria-checked="false">All</button>
+          </div>
+          <button class="btn btn-primary small" id="newPrBtn" data-feature="pulls.write">New PR</button>
+        </div>
+        <div class="item-list" id="prList"></div>
+        <div class="detail card" id="prDetail" hidden></div>
+      </div>
+
+      <!-- ISSUES -->
+      <div class="tabpane" id="tab-issues">
+        <div class="list-toolbar">
+          <div class="seg" id="issueState" role="radiogroup" aria-label="Issue state">
+            <button class="seg-btn active" data-v="open" role="radio" aria-checked="true">Open</button>
+            <button class="seg-btn" data-v="closed" role="radio" aria-checked="false">Closed</button>
+          </div>
+          <button class="btn btn-primary small" id="newIssueBtn" data-feature="issues.write">New issue</button>
+        </div>
+        <div class="item-list" id="issueList"></div>
+        <div class="detail card" id="issueDetail" hidden></div>
+      </div>
+
+      <!-- RELEASES -->
+      <div class="tabpane" id="tab-releases">
+        <div class="list-toolbar">
+          <span class="muted" style="font-size:.85rem">Tags & releases</span>
+          <button class="btn btn-primary small" id="newReleaseBtn" data-feature="releases.write">New release</button>
+        </div>
+        <div class="item-list" id="releaseList"></div>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="tabpane" id="tab-actions">
+        <div class="list-toolbar">
+          <span class="muted" style="font-size:.85rem">Workflow runs (CI)</span>
+          <button class="btn btn-ghost small" id="actionsRefreshBtn">Refresh</button>
+        </div>
+        <div class="item-list" id="actionsList"></div>
+      </div>
+
+      <!-- COMPARE -->
+      <div class="tabpane" id="tab-compare">
+        <div class="card compare-card">
+          <div class="compare-row">
+            <div><label class="field-label" for="cmpBase">Base</label><select id="cmpBase" class="branch-select w100"></select></div>
+            <svg class="cmp-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4.6M10.4 5.8L4.2 12l6.2 6.2"/></svg>
+            <div><label class="field-label" for="cmpHead">Head</label><select id="cmpHead" class="branch-select w100"></select></div>
+            <button class="btn btn-primary" id="cmpGo">Compare</button>
+          </div>
+          <div id="cmpResult"></div>
+        </div>
+      </div>
+
+      <!-- NEURAL COMMAND CENTER -->
+      <div class="tabpane" id="tab-neural">
+        <div class="neural-shell">
+          <!--
+            A slim bar rather than a hero card: the graph is the screen, and the
+            header only names it and holds its three controls. Each control
+            carries a full label and a short one; the width decides which is
+            drawn, so a phone gets one row of three compact controls instead of
+            three full-width slabs.
+          -->
+          <header class="neural-head">
+            <div class="neural-head-copy">
+              <div class="neural-kicker"><span class="neural-live-dot"></span> PULSAR MAP · NEURAL COMMAND CENTER</div>
+              <h2>Repository nervous system</h2>
+              <p>Live topology for security, dependencies, protected assets, activity and recovery paths.</p>
+            </div>
+            <div class="neural-head-actions">
+              <button class="btn btn-ghost small neural-head-btn" id="neuralLiveBtn" data-feature="live-events"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 5.5 13.2H12l-1 7.3 7.5-9.7H12z"/></svg><span class="nh-long">Connect verified live events</span><span class="nh-short">Live events</span></button>
+              <button class="btn btn-ghost small neural-head-btn" id="neuralRefreshBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 11a7.7 7.7 0 1 0-2.2 6.1M19.5 5.5V11H14"/></svg><span class="nh-long">Refresh data</span><span class="nh-short">Refresh</span></button>
+              <button class="btn btn-primary small neural-head-btn neural-emergency-btn" id="neuralEmergencyBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M12 8.2v4.6M12 15.6v.2"/></svg><span class="nh-long">Activate Emergency Shield</span><span class="nh-short">Shield</span></button>
+            </div>
+          </header>
+
+          <section class="neural-kpis card" aria-label="Neural command center summary">
+            <article class="neural-kpi"><span class="neural-kpi-label">Risk posture</span><strong id="neuralRiskScore">—</strong><small id="neuralRiskHint">Waiting for repository data</small></article>
+            <article class="neural-kpi"><span class="neural-kpi-label">Active signals</span><strong id="neuralSignalCount">—</strong><small>Commits, workflows and security findings</small></article>
+            <article class="neural-kpi"><span class="neural-kpi-label">Protected assets</span><strong id="neuralProtectedCount">—</strong><small>Files and protected branches</small></article>
+            <article class="neural-kpi"><span class="neural-kpi-label">Recovery state</span><strong id="neuralRecoveryState">—</strong><small id="neuralRecoveryHint">No snapshot inspected yet</small></article>
+          </section>
+
+          <section class="neural-workspace">
+            <aside class="card neural-rail" id="neuralRail" aria-label="Graph modes and controls">
+              <div class="neural-panel-title">Intelligence mode</div>
+              <div class="neural-mode-list" id="neuralModeList">
+                <button class="neural-mode active" data-neural-mode="security"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.8" y="10.4" width="14.4" height="9.6" rx="2.2"/><path d="M8.4 10.4V7.7a3.6 3.6 0 0 1 7.2 0v2.7"/></svg></span><div><b>Security</b><small>Sessions, threats, workflows</small></div></button>
+                <button class="neural-mode" data-feature="recovery" data-neural-mode="recovery"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 12a7.4 7.4 0 1 0 2.2-5.3"/><path d="M4.6 5.9v5.2h5.2"/></svg></span><div><b>Recovery</b><small>Refs, tags and snapshots</small></div></button>
+                <button class="neural-mode" data-feature="dependency-audit" data-neural-mode="dependencies"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l7.5 4.1v8.8L12 20.5l-7.5-4.1V7.6z"/><path d="M4.5 7.6l7.5 4.2 7.5-4.2M12 11.8v8.7"/></svg></span><div><b>Dependencies</b><small>Packages and CVEs</small></div></button>
+                <button class="neural-mode" data-feature="governance" data-neural-mode="governance"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg></span><div><b>Policy surface</b><small>Protected assets and controls</small></div></button>
+                <button class="neural-mode" data-neural-mode="activity"><span><svg class="nm-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2.6M10.4 12h3.2M18.4 12H21"/><circle cx="8" cy="12" r="2.4"/><circle cx="16" cy="12" r="2.4"/></svg></span><div><b>Activity</b><small>Commits, PRs and CI</small></div></button>
+              </div>
+
+              <!-- The groups on screen by category: each one lights and frames its group, and its eye hides or shows it. -->
+              <div class="neural-panel-title neural-filter-title" id="neuralLegendTitle">Groups on screen</div>
+              <div class="neural-legend" id="neuralLegend" role="group" aria-labelledby="neuralLegendTitle" hidden></div>
+
+              <div class="neural-panel-title neural-filter-title">Signal filters</div>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="critical" checked><span class="neural-swatch critical" aria-hidden="true"></span>Critical</label>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="warning" checked><span class="neural-swatch warning" aria-hidden="true"></span>Warning</label>
+              <label class="neural-filter"><input type="checkbox" data-neural-filter="normal" checked><span class="neural-swatch normal" aria-hidden="true"></span>Normal</label>
+
+              <div class="neural-panel-title neural-filter-title">Response controls</div>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralReadOnlyBtn">Enable read-only</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSnapshotBtn" data-feature="recovery">Capture recovery refs</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralSecurityScanBtn" data-feature="dependency-audit">Run dependency scan</button>
+              <button class="btn btn-ghost small btn-block neural-rail-action" id="neuralExportBtn" data-feature="repository.read">Export activity</button>
+            </aside>
+
+            <div class="card neural-stage" id="neuralStage">
+              <div class="neural-light" id="neuralLight" aria-hidden="true"></div>
+              <!-- The ground: a field of dots that bends round the panels, sinks toward the hub, and lights and ripples under the hand. -->
+              <canvas class="neural-field" id="neuralField" aria-hidden="true"></canvas>
+              <canvas id="neuralCanvas" tabindex="0" aria-label="Interactive repository relationship graph. Arrow keys move between nodes, Page Up and Page Down page a group, Escape closes details, plus and minus zoom, F fits the graph."></canvas>
+              <!-- What animates -- signals, breathing rings, the leader line -- above the graph, so the graph itself is redrawn only when it changes. -->
+              <canvas class="neural-fx" id="neuralFx" aria-hidden="true"></canvas>
+              <!-- The whole topology in miniature when it is larger than the stage; press or drag to move there. -->
+              <canvas class="neural-minimap" id="neuralMinimap" aria-hidden="true" hidden></canvas>
+              <div class="neural-stage-top">
+                <div class="neural-stream-state"><span id="neuralStreamDot"></span><b id="neuralStreamLabel">LIVE TOPOLOGY</b><small id="neuralLastSync">Not synchronized</small></div>
+                <div class="neural-search-wrap">
+                  <svg width="15" height="15" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+                  <input id="neuralSearch" type="search" placeholder="Find node…" autocomplete="off">
+                </div>
+              </div>
+              <div class="neural-stage-tools">
+                <button class="neural-tool nt-expanded-only" id="neuralPanelBtn" type="button" aria-pressed="false" aria-controls="neuralRail" title="Modes and filters" aria-label="Modes and filters"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h9M17 17h3"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg></button>
+                <button class="neural-tool" id="neuralExpandBtn" type="button" aria-pressed="false" title="Enlarge the graph" aria-label="Enlarge the graph"><svg class="nt-grow" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/></svg><svg class="nt-shrink" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 9h-5V4M15 9l5-5M4 15h5v5M9 15l-5 5"/></svg></button>
+                <button class="neural-tool" id="neuralPlayBtn" title="Pause or resume animation" aria-label="Pause or resume animation"><svg class="nt-filled" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h3v16H8zM13 4h3v16h-3z" fill="currentColor" stroke="none"/></svg></button>
+                <button class="neural-tool nt-expanded-only" id="neuralZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                <button class="neural-tool nt-expanded-only" id="neuralZoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                <button class="neural-tool" id="neuralFitBtn" title="Fit graph" aria-label="Fit graph"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+                <button class="neural-tool" id="neuralExplainBtn" title="Explain a connection" aria-label="Explain a connection"><svg class="ico" width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 3.5L5.5 13.4h5.2l-1.1 7.1 7.9-10.1h-5.3z"/></svg></button>
+                <button class="neural-tool" id="neuralDemoBtn" title="Inject a demonstration incident" aria-label="Inject a demonstration incident">✦</button>
+              </div>
+              <!-- A passing note when a gesture scrolled the page instead of moving the graph. -->
+              <div class="neural-gesture-hint" id="neuralGestureHint" aria-hidden="true" hidden></div>
+              <!-- On the stage itself once a panel has been moved: the way back is where the change was made. -->
+              <button class="neural-reset-chip" id="neuralResetLayout" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1M4.8 6.2v5.1h5.1"/></svg>Reset layout</button>
+              <!-- Details for the selected node, placed beside it by neural.js. -->
+              <section class="neural-card" id="neuralCard" role="dialog" aria-modal="false" aria-labelledby="neuralCardTitle" hidden></section>
+              <p class="sr-only" id="neuralLive" role="status" aria-live="polite"></p>
+              <div class="neural-loading" id="neuralLoading">
+                <div class="neural-loader-core"></div>
+                <strong>Mapping repository intelligence…</strong>
+                <span>Correlating refs, activity, dependencies and safeguards.</span>
+              </div>
+              <div class="neural-empty" id="neuralEmpty" hidden>
+                <strong>No graph data available</strong><span>Refresh the repository or switch to demonstration mode.</span>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="card neural-timeline">
+            <div class="neural-timeline-head">
+              <div><b>Signal replay</b><small id="neuralTimelineCaption">Latest repository activity</small></div>
+              <div class="neural-timeline-actions"><button class="btn btn-ghost small" id="neuralPrevEvent">Previous</button><button class="btn btn-ghost small" id="neuralNextEvent">Next</button></div>
+            </div>
+            <input type="range" id="neuralTimeline" min="0" max="0" value="0" step="1" aria-label="Replay repository signals">
+            <div class="neural-event-strip" id="neuralEventStrip"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- POLICY DIGITAL TWIN -->
+      <div class="tabpane" id="tab-governance" role="region" aria-labelledby="govTabLabel">
+        <div id="govRoot" class="gov-root">
+          <section class="gov-shell" aria-busy="true" aria-label="Loading Policy Digital Twin">
+            <div class="gov-skeleton gov-skeleton-title"></div>
+            <div class="gov-summary-grid"><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div><div class="card gov-skeleton gov-skeleton-card"></div></div>
+          </section>
+        </div>
+        <div id="govLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Governance updates"></div>
+      </div>
+
+      <!-- EXPOSURE -->
+      <!--
+        The repository audit: the supply-chain, code, dependency and hygiene
+        checks Exposure does not make. Drawn by AuditScreen.tsx from the
+        server's result; the intro is here so the tab reads before it runs.
+      -->
+      <div class="tabpane" id="tab-audit" role="region" aria-labelledby="auditTabLabel">
+        <div class="exposure-shell audit-shell">
+          <header class="exposure-intro sec-hero">
+            <span class="sec-mark sec-mark-audit" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg></span>
+            <div class="sec-hero-text">
+              <p class="exposure-kicker">Magnetar Sec · Uranus Engine</p>
+              <h2>Audit</h2>
+              <p>Uranus maps every endpoint, follows what a caller sends to what uses it, and reads secrets, packages and database rules, with the live site&rsquo;s result from Parallax beside them. One grade, confirmed findings kept apart from leads, never the code.</p>
+            </div>
+          </header>
+          <div id="auditRoot" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <!--
+        Safeguards: this app's own switches beside the rules the provider
+        enforces on the branch, the paths nothing may change, and the way
+        back. Drawn by renderSafeguards() each time the tab is opened, from
+        the server's safety state and the provider's rules.
+      -->
+      <div class="tabpane" id="tab-safeguards" role="region" aria-labelledby="safeguardsTabLabel">
+        <div class="exposure-shell sg-shell">
+          <header class="exposure-intro sec-hero">
+            <span class="sec-mark sec-mark-safeguards" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg></span>
+            <div class="sec-hero-text">
+              <p class="exposure-kicker">Magnetar Sec · Corona Guard</p>
+              <h2>Safeguards</h2>
+              <p>What stands between a mistake and this repository: the app's own switches, the rules the provider enforces on the branch, the paths nothing may change, and the way back.</p>
+            </div>
+          </header>
+          <div id="safeguardsRoot"></div>
+        </div>
+      </div>
+
+      <div class="tabpane" id="tab-exposure" role="region" aria-labelledby="exposureTabLabel">
+        <div class="exposure-shell">
+          <header class="exposure-intro sec-hero">
+            <span class="sec-mark sec-mark-exposure" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M8.6 12.4a2.1 2.1 0 1 1 2.9-2.9l2.6 2.6M12.6 10.6l1 1"/></svg></span>
+            <div class="sec-hero-text">
+              <p class="exposure-kicker">Magnetar Sec · Quasar Scanner</p>
+              <h2>Exposure</h2>
+              <p>Credentials committed to this branch and its history, checked live on request. The deployed site itself is checked on the Website page.</p>
+            </div>
+          </header>
+          <!--
+            The order is the argument. What was proven comes first, then how
+            much of the repository was actually read, and only then the list.
+            A findings list on its own invites the reading "nothing here, so
+            nothing is wrong", which is exactly the conclusion a partial scan
+            does not support.
+          -->
+          <section class="card exposure-proof" aria-labelledby="exposureProofHeading">
+            <h2 id="exposureProofHeading" class="exposure-heading">What this scan proved</h2>
+            <p class="exposure-proof-line" id="exposureProofLine">Start a scan to check this branch for exposed credentials.</p>
+            <dl class="exposure-facts">
+              <div class="exposure-fact">
+                <dt>Scan</dt>
+                <dd id="exposureState" data-state="none">Not started</dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Coverage</dt>
+                <dd id="exposureCoverage" data-coverage="unknown">Unknown</dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Commit</dt>
+                <dd><code id="exposureCommit">—</code></dd>
+              </div>
+              <div class="exposure-fact">
+                <dt>Files read</dt>
+                <dd id="exposureFiles">—</dd>
+              </div>
+              <div class="exposure-fact" id="exposureCommitsFact" hidden>
+                <dt>Commits read</dt>
+                <dd id="exposureCommits">—</dd>
+              </div>
+            </dl>
+            <p class="exposure-breakdown" id="exposureBreakdown" hidden></p>
+            <p class="exposure-caveat" id="exposureCaveat" hidden></p>
+            <p class="exposure-clear-warning" id="exposureClearWarning" role="alert" hidden></p>
+            <!-- How deep the next scan reads. The current files are always read;
+                 history is every commit's changes, which is where a credential
+                 somebody deleted is still readable. -->
+            <label class="exposure-depth" for="exposureHistoryToggle">
+              <input type="checkbox" id="exposureHistoryToggle" checked>
+              <span class="exposure-depth-text">
+                <span class="exposure-depth-title">Include every commit</span>
+                <span class="exposure-depth-hint">Also finds credentials that were deleted but are still in the history.</span>
+              </span>
+            </label>
+            <div class="exposure-actions">
+              <button class="btn btn-primary" id="exposureScanBtn" type="button">Scan this branch</button>
+              <button class="btn ghost" id="exposureCancelBtn" type="button" hidden>Cancel scan</button>
+              <button class="btn ghost" id="exposureRefreshBtn" type="button" hidden>Retry status check</button>
+              <button class="btn ghost exposure-clear" id="exposureClearBtn" type="button" hidden>Clear history</button>
+            </div>
+          </section>
+
+          <section class="card exposure-findings" aria-labelledby="exposureFindingsHeading">
+            <div class="exposure-section-head exposure-findings-head">
+              <div class="exposure-findings-title">
+                <h2 id="exposureFindingsHeading" class="exposure-heading">Findings</h2>
+                <span class="exposure-count" id="exposureCount" aria-hidden="true" hidden></span>
+              </div>
+              <button class="exposure-expand-all" id="exposureExpandAllBtn" type="button" aria-controls="exposureList" aria-expanded="false" hidden>
+                <svg class="exposure-expand-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9l5-5 5 5"/><path d="M7 15l5 5 5-5"/></svg><span class="exposure-expand-label">Expand all</span>
+              </button>
+            </div>
+            <!-- The sentence is what a screen reader hears; the chips are the same
+                 numbers for the eye, so they are hidden from it rather than read twice. -->
+            <p class="sr-only" id="exposureTally" hidden></p>
+            <div class="exposure-chips" id="exposureChips" aria-hidden="true" hidden></div>
+            <!-- Filters, search and export, drawn by the script once there are findings. -->
+            <div class="exposure-tools" id="exposureTools" hidden></div>
+            <p class="exposure-empty" id="exposureEmpty">Nothing to show yet.</p>
+            <ul class="exposure-list" id="exposureList"></ul>
+          </section>
+
+          <!--
+            Every scan of this repository, newest first and grouped by day.
+            Each entry opens into its own report: what that scan found, where,
+            and what it did not read -- so a reader can see whether a credential
+            appeared last Tuesday or has been there all along.
+          -->
+          <section class="card exposure-history" aria-labelledby="exposureHistoryHeading">
+            <h2 id="exposureHistoryHeading" class="exposure-heading">Scan history</h2>
+            <p class="exposure-empty" id="exposureHistoryEmpty">No scans yet.</p>
+            <div class="exposure-history-list" id="exposureHistory"></div>
+            <button class="btn ghost" id="exposureHistoryMoreBtn" type="button" hidden>Show older scans</button>
+          </section>
+        </div>
+        <div id="exposureLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Exposure scan updates"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- mobile bottom navigation -->
+  <nav class="bottomnav glass" id="bottomNav" aria-label="Mobile repository navigation">
+    <button data-nav="files"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg><span>Files</span></button>
+    <button data-nav="editor" class="active"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Code</span></button>
+    <button data-nav="upload"><svg width="21" height="21" viewBox="0 0 24 24"><path d="M12 17V5M6 11l6-6 6 6M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Push</span></button>
+    <button data-nav="commits"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v6.8M12 15.2V22" stroke="currentColor" stroke-width="1.7"/></svg><span>History</span></button>
+    <button data-nav="more"><svg width="21" height="21" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></svg><span>More</span></button>
+  </nav>
+
+</main>
+
+<!--
+  The screen's actions, where the top bar cannot carry them. Above the
+  breakpoint the bar offers them directly; below it there is no room, so they
+  travel with the screen as a menu behind one press. The entries are built
+  per screen rather than hidden and reshown, so the accessibility tree never
+  offers an action that belongs to a screen the reader is not on.
+
+  It is a disclosure of buttons, not role="menu". That role promises menu
+  keyboard semantics -- arrow keys, typeahead, wrapping -- which this does not
+  implement, and it forbids any child that is not a menu item, which put the
+  capability status notes in violation of it. A labelled group of buttons is
+  what this actually is: Tab walks it, Escape closes it, and every entry keeps
+  its own name.
+
+  It sits outside the screens, not inside one of them. It used to live at the
+  end of the workbench, so on every other screen it was a descendant of a
+  hidden page: present in the markup, painting nothing, and pressable by
+  nobody -- which is why the action that was supposed to change with the
+  screen only ever appeared on one.
+-->
+<div class="nv-fab-dock show-sm">
+  <div class="nv-fab-menu" id="fabMenu" role="group" hidden></div>
+  <!-- hidden until a screen claims it: the gate is the first page painted,
+       and on a cold start script does not run for tens of seconds. -->
+  <button class="nv-fab" id="paletteFab" type="button" hidden aria-expanded="false"
+    aria-controls="fabMenu" aria-label="Workspace actions" title="Workspace actions">
+    <svg width="21" height="21" class="ico" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v14M5 12h14"/>
+    </svg>
+  </button>
+</div>
+
+<!-- mobile "More" sheet -->
+<div class="sheet-scrim" id="sheetScrim" hidden>
+  <div class="sheet glass" id="sheet" role="dialog" aria-modal="true" aria-label="More actions">
+    <div class="sheet-head">
+      <div class="sheet-grab"></div>
+      <button class="sheet-close" id="sheetClose" title="Close" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>
+      </button>
+    </div>
+    <p class="sheet-label">Repository</p>
+    <button class="sheet-item" data-feature="pulls.read" data-act="pulls"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M7.5 6.8L3.8 10.5l3.7 3.7M3.8 10.5h12M16.5 17.2l3.7-3.7-3.7-3.7M20.2 13.5h-12"/></svg><span>Pull requests</span></button>
+    <button class="sheet-item" data-feature="issues.read" data-act="issues"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg><span>Issues</span></button>
+    <button class="sheet-item" data-feature="releases.read" data-act="releases"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M3.5 12L12 3.5h6.2a2.3 2.3 0 0 1 2.3 2.3V12L12 20.5 3.5 12z"/><circle cx="16" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg><span>Releases</span></button>
+    <button class="sheet-item" data-feature="workflows.read" data-act="actions"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.3"/><path d="M10 8.6l5.6 3.4L10 15.4z"/></svg><span>Actions (CI)</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="compare"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M8 3.5v17M8 3.5L4.5 7M8 3.5L11.5 7M16 20.5v-17M16 20.5L12.5 17M16 20.5l3.5-3.5"/></svg><span>Compare branches</span></button>
+    <button class="sheet-item" data-feature="branches.write" data-act="branches"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="6.5" cy="6" r="2.4"/><circle cx="6.5" cy="18" r="2.4"/><circle cx="17.5" cy="8" r="2.4"/><path d="M6.5 8.4v7.2M17.5 10.4c0 4.2-6 3.6-9 4.8"/></svg><span>Manage branches</span></button>
+    <button class="sheet-item" data-feature="repository.read" data-act="zip"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12 3.5v11M6.5 9l5.5 5.5L17.5 9M4 20.5h16"/></svg><span>Download repo (.zip)</span></button>
+    <button class="sheet-item danger" data-feature="repository.delete" data-act="delrepo"><svg class="ico" width="19" height="19" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.8 7l.9 12.7h8.6L17.2 7M10.2 10.8v5.6M13.8 10.8v5.6"/></svg><span>Delete repository…</span></button>
+    <div class="sheet-div"></div>
+    <p class="sheet-label">Magnetar Sec</p>
+    <button class="sheet-item" data-feature="access-surface" data-act="neural"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="7" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="18" cy="18" r="1.7"/><circle cx="6" cy="18" r="1.7"/><path d="M7 8.3l3.2 2.3M14 10.2l3.4-2.8M14 13.5l2.7 3M9.9 13.6l-2.7 3"/></svg><span>Neural</span></button>
+    <button class="sheet-item" data-feature="governance" data-act="governance"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l7.4 3.1v5.4c0 4.4-3.1 8-7.4 9.6-4.3-1.6-7.4-5.2-7.4-9.6V6.3z"/><path d="M9.2 12.1l2 2.1 3.6-3.9"/></svg><span>Governance</span></button>
+    <button class="sheet-item" data-feature="exposure.scan" data-act="exposure"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4.2a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6z"/><path d="M15.9 15.9l4.4 4.4"/><path d="M11 8.1v3.2M11 13.8v.1"/></svg><span>Exposure</span></button>
+    <button class="sheet-item" data-feature="site-check" data-act="audit"><svg class="ico nv-audit-mark" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2"/><path d="M7.4 10.4c3 1.2 6.2 1.2 9.2 0"/><ellipse cx="12" cy="12" rx="10.4" ry="2.5" transform="rotate(-76 12 12)"/></svg><span>Audit</span></button>
+    <button class="sheet-item" data-feature="site-check" data-act="site"><svg class="ico" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg><span>Website</span></button>
+    <button class="sheet-item" data-feature="recovery" data-act="safeguards"><svg width="18" height="18" class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/><path d="M12 14.4v2.4"/></svg><span>Safeguards</span></button>
+    <div class="sheet-div"></div>
+    <p class="sheet-label">Workspace</p>
+    <button class="sheet-item" data-act="palette"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h4"/></svg><span>Command palette</span></button>
+    <button class="sheet-item" data-act="theme"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg><span>Toggle theme</span></button>
+    <button class="sheet-item" data-act="settings"><svg width="18" height="18" class="ico" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span>Settings</span></button>
+  </div>
+</div>
+
+<!-- staged changes panel -->
+<div class="stage-scrim" id="stageScrim" hidden>
+  <aside class="stage-panel glass" id="stagePanel">
+    <div class="stage-head">
+      <h3>Staged changes</h3>
+      <button class="btn btn-ghost icon-btn" id="stageClose" aria-label="Close"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="stage-list" id="stageList"></div>
+    <div class="stage-foot">
+      <input id="stageMsg" type="text" placeholder="Commit message for all staged changes…" spellcheck="false">
+      <label class="sr-only" for="stageMsg">Staged commit message</label>
+      <button class="btn btn-primary btn-block" id="stageCommitBtn">Review staged changes</button>
+    </div>
+  </aside>
+</div>
+
+<!-- command palette -->
+<div class="palette-scrim" id="paletteScrim" hidden>
+  <div class="palette glass" id="palette">
+    <input id="paletteInput" type="text" placeholder="Jump to file or run a command…" autocomplete="off" spellcheck="false"
+      aria-label="Jump to file or run a command" role="combobox" aria-expanded="false"
+      aria-controls="paletteList" aria-autocomplete="list">
+    <div class="palette-list" id="paletteList" role="listbox" aria-label="Command palette results"></div>
+  </div>
+</div>
+
+<!-- modal + toasts -->
+<template id="alphaPrivacyActions">
+  <div class="set-group alpha-privacy-panel">
+    <div class="set-label">Alpha privacy and credentials</div>
+    <p class="hint">These actions are intentionally separate. Disconnect removes Nebulaverse-X credential state; provider revocation must be completed at the provider.</p>
+    <div class="about-actions">
+      <button class="btn btn-ghost small" type="button" data-alpha-privacy-action="disconnect">Disconnect from Nebulaverse-X</button>
+      <button class="btn btn-ghost small" type="button" data-alpha-privacy-action="revoke">Revoke at provider</button>
+      <button class="btn btn-ghost small" type="button" data-alpha-privacy-action="end">End alpha session</button>
+      <button class="btn btn-ghost small danger" type="button" data-alpha-privacy-action="delete">Delete alpha data</button>
+    </div>
+  </div>
+</template>
+<div class="scrim" id="scrim" hidden>
+  <div class="card modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <!--
+      A dialog needs a way out that is visible without reading. Settings is the
+      clearest case: it is a panel of switches, not a question, so its footer
+      says "Done" and there was nothing at the top-right where every reader
+      looks first. Escape and the backdrop always closed it; neither is
+      discoverable, and neither is reachable with a thumb on a phone.
+    -->
+    <div class="modal-head">
+      <h3 id="modalTitle"></h3>
+      <button type="button" class="btn btn-ghost icon-btn modal-close" id="modalClose" title="Close dialog" aria-label="Close dialog"><svg class="ico" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+      <button class="btn btn-primary" id="modalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+<div class="tm-overlay" id="tmOverlay" hidden>
+  <div class="tm-head">
+    <div>
+      <div class="tm-title">✦ Time Machine</div>
+      <div class="tm-sub mono" id="tmSub"></div>
+    </div>
+    <button class="btn btn-ghost icon-btn" id="tmClose" aria-label="Close"><svg class="ico" width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="tm-card">
+    <div class="tm-msg" id="tmMsg"></div>
+    <div class="tm-meta" id="tmMeta"></div>
+  </div>
+  <div class="tm-scrub">
+    <input type="range" id="tmRange" min="0" max="0" value="0" step="1" aria-label="Timeline position">
+    <div class="tm-scrub-row">
+      <button class="btn btn-ghost small icon-btn" id="tmPrev" aria-label="Older"><svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button class="btn btn-primary small" id="tmPlay">Play history</button>
+      <button class="btn btn-ghost small icon-btn" id="tmNext" aria-label="Newer"><svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+  </div>
+  <div class="tm-stats" id="tmStats"></div>
+  <div class="tm-files" id="tmFiles"></div>
+  <div class="detail-actions tm-actions">
+    <button class="btn btn-ghost small" id="tmRevertBtn">Revert this commit</button>
+    <button class="btn btn-ghost small" id="tmRestoreBtn">Restore repo to here</button>
+  </div>
+</div>
+<div class="net-bar" id="netBar" hidden>
+  <span id="netBarText">Offline — commits will be queued ✦</span>
+  <button class="btn btn-ghost small" id="queueOpenBtn" hidden>Queue (<span id="queueCount">0</span>)</button>
+</div>
+<div class="toast-stack" id="toasts" role="status" aria-live="polite" aria-atomic="false" aria-label="Notifications"></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

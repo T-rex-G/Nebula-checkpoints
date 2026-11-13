@@ -7,7 +7,7 @@ const path = require('path');
 const registry = require('../config/public-alpha-capabilities.json');
 const { runSmoke, timedRequest } = require('../scripts/alpha-smoke');
 const { readSafeJson, runLoad } = require('../scripts/alpha-load');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const {
   EVIDENCE_SCHEMA_VERSION,

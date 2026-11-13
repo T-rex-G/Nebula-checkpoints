@@ -1,9 +1,8 @@
 'use strict';
 const assert = require('assert');
-let ui = {};
-try { ui = require('../public/governance-ui'); } catch {}
-for (const name of ['renderGovernanceInterface', 'normalizeInterfaceAccess', 'parseJsonObject', 'defaultSimulationRequest']) {
-  assert.strictEqual(typeof ui[name], 'function', `${name} must be implemented`);
+const { markup, model, plain } = require('./helpers/governance-view');
+for (const name of ['normalizeInterfaceAccess', 'parseJsonObject', 'defaultSimulationRequest']) {
+  assert.strictEqual(typeof model[name], 'function', `${name} must be implemented`);
 }
 const twin = {
   schemaVersion: 1,
@@ -36,7 +35,7 @@ const twin = {
   readModelHash: '2'.repeat(64)
 };
 const reader = { schemaVersion: 1, repository: { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo' }, actor: { login: 'alice' }, execution: { kind: 'user', authMethod: 'oauth' }, capabilities: { read: true, author: false, review: false, activate: false, administer: false }, evidence: { status: 'current', expiresAt: '2099-07-23T00:40:00.000Z' } };
-const html = ui.renderGovernanceInterface({ digitalTwin: twin, access: reader });
+const html = markup({ digitalTwin: twin, access: reader });
 assert(html.includes('Policy Digital Twin'));
 /* The lifecycle: one draft being written, one version in review, none approved, one active; the first stage with work is lit. */
 assert.deepStrictEqual([...html.matchAll(/data-stage="(\w+)" data-state="(\w+)">[\s\S]*?<span class="gov-flow-n">(\d+)<\/span>/g)].map(match => match.slice(1)),
@@ -54,32 +53,36 @@ assert(!html.includes('data-gov-action="activate"'), 'reader must not receive ac
 /* The ledger opens on runtime decisions; activations, with their rollback controls, are the second tab. */
 const earlier = { seq: 1, policyId: '10000000-0000-4000-8000-000000000001', versionId: '10000000-0000-4000-8000-0000000000aa', action: 'activate', actorLogin: 'admin', createdAt: '2026-07-22T00:20:00.000Z' };
 const withEarlier = { ...twin, history: { ...twin.history, activations: [...twin.history.activations, earlier] } };
-const adminHtml = ui.renderGovernanceInterface({ digitalTwin: withEarlier, view: { tab: 'activations' }, access: { ...reader, capabilities: { read: true, author: true, review: true, activate: true, administer: true } } });
+const adminHtml = markup({ digitalTwin: withEarlier, view: { tab: 'activations' }, access: { ...reader, capabilities: { read: true, author: true, review: true, activate: true, administer: true } } });
 /* The running version is marked current; only an earlier one offers to roll back, and says to what. */
 assert.strictEqual((adminHtml.match(/data-gov-action="rollback"/g) || []).length, 1);
+/* The tab shown is the one selected, and the one a keyboard reaches. */
+assert(/id="govLedgerTab-activations"[^>]*aria-selected="true"[^>]*tabindex="0"/.test(adminHtml));
+assert(/id="govLedgerTab-decisions"[^>]*aria-selected="false"[^>]*tabindex="-1"/.test(adminHtml));
+assert(/id="govLedgerTab-decisions"[^>]*aria-selected="true"/.test(html), 'the ledger opens on runtime decisions');
 assert(adminHtml.includes('class="gov-ledger-now">Current<'));
 assert(adminHtml.includes('aria-label="Roll back to release-safety version 10000000"'));
 for (const action of ['create-policy', 'new-draft', 'edit-draft', 'claim-review', 'activate', 'request-exception', 'decide-exception', 'rollback']) {
   assert(adminHtml.includes(`data-gov-action="${action}"`), `administrator interface missing ${action}`);
 }
 
-const expiredHtml = ui.renderGovernanceInterface({ digitalTwin: twin, access: { ...reader, evidence: { status: 'current', expiresAt: '2020-01-01T00:00:00.000Z' } }, now: Date.parse('2026-07-23T00:00:00.000Z') });
+const expiredHtml = markup({ digitalTwin: twin, access: { ...reader, evidence: { status: 'current', expiresAt: '2020-01-01T00:00:00.000Z' } }, now: Date.parse('2026-07-23T00:00:00.000Z') });
 assert(expiredHtml.includes('Authorization evidence stale'));
 assert(!expiredHtml.includes('data-gov-action="activate"'));
 
-assert(ui.renderGovernanceInterface({ loading: true }).includes('aria-busy="true"'));
-assert(ui.renderGovernanceInterface({ error: 'Database <offline>' }).includes('Database &lt;offline&gt;'));
-assert(ui.renderGovernanceInterface({ digitalTwin: { ...twin, current: { policyCount: 0, returnedPolicyCount: 0, activePolicyCount: 0, policies: [] }, proposed: { drafts: [], draftCount: 0, versions: [], versionCount: 0 }, effective: { activePolicyCount: 0, activeExceptionCount: 0, activeExceptionsByAction: [], exceptionReferences: [] }, history: { activations: [], decisions: [], exceptions: [], nextDecisionSeq: null, requestedAfterDecisionSeq: 0, limit: 50 } }, access: reader }).includes('No governance policy yet'));
-assert.deepStrictEqual(ui.parseJsonObject('{"branch":"main"}', 'Target'), { branch: 'main' });
-assert.throws(() => ui.parseJsonObject('[]', 'Target'), /JSON object/);
-const scenarios = ui.defaultSimulationRequest('main');
+assert(markup({ loading: true }).includes('aria-busy="true"'));
+assert(markup({ error: 'Database <offline>' }).includes('Database &lt;offline&gt;'));
+assert(markup({ digitalTwin: { ...twin, current: { policyCount: 0, returnedPolicyCount: 0, activePolicyCount: 0, policies: [] }, proposed: { drafts: [], draftCount: 0, versions: [], versionCount: 0 }, effective: { activePolicyCount: 0, activeExceptionCount: 0, activeExceptionsByAction: [], exceptionReferences: [] }, history: { activations: [], decisions: [], exceptions: [], nextDecisionSeq: null, requestedAfterDecisionSeq: 0, limit: 50 } }, access: reader }).includes('No governance policy yet'));
+assert.deepStrictEqual(plain(model.parseJsonObject('{"branch":"main"}', 'Target')), { branch: 'main' });
+assert.throws(() => model.parseJsonObject('[]', 'Target'), /JSON object/);
+const scenarios = model.defaultSimulationRequest('main');
 assert.strictEqual(scenarios.schemaVersion, 1);
 assert(Array.isArray(scenarios.scenarios) && scenarios.scenarios.length >= 3);
 console.log('governance interface renderer tests passed');
 
 // Current Twin pages descend: older pages use the oldest observed sequence.
-const recentHtml = ui.renderGovernanceInterface({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: 8, decisionOrder: 'desc' } }, access: reader });
+const recentHtml = markup({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: 8, decisionOrder: 'desc' } }, access: reader });
 assert(recentHtml.includes('data-before-seq="8"'));
 assert(!recentHtml.includes('data-after-seq='));
-const completeHtml = ui.renderGovernanceInterface({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: null, decisionOrder: 'desc' } }, access: reader });
+const completeHtml = markup({ digitalTwin: { ...twin, history: { ...twin.history, nextDecisionSeq: null, nextBeforeDecisionSeq: null, decisionOrder: 'desc' } }, access: reader });
 assert(!completeHtml.includes('data-gov-action="load-more-decisions"'));

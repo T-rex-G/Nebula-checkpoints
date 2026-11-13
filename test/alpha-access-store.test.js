@@ -4,7 +4,7 @@ const assert = require('assert');
 const {
   AlphaAccessStore,
   GENERIC_REDEMPTION_ERROR
-} = require('../src/alpha-access-store');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;

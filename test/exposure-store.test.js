@@ -22,13 +22,13 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const {
   EXPOSURE_CONFIG_VERSION,
   ExposureStore,
   ExposureStoreError,
   MAX_OCCURRENCES
-} = require('../src/exposure-store');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -118,7 +118,7 @@ async function claim(store, now = T0) {
   const pool = new Pool({ connectionString: scratchUrl, max: 4 });
   try {
     await withClient(scratchUrl, async client => {
-      await runMigrations(client, loadMigrations(DIRECTORY));
+      await runMigrations(client, { directory: DIRECTORY });
     });
     const store = new ExposureStore({ pool });
 
@@ -170,6 +170,29 @@ async function claim(store, now = T0) {
       assert.equal((await right.listFindingsPage({ ...input, cursor: page.nextCursor })).findings.length, 50);
       await pool.query("DELETE FROM nv_exposure_scans WHERE repo_name='Paging'");
       await pool.query("DELETE FROM nv_exposure_findings WHERE repo_name='Paging'");
+    }
+
+    /*
+     * A rule's severity is the narration table's own entry. A rule named like
+     * something every object inherits counts as serious -- as the query that
+     * filters by severity already counts it -- and adds no key of its own to
+     * the tally.
+     */
+    {
+      const oddScope = { ...scope, repo: 'Inherited' };
+      const requested = await store.requestScan(scanRequest({ scope: oddScope, idempotencyKey: 'inherited-rules-01' }));
+      const held = await claim(store);
+      await store.recordObservations({
+        scanId: requested.scan.scanId, claimOwner: held.claimOwner, now: T0 + 1000,
+        findings: ['constructor', 'toString', '__proto__'].map(rule => findingFixture(`inherited-${rule}`, { rule }))
+      });
+      await store.finalizeScan({ scanId: requested.scan.scanId, claimOwner: held.claimOwner, state: 'complete', coverage: 'complete', now: T0 + 2000 });
+      const input = { scope: oddScope, identityKey: IDENTITY, currentGeneration: true };
+      const page = await store.listFindingsPage(input);
+      assert.deepEqual(page.counts.bySeverity, { critical: 0, serious: 3, warning: 0 });
+      assert.equal((await store.listFindingsPage({ ...input, severity: 'serious' })).total, 3);
+      await pool.query("DELETE FROM nv_exposure_scans WHERE repo_name='Inherited'");
+      await pool.query("DELETE FROM nv_exposure_findings WHERE repo_name='Inherited'");
     }
 
     /* ---- Idempotency, and the difference from a conflicting scan --------- */
@@ -1637,6 +1660,42 @@ async function claim(store, now = T0) {
     }
 
     await require('./fixtures/exposure-store-hardening-cases')(pool);
+
+    /*
+     * The session a scan reads through, resolved when the scan runs (Quasar's
+     * resolveExposureSession): the identity comes from the scan's own row,
+     * for the repository that row names; a live session of that identity is
+     * used only when it holds the very account that asked for the scan, not
+     * merely one sharing its identity; and resolving writes nothing, so the
+     * token it hands back never reaches a row and outlives the consent behind it.
+     */
+    {
+      const { resolveExposureSession } = require('../apps/api/src/modules/quasar/index.ts');
+      const requested = await store.requestScan(scanRequest({ idempotencyKey: 'session-resolve-01' }));
+      const scanId = requested.scan.scanId;
+      const sessionOf = accounts => JSON.stringify({ accounts: accounts.map(login => ({ login, provider: 'github', token: `token-of-${login}`, identityKey: IDENTITY })) });
+      await pool.query(
+        `INSERT INTO nv_sessions (sid, data, identity_keys, updated) VALUES
+           ('resolve-alice', $1, ARRAY[$3]::text[], now() - interval '1 minute'),
+           ('resolve-bob', $2, ARRAY[$3]::text[], now())`,
+        [sessionOf(['alice']), sessionOf(['bob']), IDENTITY]
+      );
+      const statements = [];
+      const recorded = { query: (text, values) => { statements.push(String(text).trim().split(/\s+/)[0].toUpperCase()); return pool.query(text, values); } };
+      const resolve = (input, options = {}) => resolveExposureSession(input, {
+        pool: recorded, unseal: data => JSON.parse(data), identityKey: account => account.identityKey, providerAuthority: () => 'github.com',
+        resolveAccount: async account => ({ resolved: account.login, token: account.token }),
+        alphaEnabled: Boolean(options.alpha), readAlphaSession: async () => { throw new Error('no alpha here'); },
+        readOwnedSession: async () => { throw new Error('no alpha here'); }, repositoryAllowed: () => true
+      });
+      assert.deepStrictEqual(await resolve({ scope, scanId, requestedBy: 'alice' }), { resolved: 'alice', token: 'token-of-alice' },
+        'the session of the account that asked, though another sharing its identity was used more recently');
+      assert.strictEqual(await resolve({ scope, scanId, requestedBy: 'carol' }), null, 'nobody else\'s, however they share the identity');
+      assert.strictEqual(await resolve({ scope: otherScope, scanId, requestedBy: 'alice' }), null, 'and only for the repository the scan names');
+      assert.strictEqual(await resolve({ scope, scanId, requestedBy: 'alice' }, { alpha: true }), null, 'in the alpha, only a scan a tester asked for');
+      assert.deepStrictEqual([...new Set(statements)], ['SELECT'], 'resolving reads and writes nothing');
+      await pool.query("DELETE FROM nv_sessions WHERE sid IN ('resolve-alice', 'resolve-bob')");
+    }
 
     const review = require('./fixtures/exposure-review-cases');
     const reviewDatabase = scratchName();

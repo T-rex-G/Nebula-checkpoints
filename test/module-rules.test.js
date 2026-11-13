@@ -1,0 +1,388 @@
+'use strict';
+/*
+ * What the modules' code does, read from its syntax tree, where no request
+ * can show it.
+ *
+ * Each property here sits behind a guard that already refuses what it would
+ * let through, so asking the server finds the guard's answer, not this one:
+ * defence in depth is invisible from outside by design. They are held over
+ * the syntax tree rather than the text, so a comment or a string that only
+ * names a property neither passes nor fails them.
+ *
+ *   - No module takes who is acting, or what they may do, from a request's
+ *     body: governance roles, repository access, an actor's or a reviewer's
+ *     identity, a tester, or an authorization. They are the server's to
+ *     resolve.
+ *   - Kepler's routes hand the governance service only the governance
+ *     context's authorization, the one the server resolved for this request.
+ *     (Other modules' authorizations are other things: a restore's signed
+ *     grant, a verification's.)
+ *   - Kepler's own-work allowance, which lets a public reader into their own
+ *     scans and audits, is handed to routes as an allowance and used nowhere
+ *     else.
+ *   - An account is disconnected -- its webhooks removed and read back, its
+ *     provider session ended -- only by the routes that remove one: removing
+ *     an account, signing out, disconnecting the GitHub App, disconnecting
+ *     every provider and deleting the alpha's data. What each of them does is
+ *     asked of it (test/identity-account-routes.test.js,
+ *     test/identity-security-routes.test.js); that no other route does it is
+ *     held here.
+ *   - An installation's record is removed only by that disconnect, after the
+ *     provider is cleaned up.
+ *   - Quasar's scanning code -- the background worker, the repository reader,
+ *     the credential verifier and the readability probe -- reaches the network,
+ *     the disk and other processes only through what it is handed. The worker
+ *     cannot load the verifier at all, nor resolve a ref: a background job
+ *     acts on what the request path resolved, and never decides a credential
+ *     is live.
+ *   - Exposure evidence is append-only, and every statement that reaches a
+ *     scan or a finding is held to its owner. Observations change only to
+ *     reconcile their deduplicated count; verifications and readability probes
+ *     never change; none of the three is deleted anywhere in the server -- they
+ *     leave with their scan or finding, by cascade. A statement on a scan or a
+ *     finding carries the identity or the worker's claim, or is one of five
+ *     stated exceptions. Recording a probe moves no finding, and a row leaves
+ *     the store field by field, never spread.
+ *   - The code audits' stores hold the same line. Every statement on an audit
+ *     carries its identity, by key or through the scope and workspace
+ *     fragments, except the findings, components and alerts inserted a
+ *     statement after their audit. Every triage statement names the
+ *     repository it is about. None selects everything or spreads a row; triage
+ *     writes who decided and never reads their key back; and the tester purge
+ *     leaves an audit's findings, components and alerts to its cascade.
+ *   - Typefaces are this origin's: no string, template or name in the server
+ *     names Google's font hosts or the proxy that once fetched from them.
+ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const ts = require('typescript');
+
+const ROOT = path.resolve(__dirname, '..');
+const SOURCE = path.join(ROOT, 'apps', 'api', 'src');
+function sources(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) return sources(full);
+    return entry.name.endsWith('.ts') ? [full] : [];
+  });
+}
+const files = sources(SOURCE);
+assert(files.length > 100, 'the server\'s source must be found');
+
+const CLAIMED = new Set(['governanceRoles', 'repositoryAccess', 'actorIdentityKey', 'reviewerIdentityKey', 'testerId', 'authorization']);
+/* An expression with its parentheses, casts and assertions taken off: `(req.body as Fields)!` is `req.body`. */
+const bare = node => {
+  let at = node;
+  while (at && (ts.isParenthesizedExpression(at) || ts.isAsExpression(at) || ts.isTypeAssertionExpression(at)
+    || ts.isNonNullExpression(at) || ts.isSatisfiesExpression(at))) at = at.expression;
+  return at;
+};
+/* `req.body`, however the request is named, or a name bound to it. */
+const isBody = node => { const at = bare(node); return ts.isPropertyAccessExpression(at) && at.name.text === 'body'; };
+const nameOf = node => (ts.isPropertyAccessExpression(node) ? node.name.text
+  : ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : null);
+/* What the governance context resolved: `governance(req).authorization` or `req.governance.authorization`. */
+const isResolved = node => ts.isPropertyAccessExpression(node) && node.name.text === 'authorization' && (
+  (ts.isCallExpression(node.expression) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'governance')
+  || (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'governance'));
+/* Kepler's routes; the governance context is where the authorization is resolved. */
+const KEPLER_HTTP = path.join(SOURCE, 'modules', 'kepler', 'http');
+const isRoute = file => path.dirname(file) === KEPLER_HTTP && path.basename(file) !== 'governance-context.ts';
+const OWN_WORK_HOME = new Set([path.join(SOURCE, 'modules', 'kepler', 'http', 'governance-context.ts'), path.join(SOURCE, 'modules', 'kepler', 'index.ts')]);
+
+/* The account disconnect, by the name the routes are handed it or by the account lifecycle's own. */
+const DISCONNECT = new Set(['disconnectProviderAccounts', 'disconnectAlphaProviderAccount']);
+const REMOVAL_ROUTES = ['/api/accounts/remove', '/api/alpha/delete', '/api/alpha/providers/disconnect-all', '/api/github-app/disconnect', '/api/logout'];
+const calledName = node => {
+  const callee = bare(node.expression);
+  return ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : null;
+};
+/* The route a node is registered under: the path of the nearest enclosing `app.post('/api/…', …)`. */
+const routeOf = node => {
+  for (let at = node.parent; at; at = at.parent) {
+    if (ts.isCallExpression(at) && ts.isPropertyAccessExpression(at.expression) && ts.isIdentifier(at.expression.expression)
+      && at.expression.expression.text === 'app' && /^(get|post|put|patch|delete)$/.test(at.expression.name.text)
+      && at.arguments.length && ts.isStringLiteralLike(at.arguments[0])) return at.arguments[0].text;
+  }
+  return null;
+};
+/* The function a node is written in, by its declared name. */
+const functionOf = node => {
+  for (let at = node.parent; at; at = at.parent) if (ts.isFunctionDeclaration(at) && at.name) return at.name.text;
+  return null;
+};
+
+const claimed = [];
+const handed = [];
+const allowance = [];
+const strayDisconnects = [];
+const disconnectingRoutes = new Set();
+const strayRemovals = [];
+let routesHandingAuthorization = 0;
+let ownWorkAllowances = 0;
+for (const file of files) {
+  const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const where = node => `${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+  /* Names bound to a request's body, as in `const body = req.body`. */
+  const bodies = new Set();
+  const bind = node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && isBody(node.initializer)) bodies.add(node.name.text);
+    ts.forEachChild(node, bind);
+  };
+  bind(source);
+  const fromBody = node => isBody(node) || (ts.isIdentifier(bare(node)) && bodies.has(bare(node).text));
+  const visit = node => {
+    /* req.body.governanceRoles, req.body['authorization'], body.actorIdentityKey */
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && fromBody(node.expression) && CLAIMED.has(nameOf(node))) {
+      claimed.push(`${where(node)} reads ${nameOf(node)} from a request's body`);
+    }
+    /* member(req.body, 'testerId'), read(body, 'authorization'): a field reader handed the body; bodyField(req, 'testerId'), one handed the request. */
+    if (ts.isCallExpression(node) && node.arguments.length >= 2 && ts.isStringLiteralLike(node.arguments[1]) && CLAIMED.has(node.arguments[1].text)
+      && (fromBody(node.arguments[0]) || (ts.isIdentifier(node.expression) && node.expression.text === 'bodyField'))) {
+      claimed.push(`${where(node)} reads ${node.arguments[1].text} from a request's body`);
+    }
+    /* const { governanceRoles } = req.body */
+    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && fromBody(node.initializer)) {
+      for (const element of node.name.elements) {
+        const name = (element.propertyName || element.name).getText(source);
+        if (CLAIMED.has(name)) claimed.push(`${where(element)} takes ${name} from a request's body`);
+      }
+    }
+    if (isRoute(file) && ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === 'authorization') {
+      if (isResolved(node.initializer)) routesHandingAuthorization += 1;
+      else handed.push(`${where(node)} hands on ${node.initializer.getText(source)} as the authorization`);
+    }
+    if (ts.isShorthandPropertyAssignment(node) && isRoute(file) && node.name.text === 'authorization') {
+      handed.push(`${where(node)} hands on a local authorization`);
+    }
+    if (ts.isIdentifier(node) && node.text === 'OWN_WORK' && !OWN_WORK_HOME.has(file)) {
+      const parent = node.parent;
+      const asAllowance = ts.isCallExpression(parent) && parent.arguments[1] === node
+        && ts.isIdentifier(parent.expression) && parent.expression.text === 'governanceAccess';
+      const declared = (ts.isPropertySignature(parent) || ts.isBindingElement(parent) || ts.isImportSpecifier(parent)) && parent.name === node;
+      const passedOn = ts.isShorthandPropertyAssignment(parent) && /[\\/]composition[\\/]/.test(file);
+      if (asAllowance) ownWorkAllowances += 1;
+      else if (!declared && !passedOn) allowance.push(`${where(node)} uses OWN_WORK other than as a route's allowance`);
+    }
+    if (ts.isCallExpression(node) && DISCONNECT.has(calledName(node))) {
+      const route = routeOf(node);
+      if (REMOVAL_ROUTES.includes(route)) disconnectingRoutes.add(route);
+      else strayDisconnects.push(`${where(node)} disconnects an account${route ? ` in ${route}` : ''}, which removes none`);
+    }
+    if (ts.isCallExpression(node) && calledName(node) === 'removeGithubAppInstallation'
+      && !(path.basename(file) === 'account-lifecycle.ts' && functionOf(node) === 'disconnectAlphaProviderAccount')) {
+      strayRemovals.push(`${where(node)} removes an installation's record outside the account disconnect`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
+assert.deepEqual(claimed, [], 'no module takes who is acting, or what they may do, from a request\'s body');
+assert.deepEqual(handed, [], 'Kepler\'s routes hand on only the authorization the governance context resolved');
+assert(routesHandingAuthorization > 20, `the routes that hand on an authorization are found (${routesHandingAuthorization})`);
+assert.deepEqual(allowance, [], 'the own-work allowance is a route\'s allowance, and nothing else');
+assert(ownWorkAllowances > 10, `the routes that take it are found (${ownWorkAllowances})`);
+/* ---- Quasar: what the scanning code reaches, and what the exposure store's statements do ---- */
+const QUASAR = path.join(SOURCE, 'modules', 'quasar');
+const parsedFiles = new Map();
+const parse = file => {
+  if (!parsedFiles.has(file)) parsedFiles.set(file, ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+  return parsedFiles.get(file);
+};
+const each = (node, visit) => { visit(node); ts.forEachChild(node, child => each(child, visit)); };
+/* The modules a file loads, as written: value imports, re-exports and require() calls. */
+const specifiersOf = source => {
+  const found = [];
+  each(source, node => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier) && !(node.importClause && node.importClause.isTypeOnly)) found.push(node.moduleSpecifier.text);
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier) && !node.isTypeOnly) found.push(node.moduleSpecifier.text);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require'
+      && node.arguments.length && ts.isStringLiteralLike(node.arguments[0])) found.push(node.arguments[0].text);
+  });
+  return found;
+};
+const REACHING = new Set(['child_process', 'fs', 'fs/promises', 'http', 'https', 'net', 'tls', 'dgram', 'undici']);
+const RUNNING = new Set(['fetch', 'spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']);
+const SCANNING = ['application/exposure-worker.ts', 'client/exposure-reader.ts', 'client/anonymous-readability-probe.ts', 'client/credential-verification.ts']
+  .map(file => path.join(QUASAR, file));
+const reaching = [];
+for (const file of SCANNING) {
+  const source = parse(file);
+  for (const specifier of specifiersOf(source)) {
+    if (REACHING.has(specifier.replace(/^node:/, ''))) reaching.push(`${path.relative(ROOT, file)} loads ${specifier}`);
+  }
+  each(source, node => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && RUNNING.has(node.expression.text)) {
+      reaching.push(`${path.relative(ROOT, file)} calls ${node.expression.text}() itself`);
+    }
+  });
+}
+/* Everything the worker loads, followed through its relative imports. */
+const WORKER = path.join(QUASAR, 'application', 'exposure-worker.ts');
+const workerLoads = new Set();
+const follow = file => {
+  if (workerLoads.has(file)) return;
+  workerLoads.add(file);
+  for (const specifier of specifiersOf(parse(file))) {
+    const target = specifier.startsWith('.') ? path.resolve(path.dirname(file), specifier) : null;
+    if (target && fs.existsSync(target)) follow(target);
+  }
+};
+follow(WORKER);
+const resolving = [];
+each(parse(WORKER), node => { if (ts.isIdentifier(node) && node.text === 'resolveCommit') resolving.push(node.getStart()); });
+
+/*
+ * A store, and the modules beside it that its class delegates to: whatever it
+ * imports from its own folder, followed. Its statements are read from all of
+ * them, so dividing a store never leaves a rule reading an empty file.
+ */
+const storeFiles = entry => {
+  const found = new Set([entry]);
+  const follow = file => {
+    for (const statement of parse(file).statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !statement.moduleSpecifier.text.startsWith('./')) continue;
+      const target = path.resolve(path.dirname(file), statement.moduleSpecifier.text);
+      if (!found.has(target) && fs.existsSync(target)) { found.add(target); follow(target); }
+    }
+  };
+  follow(entry);
+  return [...found];
+};
+
+/* The text of every string the exposure store holds, its statements among them. */
+const STORE = path.join(QUASAR, 'persistence', 'exposure-store.ts');
+const stringsIn = (source, within = source) => {
+  const found = [];
+  each(within, node => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) found.push(node.text);
+    else if (ts.isTemplateExpression(node)) found.push(node.getText(source).slice(1, -1));
+  });
+  return found;
+};
+const storeSources = storeFiles(STORE).map(file => [file, parse(file)]);
+const statements = storeSources.flatMap(([, source]) => stringsIn(source)).filter(text => /nv_exposure/.test(text)).map(text => text.replace(/\s+/g, ' ').trim());
+const observationUpdates = statements.filter(statement => /UPDATE nv_exposure_observations/.test(statement));
+const rewritten = statements.filter(statement => /UPDATE nv_exposure_(?:verifications|readability_probes)/.test(statement));
+/* The five statements that reach a scan or a finding without its identity or a claim, each for a stated reason. */
+const UNSCOPED = [
+  /FOR UPDATE SKIP LOCKED/, /* The claim picks up work for whichever worker asks: a worker is not a tenant. */
+  /^SELECT \* FROM nv_exposure_scans WHERE scan_id=\$1$/, /* The parent lookup inside concludeRemovedFromTree, after its first statement matched the scan on its identity. */
+  /DELETE FROM nv_exposure_scans WHERE ctid IN/, /* Retention: time-scoped by design, and needs nobody signed in. */
+  /UPDATE nv_exposure_findings AS finding/, /* A scan's conclusion, run under the scan's claim. */
+  /UPDATE nv_exposure_findings SET disposition='credential-rejected'/ /* The disposition move in recordVerification, on a finding its transaction locked by identity. */
+];
+const unscoped = statements.filter(statement => /nv_exposure_scans|nv_exposure_findings/.test(statement)
+  && !/identity_key/.test(statement) && !/claim_owner=\$/.test(statement) && !UNSCOPED.some(pattern => pattern.test(statement)));
+/* The probe recorder is the one that writes: the function, or method, of that name whose statements touch the tables. */
+let probeMethod = null;
+for (const [, source] of storeSources) {
+  each(source, node => {
+    if ((ts.isMethodDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name && node.name.getText(source) === 'recordReadabilityProbe'
+      && stringsIn(source, node).some(text => /nv_exposure/.test(text))) probeMethod = { source, node };
+  });
+}
+const spread = [];
+for (const [file, source] of storeSources) {
+  each(source, node => {
+    if ((ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) && ts.isIdentifier(bare(node.expression)) && /^row$|Row$/.test(bare(node.expression).text)) {
+      spread.push(`${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+    }
+  });
+}
+const evidenceDeleted = [];
+for (const file of files) {
+  for (const text of stringsIn(parse(file))) {
+    if (/DELETE FROM nv_exposure_(?:observations|verifications|readability_probes)\b/.test(text)) evidenceDeleted.push(`${path.relative(ROOT, file)}: ${text.replace(/\s+/g, ' ').trim().slice(0, 80)}`);
+  }
+}
+
+assert.deepEqual(reaching, [], 'Quasar\'s scanning code reaches the network, the disk and other processes only through what it is handed');
+assert(workerLoads.size > 5, `the worker's imports are followed (${workerLoads.size})`);
+assert(!workerLoads.has(path.join(QUASAR, 'client', 'credential-verification.ts')), 'a background scan cannot load the credential verifier at all');
+assert.deepEqual(resolving, [], 'nor resolve a ref: it is resolved once, on the request path');
+assert(statements.length >= 12, `the store's statements are found (${statements.length})`);
+assert.equal(observationUpdates.length, 1, 'an observation changes only to reconcile its deduplicated count');
+assert.match(observationUpdates[0], /^UPDATE nv_exposure_observations SET history_commits=\( ?SELECT count\(\*\)::integer FROM nv_exposure_history_sightings/);
+assert.match(observationUpdates[0], /WHERE scan_id=\$1 AND fingerprint=\$2$/);
+assert.deepEqual(rewritten, [], 'a verification or a probe is evidence: never edited');
+assert.deepEqual(evidenceDeleted, [], 'observations, verifications and probes leave with their scan or finding, by cascade, and not otherwise');
+assert.deepEqual(unscoped, [], 'a statement on a scan or a finding carries its identity, the worker\'s claim, or a stated exception');
+assert(probeMethod, 'the probe recorder is found');
+assert.deepEqual(stringsIn(probeMethod.source, probeMethod.node).filter(text => /UPDATE nv_exposure_findings/.test(text)), [], 'what the anonymous role can read moves no finding');
+assert.deepEqual(spread, [], 'a row leaves the store field by field: spreading one publishes the next column added');
+
+/* ---- Uranus: the code audits' stores ---- */
+const URANUS_STORES = path.join(SOURCE, 'modules', 'uranus', 'persistence');
+const HISTORY_FILES = ['audit-history-rows.ts', 'audit-history-records.ts', 'audit-history-sql.ts', 'audit-history-store.ts', 'audit-workspace-reads.ts']
+  .map(file => path.join(URANUS_STORES, file));
+const TRIAGE_FILE = path.join(URANUS_STORES, 'audit-triage-store.ts');
+const flattened = text => text.replace(/\s+/g, ' ').trim();
+const historyStatements = HISTORY_FILES.flatMap(file => stringsIn(parse(file))).filter(text => /nv_code_audit/.test(text)).map(flattened);
+const triageStatements = stringsIn(parse(TRIAGE_FILE)).filter(text => /nv_code_audit_triage/.test(text)).map(flattened);
+const unscopedAudits = historyStatements.filter(statement => !/identity_key|\$\{SCOPE_SQL\}|\$\{WORKSPACE_SQL\}/.test(statement)
+  /* The findings, components and alerts of an audit inserted under its identity a statement ago. */
+  && !/^INSERT INTO nv_code_audit_(?:findings|components|alerts) /.test(statement));
+const unnamedRepositories = triageStatements.filter(statement => (/^INSERT INTO nv_code_audit_triage(?:_events)? /.test(statement)
+  ? !/provider, authority, owner_login, repo_name/.test(statement)
+  : !statement.includes('${SCOPE_SQL}')));
+const everything = [...historyStatements, ...triageStatements].filter(statement => /SELECT \*/.test(statement));
+const spreadRows = [];
+for (const file of [...HISTORY_FILES, TRIAGE_FILE]) {
+  const source = parse(file);
+  each(source, node => {
+    if (!(ts.isSpreadAssignment(node) || ts.isSpreadElement(node))) return;
+    const spreadOf = bare(node.expression);
+    if ((ts.isIdentifier(spreadOf) && /^row$|Row$/.test(spreadOf.text))
+      || (ts.isElementAccessExpression(spreadOf) && ts.isIdentifier(spreadOf.expression) && spreadOf.expression.text === 'rows')) {
+      spreadRows.push(`${path.relative(ROOT, file)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+    }
+  });
+}
+/* A constant's text, by its name, in one file. */
+const constantIn = (file, name) => {
+  let found = null;
+  each(parse(file), node => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name && node.initializer
+      && (ts.isStringLiteral(node.initializer) || ts.isNoSubstitutionTemplateLiteral(node.initializer))) found = node.initializer.text;
+  });
+  return found;
+};
+const PRIVACY_STORE = path.join(SOURCE, 'modules', 'identity-access', 'persistence', 'alpha-privacy-store.ts');
+const privacyStrings = storeFiles(PRIVACY_STORE).flatMap(file => stringsIn(parse(file)));
+const privacyDeletes = privacyStrings.filter(text => /DELETE FROM nv_/.test(text));
+const cascadedDeletes = privacyStrings.filter(text => /DELETE FROM nv_code_audit_(?:findings|components|alerts)\b/.test(text));
+
+assert(historyStatements.length >= 16, `the audit history's statements are found (${historyStatements.length})`);
+assert.deepEqual(unscopedAudits, [], 'a statement reaches audit rows only under an identity, or as a stated exception');
+assert(triageStatements.length >= 8, `the triage statements are found (${triageStatements.length})`);
+assert.deepEqual(unnamedRepositories, [], 'a triage statement names the repository it is about');
+assert.equal(constantIn(TRIAGE_FILE, 'SCOPE_SQL'), 'provider=$1 AND authority=$2 AND owner_login=$3 AND repo_name=$4', 'and triage\'s scope is the repository, whole');
+assert.deepEqual(everything, [], 'every read names its columns');
+assert.deepEqual(spreadRows, [], 'a row leaves the store field by field');
+for (const [name, key] of [['DECISION_COLUMNS', 'decided_by_key'], ['EVENT_COLUMNS', 'actor_key']]) {
+  const columns = constantIn(TRIAGE_FILE, name);
+  assert(columns && !columns.includes(key), `triage writes ${key} and never reads it back`);
+}
+assert(privacyDeletes.length >= 10, `the privacy store's deletions are found (${privacyDeletes.length})`);
+assert.deepEqual(cascadedDeletes, [], 'the purge leaves an audit\'s findings, components and alerts to its cascade');
+
+const FONT_PROXY = /fonts\.googleapis|fonts\.gstatic|\bgfonts|GFONTS_ALLOWLIST/i;
+const fontProxies = [];
+for (const file of files) {
+  const source = parse(file);
+  each(source, node => {
+    const said = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text
+      : ts.isTemplateExpression(node) ? node.getText(source) : ts.isIdentifier(node) ? node.text : null;
+    if (said !== null && FONT_PROXY.test(said)) fontProxies.push(`${path.relative(ROOT, file)}: ${said.slice(0, 80)}`);
+  });
+}
+assert.deepEqual(fontProxies, [], 'the server names no third-party font host and no proxy for one');
+
+assert.deepEqual(strayDisconnects, [], 'only a route that removes an account disconnects one');
+assert.deepEqual([...disconnectingRoutes].sort(), REMOVAL_ROUTES, 'and each of them is found');
+assert.deepEqual(strayRemovals, [], 'an installation\'s record is removed only by the account disconnect');
+
+console.log('module rules: ok');

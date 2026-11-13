@@ -1,4 +1,6 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -6,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { withLifetime } = require('./fixtures/local-session');
 const root = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'nv-pulsar-activity-'));
@@ -19,9 +21,9 @@ const encrypted = Buffer.concat([cipher.update(JSON.stringify(withLifetime({ acc
 return 'nv_session=' + Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
 let cookie;
-const port = 25000 + Math.floor(Math.random() * 2000);
+const port = freePort();
 const origin = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, ['-r', './test/fixtures/pulsar-activity-fetch.js', 'server.js'], {
+const child = spawn(process.execPath, ['-r', './test/fixtures/pulsar-activity-fetch.js', serverEntry()], {
   cwd: root,
   env: { ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,
     DATABASE_URL: '', NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local', NV_PULSAR_REQUEST_LOG: log },

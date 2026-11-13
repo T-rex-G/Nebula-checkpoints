@@ -24,6 +24,14 @@ function shardFrom(value) {
 
 module.exports = defineConfig({
   testDir: './test/e2e',
+  /*
+   * The server's TypeScript (apps/, packages/) is ECMAScript modules that Node
+   * runs by stripping types, as the server does, and the browser fixtures load
+   * it that way too. Playwright's own compiler would turn it into CommonJS,
+   * where `import.meta` -- which apps/api/src/entrypoint.ts needs to find the
+   * worker files beside it -- cannot be written.
+   */
+  build: { external: ['**/apps/**', '**/packages/**'] },
   fullyParallel: false,
   workers: 1,
   shard: shardFrom(process.env.NV_E2E_SHARD),
@@ -41,7 +49,7 @@ module.exports = defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 5'], launchOptions } }
   ],
   webServer: {
-    command: `PORT=21852 NODE_ENV=production SESSION_SECRET=${playwrightSessionSecret} NV_SNAPSHOT_SIGNING_KEY_ID=playwright-snapshot-key NV_SNAPSHOT_SIGNING_SECRET=${playwrightSnapshotSecret} DATABASE_URL= node server.js`,
+    command: `node scripts/build-web.js && PORT=21852 NODE_ENV=production SESSION_SECRET=${playwrightSessionSecret} NV_SNAPSHOT_SIGNING_KEY_ID=playwright-snapshot-key NV_SNAPSHOT_SIGNING_SECRET=${playwrightSnapshotSecret} DATABASE_URL= node apps/api/src/main.ts`,
     url: 'http://127.0.0.1:21852/healthz',
     timeout: 30000,
     reuseExistingServer: false

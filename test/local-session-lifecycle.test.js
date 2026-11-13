@@ -1,14 +1,16 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { deriveKey, KEY_PURPOSES } = require('../src/key-derivation');
+const { deriveKey, KEY_PURPOSES } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const root = path.join(__dirname, '..');
 const secret = 'local-session-regression-0123456789abcdef-0123456789';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 28000 + Math.floor(Math.random() * 900);
+const port = freePort();
 const base = `http://127.0.0.1:${port}`;
 let child, logs = '';
 
@@ -29,7 +31,7 @@ function cookieFrom(response, fallback = '') {
   return match ? `nv_session=${match[1]}` : fallback;
 }
 async function start() {
-  child = spawn(process.execPath, ['-r', './test/fixtures/session-provider-fetch.js', 'server.js'], {
+  child = spawn(process.execPath, ['-r', './test/fixtures/session-provider-fetch.js', serverEntry()], {
     cwd: root,
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test', SESSION_SECRET: secret,
       DATABASE_URL: '', NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local' },

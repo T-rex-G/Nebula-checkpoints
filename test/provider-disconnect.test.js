@@ -5,7 +5,7 @@ const {
   disconnectProviderAccount,
   providerResourceKeyHash,
   providerSessionKeyHash
-} = require('../src/provider-disconnect');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 
 const TESTER_ID = '12345678-1234-4234-9234-123456789abc';
 const IDENTITY_KEY = 'a'.repeat(64);

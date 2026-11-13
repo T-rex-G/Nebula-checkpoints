@@ -12,10 +12,9 @@
  */
 
 const assert = require('assert');
-const { analyseCFamily, lex, functionsOf } = require('../src/uranus-cfamily');
-const { analyseFlows } = require('../src/uranus-flow');
-const { analyseSurface, reachOf } = require('../src/uranus-surface');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { analyseCFamily, lex, functionsOf } = audit.cfamily;
+const { analyseFlows, analyseSurface, reachOf } = audit;
 
 /* The line a fragment of a fixture is on, so expectations read as code, not numbers. */
 function at(text, fragment, nth = 1) {
@@ -690,7 +689,7 @@ func user(w http.ResponseWriter, r *http.Request) {
   /* the XXE rule is filed under its weakness */
   const rule = result.findings.length ? audit.RULES['SEC-034'] : null;
   assert(rule && rule.category === 'code');
-  const standards = require('../src/security-standards').standardsFor('SEC-034');
+  const standards = require('../apps/api/src/modules/posture/index.ts').standardsFor('SEC-034');
   assert.strictEqual(standards.cwe, 'CWE-611');
   assert.strictEqual(standards.owasp, 'A02:2025');
 }

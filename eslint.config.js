@@ -1,21 +1,22 @@
 'use strict';
 
 /*
- * Static identifier resolution for the alpha.17 candidate.
+ * Static identifier resolution.
  *
  * `node --check` proves that each file parses. It does not prove that every
- * referenced name resolves. The browser layer is a set of classic scripts
- * sharing one global scope, so a name that lives inside another script's
- * module closure parses cleanly and throws only when the code path runs.
- * `no-undef` closes that gap.
+ * referenced name resolves, and a name that does not resolve parses cleanly and
+ * throws only when its code path runs. `no-undef` closes that gap.
  *
- * The shared surfaces below are declared exactly as the sources publish them,
- * so a name that is not genuinely published stays an error. Adding a new
- * cross-script global therefore requires declaring it here, which keeps the
- * implicit global contract explicit and reviewable.
+ * The browser application is ES modules under apps/web and packages/contracts:
+ * a module sees only what it imports and the platform's own globals. Until the
+ * interface is rebuilt from typed components, some modules still read each
+ * other's published objects by name; those names are declared below exactly as
+ * the sources publish them, so a name that is not genuinely published stays an
+ * error and adding one requires declaring it here.
  */
 
 const globals = require('globals');
+const tseslint = require('typescript-eslint');
 
 /* Published on `window` by the module wrappers that own them. */
 const PUBLISHED_MODULE_GLOBALS = Object.freeze({
@@ -25,79 +26,38 @@ const PUBLISHED_MODULE_GLOBALS = Object.freeze({
   NebulaExportSafety: 'readonly',
   NebulaGovernanceUI: 'readonly',
   NebulaNeural: 'readonly',
-  NebulaOfflineCachePolicy: 'readonly',
   NebulaOverlayMotion: 'readonly',
   NebulaTrustUI: 'readonly',
-  NebulaUploadPlanning: 'readonly',
   NebulaPwa: 'writable',
   _oauthOn: 'writable'
 });
 
 /*
- * Declared at the top level of public/app.js, which loads last and therefore
- * owns the shared application scope. public/neural.js is lazy-loaded by
- * app.js and the browser test callbacks run against the same document, so
- * both resolve against these names at runtime.
+ * The workbench functions the browser suite still calls by name, published on
+ * window by apps/web/src/legacy/app.js until the read-only diagnostics probe
+ * replaces them. Test callbacks serialized into the page resolve against these.
  */
 const APP_SHELL_GLOBALS = Object.freeze({
-  api: 'readonly',
-  currentTab: 'readonly',
-  dlFile: 'readonly',
-  EXPOSURE_DISPOSITION_WORDS: 'readonly',
-  exportActivityFlow: 'readonly',
-  exposureRuleLabel: 'readonly',
-  loadActivityFeed: 'readonly',
-  modal: 'readonly',
-  openFile: 'readonly',
-  openSafeguards: 'readonly',
+  switchTab: 'readonly',
+  toast: 'readonly',
+  showPage: 'readonly',
   openSettings: 'readonly',
-  recoveryFlow: 'readonly',
-  securityScanFlow: 'readonly',
-  setSafety: 'readonly',
-  state: 'readonly',
+  openFile: 'readonly',
   stepUpApi: 'readonly',
   strategyFor: 'readonly',
-  switchTab: 'readonly',
-  toast: 'readonly'
+  loadActivityFeed: 'readonly',
+  clearExposureState: 'readonly',
+  showSiteScan: 'readonly',
+  runtimeLimitsKnown: 'readonly',
+  uploadOne: 'readonly'
 });
 
-/* Vendored browser libraries served from public/vendor. */
+/* Bundled from their npm packages and published by apps/web/src/legacy/vendor-globals.js. */
 const VENDOR_GLOBALS = Object.freeze({
   CodeMirror: 'writable',
   DOMPurify: 'readonly',
   marked: 'readonly'
 });
-
-/* Loaded through a script tag and also required by Node tests or the server. */
-const DUAL_TARGET_MODULES = Object.freeze([
-  'public/light-waves.js',
-  'public/landing-map.js',
-  'public/code-audit-ui.js',
-  'public/archive-safety.js',
-  'public/export-safety.js',
-  'public/governance-ui.js',
-  'public/offline-cache-policy.js',
-  'public/overlay-motion.js',
-  'public/repo-sigil.js',
-  'public/upload-planning.js',
-  'public/codeowners.js',
-  'public/findings-inbox-ui.js',
-  'public/pull-board.js',
-  'public/repo-inventory.js',
-  'public/security-posture.js',
-  'public/workspace-pulse.js'
-]);
-
-/*
- * The design's WebGL artwork. These are the only true ES modules in the
- * browser layer: they are loaded by dynamic import rather than a script tag,
- * because three.js ships as a module and a bare specifier would have cost an
- * inline import map -- and an inline script means relaxing script-src.
- */
-const BROWSER_ES_MODULES = Object.freeze([
-  'public/nebula-galaxy.js',
-  'public/nebula-singularity.js'
-]);
 
 const RULES = Object.freeze({ 'no-undef': 'error' });
 
@@ -106,6 +66,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       'public/vendor/**',
+      'dist/**',
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
@@ -116,7 +77,6 @@ module.exports = [
   {
     name: 'nebulaverse/node-commonjs',
     files: [
-      'server.js',
       'eslint.config.js',
       'playwright*.config.js',
       'src/**/*.js',
@@ -149,58 +109,96 @@ module.exports = [
     rules: RULES
   },
   {
-    name: 'nebulaverse/browser-classic-scripts',
-    files: ['public/*.js'],
-    ignores: ['public/sw.js', ...DUAL_TARGET_MODULES, ...BROWSER_ES_MODULES],
+    name: 'nebulaverse/browser-modules',
+    files: ['apps/web/src/**/*.js'],
+    ignores: ['apps/web/src/offline/sw.js'],
     languageOptions: {
       ecmaVersion: 2024,
-      sourceType: 'script',
+      sourceType: 'module',
       globals: {
         ...globals.browser,
         ...VENDOR_GLOBALS,
-        ...APP_SHELL_GLOBALS,
         ...PUBLISHED_MODULE_GLOBALS
       }
     },
     rules: RULES
   },
   {
-    name: 'nebulaverse/browser-es-modules',
-    files: BROWSER_ES_MODULES,
-    languageOptions: {
-      ecmaVersion: 2024,
-      sourceType: 'module',
-      globals: { ...globals.browser }
-    },
+    /* Classic, blocking, and first: it decides the theme of the first paint. */
+    name: 'nebulaverse/theme-boot',
+    files: ['apps/web/public/theme-boot.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.browser } },
     rules: RULES
   },
   {
     name: 'nebulaverse/service-worker',
-    files: ['public/sw.js'],
+    files: ['apps/web/src/offline/sw.js'],
     languageOptions: {
       ecmaVersion: 2024,
-      sourceType: 'script',
-      globals: {
-        ...globals.serviceworker,
-        ...PUBLISHED_MODULE_GLOBALS
-      }
+      sourceType: 'module',
+      globals: { ...globals.serviceworker }
     },
     rules: RULES
   },
   {
-    name: 'nebulaverse/dual-target-modules',
-    files: DUAL_TARGET_MODULES,
-    languageOptions: {
-      ecmaVersion: 2024,
-      sourceType: 'script',
-      globals: {
-        ...globals.browser,
-        ...globals.serviceworker,
-        ...globals.node,
-        ...VENDOR_GLOBALS,
-        ...PUBLISHED_MODULE_GLOBALS
-      }
-    },
+    /*
+     * The TypeScript areas (ADR-087, ADR-088). The compiler resolves names, so
+     * no-undef stands down; what lint adds is what strict mode alone allows:
+     * no explicit any, no comment that silences the compiler, type-only
+     * imports written as such (Node strips them, so they must be marked), and
+     * the boundaries the import-graph test also holds. A namespace is code in
+     * every spelling (`namespace X`, `module X`, declared or not); a module's
+     * types may still be added to (`declare module 'react'`), like the global
+     * scope's, since both are types only.
+     */
+    name: 'nebulaverse/typescript',
+    files: ['apps/**/*.ts', 'apps/**/*.tsx', 'packages/**/*.ts'],
+    languageOptions: { parser: tseslint.parser, ecmaVersion: 2024, sourceType: 'module' },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/ban-ts-comment': ['error', { 'ts-expect-error': true, 'ts-ignore': true, 'ts-nocheck': true, 'ts-check': false }],
+      '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'separate-type-imports' }],
+      'no-restricted-syntax': ['error',
+        { selector: 'TSEnumDeclaration', message: 'Erasable syntax only: an enum is code, not a type (ADR-088).' },
+        { selector: 'TSModuleDeclaration[kind="namespace"]', message: 'Erasable syntax only: no namespaces (ADR-088).' },
+        { selector: 'TSModuleDeclaration[kind="module"][id.type!="Literal"]', message: 'Erasable syntax only: no namespaces (ADR-088).' }]
+    }
+  },
+  {
+    /*
+     * A promise is awaited, handled, or marked as let go. A single-use guard
+     * -- a step-up grant, an OAuth state, a restore authorization -- answers
+     * through a promise, and one left unawaited is truthy: the request goes on
+     * as if the guard had said yes, and its refusal becomes an unhandled
+     * rejection that ends the process. These rules ask the type checker, so
+     * they hold for every call in the server, the contracts and the page's
+     * TypeScript, not for a list of names. The page holds them module by
+     * module as Phase E rebuilds it in TypeScript.
+     */
+    name: 'nebulaverse/promises',
+    files: ['apps/api/src/**/*.ts', 'packages/contracts/src/**/*.ts', 'apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: __dirname } },
+    rules: {
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
+      '@typescript-eslint/await-thenable': 'error'
+    }
+  },
+  {
+    name: 'nebulaverse/contracts-boundary',
+    files: ['packages/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/apps/**'], message: 'The contracts are shared; they import neither application.' }] }] }
+  },
+  {
+    name: 'nebulaverse/web-boundary',
+    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/apps/api/**', '**/api/src/**'], message: 'The page never imports the server.' }] }] }
+  },
+  {
+    name: 'nebulaverse/build-configuration',
+    files: ['apps/web/vite.config.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.node } },
     rules: RULES
   }
 ];

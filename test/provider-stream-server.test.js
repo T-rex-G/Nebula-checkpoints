@@ -1,9 +1,11 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const { withLifetime } = require('./fixtures/local-session');
 const secret = crypto.randomBytes(40).toString('hex');
 function sessionCookie(accounts, active = 0) {
@@ -13,9 +15,9 @@ function sessionCookie(accounts, active = 0) {
   const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
   return 'nv_session=' + Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
 }
-const port = 23000 + Math.floor(Math.random() * 2000);
+const port = freePort();
 const origin = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', 'server.js'], {
+const child = spawn(process.execPath, ['-r', './test/fixtures/provider-stream-fetch.js', serverEntry()], {
   cwd: path.resolve(__dirname, '..'),
   env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '',
     NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local',

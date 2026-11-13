@@ -40,7 +40,9 @@ execution time, and cleanup result.
 ## Automated gates
 
 - Node.js 22 exact-lockfile clean install, full unit/contract suite, syntax, and
-  secret scan.
+  the release scan: no credential, no character a reviewer cannot see (control,
+  bidirectional, zero-width or tag characters, line separators), and no file
+  that should be text and does not read as UTF-8.
 - Deterministic double package build, safe fresh extraction, clean-install
   verification, and production audit with zero critical/high findings.
 - Full development-audit classification.

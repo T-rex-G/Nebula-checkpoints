@@ -1,10 +1,10 @@
 'use strict';
 const assert = require('assert');
 const crypto = require('crypto');
-const { GovernanceStore } = require('../src/governance-store');
-const { evaluateActivePolicySet, POLICY_DECISION_GENESIS } = require('../src/governance-enforcement');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
-const { stableJson } = require('../src/governance-model');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { evaluateActivePolicySet, POLICY_DECISION_GENESIS } = require('../apps/api/src/modules/kepler/index.ts');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 
 const secret = 'policy-observability-secret-0123456789abcdef';
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };

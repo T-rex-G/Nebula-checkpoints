@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { selectRepositories, feed, instant, MAX_REPOSITORIES, MAX_EVENTS } = require('../src/activity-feed');
+const { selectRepositories, feed, instant, MAX_REPOSITORIES, MAX_EVENTS } = require('../apps/api/src/modules/pulsar/index.ts').activityFeed;
 
 let failures = 0;
 function check(name, run) {

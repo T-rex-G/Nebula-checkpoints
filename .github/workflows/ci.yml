@@ -44,10 +44,16 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.5'
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      # The architecture mission's baseline inventory, regenerated from the
+      # baseline commit and compared byte for byte with the committed record.
+      - run: node scripts/architecture-inventory.js --check
+      # The browser build twice from the same tree: the served-assets digest the
+      # server attests must name the same bytes on every build.
+      - run: npm run build:web:check
       - run: npm run check:syntax
       - run: npm run lint
       # Before the suites and long before the browser gates: a type error should
@@ -90,6 +96,19 @@ jobs:
       - run: npm run test:governance-lifecycle
         env:
           NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # The composed server, on a database of its own: where a session lives,
+      # the protections an identity sets, what a webhook delivery leaves
+      # behind, and the snapshots and restores Corona keeps; the same server
+      # invite-only; a repository's governance, asked as its administrator, a
+      # maintainer and a reader; exposure scanning end to end, its findings
+      # fingerprinted with the key the composition derived and verified with
+      # the credential's provider; and the server's own life -- the work it
+      # takes up when it starts, and waits for when it stops. Built in the
+      # test's process, as test/composition.test.js builds it without one,
+      # and started as a deployment starts it.
+      - run: npm run test:composition-postgres
+        env:
+          NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - run: node scripts/audit-production.js
       - run: npm run check:secrets
       - run: npm run test:staging:gate
@@ -106,10 +125,17 @@ jobs:
   # reported in minutes and no browser time is spent on a change that fails
   # them. fail-fast is off so one slice's failure says whether the problem is
   # local to a few specs or general.
+  #
+  # Each step has its own bound, so neither can spend the other's time: the
+  # browser's system packages usually install in under a minute, but a slow
+  # Ubuntu mirror took eleven on 26 October and left a 20-minute job too little
+  # for its tests. The install may take 15 minutes and the tests 18, and a hung
+  # spec still fails at 18. Later that day the same mirror took more than
+  # fifteen, so the packages are now kept between runs as well (below).
   browser:
     needs: verify
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -120,13 +146,46 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.5'
           cache: npm
       - run: npm ci
+      # apt's downloads for the browsers come back from the Actions cache, so
+      # a slow mirror costs only the packages that changed since the last run
+      # (ci/browser-packages.sh). They are collected even when the install
+      # fails, and kept under a name derived from the package files, so a run
+      # cut short leaves the next one less to fetch and an unchanged set is
+      # never saved twice.
+      - name: Restore the browsers' system packages
+        id: browser-packages
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: browser-packages-ubuntu-24.04-chromium.
+          restore-keys: browser-packages-ubuntu-24.04-chromium.
+      - name: Return them to apt's archive
+        continue-on-error: true
+        run: bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"
       - run: bash ci/install-browser.sh
+        timeout-minutes: 15
+      - name: Collect the browsers' system packages
+        id: browser-packages-kept
+        if: always()
+        continue-on-error: true
+        run: bash ci/browser-packages.sh collect "${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-chromium.
+      - name: Keep them for the next run
+        if: always() && steps.browser-packages-kept.outputs.key != '' && steps.browser-packages-kept.outputs.key != steps.browser-packages.outputs.cache-matched-key
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: ${{ steps.browser-packages-kept.outputs.key }}
       # The slice is read by playwright.config.js, so the command is the one a
       # local run uses; unset there, the whole suite runs.
       - run: npm run test:e2e
+        timeout-minutes: 18
         env:
           NV_E2E_SHARD: ${{ matrix.shard }}/6
       # This job uses synthetic browser credentials. Keep only its diagnostics;
@@ -157,7 +216,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.5'
           cache: npm
       - run: npm ci
       - run: npm run package:release -- "${RUNNER_TEMP}/release"
@@ -169,9 +228,11 @@ jobs:
             ${{ runner.temp }}/release/*.sha256
           if-no-files-found: error
 
+  # The browser install is bounded on its own, as in the browser job, and the
+  # job is bounded with room for it.
   integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17
@@ -192,11 +253,38 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.23.5'
           cache: npm
       - run: npm ci
+      - name: Restore the browsers' system packages
+        id: browser-packages
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: browser-packages-ubuntu-24.04-chromium-webkit.
+          restore-keys: browser-packages-ubuntu-24.04-chromium-webkit.
+      - name: Return them to apt's archive
+        continue-on-error: true
+        run: bash ci/browser-packages.sh restore "${RUNNER_TEMP}/browser-packages"
       - run: bash ci/install-browser.sh chromium webkit
+        timeout-minutes: 15
+      - name: Collect the browsers' system packages
+        id: browser-packages-kept
+        if: always()
+        continue-on-error: true
+        run: bash ci/browser-packages.sh collect "${RUNNER_TEMP}/browser-packages" browser-packages-ubuntu-24.04-chromium-webkit.
+      - name: Keep them for the next run
+        if: always() && steps.browser-packages-kept.outputs.key != '' && steps.browser-packages-kept.outputs.key != steps.browser-packages.outputs.cache-matched-key
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/browser-packages
+          key: ${{ steps.browser-packages-kept.outputs.key }}
       - run: bash ci/install-postgres-client.sh
+      - run: npm run build:web
       - run: npm run test:restore-integration
       - run: npm run test:integration
       - name: Retain real browser integration evidence
@@ -207,3 +295,43 @@ jobs:
           path: test-results/integration/
           retention-days: 3
           if-no-files-found: error
+
+  # The fallback runtime of ADR-088, proven on every commit rather than on the
+  # day it is needed. The server is compiled into dist/server twice from the
+  # same tree (the digest it reports as serverBuildSha256 must name the same
+  # bytes both times) and every test that starts the server -- boot, health
+  # and readiness on PostgreSQL, the route surface and the negative-request
+  # matrix, the worker and child-process entries, the multi-instance programs
+  # and the release smoke -- runs again against the compiled tree. `verify`
+  # runs the same programs against the source, so the two runtimes answer the
+  # same questions the same way or this job is red.
+  server-compiled:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NV_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.23.5'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm run build:server:check
+      - run: npm run test:server-compiled

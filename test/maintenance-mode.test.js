@@ -19,17 +19,19 @@
  *   - readiness reports not-ready, because the service is deliberately not.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const port = 27000 + Math.floor(Math.random() * 2000);
+const port = freePort();
 const secret = ['maintenance-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 /* Distinct from the session secret: the server refuses to reuse one for both. */
 const snapshotSecret = ['maintenance-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,
@@ -99,7 +101,10 @@ async function waitForBoot() {
     }
 
     /* Static assets still load, so the page can render the notice. */
-    const asset = await get('/style.css');
+    const shell = await (await get('/')).text();
+    const stylesheet = (/<link rel="stylesheet" crossorigin href="([^"]+)">/.exec(shell) || [])[1];
+    assert(stylesheet, 'the page must name its built stylesheet');
+    const asset = await get(stylesheet);
     assert.strictEqual(asset.status, 200, 'static assets must survive maintenance');
 
     /* And the document itself is served, carrying the notice rather than an error. */

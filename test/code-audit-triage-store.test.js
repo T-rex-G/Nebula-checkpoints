@@ -12,8 +12,8 @@ const crypto = require('crypto');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { CodeAuditTriage, LIMITS } = require('../src/code-audit-triage');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { CodeAuditTriage, LIMITS } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -40,7 +40,7 @@ async function withClient(connectionString, run) {
   url.pathname = `/${databaseName}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
   try {
-    await withClient(url.toString(), client => runMigrations(client, loadMigrations(DIRECTORY)));
+    await withClient(url.toString(), client => runMigrations(client, { directory: DIRECTORY }));
     const triage = new CodeAuditTriage({ pool });
 
     /* ---- A decision, with who and when, and its event ----------------------- */

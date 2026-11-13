@@ -1,0 +1,11 @@
+{
+  "$comment": "Shared by the server, the page and the service worker: no platform's types.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": []
+  },
+  "include": ["src/**/*.ts"]
+}

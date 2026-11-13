@@ -1,22 +1,25 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson, evidenceRecordHash } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { evidenceRecordHash } = require('../apps/api/src/modules/corona/index.ts');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 const {
   createCsrfToken,
   createStepUpGrant,
   normalizeStepUpRequest,
   scopeHash
-} = require('../src/security-foundation');
+} = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 31800 + Math.floor(Math.random() * 800);
+const port = freePort();
 const secret = 'alpha-boundary-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = 'alpha-boundary-snapshot-secret-fedcba9876543210-fedcba9876543210';
 /* The server derives a purpose-specific key per construction; mirror those
@@ -145,8 +148,9 @@ const fixtureSource = String.raw`
 const fs = require('fs');
 const path = require('path');
 const Module = require('module');
-const { hashJson, evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'intelligence'));
-const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'src', 'key-derivation'));
+const { evidenceRecordHash } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'modules', 'corona', 'index.ts'));
+const { hashJson } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'platform', 'values', 'stable-hash.ts'));
+const { KEY_PURPOSES, deriveSecret } = require(path.join(process.env.NV_ALPHA_TEST_ROOT, 'apps', 'api', 'src', 'platform', 'crypto', 'key-derivation.ts'));
 const sessionSecret = process.env.SESSION_SECRET;
 const originalLoad = Module._load;
 const originalSetInterval = global.setInterval;
@@ -479,15 +483,27 @@ class Pool {
   async end() {}
 }
 
-Module._load = function load(request, parent, isMain) {
-  if (request === './src/alpha-access-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaAccessStore, AlphaAccessOperationalError };
-  }
-  if (request === './src/alpha-privacy-store' && parent && /server\.js$/.test(parent.filename)) {
-    return { AlphaPrivacyStore };
-  }
-  if (request === './src/provider-credentials' && parent && /server\.js$/.test(parent.filename)) {
-    return {
+/*
+ * The modules this fixture stands in for, where the server's composition root
+ * imports them, and the webhook worker where governance's host starts it.
+ * Those importers are ES modules, whose imports do not pass through
+ * Module._load, so each seam is a module hook instead: the importer is handed
+ * a module that re-exports the real one with this fixture's exports in their
+ * place, and every other importer still gets the real module. .ts as the
+ * source names them, .js as the compiled tree does.
+ */
+const FIXTURE = Symbol.for('nv.alpha-boundary.fixture');
+const ROOT_FILE = /\/apps\/api\/src\/(?:main|composition\/[^/]+)\.[jt]s$/;
+const SEAMS = [
+  /* The identity-access module, its stores replaced by this fixture's. */
+  {
+    name: 'identity-access', importer: ROOT_FILE, module: /\/apps\/api\/src\/modules\/identity-access\/index\.[jt]s$/,
+    exports: { AlphaAccessStore, AlphaAccessOperationalError, AlphaPrivacyStore }
+  },
+  /* The GitHub provider module, its credential resolution replaced by this fixture's. */
+  {
+    name: 'github-provider', importer: ROOT_FILE, module: /\/apps\/api\/src\/modules\/github-provider\/index\.[jt]s$/,
+    exports: {
       async resolveProviderAccount(account) {
         record({ kind: 'credential.resolve', authMethod: account && account.authMethod });
         if (account && account.authMethod === 'github-app') {
@@ -497,10 +513,11 @@ Module._load = function load(request, parent, isMain) {
         }
         return { ...account };
       }
-    };
-  }
-  if (request === './src/migrations' && parent && /server\.js$/.test(parent.filename)) {
-    return {
+    }
+  },
+  {
+    name: 'migrations', importer: ROOT_FILE, module: /\/apps\/api\/src\/platform\/persistence\/migrations\.[jt]s$/,
+    exports: {
       loadMigrations: () => [{ id: '015_alpha_privacy' }],
       runMigrations: async () => ({ applied: [], total: 15 }),
       verifyMigrations: async () => ({
@@ -510,11 +527,45 @@ Module._load = function load(request, parent, isMain) {
         changed: [],
         unknown: []
       })
+    }
+  },
+  /* The pool, built from this fixture's Pool: the pool module's own import of pg is an ES module's too. */
+  {
+    name: 'database-pool', importer: ROOT_FILE, module: /\/apps\/api\/src\/platform\/persistence\/database-pool\.[jt]s$/,
+    exports: { createDatabasePool: (connectionString, onIdleError) => new Pool({ connectionString }).on('error', onIdleError) }
+  },
+  /* Governance's webhook worker, held still. */
+  {
+    name: 'webhook-worker',
+    importer: /\/apps\/api\/src\/modules\/kepler\/application\/governance-host\.[jt]s$/,
+    module: /\/apps\/api\/src\/modules\/kepler\/delivery\/governance-webhook-worker\.[jt]s$/,
+    exports: { startWebhookWorker: () => ({ stop() {} }) }
+  }
+];
+globalThis[FIXTURE] = Object.fromEntries(SEAMS.map(seam => [seam.name, seam.exports]));
+Module.registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const resolved = nextResolve(specifier, context);
+    if (!context.parentURL || !resolved.url.startsWith('file:')) return resolved;
+    const seam = SEAMS.find(candidate => candidate.module.test(new URL(resolved.url).pathname)
+      && candidate.importer.test(new URL(context.parentURL).pathname));
+    return seam ? { ...resolved, url: resolved.url + '?nv-fixture=' + seam.name } : resolved;
+  },
+  load(url, context, nextLoad) {
+    const seam = /\?nv-fixture=([\w-]+)$/.exec(url);
+    if (!seam) return nextLoad(url, context);
+    record({ kind: 'fixture.seam', name: seam[1] });
+    const names = Object.keys(globalThis[FIXTURE][seam[1]]);
+    return {
+      format: 'module',
+      shortCircuit: true,
+      source: 'export * from ' + JSON.stringify(url.slice(0, seam.index)) + ';\n'
+        + 'export const { ' + names.join(', ') + ' } = globalThis[Symbol.for(' + JSON.stringify('nv.alpha-boundary.fixture') + ')]['
+        + JSON.stringify(seam[1]) + '];\n'
     };
   }
-  if (request === './src/governance-webhook-worker' && parent && /server\.js$/.test(parent.filename)) {
-    return { startWebhookWorker: () => ({ stop() {} }) };
-  }
+});
+Module._load = function load(request, parent, isMain) {
   if (request === 'pg') return { Pool };
   if (request === 'dns') {
     return { promises: { lookup: async () => [{ address: '93.184.216.34', family: 4 }] } };
@@ -604,7 +655,7 @@ fs.writeFileSync(fixture, fixtureSource, { mode: 0o600 });
 fs.writeFileSync(eventLog, '', { mode: 0o600 });
 fs.writeFileSync(alphaStateFile, JSON.stringify({ A: 'active' }), { mode: 0o600 });
 
-const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
+const child = spawn(process.execPath, ['-r', fixture, serverEntry()], {
   cwd: root,
   env: {
     ...process.env,
@@ -885,6 +936,12 @@ ${logs}`
 (async () => {
   try {
     await waitForServer();
+    /* Every module the fixture stands in for was reached through its seam: a missed one would test the real module instead. */
+    assert.deepStrictEqual(
+      [...new Set(events('fixture.seam').map(event => event.name))].sort(),
+      ['database-pool', 'github-provider', 'identity-access', 'migrations', 'webhook-worker'],
+      'every fixture seam must be reached'
+    );
 
     for (const pathname of ['/healthz', '/readyz']) {
       const response = await request(pathname);

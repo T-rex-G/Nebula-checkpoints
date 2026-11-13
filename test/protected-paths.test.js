@@ -13,14 +13,14 @@
 const assert = require('assert');
 
 let protectedPaths = {};
-try { protectedPaths = require('../src/protected-paths'); } catch { /* asserted below */ }
+try { protectedPaths = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts'); } catch { /* asserted below */ }
 for (const name of ['PATH_COVERAGE', 'ACTION_PATH_SEMANTICS', 'pathFactsForAction', 'ProtectedPathError']) {
   assert(protectedPaths[name], `${name} must be implemented`);
 }
 
 const { PATH_COVERAGE, ACTION_PATH_SEMANTICS, pathFactsForAction } = protectedPaths;
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
-const { evaluatePolicyDocument } = require('../src/governance-simulation');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { evaluatePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(Object.isFrozen(PATH_COVERAGE), 'path coverage vocabulary must be immutable');
 assert(Object.isFrozen(ACTION_PATH_SEMANTICS), 'action path semantics must be immutable');
@@ -103,6 +103,11 @@ for (const [action, base] of allowed) {
 
 /* The exact set is reported as exact, and stays sorted and de-duplicated so the
  * decision record is stable for the same mutation. */
+/* An inherited name is not an action with paths: it has no facts, where it once threw a TypeError. */
+for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+  assert.deepStrictEqual(pathFactsForAction(inherited, { path: 'a.txt' }), {}, `${inherited} has no path facts`);
+}
+
 const renameFacts = pathFactsForAction('file.rename', { from: 'b/two.txt', to: 'a/one.txt' });
 assert.strictEqual(renameFacts.pathCoverage, PATH_COVERAGE.EXACT);
 assert.deepStrictEqual(renameFacts.paths, ['a/one.txt', 'b/two.txt']);
@@ -165,7 +170,7 @@ assert.throws(
 const { expandProtectedPaths } = protectedPaths;
 assert(expandProtectedPaths, 'expandProtectedPaths must be implemented');
 
-const { normalizePolicyDocument } = require('../src/governance-model');
+const { normalizePolicyDocument } = require('../apps/api/src/modules/kepler/index.ts');
 
 function documentFor(declarations, options) {
   const expansion = expandProtectedPaths(declarations, options);
@@ -294,7 +299,7 @@ assert.throws(() => expandProtectedPaths([]), error => error.code === 'PROTECTED
  * The template an operator actually reaches for
  * ------------------------------------------------------------------ */
 
-const { getPolicyTemplate, listPolicyTemplates } = require('../src/governance-templates');
+const { getPolicyTemplate, listPolicyTemplates } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(
   listPolicyTemplates().some(entry => entry.templateId === 'protected-paths'),
@@ -357,9 +362,9 @@ assert(
  * silently dropped array would undo all of it.
  * ------------------------------------------------------------------ */
 
-const { createMutationGateway, normalizeMutationDescriptor } = require('../src/mutation-gateway');
-const { createGovernanceRuntime, evaluateActivePolicySet } = require('../src/governance-enforcement');
-const { policyDocumentHash } = require('../src/governance-model');
+const { createMutationGateway, normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { createGovernanceRuntime, evaluateActivePolicySet, normalizePolicyDecision } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 void createGovernanceRuntime;
 
 const gatewayAuthorization = {
@@ -405,12 +410,15 @@ function descriptorFor(action, base) {
 async function runThroughGateway(action, base) {
   const descriptor = descriptorFor(action, base);
   const gateway = createMutationGateway({
-    policyEvaluator: async () => evaluateActivePolicySet({
-      scope: gatewayAuthorization.scope,
-      descriptor,
-      activePolicies,
-      evaluatedAt: '2026-07-22T18:00:00.000Z'
-    })
+    policyEvaluator: {
+      evaluate: async () => evaluateActivePolicySet({
+        scope: gatewayAuthorization.scope,
+        descriptor,
+        activePolicies,
+        evaluatedAt: '2026-07-22T18:00:00.000Z'
+      }),
+      verify: normalizePolicyDecision
+    }
   });
   let providerCalled = false;
   let blocked = null;

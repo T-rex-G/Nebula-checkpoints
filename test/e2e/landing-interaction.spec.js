@@ -262,7 +262,7 @@ test('the vortex stands in the page with no light box behind it and no mask over
  * copy, which is a second moving thing to read on the one screen whose whole
  * job is to be read once.
  *
- * display:none rather than a paint trick, because light-waves.js measures its
+ * display:none rather than a paint trick, because light-waves.ts measures its
  * own box: out of the layout, the render loop stops too.
  */
 test('the light-theme waves stand down behind the landing artwork', async ({ page }) => {

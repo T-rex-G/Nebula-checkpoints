@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const path = require('path');
-const { loadMigrations } = require('../src/migrations');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const {
   cloneJson,
   hasExactKeys,

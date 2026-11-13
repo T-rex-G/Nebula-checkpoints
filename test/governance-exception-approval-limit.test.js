@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
-const { GovernanceStore } = require('../src/governance-store');
-const { policyDocumentHash } = require('../src/governance-model');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
 const document = { schemaVersion: 1, enforcement: { mode: 'block' }, rules: [{ id: 'deny-write', action: 'file.write', effect: 'deny' }] };

@@ -13,14 +13,13 @@
  *     counted honestly in coverage, including when a reader has no batch read;
  *   - the rules run the same on a worker as in process;
  *   - and no source file carries a stray control byte, which is how six
- *     patterns once went blind: a `\b` written as a backspace.
+ *     patterns once went blind: a `\b` written as a backspace. The release
+ *     scan refuses one now, wherever the release carries text.
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const audit = require('../src/code-audit');
-const { scanOffThread } = require('../src/code-audit-worker');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { scanOffThread } = require('../apps/api/src/modules/uranus/index.ts').auditWorker;
 
 /* A token-shaped fixture, built in pieces so no scanner mistakes it for a leak. */
 const TOKEN = `gh${'p'}_${'A'.repeat(36)}`;
@@ -201,22 +200,17 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
     const limited = await audit.auditRepository({ reader: synthetic, scope: {}, ref: 'main', queryTransport: async () => ({}) });
     assert.strictEqual(limited.coverage.complete, true, 'file-read completeness remains distinct');
     assert.strictEqual(limited.coverage.advisories.inventoryComplete, false, 'missing dependency semantics are explicitly incomplete');
-    const { compactAudit } = require('../src/code-audit-history');
+    const { compactAudit } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
     assert.strictEqual(compactAudit(limited).audit.watch_state, 'unavailable', 'no retained versions is not proof of no vulnerable dependencies');
   }
 
-  /* ---- No stray control bytes in the code that ships ---------------------------- */
-  const root = path.join(__dirname, '..');
-  const shipped = [
-    ...fs.readdirSync(path.join(root, 'src')).filter(name => name.endsWith('.js')).map(name => path.join('src', name)),
-    ...fs.readdirSync(path.join(root, 'public')).filter(name => /\.(js|css|html)$/.test(name)).map(name => path.join('public', name)),
-    'server.js'
-  ];
-  for (const file of shipped) {
-    const text = fs.readFileSync(path.join(root, file), 'latin1');
-    const stray = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.exec(text);
-    assert(!stray, `${file} carries control byte 0x${stray && stray[0].charCodeAt(0).toString(16)} at offset ${stray && stray.index}`);
-  }
+  /*
+   * No stray control bytes in the code that ships: the release scan refuses a
+   * character no reader can see in any text the release carries, and a file
+   * that should be text and does not decode (platform/release/secret-scanner.ts,
+   * asked by test/secret-scanner.test.js); `npm run check:secrets` runs it
+   * over the tree.
+   */
 
   console.log('code audit coverage tests passed');
 })().catch(error => {

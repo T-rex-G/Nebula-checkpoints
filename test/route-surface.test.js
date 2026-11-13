@@ -1,4 +1,6 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -24,13 +26,16 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { serverFiles } = require('./helpers/server-source');
+const { locations } = require('./oracles/route-policy');
+const ts = require('typescript');
 const { spawn } = require('child_process');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
 const secret = 'route-surface-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
-const port = 19000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 
 function seal(value) {
   const iv = crypto.randomBytes(12);
@@ -72,15 +77,10 @@ const EXPECTATIONS = [
  *
  * So the chain is also read as text. Structural where behaviour is blind,
  * behavioural everywhere else; neither on its own is enough. The source is
- * searched wherever these routes live, so moving them out of server.js does
- * not quietly turn this half of the test into a check of an empty string.
+ * searched wherever these routes live, so moving them out of the composition
+ * root does not quietly turn this half of the test into a check of an empty
+ * string.
  */
-const ROUTE_SOURCES = ['server.js', path.join('src', 'routes', 'security.js')]
-  .map(relative => path.join(root, relative))
-  .filter(file => fs.existsSync(file))
-  .map(file => fs.readFileSync(file, 'utf8'))
-  .join('\n');
-
 const MIDDLEWARE = [
   ['get', '/api/security/scanner-status', ['auth', "capabilityAccess('upload-security')"]],
   ['get', '/api/security/csrf', ['accountAuth']],
@@ -89,54 +89,49 @@ const MIDDLEWARE = [
   ['post', '/api/security/revoke-others', ['auth']]
 ];
 
+/* The chain each registration hands Express, in order, as the route policy reads it from the syntax tree. */
+const POLICY_ROUTES = locations(root).filter(entry => entry.kind === 'route');
 for (const [method, routePath, expected] of MIDDLEWARE) {
-  const line = ROUTE_SOURCES.split('\n').find(candidate =>
-    candidate.includes(`.${method}('${routePath}'`));
-  assert(line, `${method.toUpperCase()} ${routePath} is not registered in any known route file`);
-  let cursor = line.indexOf(routePath);
-  for (const name of expected) {
-    const at = line.indexOf(name, cursor);
-    assert(
-      at > -1,
-      `${method.toUpperCase()} ${routePath} must still be guarded by ${name}`
-    );
-    cursor = at + name.length;
-  }
+  const entry = POLICY_ROUTES.find(candidate => candidate.method === method.toUpperCase() && candidate.path === routePath);
+  assert(entry, `${method.toUpperCase()} ${routePath} is not registered`);
+  assert.deepEqual(entry.guards, expected, `${method.toUpperCase()} ${routePath} is guarded by exactly ${expected.join(', ')}, in that order`);
 }
 
 /*
  * The growth ratchet.
  *
- * This number is a speed bump with a message on it, and it is worth being
+ * This number was a speed bump with a message on it, and it is worth being
  * plain about that: a hardcoded count proves nothing about the code it
  * guards, and anyone can raise it in the same commit that breaks it. What it
- * does is make growing server.js a deliberate act with a diff line attached,
- * rather than the path of least resistance it is today at a hundred and
+ * did was make growing server.js a deliberate act with a diff line attached,
+ * rather than the path of least resistance it was at a hundred and
  * forty-seven routes and seven thousand lines.
  *
- * The rule it is here to carry:
+ * The rule it was here to carry, and still holds:
  *
- *   A new route's *logic* belongs in a module under src/ behind a narrow
- *   contract, with server.js holding only the registration. That is the
- *   pattern that has actually worked here -- src/single-use-store.js,
- *   src/live-stream.js and src/rate-limit-identity.js each took real logic
+ *   A route's *logic* belongs in a module behind a narrow contract, with the
+ *   composition holding only the registration. That is the
+ *   pattern that has actually worked here -- apps/api/src/platform/rate-limit/single-use-store.ts,
+ *   Pulsar's live stream (apps/api/src/modules/pulsar/application/live-stream.ts) and
+ *   apps/api/src/platform/rate-limit/rate-limit-identity.ts each took real logic
  *   out and each made what remained smaller and testable on its own.
  *
- * What was measured and deliberately not done: lifting a whole URL prefix
- * into a router module. Every candidate group needs between twenty-two and
- * ninety-nine of server.js's top-level bindings passed in to work. That
- * dependency count is the finding, not an obstacle to route around -- routes
- * and helpers here are entangled, and moving routes behind a large injected
- * dependency object relocates the entanglement across a parameter list
- * without reducing it. Extracting logic reduces it; extracting URLs does not.
+ * What was measured and deliberately not done at the time: lifting a whole
+ * URL prefix into a router module. Every candidate group needed between
+ * twenty-two and ninety-nine of server.js's top-level bindings passed in to
+ * work. That dependency count was the finding: routes and helpers were
+ * entangled, and moving routes behind a large injected dependency object
+ * would have relocated the entanglement across a parameter list without
+ * reducing it. Extracting logic reduced it, module by module, until D12 could
+ * move the routes and D13 the rest.
  */
 /*
  * Raised from 147 to 153 for exposure scanning, deliberately and with the
  * reason the ratchet asks for.
  *
  * The six routes are registration and nothing else: each one validates a
- * couple of parameters, calls one method on `src/exposure-store.js`,
- * `src/exposure-reader.js` or `src/exposure-narration.js`, and returns the
+ * couple of parameters, calls one method on the exposure store, reader or
+ * narration (now `apps/api/src/modules/quasar`), and returns the
  * result. The identity boundary is a parameter passed into the store, where it
  * lands in a WHERE clause; the decisions about coverage, disposition and
  * wording are all in modules with their own tests. That is exactly the shape
@@ -169,24 +164,24 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * authorization and the request body to one method of the governance service
  * and returns what it answers. The role is checked twice, here and in the
  * service; every decision -- what may be switched off, whether a key is free,
- * whose draft it is, what a reset touches -- is in `src/governance-api.js` and
- * `src/governance-store.js`, and is tested against a real database.
+ * whose draft it is, what a reset touches -- is in `apps/api/src/modules/kepler/application/governance-api.ts` and
+ * `apps/api/src/modules/kepler/persistence/governance-store.ts`, and is tested against a real database.
  *
  * 166 to 167 adds the workspace posture read the overview scores. The handler
  * is one call: the credential classification, the recovery and exposure
- * summaries and the boundary state are all in `src/workspace-posture.js`,
- * tested there, and the exposure query is in the store, tested against a real
- * database.
+ * summaries and the boundary state are all in the posture module
+ * (`apps/api/src/modules/posture`), tested there, and the exposure query is
+ * in the store, tested against a real database.
  *
  * 167 to 168 adds the repository audit. The handler opens a guarded read
  * session, calls one function and closes the session; which files are read,
  * every rule, the registry lookups and the scoring are in
- * `src/code-audit.js` and tested there rule by rule.
+ * the Uranus module and tested there rule by rule.
  *
  * 168 to 169 adds the anonymous site check. The handler throttles per
  * identity and calls one function; the requests, the rules and the scoring are
- * in `src/site-check.js`, and the anonymous transport profile it uses is in
- * `src/guarded-fetch.js`, each tested where it lives.
+ * in Parallax (`apps/api/src/modules/parallax/`), and the anonymous transport profile it uses is in
+ * `apps/api/src/platform/network/guarded-fetch.ts`, each tested where it lives.
  *
  * 169 to 171 adds `/.well-known/security.txt` and `/robots.txt`. Both are
  * static text built from configuration: the security contact a researcher
@@ -197,21 +192,21 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * handler binds a reader to the open repository and calls one function; which
  * provider paths are read, how classic protection and rulesets combine, and
  * why a hidden detail is unknown rather than on are in
- * `src/branch-protection.js`, tested there provider by provider.
+ * `apps/api/src/modules/posture/application/branch-protection.ts`, tested there provider by provider.
  *
  * 172 to 176 adds the kept audits: a branch's history, one past audit's
  * findings, the watch over its components, and the clear. Each handler is one
- * call to `src/code-audit-history.js` -- what is stored, how it is reduced so
+ * call to Uranus's audit history (`apps/api/src/modules/uranus/persistence/`) -- what is stored, how it is reduced so
  * that no part of the repository is, what is kept and for how long, and when
  * the watch asks again are all there and tested against a real database; what
- * the watch asks, and what counts as new, is in `src/code-audit-watch.js`.
+ * the watch asks, and what counts as new, is in `apps/api/src/modules/uranus/application/audit-watch.ts`.
  */
 /*
  * 176 to 177 adds the site check on its own, for an address rather than a
  * repository's homepage. It is the same handler as the repository route --
  * one function that validates the address, throttles, and hands the check to
- * the job runner (src/code-audit-jobs.js) -- registered twice; every rule is
- * in `src/site-check.js`.
+ * the job runner (apps/api/src/platform/jobs/audit-jobs.ts) -- registered twice; every rule is
+ * in Parallax (`apps/api/src/modules/parallax/`).
  */
 /*
  * 177 to 184 adds a team's decisions about its audit findings, the clocks
@@ -219,61 +214,122 @@ for (const [method, routePath, expected] of MIDDLEWARE) {
  * taking one back and one finding's record of them; where a branch stands
  * against its clocks; the gate on a pull request; and the grade worked out
  * again after a decision. Each handler is a call into a module --
- * `src/code-audit-triage.js` (the decisions, how they lie over an audit, the
- * gate and its policy preview), `src/code-audit-history.js` (first-seen dates,
- * resolutions and the metrics) and `src/code-audit-policy.js` (the clock) --
+ * Uranus's triage (`domain/audit-triage.ts`: the decisions and how they lie over
+ * an audit; `application/merge-gate.ts`: the gate and its policy preview), its
+ * audit history (first-seen dates,
+ * resolutions and the metrics) and `apps/api/src/modules/kepler/domain/code-audit-policy.ts` (the clock) --
  * each tested on its own, against a real database where it keeps rows.
  */
 /*
  * 184 to 185 adds the Overview's security posture: one read across the audit
  * history, the exposure scans and the governance decisions the identity
  * already holds. The handler calls the three stores and hands what they
- * returned to `src/posture-summary.js`, which decides every figure and is
+ * returned to `apps/api/src/modules/posture/domain/posture-summary.ts`, which decides every figure and is
  * tested on its own; the store queries are tested against a real database.
  */
 /*
  * 185 to 187 adds the findings inbox and the CODEOWNERS read beside it. The
- * inbox reads the two stores and hands their rows to `src/findings-inbox.js`,
+ * inbox reads the two stores and hands their rows to `apps/api/src/modules/posture/domain/findings-inbox.ts`,
  * which decides every state and the order; the CODEOWNERS route reads one file
- * through the qualified file read and hands it to `public/codeowners.js`,
+ * through the qualified file read and hands it to `packages/contracts/src/codeowners.ts`,
  * which parses and matches it the way GitHub documents. Both are tested on
  * their own, the store queries against a real database.
  */
-const SERVER_ROUTE_CEILING = 187;
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const registeredInServer = serverSource
+/*
+ * From D12 the routes left server.js for registration functions in the
+ * modules (`apps/api/src/modules/<module>/http`), so the number server.js
+ * registered itself only fell, and each move lowered this ceiling to match.
+ * 187 to 185: Parallax's two site-check routes (its four rendered-audit
+ * routes were already registered from their own file).
+ * 185 to 181: Posture's four.
+ * 181 to 174: Pulsar's seven.
+ * 174 to 162: Quasar's twelve.
+ * 162 to 150: Uranus's twelve.
+ * 150 to 135: Corona's fifteen.
+ * 135 to 85: Kepler's fifty.
+ * 85 to 65: the workbench's repository, content and history routes, and CODEOWNERS.
+ * 65 to 40: the workbench's collaboration routes (pull requests, issues,
+ * notifications, search, stars, workflow runs, releases), its uploads, the
+ * folder move and the dependency audit.
+ * 40 to 27: the platform's own routes -- the probes, the public files and the
+ * page, the vendor libraries, the webhook intake, the configuration and
+ * capabilities, the API budget, the build's identity and the shell fallback.
+ * 27 to 24: identity and access's alpha front door -- the status, the
+ * redemption and the end of a session -- with the access boundary before them.
+ * 24 to 13: identity and access's accounts (sign-in with a token, the list,
+ * the switches and the removal), signing out, who the account is, and the
+ * tester's own data (the privacy notice, feedback, every provider
+ * disconnected, deletion).
+ * 13 to 0: the GitHub App connection, the session's own security (the
+ * scanner's state, the CSRF token, the step-up grant), OAuth sign-in and the
+ * sessions an identity holds elsewhere.
+ *
+ * Since D13 the composition root is apps/api/src/main.ts and the segments it
+ * calls in apps/api/src/composition; it registers no route itself, and every
+ * route is a module's or the platform's.
+ */
+const rootFiles = serverFiles(root);
+const rootSource = rootFiles.map(file => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
+const registeredInRoot = rootSource
   .split('\n')
-  .filter(line => /^app\.(get|post|put|patch|delete)\('/.test(line)).length;
+  .filter(line => /^\s*app\.(get|post|put|patch|delete|all)\(/.test(line)).length;
+assert.equal(registeredInRoot, 0,
+  `the composition root registers ${registeredInRoot} routes itself: put the route in a module's or the platform's registration function`);
 
-assert(
-  registeredInServer <= SERVER_ROUTE_CEILING,
-  `server.js now registers ${registeredInServer} routes, above the ${SERVER_ROUTE_CEILING} it held when this ratchet was set. `
-  + 'Put the new route\'s logic in a module under src/ behind a narrow contract and leave the registration here, '
-  + 'or raise this number deliberately and say why.'
-);
-
-/* The ratchet may only tighten. A count that has drifted below the ceiling
-   means the ceiling is stale and is quietly permitting growth again. */
-assert(
-  registeredInServer >= SERVER_ROUTE_CEILING - 5,
-  `server.js registers ${registeredInServer} routes, well under the ${SERVER_ROUTE_CEILING} ceiling. `
-  + 'Lower SERVER_ROUTE_CEILING to match so the ratchet keeps meaning something.'
-);
+/*
+ * From D13 what was left of server.js moved into the platform and the
+ * modules, so the lines it held only fell, and each move lowered a ceiling:
+ * 3,332 to 3,248, the startup settings and the keys derived from the secret;
+ * to 3,103, the database's pool, readiness and upkeep and the alpha's privacy
+ * retention; to 2,804, the session cookie, the accounts' identity, the hosted
+ * session merge and where the provider session is kept; to 2,720, the
+ * session's own security; to 2,524, the timed fetch, GitHub's REST client and
+ * the failure answer; and on to 729, every service it built and route segment
+ * it held. server.js is gone: what is left is composition, and the entry point
+ * that runs it is held to the mission's 150 lines. Its segments are composition
+ * too, each a part of the route policy's order or of the services' build.
+ */
+const MAIN_LINE_LIMIT = 150;
+const syntaxOf = file => ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const main = syntaxOf(path.join(root, 'apps', 'api', 'src', 'main.ts'));
+const mainLines = main.getLineAndCharacterOfPosition(main.end).line;
+assert(mainLines <= MAIN_LINE_LIMIT,
+  `apps/api/src/main.ts holds ${mainLines} lines, above the ${MAIN_LINE_LIMIT} the entry point may hold. Put the composition in apps/api/src/composition.`);
+assert.deepEqual(fs.readdirSync(root).filter(name => name === 'server.js'), [], 'server.js is gone; the entry point is apps/api/src/main.ts');
 
 /* A route module that nothing mounts is worse than no route module: it reads
-   as covered and serves nothing. */
-const routesDir = path.join(root, 'src', 'routes');
-if (fs.existsSync(routesDir)) {
-  for (const file of fs.readdirSync(routesDir).filter(name => name.endsWith('.js'))) {
-    const moduleName = file.replace(/\.js$/, '');
-    assert(
-      serverSource.includes(`routes/${moduleName}`),
-      `src/routes/${file} is never mounted from server.js`
-    );
+   as covered and serves nothing. Every registration function a module's http
+   folder exports is called by the composition with the application, as their
+   syntax trees say. */
+const calledWithApp = new Set();
+for (const file of rootFiles) {
+  const visit = node => {
+    if (ts.isCallExpression(node) && node.arguments[0] && ts.isIdentifier(node.arguments[0]) && node.arguments[0].text === 'app') {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee)) calledWithApp.add(callee.text);
+      else if (ts.isPropertyAccessExpression(callee)) calledWithApp.add(callee.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(syntaxOf(path.join(root, file)));
+}
+const modulesRoot = path.join(root, 'apps', 'api', 'src', 'modules');
+let registrations = 0;
+for (const moduleName of fs.readdirSync(modulesRoot)) {
+  const httpDir = path.join(modulesRoot, moduleName, 'http');
+  if (!fs.existsSync(httpDir)) continue;
+  for (const file of fs.readdirSync(httpDir).filter(name => name.endsWith('.ts'))) {
+    for (const statement of syntaxOf(path.join(httpDir, file)).statements) {
+      if (!ts.isFunctionDeclaration(statement) || !statement.name || !/^register[A-Z]\w*$/.test(statement.name.text)) continue;
+      if (!(statement.modifiers || []).some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+      registrations += 1;
+      assert(calledWithApp.has(statement.name.text), `${moduleName}/http/${file}: ${statement.name.text} is never called by the composition`);
+    }
   }
 }
+assert(registrations >= 30, `the modules export ${registrations} registration functions; the walk found too few to be looking in the right place`);
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

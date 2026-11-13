@@ -20,10 +20,8 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 
-const { PROFILES, guardedFetch } = require('../src/guarded-fetch');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const {
   DEFAULT_TRANSPORT,
   MAX_BLOB_BYTES,
@@ -41,7 +39,7 @@ const {
   readTree,
   readerFor,
   resolveCommit
-} = require('../src/exposure-reader');
+} = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
 
 const scope = Object.freeze({
   provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo'
@@ -77,24 +75,11 @@ function blobEntry(entryPath, overrides = {}) {
   {
     assert.strictEqual(DEFAULT_TRANSPORT, guardedFetch, 'the default transport is the guarded one itself');
     /*
-     * Comments stripped first. This module's own comment explains why `git
-     * clone` is not an option here, and a scan that read prose as code would
-     * fail on the sentence describing the thing it forbids -- which is how a
-     * guard like this turns into one somebody deletes.
+     * That the reader runs nothing -- no git, no child process -- and loads no
+     * file system or network module of its own is test/module-rules.test.js's,
+     * over its syntax tree, where its own comment explaining why `git clone`
+     * is not an option reads as the comment it is.
      */
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-reader.js'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '');
-    assert(source.includes('function readTree'), 'the comment strip must leave the code behind');
-    for (const forbidden of [
-      /require\('child_process'\)/, /\bspawn\w*\(/, /\bexec\w*\(/, /\bfork\(/,
-      /require\('https'\)/, /require\('fs'\)/, /\bfetch\s*\(/, /\bgit\s+(?:clone|fetch|checkout)/
-    ]) {
-      assert.strictEqual(
-        forbidden.test(source), false,
-        `this module must not run anything or reach the network itself: ${forbidden}`
-      );
-    }
   }
 
   /* ---- The tree is read at a commit, never at a ref -------------------- */
@@ -433,7 +418,8 @@ function blobEntry(entryPath, overrides = {}) {
    */
   {
     assert(readerFor('github'));
-    for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null]) {
+    /* Names an object inherits are not providers either: the table lists its readers by name. */
+    for (const provider of ['gitlab', 'gitea', 'bitbucket', '', null, 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
       assert.strictEqual(readerFor(provider), null, String(provider));
       const transport = transportReturning();
       const input = { scope: { ...scope, provider }, commitSha: COMMIT, sha: COMMIT, ref: 'main', path: 'app.js', paths: ['app.js'], token: TOKEN, transport };

@@ -27,11 +27,9 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
-const { PROFILES, guardedFetch } = require('../src/guarded-fetch');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { PROFILES, guardedFetch } = require('../apps/api/src/platform/network/guarded-fetch.ts');
 const {
   ADAPTERS,
   DEFAULT_TRANSPORT,
@@ -43,9 +41,15 @@ const {
   adapterForCandidate,
   signVerificationAuthorization,
   verificationFreshness,
-  verifyCandidates,
-  verifyCredential
-} = require('../src/credential-verification');
+  verifyCandidates: verifyCandidatesAsIs,
+  verifyCredential: verifyCredentialAsIs
+} = require('../apps/api/src/modules/quasar/index.ts').credentialVerifier;
+
+/* Every reason a verification here produced, to hold the vocabulary to what the verifier can actually say. */
+const producedReasons = new Set();
+const noted = record => { if (record && typeof record.reason === 'string') producedReasons.add(record.reason); return record; };
+const verifyCredential = async input => noted(await verifyCredentialAsIs(input));
+const verifyCandidates = async input => { const records = await verifyCandidatesAsIs(input); records.forEach(noted); return records; };
 
 /*
  * Synthetic values, shaped like the real thing so the detection rules match
@@ -138,13 +142,7 @@ const refusingTransport = () => {
       DEFAULT_TRANSPORT, guardedFetch,
       'the default transport must be the guarded one itself, not a lookalike with the same shape'
     );
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'credential-verification.js'), 'utf8');
-    for (const forbidden of [/require\('https'\)/, /require\('http'\)/, /require\('net'\)/, /\bfetch\s*\(/, /https\.request/]) {
-      assert.strictEqual(
-        forbidden.test(source), false,
-        `this module must not reach the network itself: ${forbidden}`
-      );
-    }
+    /* That the module loads no network module and calls no fetch of its own is test/module-rules.test.js's, over its syntax tree. */
     /* And every adapter probes with the credential-bearing profile, which is
        the one that refuses a query string. */
     for (const adapter of Object.values(ADAPTERS)) {
@@ -744,19 +742,15 @@ const refusingTransport = () => {
     assert.strictEqual(record.state, VERIFICATION_STATES.VERIFIED);
   }
 
-  /* Reason codes are a closed vocabulary, and every one is reachable. */
+  /*
+   * Reason codes are a closed vocabulary, declared once in the domain, which
+   * narration and the store read too; the verifier's are those. That every one
+   * is reachable is asked at the end, of the reasons this file's verifications
+   * produced.
+   */
   {
     assert(Object.isFrozen(REASONS));
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'credential-verification.js'), 'utf8');
-    const declaration = source.match(/const REASONS = Object\.freeze\(\{[\s\S]*?\n\}\);/);
-    assert(declaration, 'the reason vocabulary must be declared in one place');
-    const used = source.replace(declaration[0], '');
-    for (const key of Object.keys(REASONS)) {
-      assert(
-        used.includes(`REASONS.${key}`),
-        `REASONS.${key} is declared and never used: a reason nothing can produce invites handling that never runs`
-      );
-    }
+    assert.strictEqual(REASONS, require('../apps/api/src/modules/quasar/domain/verification-outcomes.ts').REASONS, 'declared in one place');
   }
 
   /* ---- The secret does not come back ------------------------------------- */
@@ -870,7 +864,7 @@ const refusingTransport = () => {
    */
   {
     const { ALL_FIXTURES } = require('./fixtures/exposure-rule-fixtures');
-    const { detectInText } = require('../src/exposure-detection');
+    const { detectInText } = require('../apps/api/src/modules/quasar/index.ts');
     const SUCCESS = {
       'openai-api-key': { object: 'list', data: [] },
       'anthropic-api-key': { data: [], has_more: false },
@@ -987,6 +981,31 @@ const refusingTransport = () => {
     assert.strictEqual((await ask('npm-token', 200, {})).reason, REASONS.MALFORMED_IDENTITY_RESPONSE,
       'a 200 without the identity it promises is not a confirmation');
   }
+
+  /*
+   * The adapters are a table keyed by rule, and a rule named like something
+   * every object inherits is not one of them. Reading it as one handed a
+   * candidate to a built-in function as though it were an adapter, and the
+   * run failed on it instead of recording an unsupported class.
+   */
+  {
+    for (const rule of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const candidate = candidateFor(rule, 'ghp_' + 'A'.repeat(36));
+      assert.strictEqual(adapterForCandidate(candidate), null, rule);
+      const transport = fixtureTransport();
+      const record = await verifyCredential({
+        candidate, authorization: null, authorizationKey, subjectKey, actorLogin: 'alice', now: NOW, transport
+      });
+      assert.strictEqual(record.state, VERIFICATION_STATES.UNVERIFIABLE, rule);
+      assert.strictEqual(record.reason, REASONS.UNSUPPORTED_CREDENTIAL_CLASS, rule);
+      assert.strictEqual(transport.calls.length, 0, `${rule}: nothing is asked`);
+    }
+  }
+
+  /* A reason nothing can produce invites handling that never runs; one produced but undeclared is one no reader can name. */
+  const declared = Object.values(REASONS);
+  assert.deepStrictEqual([...producedReasons].filter(reason => !declared.includes(reason)), [], 'every reason the verifier gives is declared');
+  assert.deepStrictEqual(declared.filter(reason => !producedReasons.has(reason)), [], 'and every declared reason is one a verification here produced');
 
   console.log('credential verification tests passed');
 })().catch(error => {

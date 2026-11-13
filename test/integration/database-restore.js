@@ -10,7 +10,7 @@ const tls = require('tls');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { Client } = require('pg');
-const { runMigrations, loadMigrations } = require('../../src/migrations');
+const { runMigrations, loadMigrations } = require('../../apps/api/src/platform/persistence/migrations.ts');
 const { restoreCommand } = require('../../scripts/alpha-db');
 const { validateBackupResult, validateRestoreResult } = require('../../ci/run-alpha17-restore-validation');
 

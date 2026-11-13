@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const registry = require('../config/public-alpha-capabilities.json');
-const { stableJson } = require('../src/governance-model');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { run: runSecretScan } = require('./check-secrets');
 const {
@@ -183,7 +183,7 @@ function fail(message) {
 }
 
 function assertPinnedNodeVersion(version = process.version) {
-  if (version !== 'v22.23.1') fail('candidate qualification requires Node v22.23.1');
+  if (version !== 'v22.23.5') fail('candidate qualification requires Node v22.23.5');
   return version;
 }
 
@@ -318,10 +318,26 @@ function runCommand(command, args, options = {}) {
   }
   const allowedStatuses = new Set(options.allowedStatuses || [0]);
   if (result.error || !allowedStatuses.has(result.status)) {
-    const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 4000);
+    const detail = String(
+      (typeof options.failureDetail === 'function' && !result.error ? options.failureDetail(result) : '') ||
+      result.stderr || result.stdout || result.error?.message || ''
+    ).trim().slice(0, 4000);
     fail(`${options.label || command} failed${detail ? `: ${detail}` : ''}`);
   }
   return String(result.stdout || '');
+}
+
+/*
+ * What a failing browser slice is reported by: the tests that failed. The
+ * slice's stderr holds only the web server's warnings, so the default detail
+ * named a warning and hid the failure. The line reporter ends its output with
+ * the failed and flaky tests by name, after each one's error, so the end of
+ * its output, without terminal colour codes, is the detail.
+ */
+function browserSliceFailureDetail(result) {
+  const stdout = String(result && result.stdout || '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim();
+  if (stdout) return stdout.slice(-4000);
+  return String(result && result.stderr || '').trim();
 }
 
 function buildQualificationEnvironment(baseEnv, workspace, subjectSha256) {
@@ -498,6 +514,89 @@ function regularRelativeFiles(root, relativeDirectory) {
 }
 
 /*
+ * Where a relative specifier leads, by the CommonJS rules Node applies to
+ * one: the path itself, then with .js, .json or .node, then the directory's
+ * index. An ES module import names its extension, so the first rule settles
+ * it. A directory that declares its own package is refused rather than
+ * followed: nothing here loads one, and following its manifest would be a
+ * second resolver to keep in step with Node's. Answers null when nothing is
+ * there.
+ */
+function regularFileAt(root, relative) {
+  let metadata;
+  try { metadata = fs.lstatSync(path.join(root, relative)); } catch { return false; }
+  if (metadata.isSymbolicLink()) fail(`qualification program dependency is a symbolic link: ${relative}`);
+  return metadata.isFile();
+}
+
+function directoryAt(root, relative) {
+  try { return fs.lstatSync(path.join(root, relative)).isDirectory(); } catch { return false; }
+}
+
+function resolveLocalSpecifier(root, fromRelative, specifier) {
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(fromRelative), specifier));
+  if (target === '..' || target.startsWith('../') || path.posix.isAbsolute(target)) {
+    fail(`qualification program dependency leaves the tree: ${specifier} from ${fromRelative}`);
+  }
+  for (const candidate of [target, `${target}.js`, `${target}.json`, `${target}.node`]) {
+    if (regularFileAt(root, candidate)) return candidate;
+  }
+  if (directoryAt(root, target)) {
+    if (regularFileAt(root, `${target}/package.json`)) {
+      fail(`qualification program loads a directory package, which is not compared: ${target}`);
+    }
+    for (const candidate of [`${target}/index.js`, `${target}/index.json`, `${target}/index.node`]) {
+      if (regularFileAt(root, candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/* require('…'), import … from '…', export … from '…', import '…' and import('…'). */
+const LOCAL_SPECIFIER_RX = /(?:\brequire\(\s*|\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)(['"])(\.{1,2}\/[^'"\n]+)\1/g;
+const PROGRAM_SOURCE_RX = /\.(?:c|m)?[jt]s$/;
+
+/* Each relative specifier a program's source names, with where it leads in that tree. */
+function localDependencies(root, relative) {
+  if (!PROGRAM_SOURCE_RX.test(relative)) return [];
+  const source = fs.readFileSync(path.join(root, relative), 'utf8');
+  const edges = [];
+  for (const match of source.matchAll(LOCAL_SPECIFIER_RX)) {
+    edges.push({ specifier: match[2], resolved: resolveLocalSpecifier(root, relative, match[2]) });
+  }
+  return edges;
+}
+
+/*
+ * Every local file the given programs load, followed until nothing new is
+ * named, read from the trusted tree. Read there so a candidate cannot hide a
+ * dependency by editing its own copy; every file found is then compared
+ * byte for byte, so the candidate's copies name the same dependencies, and
+ * each is resolved in both trees, so the same specifier cannot lead to a
+ * file the candidate placed in front of it.
+ */
+function qualificationProgramClosure(trustedRoot, entries) {
+  const seen = new Set();
+  const pending = [...entries];
+  while (pending.length) {
+    const relative = pending.pop();
+    if (seen.has(relative)) continue;
+    seen.add(relative);
+    for (const edge of localDependencies(trustedRoot, relative)) {
+      if (edge.resolved && !seen.has(edge.resolved)) pending.push(edge.resolved);
+    }
+  }
+  return [...seen].sort();
+}
+
+/*
+ * Directories whose every file is a qualification program: the tests, and
+ * the CI harnesses the integration drills drive. What they load from the
+ * product is the product under test, and is not part of the comparison.
+ */
+const TRUSTED_PROGRAM_DIRECTORIES = Object.freeze(['test', 'ci']);
+
+/*
  * The qualification programs compared byte-for-byte between the trusted tree
  * and the candidate. Hoisted out of the function so a guard can read it: the
  * list was previously inline, and the test supplies its own list, so nothing
@@ -521,19 +620,40 @@ const DEFAULT_TRUSTED_PROGRAM_PATHS = Object.freeze([
    * would still prove nothing.
    */
   'scripts/audit-production.js',
+  /* The page build and its configuration run before every server the gate starts. */
+  'scripts/build-web.js',
+  'apps/web/vite.config.js',
+  /* The matrix runner and the canonical JSON it hashes its evidence with: everything it loads. */
   'src/test-matrix.js',
-  'src/governance-model.js'
+  'packages/contracts/src/canonical-json.ts',
+  'packages/contracts/src/guards.ts'
 ]);
 
 function assertTrustedQualificationPrograms(candidateRoot, trustedRoot, explicitPaths) {
   const trusted = path.resolve(trustedRoot || path.join(__dirname, '..'));
-  const paths = explicitPaths || [
+  const listed = explicitPaths || [
     ...DEFAULT_TRUSTED_PROGRAM_PATHS,
-    ...regularRelativeFiles(trusted, 'test')
+    ...TRUSTED_PROGRAM_DIRECTORIES.flatMap(directory => regularRelativeFiles(trusted, directory))
   ];
-  if (!Array.isArray(paths) || paths.length === 0 || new Set(paths).size !== paths.length) {
+  if (!Array.isArray(listed) || listed.length === 0 || new Set(listed).size !== listed.length) {
     fail('trusted qualification program inventory is invalid');
   }
+  /*
+   * A directory of programs is compared whole: a file the candidate adds
+   * there is a program the trusted tree does not have -- a spec the browser
+   * matrix would discover, or a file placed in front of one a test names.
+   */
+  for (const directory of explicitPaths ? [] : TRUSTED_PROGRAM_DIRECTORIES) {
+    const trustedFiles = new Set(regularRelativeFiles(trusted, directory));
+    for (const relative of regularRelativeFiles(candidateRoot, directory)) {
+      if (!trustedFiles.has(relative)) fail(`candidate adds an untrusted qualification program: ${relative}`);
+    }
+  }
+  const inDirectory = relative => TRUSTED_PROGRAM_DIRECTORIES.some(directory => relative.startsWith(`${directory}/`));
+  const paths = [...new Set([
+    ...listed,
+    ...qualificationProgramClosure(trusted, listed.filter(relative => !inDirectory(relative)))
+  ])];
   const hashes = {};
   for (const relative of [...paths].sort()) {
     if (
@@ -563,6 +683,14 @@ function assertTrustedQualificationPrograms(candidateRoot, trustedRoot, explicit
       fail(`candidate qualification program does not match trusted source: ${relative}`);
     }
     hashes[relative] = trustedHash;
+  }
+  for (const relative of [...paths].sort()) {
+    for (const edge of localDependencies(trusted, relative)) {
+      const candidateResolved = resolveLocalSpecifier(candidateRoot, relative, edge.specifier);
+      if (candidateResolved !== edge.resolved) {
+        fail(`candidate qualification program resolves ${edge.specifier} differently: ${relative}`);
+      }
+    }
   }
   return crypto.createHash('sha256').update(stableJson(hashes), 'utf8').digest('hex');
 }
@@ -928,6 +1056,17 @@ function qualifyCandidateArchive(options) {
     label: 'candidate reviewed vendor copy',
     timeoutMs: COMMAND_TIMEOUTS_MS.gate
   });
+  /*
+   * The page is built from the candidate's own sources, as the host builds it
+   * (ADR-091). The archive carries sources and never a build, and the server
+   * refuses to start without one, so every program below needs it.
+   */
+  runCommand(process.execPath, ['scripts/build-web.js'], {
+    cwd: candidateRoot,
+    env: environment,
+    label: 'candidate web build',
+    timeoutMs: COMMAND_TIMEOUTS_MS.gate
+  });
   if (options.useFixtureCommands === true) {
     runCommand('npm', ['run', 'check:syntax'], {
       cwd: candidateRoot,
@@ -1017,12 +1156,13 @@ function qualifyCandidateArchive(options) {
     for (let slice = 1; slice <= CANDIDATE_BROWSER_SLICES; slice += 1) {
       const sliceDir = path.join(blobRoot, `slice-${slice}`);
       runCommand(process.execPath, [
-        playwrightCli, 'test', '--config', path.join(candidateRoot, 'playwright.config.js'), '--reporter=blob'
+        playwrightCli, 'test', '--config', path.join(candidateRoot, 'playwright.config.js'), '--reporter=blob,line'
       ], {
         cwd: candidateRoot,
         env: { ...browserEnvironment, NV_E2E_SHARD: `${slice}/${CANDIDATE_BROWSER_SLICES}`, PLAYWRIGHT_BLOB_OUTPUT_DIR: sliceDir },
         label: `trusted browser matrix slice ${slice}/${CANDIDATE_BROWSER_SLICES}`,
-        timeoutMs: COMMAND_TIMEOUTS_MS.browserSlice
+        timeoutMs: COMMAND_TIMEOUTS_MS.browserSlice,
+        failureDetail: browserSliceFailureDetail
       });
       const reports = fs.readdirSync(sliceDir).filter(name => name.endsWith('.zip'));
       if (reports.length !== 1) fail(`trusted browser matrix slice ${slice} did not write exactly one report`);
@@ -1145,6 +1285,7 @@ module.exports = Object.freeze({
   MINIMUM_BROWSER_TESTS,
   COMMAND_TIMEOUTS_MS,
   runCommand,
+  browserSliceFailureDetail,
   hashFile,
   filesEqual,
   validateArchiveEntries,
@@ -1154,6 +1295,7 @@ module.exports = Object.freeze({
   validateDevelopmentAudit,
   AUTOMATED_CLAIM_REQUIREMENTS,
   assertTrustedQualificationPrograms,
+  qualificationProgramClosure,
   trustedSyntaxTargets,
   deriveTrustedAutomatedClaims,
   buildQualificationEnvironment,

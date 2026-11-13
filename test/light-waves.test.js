@@ -1,8 +1,9 @@
 'use strict';
 const assert = require('node:assert/strict');
+const { loadsInShell } = require('./helpers/web-shell');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createLightWaves } = require('../public/light-waves');
+const { createLightWaves } = require('../apps/web/src/visualizations/light-waves.ts');
 
 function events(target = {}) {
   const listeners = new Map();
@@ -95,9 +96,8 @@ assert(h.observers.every(o => !o.connected));
 assert.equal(createLightWaves({ getContext: () => null }, h.env).state().available, false);
 
 const root = path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
 assert.match(html, /<canvas[^>]+id="lightWaves"[^>]+aria-hidden="true"/,
   'the actual page must mount the decorative canvas');
-assert.match(html, /\/light-waves\.js\?v=__NV_ASSET_VERSION__/);
-assert.match(fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8'), /\/light-waves\.js\?v=__NV_ASSET_VERSION__/);
+assert(loadsInShell('apps/web/src/visualizations/light-waves.ts'), 'the light waves are part of the page and therefore of its precached entry');
 console.log('light waves lifecycle, motion, orientation and delivery tests passed');

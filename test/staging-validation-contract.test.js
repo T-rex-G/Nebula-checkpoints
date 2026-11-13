@@ -9,7 +9,9 @@ const config = fs.readFileSync('playwright.config.js', 'utf8');
 const spec = fs.readFileSync('test/e2e/task20-accessibility.spec.js', 'utf8');
 const fixtures = fs.readFileSync('test/e2e/task20-fixtures.js', 'utf8');
 const gate = fs.readFileSync('scripts/staging-gate.js', 'utf8');
-const validation = fs.readFileSync('src/staging-validation.js', 'utf8');
+/* The staged checks' prescribed commands, as the staging validation holds them. */
+const { CHECKS } = require('../src/staging-validation');
+const commands = CHECKS.map(check => check.command);
 const stagingSpec = fs.readFileSync(
   'docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md',
   'utf8'
@@ -47,8 +49,8 @@ assert(snapshotKeyId && snapshotSecret && snapshotKeyId !== snapshotSecret,
 assert.match(spec, /test\.use\(\{ serviceWorkers: 'block' \}\)/, 'route-mocked Task 20 tests must block service workers');
 assert.match(spec, /test\.use\(\{ serviceWorkers: 'allow' \}\)/, 'cache-boundary coverage must exercise the active service worker');
 assert.match(spec, /navigator\.serviceWorker\.ready/, 'cache-boundary coverage must wait for service-worker activation');
-assert.match(validation, /--project=mobile --grep "More navigation activates"/, 'mobile staging must select only the intended mobile flow');
-assert.doesNotMatch(validation, /--project=mobile --grep "mobile"/, 'the mobile project name must not make every Task 20 test match');
+assert.match(CHECKS.find(check => check.id === 'browser.mobile').command, /--project=mobile --grep "More navigation activates"/, 'mobile staging must select only the intended mobile flow');
+assert(commands.every(command => !/--project=mobile --grep "mobile"/.test(command)), 'the mobile project name must not make every Task 20 test match');
 assert.match(stagingSpec, /--project=mobile --grep "More navigation activates"/, 'the staging spec must match the prescribed mobile command');
 
 for (const signal of [
@@ -83,9 +85,6 @@ assert.match(gate, /NV_STAGING_SUBJECT_SHA256/);
 assert.match(gate, /versioned object envelope/);
 assert.match(gate, /artifact hash mismatch/);
 assert.match(gate, /regular non-symlink file/);
-assert.match(validation, /CATALOG_HASH/);
-assert.match(validation, /evidence requires at least one artifact file/);
-assert.match(validation, /commandHash does not match the prescribed command/);
-assert.match(validation, /expectedSubjectHash is required/);
+/* Evidence bound to the catalog, its subject, an artifact and the prescribed command: test/staging-validation.test.js asks the validation itself. */
 
 console.log('staging validation contract tests passed');

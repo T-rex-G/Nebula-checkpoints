@@ -13,10 +13,8 @@
  */
 
 const assert = require('assert');
-const { lexJs, lexPython } = require('../src/uranus-lex');
-const { analyseFlows } = require('../src/uranus-flow');
-const { analyseSurface } = require('../src/uranus-surface');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { lexJs, lexPython, analyseFlows, analyseSurface } = audit;
 
 const I = '$'; /* splits template interpolations so this file stays plain text */
 const tpl = (...parts) => parts.join('');

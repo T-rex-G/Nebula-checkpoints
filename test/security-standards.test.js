@@ -9,14 +9,13 @@
  */
 
 const assert = require('assert');
-const standards = require('../src/security-standards');
-const audit = require('../src/code-audit');
-const site = require('../src/site-check');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const site = require('../apps/api/src/modules/parallax/index.ts').siteCheck;
 
-const { MAP, OWASP_2025, OWASP_2025_CWES, CWE_TOP25_2025, CWE_NAMES, standardsFor } = standards;
+const { STANDARDS_MAP: MAP, OWASP_EDITION, OWASP_2025, OWASP_2025_CWES, CWE_TOP25_2025, CWE_NAMES, standardsFor } = require('../apps/api/src/modules/posture/index.ts');
 
 /* The edition and its ten categories, as published. */
-assert.strictEqual(standards.OWASP_EDITION, '2025');
+assert.strictEqual(OWASP_EDITION, '2025');
 assert.deepStrictEqual(Object.values(OWASP_2025), [
   'Broken Access Control', 'Security Misconfiguration', 'Software Supply Chain Failures', 'Cryptographic Failures',
   'Injection', 'Insecure Design', 'Authentication Failures', 'Software or Data Integrity Failures',
@@ -77,5 +76,9 @@ assert.strictEqual(standardsFor('HYG-008').owasp, null);
 assert.strictEqual(standardsFor('HYG-008').owaspBasis, null);
 assert.strictEqual(standardsFor('SEC-013').top25, null, 'a weakness outside the Top 25 carries no rank');
 assert.strictEqual(standardsFor('NOPE-1'), null);
+/* A name inherited from Object.prototype is not a rule: it has no standards, rather than a crash. */
+for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+  assert.strictEqual(standardsFor(name), null, `${name} is not a rule`);
+}
 
 console.log('security standards tests passed');

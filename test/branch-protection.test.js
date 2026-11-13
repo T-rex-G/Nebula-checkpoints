@@ -7,7 +7,7 @@
  */
 
 const assert = require('assert');
-const { readBranchProtection, CONTROLS } = require('../src/branch-protection');
+const { readBranchProtection, BRANCH_CONTROLS: CONTROLS } = require('../apps/api/src/modules/posture/index.ts');
 
 const fail = status => Object.assign(new Error(`status ${status}`), { status });
 const reader = (routes, seen = []) => async path => {
@@ -101,6 +101,13 @@ const states = result => Object.fromEntries(result.controls.map(control => [cont
   }
 
   await assert.rejects(readBranchProtection({ provider: 'svn', owner: 'a', repo: 'b', branch: 'main', read: reader({}) }), error => error.status === 501);
+  /* A provider named after an Object.prototype member has no reader: refused, and nothing is read. */
+  for (const provider of ['constructor', 'toString', '__proto__']) {
+    let reads = 0;
+    await assert.rejects(readBranchProtection({ provider, owner: 'a', repo: 'b', branch: 'main', read: async () => { reads++; return {}; } }),
+      error => error.status === 501 && error.code === 'BRANCH_RULES_UNSUPPORTED', `${provider} is not a provider`);
+    assert.strictEqual(reads, 0);
+  }
   await assert.rejects(readBranchProtection({ provider: 'github', owner: 'a', repo: 'b', read: reader({ '': {} }) }), error => error.code === 'BRANCH_NOT_FOUND');
 
   console.log('branch protection tests passed');

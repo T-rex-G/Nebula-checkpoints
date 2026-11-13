@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { createLocalSessionPolicy, ABSOLUTE_TTL_MS } = require('../src/local-session-policy');
+const { createLocalSessionPolicy, ABSOLUTE_TTL_MS } = require('../apps/api/src/platform/authorization/local-session-policy.ts');
 let time = 100;
 const policy = createLocalSessionPolicy({ now: () => time, maxRevocations: 1 });
 const first = policy.prepare({ accounts: [] });

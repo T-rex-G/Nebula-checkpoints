@@ -1,16 +1,19 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
+const { locations } = require('./oracles/route-policy');
 
 const root = path.join(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
-assert(server.includes("require('./src/mutation-gateway')"), 'server must load the central mutation gateway');
-assert(server.includes('mutationGateway.assertProviderMutation'), 'provider writes must be checked by the gateway');
-assert(server.includes('function mutationContext('), 'server must expose one mutation route context middleware');
-assert(!server.includes("case 'issue.create': return { title:"), 'mutation descriptors must not retain issue titles or other free-form content');
+/*
+ * The repository mutation context is the platform's (mutation-context.ts): the
+ * metadata it records for an issue is its path facts alone, never its title or
+ * any free-form content (test/mutation-context.test.js). That the composed
+ * server's writes pass through it, and through the gateway's policy, and that
+ * its provider writes are checked by the central gateway, is
+ * test/composition.test.js's.
+ */
 
 const routes = new Map([
   ["app.post('/api/repos'", 'repository.create'],
@@ -42,21 +45,25 @@ const routes = new Map([
   ["app.post('/api/repo/:owner/:repo/live-events/connect'", 'webhook.connect'],
   ["app.delete('/api/repo/:owner/:repo/live-events'", 'webhook.disconnect']
 ]);
+/* Each route's guard chain, as the route policy reads it from wherever the route is registered. */
+const guardChains = new Map(locations(root).filter(entry => entry.kind === 'route')
+  .map(entry => [`app.${entry.method.toLowerCase()}('${entry.path}'`, entry.guards]));
 for (const [route, action] of routes) {
-  const index = server.indexOf(route);
-  assert(index >= 0, `missing route ${route}`);
-  const declaration = server.slice(index, server.indexOf('\n', index));
+  const guards = guardChains.get(route);
+  assert(guards, `missing route ${route}`);
   assert(
-    declaration.includes(`mutationContext('${action}')`),
+    guards.includes(`mutationContext('${action}')`),
     `${route} must use mutationContext('${action}')`
   );
 }
 
-for (const helper of ['uploadViaGitPush', 'uploadViaLFS']) {
-  const index = server.indexOf(`async function ${helper}`);
-  assert(index >= 0, `missing ${helper}`);
-  const body = server.slice(index, server.indexOf('\n}', index) + 2);
-  assert(body.includes('mutationGateway.assertProviderMutation'), `${helper} must assert the active gateway context`);
-}
+/*
+ * The native push and the LFS upload write to the provider outside the API
+ * client, so each asks the active gateway context itself, before it writes,
+ * naming its transport (test/workbench-collaboration-routes.test.js). That the
+ * server hands both the gateway's check -- so that, as composed, each is
+ * refused outside a mutation before GitHub is asked anything -- is
+ * test/composition.test.js's.
+ */
 
 console.log('mutation gateway server contract tests passed');

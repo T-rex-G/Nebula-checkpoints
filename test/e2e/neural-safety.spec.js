@@ -14,8 +14,11 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
+/* The graph's state is read through the read-only probe, which the harness marker asks for (ADR-092). */
+test.beforeEach(async ({ page }) => { await ui.underHarness(page); });
 
 /* A payload that runs if it is ever parsed as markup, marked so each surface
  * can be found by searching for its token. */
@@ -54,7 +57,7 @@ async function openHostileGraph(page) {
   }));
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
-  await expect.poll(() => page.evaluate(() => (window.NebulaNeural ? window.NebulaNeural.state.nodes.filter(n => n.visible).length : 0))).toBeGreaterThan(5);
+  await expect.poll(() => page.evaluate(() => (window.__NV_PROBE__.read('neural') || { nodes: [] }).nodes.filter(n => n.visible).length)).toBeGreaterThan(5);
 }
 
 async function noScriptRan(page) {
@@ -73,7 +76,7 @@ async function openCardFor(page, token) {
 test('hostile names are shown as text in the card, the groups list and the timeline', async ({ page }) => {
   await openHostileGraph(page);
   /* The leaked credential arrived, masked path and all, as text. */
-  expect(await page.evaluate(() => window.NebulaNeural.state.nodes.some(n => n.type === 'leak'))).toBe(true);
+  expect(await page.evaluate(() => window.__NV_PROBE__.read('neural').nodes.some(n => n.type === 'leak'))).toBe(true);
   for (const token of ['brx', 'cmx', 'wfx', 'hkx', 'dkx', 'usx', 'lkx']) {
     await openCardFor(page, token);
     await noScriptRan(page);

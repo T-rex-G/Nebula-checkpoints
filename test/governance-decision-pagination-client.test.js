@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
 const start = source.indexOf('async function loadMoreGovernanceDecisions(');
 const end = source.indexOf('\nfunction governanceBasePath()', start);
 assert(start >= 0 && end > start, 'the actual client pagination function must be available');
@@ -14,6 +14,7 @@ function harness() {
   const state = { work: { owner: 'Acme', repo: 'Demo' }, governance: { digitalTwin: { history: { decisions: [{ seq: 50 }, { seq: 49 }], nextBeforeDecisionSeq: 49, nextDecisionSeq: null } } } };
   const context = {
     state,
+    pageStore: { mutate: (slice, change) => change(state[slice]) },
     wPath: () => `${state.work.owner}/${state.work.repo}`,
     api: url => { requests.push(url); return new Promise(done => { resolve = done; }); },
     renderGovernanceInterface() {},

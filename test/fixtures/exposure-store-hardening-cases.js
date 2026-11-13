@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('../../src/exposure-store');
+const { ExposureStore, EXPOSURE_CONFIG_VERSION } = require('../../apps/api/src/modules/quasar/index.ts');
 
 module.exports = async function checkExposureStoreHardening(pool) {
   const store = new ExposureStore({ pool });

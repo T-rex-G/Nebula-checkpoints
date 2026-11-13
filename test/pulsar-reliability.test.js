@@ -7,7 +7,14 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const ROOT = path.resolve(__dirname, '..');
-const neural = fs.readFileSync(path.join(ROOT, 'public/neural.js'), 'utf8');
+const { loadPageModule } = require('./helpers/page-module');
+/*
+ * The module runs as written. What it imports from the workbench is the
+ * harness's stand-in for each name; the rest of the page is the context below.
+ */
+const WORKBENCH = ['state', 'api', 'toast', 'exposureRuleLabel', 'EXPOSURE_DISPOSITION_WORDS', 'modal', 'securityScanFlow',
+  'exportActivityFlow', 'openFile', 'switchTab', 'recoveryFlow', 'openSafeguards', 'setSafety', 'stepUpApi', 'dlFile',
+  'currentTab', 'purgeLocalData'];
 const now = '2026-10-08T10:00:00.000Z';
 const sha = 'a'.repeat(40);
 function harness(custom = {}) {
@@ -42,8 +49,12 @@ function harness(custom = {}) {
     api:async (url,options={})=>{requests.push(url);if(custom.api){const got=custom.api(url,data,options);if(got!==undefined)return await got;} const key=Object.keys(data).find(k=>url===k||url.includes(`/acme/demo/${k}`));if(!key)throw new Error('Unexpected '+url);return data[key];}
   };
   c.window.matchMedia=c.matchMedia;
-  vm.runInNewContext(neural,c,{filename:`${ROOT}/public/neural.js`});
-  return {c,ui:c.window.NebulaNeural,elements,streams,requests,warnings,data,timers,listeners};
+  /* The workbench's purge, and the page's reload: recorded when a test asks, inert otherwise. */
+  c.purgeLocalData = custom.purgeLocalData || (async () => {});
+  c.location = { reload: custom.reload || no };
+  const workbench = Object.fromEntries(WORKBENCH.map(name => [name, c[name]]));
+  const ui = loadPageModule('apps/web/src/visualizations/neural.js', c, { imports: { '../legacy/app.js': workbench } }).default;
+  return {c,ui,elements,streams,requests,warnings,data,timers,listeners};
 }
 async function settleCatchup(h){for(let i=0;i<40;i++){await new Promise(setImmediate);if(!h.ui.state.catchUpBusy)return;}throw new Error('Catch-up stuck');}
 
@@ -93,6 +104,26 @@ test('a refresh after event history failed reloads the map instead of retrying t
   const before=snapshots();
   await h.ui.refresh();await settleCatchup(h);
   assert.equal(snapshots(),before+1,'Refresh reads the topology again');
+});
+
+test('a refresh pressed while a failing catch-up is in flight reads the map as soon as the attempt fails', async () => {
+  let fail = null;
+  const h=harness({api:url=>{
+    if(!url.includes('/intelligence/events'))return undefined;
+    if(url.includes('after='))return new Promise((resolve,reject)=>{fail=()=>reject(new Error('history unavailable'));});
+    return {available:true,events:[],cursor:'cursor0',hasMore:true};
+  }});
+  h.ui.state.active=true;await h.ui.refresh();h.streams[0].handlers.ready();
+  for(let turn=0;turn<20&&!fail;turn++)await new Promise(setImmediate);
+  assert.equal(h.ui.state.catchUpBusy,true,'the catch-up is reading the history');
+  const snapshots=()=>h.requests.filter(url=>url.includes('/refs-snapshot')).length;
+  const before=snapshots();
+  await h.ui.refresh();
+  assert.equal(snapshots(),before,'a Refresh waits for the attempt in flight');
+  fail();await settleCatchup(h);
+  for(let turn=0;turn<20&&snapshots()===before;turn++)await new Promise(setImmediate);
+  assert.equal(snapshots(),before+1,'and reads the map as soon as it fails, not after every retry');
+  assert.equal(h.timers.size,0,'with no retry left waiting behind it');
 });
 
 test('catch-up pagination budget remains explicit and schedules bounded continuation', async () => {
@@ -158,7 +189,7 @@ test('reset aborts map reads and late responses cannot populate a new repository
 });
 
 test('browser API forwards caller cancellation to fetch', async () => {
-  const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(ROOT, 'apps/web/src/legacy/app.js'), 'utf8');
   const start = app.indexOf('async function api(');
   const end = app.indexOf('\n}\n', start) + 2;
   const context = {
@@ -195,6 +226,22 @@ test('callbacks from a closed stream cannot affect the current repository', asyn
   await new Promise(setImmediate);
   assert.equal(h.requests.length,requests);assert.equal(h.timers.size,0);
   assert.equal(h.ui.state.liveStatus,'disconnected');
+});
+
+/*
+ * A session revoked from another device or tab arrives on the live stream.
+ * What this browser kept for the session is purged before the page reloads,
+ * so the reload cannot start from anything the revoked session left.
+ */
+test('a session revoked elsewhere purges what this browser kept before the page reloads', async () => {
+  const order = [];
+  const h = harness({ purgeLocalData: async full => { order.push(`purge:${full}`); }, reload: () => order.push('reload') });
+  h.ui.state.active = true; await h.ui.refresh();
+  const stream = h.streams[0];
+  assert.equal(typeof stream.handlers['session-revoked'], 'function', 'the stream listens for its session being revoked');
+  await stream.handlers['session-revoked']();
+  assert.deepEqual(order, ['purge:true', 'reload']);
+  assert(stream.closed, 'the revoked session\'s stream is closed before the reload');
 });
 
 test('returning from a hidden tab restarts its cancelled first map load', async () => {

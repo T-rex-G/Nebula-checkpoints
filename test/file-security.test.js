@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const fsp = require('fs/promises');
-const { builtinScanBuffer, scannerStatus, scanUploadFile } = require('../src/file-security');
+const { builtinScanBuffer, scannerStatus, scanUploadFile } = require('../apps/api/src/platform/files/file-security.ts');
 
 const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
 const clean = builtinScanBuffer(Buffer.from('hello world'), { repoPath: 'docs/readme.txt' });

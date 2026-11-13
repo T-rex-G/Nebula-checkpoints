@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { GovernanceStore } = require('../src/governance-store');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 
 class ScriptedClient {
   constructor(steps) { this.steps = [...steps]; this.calls = []; this.released = false; }
@@ -33,7 +33,7 @@ const actor = { identityKey: 'a'.repeat(64), login: 'alice' };
 const scope = { provider: 'github', owner: 'Acme', repo: 'Demo' };
 const scopeKey = 'github:github.com:acme/demo';
 const document = { schemaVersion: 1, rules: [{ id: 'protect-main', action: 'branch.reset', effect: 'deny' }] };
-const hash = require('../src/governance-model').policyDocumentHash(document);
+const hash = require('../apps/api/src/modules/kepler/index.ts').policyDocumentHash(document);
 const policyRow = {
   policy_id: ids.policy, scope_key: scopeKey, provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo',
   policy_key: 'release-safety', name: 'Release safety', description: '', created_by_identity_key: actor.identityKey,

@@ -6,6 +6,7 @@ const registry = require('../config/public-alpha-capabilities.json');
 const {
   EVIDENCE_SCHEMA_VERSION,
   PROVIDER_CAPABILITY_REQUIREMENTS,
+  providerCheckContract,
   providerProbeKeys,
   validateEvidenceEnvelope
 } = require('../src/qualification-evidence');
@@ -320,6 +321,7 @@ async function cleanupDisposableBranch(client, target, paths) {
 async function runProviderProbes({ provider, client, target, proofPath, readback }) {
   const expected = providerProbeKeys(provider);
   if (!expected.length) return [];
+  const contract = providerCheckContract(provider);
   if (typeof client.probeChecks !== 'function') {
     fail('provider client does not implement the probes its contract requires', 'ALPHA17_PROVIDER_INVALID');
   }
@@ -344,10 +346,13 @@ async function runProviderProbes({ provider, client, target, proofPath, readback
        * sent me back to the source to work out that it could mean a missing
        * path, a truncated listing, or a blob identity mismatch; the run that
        * emitted it had already thrown the answer away. Every boolean the probe
-       * carries is a named condition, so the false ones are the diagnosis.
+       * carries is a named condition, and the proof contract says which value
+       * meets it -- `pointerCommitted` is met by false -- so the conditions
+       * whose value is not that one are the diagnosis.
        */
-      const unmet = Object.entries(probe)
-        .filter(([, value]) => value === false)
+      const required = (contract.find(check => check.key === probe.key) || { fields: {} }).fields;
+      const unmet = Object.entries(required)
+        .filter(([name, value]) => typeof value === 'boolean' && probe[name] !== value)
         .map(([name]) => name);
       fail(
         `provider probe ${probe.key} did not pass${unmet.length ? ` (unmet: ${unmet.join(', ')})` : ''}`,

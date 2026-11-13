@@ -15,10 +15,12 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
-const { EXPOSURE_RULES } = require('../../src/exposure-rules');
-const { ADAPTERS } = require('../../src/credential-verification');
-const audit = require('../../src/code-audit');
-const site = require('../../src/site-check');
+const { canvasInk } = require('./canvas-ink');
+const ui = require('./semantic');
+const { EXPOSURE_RULES } = require('../../apps/api/src/modules/quasar/index.ts');
+const { ADAPTERS } = require('../../apps/api/src/modules/quasar/index.ts').credentialVerifier;
+const audit = require('../../apps/api/src/modules/uranus/index.ts');
+const site = require('../../apps/api/src/modules/parallax/index.ts').siteCheck;
 
 test.use({ serviceWorkers: 'block' });
 
@@ -259,12 +261,7 @@ test('the map moves while it is read, and stops when it is not', async ({ page }
   await expect(layer).toHaveCount(1);
   await expect(layer).toHaveAttribute('aria-hidden', 'true');
   /* It is drawing, and the SVG is not drawing the same motion under it. */
-  await expect.poll(() => layer.evaluate(canvas => {
-    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-    let lit = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i]) lit++;
-    return lit;
-  })).toBeGreaterThan(0);
+  await expect.poll(() => canvasInk(page, '.lp-show .lp-frame-view canvas.lp-map-fx')).toBeGreaterThan(0);
   expect(await view.evaluate(el => [...el.querySelectorAll('.lp-map-flows, .lp-map-arcs')]
     .every(group => getComputedStyle(group).display === 'none'))).toBe(true);
   /* Nothing on it takes a tap or a scroll from the page. */
@@ -352,5 +349,17 @@ test('the singularity loads on approach and stands down when the page cannot kee
   await expect(art.locator('nebula-singularity')).toHaveCount(0);
   await expect(page.locator('.lp-orbit')).not.toHaveAttribute('data-drawn', 'true');
   await expect(art.locator('.lp-orbit-fallback')).toBeAttached();
-  expect(await page.evaluate(() => window.NebulaVisuals.supportsWebGL()), 'no other piece mounts this session').toBe(false);
+  /*
+   * And no other piece mounts this session: signed in, the repositories'
+   * galaxy -- mounted the moment its screen is shown -- keeps its ground.
+   */
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
+  await ui.checkbox(page, /I accept/).check();
+  await ui.button(ui.screen(page, 'access'), 'Continue').click();
+  await ui.secretField(page, 'GitHub Personal Access Token').fill('fixture-provider-credential');
+  await ui.button(ui.screen(page, 'login'), 'Enter orbit').click();
+  await ui.enterRepositories(page);
+  await expect(page.locator('#gxHeroArt')).not.toHaveAttribute('data-nebula-mounted', 'true');
+  await expect(page.locator('#gxHeroArt nebula-galaxy')).toHaveCount(0);
 });

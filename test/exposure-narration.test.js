@@ -26,8 +26,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { RULES: GATE_RULES } = require('../src/secret-scanner');
-const { EXPOSURE_RULES, PATH_RULES } = require('../src/exposure-detection');
+const { RULES: GATE_RULES } = require('../apps/api/src/platform/release/secret-scanner.ts');
+const { EXPOSURE_RULES, PATH_RULES } = require('../apps/api/src/modules/quasar/index.ts');
 /*
  * Every rule a scan actually runs: the gate's, the scan's own, and the rules
  * that recognise a file by its name. A narration table checked against only
@@ -36,20 +36,22 @@ const { EXPOSURE_RULES, PATH_RULES } = require('../src/exposure-detection');
  * before -- ship with no sentence at all.
  */
 const RULES = Object.freeze([...GATE_RULES, ...EXPOSURE_RULES, ...PATH_RULES]);
-const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('../src/credential-verification');
-const { REASONS: PROBE_REASONS, PROBE_STATES } = require('../src/anonymous-readability-probe');
-const { DISPOSITIONS } = require('../src/exposure-store');
+const { REASONS: VERIFICATION_REASONS, VERIFICATION_STATES } = require('../apps/api/src/modules/quasar/index.ts').credentialVerifier;
+const { REASONS: PROBE_REASONS, PROBE_STATES } = require('../apps/api/src/modules/quasar/index.ts').readabilityProbe;
+const { DISPOSITIONS } = require('../apps/api/src/modules/quasar/index.ts');
 const {
   NARRATION_VERSION,
+  RULE_NARRATION,
   describeDisposition,
   describeFinding,
   describeLocation,
   describeProbe,
   describeVerification,
+  exposureSeverityOf,
   narrationForRule,
   observationFreshness,
   safeDisplayPath
-} = require('../src/exposure-narration');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const finding = Object.freeze({
   fingerprint: 'f'.repeat(64),
@@ -89,8 +91,30 @@ const finding = Object.freeze({
   }
 
   /* A rule that does not exist has no narration, rather than a generic one. */
-  for (const unknown of ['not-a-rule', '', null, 'github-token ']) {
+  for (const unknown of ['not-a-rule', '', null, 'github-token ', 'constructor', 'toString', '__proto__', 'valueOf']) {
     assert.strictEqual(narrationForRule(unknown), null, JSON.stringify(unknown));
+    /* And it is summed as serious, as describeFinding describes it -- never as nothing. */
+    assert.strictEqual(exposureSeverityOf(unknown), 'serious', JSON.stringify(unknown));
+  }
+  /* A rule with an entry is summed under that entry's severity. */
+  for (const rule of Object.keys(RULE_NARRATION)) assert.strictEqual(exposureSeverityOf(rule), RULE_NARRATION[rule].severity, rule);
+
+  /*
+   * Nor anywhere else a word is looked up. Every table here is keyed by a
+   * word from a record, and a word that names something every object
+   * inherits once came back as a built-in function -- printed into a
+   * sentence as its source, or read as a narration with no severity.
+   */
+  {
+    const observed = { observedAt: '2026-09-22T10:00:00.000Z', freshnessDeadline: '2026-09-23T10:00:00.000Z' };
+    for (const word of ['constructor', 'toString', '__proto__', 'valueOf']) {
+      assert.strictEqual(describeVerification({ ...observed, reason: word, state: word }, Date.parse('2026-09-22T11:00:00.000Z')), null, word);
+      assert.strictEqual(describeProbe({ ...observed, reason: word, state: word }, Date.parse('2026-09-22T11:00:00.000Z')), null, word);
+      assert.strictEqual(describeDisposition(word), null, word);
+      const described = describeFinding({ rule: word, placeholder: '<credential #1>', path: 'a.js', occurrences: [{ line: 1, column: 1 }] });
+      assert.strictEqual(described.severity, 'serious', word);
+      assert.match(described.what, /has no written explanation yet/, word);
+    }
   }
 
   /*
@@ -99,10 +123,7 @@ const finding = Object.freeze({
    * assume is reachable.
    */
   const ruleNames = new Set(RULES.map(entry => entry.rule));
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-narration.js'), 'utf8');
-  const table = source.match(/const RULE_NARRATION = Object\.freeze\(\{[\s\S]*?\n\}\);/);
-  assert(table, 'the narration table must be declared in one place');
-  const declared = [...table[0].matchAll(/^\s{2}'([a-z][a-z0-9-]*)':/gm)].map(match => match[1]);
+  const declared = Object.keys(RULE_NARRATION);
   assert.strictEqual(declared.length, RULES.length, `the table must have one entry per rule: ${declared.join(', ')}`);
   assert.deepStrictEqual(
     declared.filter(name => !ruleNames.has(name)), [],
@@ -274,18 +295,29 @@ const finding = Object.freeze({
 
   /* Finding and location narration remain independent of the clock. Only
      observations depend on the explicit/default evaluation time. */
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-narration.js'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-  assert(source.includes('function describeFinding'), 'the comment strip must leave the code behind');
   const findingSource = [describeFinding, describeLocation, narrationForRule, safeDisplayPath]
     .map(fn => fn.toString()).join('\n');
   assert.doesNotMatch(findingSource, /Date\.now|new Date/);
-  for (const forbidden of [/Math\.random/, /process\.env/, /require\('crypto'\)/]) {
-    assert.strictEqual(
-      forbidden.test(source), false,
-      `narration must be a pure function of the record: ${forbidden}`
-    );
+  /*
+   * And nothing but the record decides the words: asked again while the clock,
+   * the random source and the environment each refuse to be read, a finding,
+   * its rule and its path are described exactly as before.
+   */
+  {
+    const own = { Date: global.Date, random: Math.random, env: process.env };
+    const refuse = what => () => { throw new Error(`narration read ${what}`); };
+    let again;
+    try {
+      global.Date = new Proxy(own.Date, { construct: refuse('the clock'), apply: refuse('the clock'), get: (target, key) => (key === 'now' ? refuse('the clock') : target[key]) });
+      Math.random = refuse('a random number');
+      process.env = new Proxy({}, { get: (target, key) => { if (typeof key === 'symbol') return undefined; throw new Error(`narration read ${String(key)} from the environment`); } });
+      again = [describeFinding(finding), narrationForRule('github-token'), safeDisplayPath('app/config.js')];
+    } finally {
+      global.Date = own.Date;
+      Math.random = own.random;
+      process.env = own.env;
+    }
+    assert.deepStrictEqual(again, [first, narrationForRule('github-token'), safeDisplayPath('app/config.js')], 'the record alone decides the words');
   }
 
   /* The location is stated, and the placeholder rather than the credential. */

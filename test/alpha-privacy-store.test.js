@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { AlphaPrivacyStore } = require('../src/alpha-privacy-store');
+const { AlphaPrivacyStore } = require('../apps/api/src/modules/identity-access/index.ts');
 
 const TESTER_ID = '10000000-0000-4000-8000-000000000001';
 const OTHER_TESTER_ID = '10000000-0000-4000-8000-000000000002';

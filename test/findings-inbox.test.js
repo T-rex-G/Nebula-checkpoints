@@ -9,9 +9,8 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
-const { buildInbox, STATES, EXPOSURE_KIND } = require('../src/findings-inbox');
+const { buildInbox, INBOX_STATES: STATES, EXPOSURE_KIND } = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -107,23 +106,42 @@ const displayPath = value => value.replace(/ghp_[^/]+/, '[withheld]');
   assert.strictEqual(half.truncated, false);
 }
 
-/* The routes: gated, uncached, credential-free, provider-free where they should be. */
+/*
+ * Severity and kind are the data's own words. A name inherited from
+ * Object.prototype is not a severity, and as a kind it is counted like any
+ * other word rather than added to a built-in function or lost.
+ */
 {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const slice = name => {
-    const start = server.indexOf(name);
-    assert(start > 0, `${name} must exist`);
-    return server.slice(start, server.indexOf('\n});', start));
-  };
-  const inbox = slice("app.get('/api/workspace/findings'");
-  assert.match(inbox, /providerSessionAccess, capabilityAccess\('findings\.inbox'\), auth,/);
-  assert.match(inbox, /Cache-Control', 'no-store'/);
-  assert.doesNotMatch(inbox, /\.token\b/);
-  assert.doesNotMatch(inbox, /\bgh\(/, 'the inbox fetches nothing from the provider');
-  assert.match(inbox, /displayPath: safeDisplayPath/, 'exposure paths are masked on the server');
-  const owners = slice("app.get('/api/repo/:owner/:repo/codeowners'");
-  assert.match(owners, /providerSessionAccess, alphaRepositoryAccess, capabilityAccess\('file\.read'\), auth,/);
-  assert.match(owners, /codeowners\.serialize\(codeowners\.parse\(text\)\)/, 'patterns and owners only leave the server');
+  const inherited = buildInbox({
+    now: NOW,
+    audit: { findings: [
+      { owner: 'acme', repo: 'api', id: 'f1', rule: 'SEC-001', severity: 'toString', category: 'constructor' },
+      { owner: 'acme', repo: 'api', id: 'f2', rule: 'SEC-001', severity: 'critical', category: '__proto__' }
+    ] },
+    exposure: { findings: [
+      { scope: { owner: 'acme', repo: 'api' }, fingerprint: 'e'.repeat(64), rule: 'github-pat', disposition: 'open' }
+    ] },
+    severityOf: () => 'constructor'
+  });
+  assert.deepStrictEqual(inherited.findings.map(item => item.severity), ['critical', 'serious', 'warning']);
+  assert.deepStrictEqual(inherited.counts.bySeverity, { critical: 1, serious: 1, warning: 1 });
+  assert.strictEqual(Object.getOwnPropertyDescriptor(inherited.counts.byKind, 'constructor').value, 1);
+  assert.strictEqual(Object.getOwnPropertyDescriptor(inherited.counts.byKind, '__proto__').value, 1);
+  assert.strictEqual(Object.getPrototypeOf(inherited.counts.byKind), Object.prototype, 'a count never replaces the prototype');
+}
+
+/* The inbox's route -- gated, uncached, credential-free, provider-free, paths masked -- is held in test/posture-routes.test.js. */
+{
+  /*
+   * The workbench's CODEOWNERS route reads with the file permission, behind
+   * the session and repository guards, as the route policy reads its chain;
+   * that only patterns and owners leave the server is asked of the route in
+   * test/workbench-repository-routes.test.js.
+   */
+  const { locations } = require('./oracles/route-policy');
+  const route = locations(path.join(__dirname, '..')).find(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path === '/api/repo/:owner/:repo/codeowners');
+  assert(route, 'the CODEOWNERS route is registered');
+  assert.deepEqual(route.guards, ['providerSessionAccess', 'alphaRepositoryAccess', "capabilityAccess('file.read')", 'auth']);
 }
 
 console.log('findings inbox tests passed');

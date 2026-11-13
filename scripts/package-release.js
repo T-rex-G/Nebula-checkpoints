@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const { PRODUCT_NAME, APP_VERSION } = require('../src/version');
-const { shouldIncludeReleasePath } = require('../src/release-fingerprint');
+const { PRODUCT_NAME, APP_VERSION } = require('../apps/api/src/platform/release/version.ts');
+const { shouldIncludeReleasePath } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const { runFoundationGate } = require('./foundation-gate');
 
 const root = path.resolve(__dirname, '..');
@@ -68,7 +68,8 @@ function assertGeneratedDocumentationCurrent(runner = spawnSync) {
   }
 }
 
-function discoverReleaseManifest() {
+/* The tracked paths, as git lists them, refused if git cannot list them or a releasable path is untracked. */
+function discoverTrackedPaths() {
   const result = spawnSync('git', ['ls-files', '--cached', '-z'], {
     cwd: root,
     encoding: 'buffer',
@@ -133,8 +134,11 @@ function discoverReleaseManifest() {
   if (untrackedReleasable.length) {
     throw new Error(`Release manifest is inconsistent: untracked releasable path: ${untrackedReleasable[0]}`);
   }
-  tracked.sort();
-  return tracked.filter(shouldInclude).map(relative => {
+  return tracked.sort();
+}
+
+function discoverReleaseManifest() {
+  return discoverTrackedPaths().filter(shouldInclude).map(relative => {
     const absolute = path.join(root, relative);
     let stat;
     try {
@@ -152,10 +156,20 @@ function discoverReleaseManifest() {
   });
 }
 
+/*
+ * Where the archive may go, whether the generated documents are current, and
+ * what git can say without the gate -- that it is there, and that nothing
+ * releasable is untracked -- are settled before the foundation gate, so a
+ * release refused for any of them is refused at once rather than after every
+ * check has run. The manifest is read whole after the gate: again, so that
+ * nothing the gate's checks left behind escapes it, and with each file in
+ * hand, so that the gate reports a missing foundation artifact by name first.
+ */
 async function main() {
-  runFoundationGate();
-  assertGeneratedDocumentationCurrent();
   assertExternalOutputDirectory();
+  assertGeneratedDocumentationCurrent();
+  discoverTrackedPaths();
+  await runFoundationGate();
   const files = discoverReleaseManifest();
   fs.mkdirSync(outputDir, { recursive: true });
   fs.rmSync(zipPath, { force: true });

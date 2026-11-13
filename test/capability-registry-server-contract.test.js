@@ -1,4 +1,6 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
@@ -7,27 +9,52 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
-const { createCsrfToken } = require('../src/security-foundation');
 
 const root = path.resolve(__dirname, '..');
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const fixture = path.join(__dirname, 'fixtures', 'capability-provider-fetch.js');
-const port = 31000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const secret = 'capability-server-test-secret-0123456789abcdef-0123456789abcdef';
+const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
+/*
+ * The server boots while the modules below load and the source and
+ * route-policy checks run. It starts on an empty provider log and is stopped
+ * however this program ends.
+ */
+fs.writeFileSync(fixtureLog, '');
+const child = spawn(process.execPath, ['-r', fixture, serverEntry()], {
+  cwd: root,
+  env: {
+    ...process.env,
+    PORT: String(port),
+    NODE_ENV: 'test',
+    SESSION_SECRET: secret,
+    DATABASE_URL: '',
+    NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
+    NV_CAPABILITY_FIXTURE_LOG: fixtureLog
+  },
+  stdio: ['ignore', 'pipe', 'pipe']
+});
+let logs = '';
+child.stdout.on('data', chunk => { logs += chunk.toString(); });
+child.stderr.on('data', chunk => { logs += chunk.toString(); });
+process.once('exit', () => {
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  try { fs.unlinkSync(fixtureLog); } catch {}
+});
+
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
+
+const { locations } = require('./oracles/route-policy');
+
 /* The server derives a purpose-specific key per construction; mirror those
    derivations rather than the single raw secret they replaced. */
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
-const fixtureLog = path.join(os.tmpdir(), `nv-capability-provider-${process.pid}-${port}.log`);
 const focus = process.argv[2] || 'all';
 const sessionNonce = 'a'.repeat(48);
-assert.match(
-  serverSource,
-  /if \(initial\.body\) await initial\.body\.cancel\(\);\s+const location/,
-  'GitHub archive redirects must release the authenticated response body before validation and codeload'
-);
+/* That a GitHub archive redirect releases the authenticated answer before codeload is asked is test/github-rest.test.js's. */
 const account = {
   provider: 'gitea',
   authMethod: 'token',
@@ -36,11 +63,12 @@ const account = {
   baseUrl: 'https://gitea.example'
 };
 
+/* A route's guard chain, read from the route policy wherever the route is registered. */
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
 function routeRegistration(method, routePath) {
-  const prefix = `app.${method}('${routePath}'`;
-  const line = serverSource.split('\n').find(candidate => candidate.startsWith(prefix));
-  assert(line, `missing route registration: ${method.toUpperCase()} ${routePath}`);
-  return line;
+  const entry = policyRoutes.find(candidate => candidate.method === method.toUpperCase() && candidate.path === routePath);
+  assert(entry, `missing route registration: ${method.toUpperCase()} ${routePath}`);
+  return entry.guards.join(', ');
 }
 
 for (const [method, routePath, feature] of [
@@ -104,35 +132,24 @@ for (const [method, routePath] of [
   );
 }
 
+/* The governance routes with their guard chains, as the route policy reads them from the composition root and Kepler's registrations. */
 function governanceRegistrations(methods) {
-  const pattern = new RegExp(
-    `\\b(?:app|router)\\s*\\.\\s*(${methods})\\s*\\(\\s*(['"])` +
-      '(\\/api\\/repo\\/:owner\\/:repo\\/governance\\/[^\'"]+)\\2',
-    'g'
-  );
-  return [...serverSource.matchAll(pattern)];
+  return policyRoutes.filter(entry => methods.includes(entry.method) && entry.path.startsWith('/api/repo/:owner/:repo/governance/'));
 }
 
-const governanceReadRoutes = governanceRegistrations('get');
+const governanceReadRoutes = governanceRegistrations(['GET']);
 assert(governanceReadRoutes.length >= 15, 'governance read-route inventory unexpectedly shrank');
-function registrationHeader(match) {
-  const remainder = serverSource.slice(match.index);
-  const handlerIndex = remainder.search(/(?:async\s*)?\(\s*req\s*,\s*res\s*\)\s*=>/);
-  assert(handlerIndex >= 0, `governance route ${match[1].toUpperCase()} ${match[3]} is missing its handler`);
-  return remainder.slice(0, handlerIndex);
-}
-
-const governanceAccessNamed = /capabilityAccess\(\s*'governance'\s*\)/;
+const governanceAccessNamed = /^capabilityAccess\(\s*'governance'\s*\)$/;
 const experimentalGovernanceAccess = /allowExperimental/;
 assert(
-  governanceReadRoutes.every(match => governanceAccessNamed.test(registrationHeader(match))
-    && !experimentalGovernanceAccess.test(registrationHeader(match))),
+  governanceReadRoutes.every(entry => entry.guards.some(guard => governanceAccessNamed.test(guard))
+    && !entry.guards.some(guard => experimentalGovernanceAccess.test(guard))),
   'every governance GET route names governance, with no experimental opt-in'
 );
-const governanceMutationRoutes = governanceRegistrations('post|put|patch|delete');
+const governanceMutationRoutes = governanceRegistrations(['POST', 'PUT', 'PATCH', 'DELETE']);
 assert(governanceMutationRoutes.length >= 15, 'governance mutation-route inventory unexpectedly shrank');
 assert(
-  governanceMutationRoutes.every(match => !experimentalGovernanceAccess.test(registrationHeader(match))),
+  governanceMutationRoutes.every(entry => !entry.guards.some(guard => experimentalGovernanceAccess.test(guard))),
   'governance mutations must remain blocked for providers with view-only experimental coverage'
 );
 const activeIdentityKey = hashJson({
@@ -179,23 +196,6 @@ function mutationOptions(method, cookie, body, extraHeaders = {}) {
   };
 }
 
-const child = spawn(process.execPath, ['-r', fixture, 'server.js'], {
-  cwd: root,
-  env: {
-    ...process.env,
-    PORT: String(port),
-    NODE_ENV: 'test',
-    SESSION_SECRET: secret,
-    DATABASE_URL: '',
-    NV_GOVERNANCE_RUNTIME_FAILURE_MODE: 'warn',
-    NV_CAPABILITY_FIXTURE_LOG: fixtureLog
-  },
-  stdio: ['ignore', 'pipe', 'pipe']
-});
-let logs = '';
-child.stdout.on('data', chunk => { logs += chunk.toString(); });
-child.stderr.on('data', chunk => { logs += chunk.toString(); });
-
 async function request(pathname, options = {}) {
   return fetch(`http://127.0.0.1:${port}${pathname}`, options);
 }
@@ -228,7 +228,6 @@ async function expectRetiredSessionRejection(entry, cookie = sessionCookie()) {
 
 (async () => {
   try {
-    fs.writeFileSync(fixtureLog, '');
     await waitForServer();
 
     if (focus === 'all' || focus === 'routes') {
@@ -403,8 +402,7 @@ async function expectRetiredSessionRejection(entry, cookie = sessionCookie()) {
       );
     }
 
-    assert(serverSource.includes("require('./src/capability-registry')"));
-    assert(!/const CAPS\s*=/.test(serverSource), 'legacy CAPS table must not remain an independent truth source');
+    /* That the composed server answers the registry's capabilities, as the registry projects them, and none of its own, is test/composition.test.js's. */
     console.log('capability registry server contract tests passed');
   } finally {
     child.kill('SIGTERM');

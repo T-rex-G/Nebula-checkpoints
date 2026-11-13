@@ -17,14 +17,15 @@
  *   - a revoked tester is still turned away, and that cookie is still cleared.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { AlphaAccessStore } = require('../src/alpha-access-store');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { AlphaAccessStore } = require('../apps/api/src/modules/identity-access/index.ts');
 
 const root = path.join(__dirname, '..');
 const adminUrl = process.env.NV_TEST_DATABASE_URL;
@@ -63,10 +64,10 @@ async function main() {
     created = true;
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
-    await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
+    await runMigrations(client, { directory: path.join(root, 'db/migrations') });
     const store = new AlphaAccessStore({ pool: { query: (...args) => client.query(...args), connect: async () => ({ query: (...args) => client.query(...args), release() {} }) }, pepper });
     const port = await freePort();
-    child = spawn(process.execPath, ['server.js'], {
+    child = spawn(process.execPath, [serverEntry()], {
       cwd: root,
       env: {
         ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: crypto.randomBytes(40).toString('hex'),

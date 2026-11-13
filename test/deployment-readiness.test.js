@@ -3,7 +3,7 @@ const assert = require('assert/strict');
 const http = require('http');
 const path = require('path');
 const { checkDeployment } = require('../scripts/check-deployment-readiness');
-const { loadMigrations } = require('../src/migrations');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 (async () => {
   const migration = loadMigrations(path.join(__dirname, '../db/migrations')).at(-1).id;

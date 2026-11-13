@@ -1,8 +1,6 @@
 'use strict';
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   parseArgs,
   hashTaskReference,
@@ -27,12 +25,13 @@ assert.throws(() => parseArgs(['cleanup-status', '--extra', 'x']), /unsupported/
 assert.match(hashTaskReference(CLEANUP_ID), /^[0-9a-f]{64}$/);
 assert(!hashTaskReference(CLEANUP_ID).includes(CLEANUP_ID));
 
-const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-assert(server.includes('function startAlphaPrivacyRetention()'));
-assert(server.includes('if (!ALPHA_CONFIG.enabled || !alphaPrivacyStore) return;'));
-assert(server.includes('await alphaPrivacyStore.runRetention()'));
-assert(server.includes('24 * 60 * 60 * 1000'));
-assert(server.includes("typeof timer.unref === 'function'"));
+/*
+ * The daily retention is identity and access's: started once, only with the
+ * alpha on and a store to run, at once and every day after, on a timer that
+ * holds no process open (test/alpha-privacy-retention.test.js). That the
+ * composed server starts it over the alpha's store once the store is ready is
+ * test/composition-alpha.test.js's.
+ */
 
 (async () => {
   // Retired cleanup records remain pending; no credential or external adapter

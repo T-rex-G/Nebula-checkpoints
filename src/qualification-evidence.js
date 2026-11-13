@@ -270,17 +270,18 @@ const PROVIDER_PROBE_CHECKS = deepFreeze({
      *   objectStored          the bytes were accepted by the storage endpoint;
      *   deduplicatedOnRepeat  asked again for the same oid it offers no
      *                         upload, which is the provider stating it holds
-     *                         the object. This is the branch of uploadViaLFS
-     *                         that has never been observed and the behaviour
+     *                         the object. This is the branch of the LFS
+     *                         upload that has never been observed and the behaviour
      *                         the upload page relies on to avoid resending;
      *   pointerCommitted      false, measured by comparing the branch head
      *                         before and after. The store is what is under
      *                         test; a committed pointer would leave the branch
      *                         carrying state this proof does not need.
      *
-     * `verified` is absent when the provider offers no verify action, which
-     * the protocol permits. It is recorded when offered so a run cannot skip
-     * it silently.
+     * A verify action the provider offers is called, as the LFS upload calls
+     * it, and its refusal fails the check through `status`. It carries no
+     * field of its own: the protocol leaves it optional, and the proof shape
+     * admits no optional fields.
      */
     {
       key: 'lfs-object-upload',

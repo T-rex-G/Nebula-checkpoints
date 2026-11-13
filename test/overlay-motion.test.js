@@ -26,11 +26,13 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const motion = require('../public/overlay-motion');
-const appSource = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
-const cssSource = fs.readFileSync(path.join(root, 'public/style.css'), 'utf8');
-const htmlSource = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-const serverSource = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const motion = require('../apps/web/src/components/overlay-motion.ts');
+const appSource = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'), 'utf8');
+const cssSource = fs.readFileSync(path.join(root, 'apps/web/src/styles/style.css'), 'utf8');
+const htmlSource = fs.readFileSync(path.join(root, 'apps/web/index.html'), 'utf8');
+const { shellImports, builtShell } = require('./helpers/web-shell');
+const { loadPageModule } = require('./helpers/page-module');
+/* OAuth sign-in is identity and access's. */
 
 let failures = 0;
 function check(label, fn) {
@@ -150,6 +152,9 @@ check('the fallback waits out the exit it measured, not the entry', () => {
     `the fallback fires after ${wait[0]}ms, inside the ${EXIT_MS}ms exit -- it would hide the layer mid-animation`);
   assert.ok(wait[0] < ENTRY_MS,
     `the fallback waits ${wait[0]}ms, which is the entry animation: the duration was read before the layer was marked closing`);
+  /* The frame an exit is judged to end on comes before the frame its event is delivered on: the fallback waits past it. */
+  assert.strictEqual(wait[0], EXIT_MS + motion.SETTLE_MARGIN_MS,
+    `the fallback fires at ${wait[0]}ms, on the exit's last frame, ahead of the event that would have ended it`);
 });
 
 check('the duration comes from the stylesheet, not from a number in the script', () => {
@@ -175,11 +180,15 @@ check('the longest of several animations is what gets waited out', () => {
 
 check('with no exit animation the close is immediate', () => {
   const none = () => ({ animationName: 'none', animationDuration: '0s', animationDelay: '0s' });
-  const { api, layer, clock } = harness(none);
-  api.closeOverlay(layer);
-  assert.strictEqual(layer.hidden, true, 'motion is off and the layer still lingered');
-  assert.strictEqual(clock.scheduled.filter(entry => entry.live).length, 0,
-    'nothing was animating and a timer was armed anyway');
+  /* A rule that names no animation leaves any duration an earlier rule set in place: no animation runs for it all the same. */
+  const unnamed = () => ({ animationName: 'none', animationDuration: '0.28s', animationDelay: '0s' });
+  for (const style of [none, unnamed]) {
+    const { api, layer, clock } = harness(style);
+    api.closeOverlay(layer);
+    assert.strictEqual(layer.hidden, true, 'motion is off and the layer still lingered');
+    assert.strictEqual(clock.scheduled.filter(entry => entry.live).length, 0,
+      'nothing was animating and a timer was armed anyway');
+  }
 });
 
 /* ---------------- reopening mid-exit ---------------- */
@@ -360,14 +369,19 @@ scrimIds.forEach(id => {
   });
 });
 
-check('app.js reaches the overlay rules through the shared module', () => {
-  assert.ok(/NebulaOverlayMotion\.createOverlayMotion\(/.test(appSource),
-    'app.js no longer builds its overlay helpers from the tested module, so these tests prove nothing about the page');
-  assert.ok(/\/overlay-motion\.js\?v=__NV_ASSET_VERSION__/.test(htmlSource),
-    'the page does not load overlay-motion.js, so app.js will throw on the first line that uses it');
-  const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
-  assert.ok(/\/overlay-motion\.js\?v=__NV_ASSET_VERSION__/.test(sw),
-    'overlay-motion.js is not precached; offline, app.js would fail to parse and the whole app would be dead');
+/*
+ * That the dialogs run these rules -- an exit marked, measured and waited
+ * for, and none with motion off -- is the browser's to show
+ * (test/e2e/ui-lifecycle.spec.js). This is the module being on the page.
+ */
+check('the page carries the overlay rules, and keeps them offline', () => {
+  const order = shellImports();
+  const motionAt = order.indexOf('apps/web/src/components/overlay-motion.ts');
+  assert.ok(motionAt !== -1 && motionAt < order.indexOf('apps/web/src/legacy/app.js'),
+    'overlay-motion.ts is not among the modules the workbench is evaluated after');
+  const shell = builtShell();
+  assert.ok(shell.precaches(shell.entry),
+    'the entry that carries overlay-motion.ts is not precached; offline, the whole app would be dead');
 });
 
 /* ---------------- the stylesheet has to resolve ---------------- */
@@ -695,20 +709,21 @@ check('the landing scene draws itself rather than shipping a picture', () => {
    * drives it, or the driver finds no factory and hides the canvas on every
    * load.
    *
-   * Matched as a <script> tag, not as a filename. Reading the first mention
-   * of the file anywhere in the source finds a comment instead, which sits a
-   * thousand lines earlier than either tag and so reports the right order
-   * whatever the tags actually do -- this guard was written that way once,
-   * and swapping the two tags walked straight through it.
+   * Matched as an import of the entry, not as a filename. Reading the first
+   * mention of the file anywhere finds a comment instead, which reports the
+   * right order whatever the imports actually do -- this guard was written
+   * that way once, against the page's script tags, and swapping the two
+   * walked straight through it.
    */
-  const tagAt = name => htmlSource.indexOf(`<script src="/${name}?v=`);
-  const sceneAt = tagAt('vortex.js');
-  const stageAt = tagAt('landing-stage.js');
+  const imports = shellImports();
+  const tagAt = name => imports.findIndex(entry => entry.endsWith(`/${name}`));
+  const sceneAt = tagAt('vortex.ts');
+  const stageAt = tagAt('landing-stage.ts');
   assert.ok(sceneAt !== -1, 'the vortex script is not in the document');
   assert.ok(stageAt !== -1, 'the landing-stage script is not in the document');
   assert.ok(sceneAt < stageAt,
-    'landing-stage.js is parsed before vortex.js, so the factory is never there when it looks');
-  assert.ok(!fs.existsSync(path.join(root, 'public/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
+    'landing-stage.ts is evaluated before vortex.ts, so the factory is never there when it looks');
+  assert.ok(!fs.existsSync(path.join(root, 'apps/web/src/visualizations/plasma-ring.js')) && tagAt('plasma-ring.js') === -1,
     'the plasma ring is back beside the vortex, so the landing ships two scenes and draws one');
   const shape = (tag[0].match(/data-vortex="([^"]*)"/) || [])[1];
   assert.ok(shape && Object.prototype.hasOwnProperty.call(loadVortex().PRESETS, shape),
@@ -716,15 +731,55 @@ check('the landing scene draws itself rather than shipping a picture', () => {
 });
 
 /*
- * The module, run rather than read. It closes over globalThis and touches no
- * DOM until create() is called, so a bare context is enough to reach its
- * tables and the arithmetic that sizes the mesh.
+ * The module, asked rather than read. It touches no DOM until create() is
+ * called, so importing it is enough to reach its tables and the arithmetic
+ * that sizes the mesh.
  */
 function loadVortex() {
-  const sandbox = {};
-  sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8'), sandbox, { filename: 'public/vortex.js' });
-  return sandbox.NebulaVortex;
+  return require('../apps/web/src/visualizations/vortex.ts').default;
+}
+
+/*
+ * The scene, drawn on a stand-in for WebGL that keeps every call made of it.
+ * What the scene asks of the context -- the options it asks for one with,
+ * the buffers it fills and the calls that draw them -- is what these checks
+ * read, not the text that would make those calls. `renderer` is the name the
+ * device gives its renderer; `refusesCaveat`, whether it refuses a context
+ * that would be drawn in software.
+ */
+const GL = Object.freeze({
+  ARRAY_BUFFER: 34962, ELEMENT_ARRAY_BUFFER: 34963, STATIC_DRAW: 35044, FLOAT: 5126, UNSIGNED_SHORT: 5123,
+  UNSIGNED_INT: 5125, LINES: 1, POINTS: 0, COLOR_BUFFER_BIT: 16384, BLEND: 3042, DEPTH_TEST: 2929, ONE: 1,
+  ONE_MINUS_SRC_ALPHA: 771, VERTEX_SHADER: 35633, FRAGMENT_SHADER: 35632, COMPILE_STATUS: 35713, LINK_STATUS: 35714,
+  RENDERER: 7937
+});
+function drawVortex({ renderer = 'ANGLE (a discrete GPU)', refusesCaveat = false, options = {} } = {}) {
+  const calls = [];
+  const asked = [];
+  const context = () => new Proxy({}, {
+    get(target, name) {
+      if (Object.prototype.hasOwnProperty.call(GL, name)) return GL[name];
+      if (name === 'getShaderParameter' || name === 'getProgramParameter') return () => true;
+      if (name === 'getExtension') return () => null;
+      if (name === 'getParameter') return () => renderer;
+      if (name === 'getAttribLocation') return () => 0;
+      return (...args) => { calls.push([name, args]); return {}; };
+    }
+  });
+  const contextFor = request => (request && request.failIfMajorPerformanceCaveat && refusesCaveat ? null : context());
+  const canvas = {
+    width: 0, height: 0, clientWidth: 800, clientHeight: 600,
+    ownerDocument: { createElement: () => ({ getContext: (kind, request) => contextFor(request) }) },
+    getContext(kind, request) { asked.push({ kind, ...request }); return contextFor(request); },
+    addEventListener() {}, removeEventListener() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 })
+  };
+  const scene = loadVortex().create(canvas, { preset: 'column', ...options });
+  if (scene) scene.renderStill();
+  return {
+    scene, asked,
+    called: name => calls.filter(([called]) => called === name).map(([, args]) => args)
+  };
 }
 
 /*
@@ -737,9 +792,15 @@ function loadVortex() {
  * build() is the belt behind it.
  */
 check('the vortex cannot ask for more vertices than its index type can address', () => {
-  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
-  assert.ok(/UNSIGNED_SHORT/.test(source),
-    'the index type changed; this guard is measuring a limit that no longer applies');
+  /* The lattice is drawn by 16-bit indices, from a buffer of them: the limit below is that index type's. */
+  const drawn = drawVortex();
+  const indices = drawn.called('bufferData').filter(([target]) => target === GL.ELEMENT_ARRAY_BUFFER).map(([, data]) => data);
+  assert.strictEqual(indices.length, 1, 'the lattice is not drawn from one buffer of indices');
+  assert.ok(indices[0] instanceof Uint16Array, 'the index type changed; this guard is measuring a limit that no longer applies');
+  const lines = drawn.called('drawElements');
+  assert.ok(lines.length > 0 && lines.every(([mode, , type]) => mode === GL.LINES && type === GL.UNSIGNED_SHORT),
+    'the lattice is not drawn by its 16-bit indices');
+  assert.ok(Math.max(...indices[0]) < 65536, 'an index wrapped past what its type can address');
   const vortex = loadVortex();
   assert.strictEqual(vortex.VERTEX_LIMIT, 65536);
   assert.ok(vortex.TIERS.length >= 2, 'the budget no longer steps down for a small screen');
@@ -753,8 +814,14 @@ check('the vortex cannot ask for more vertices than its index type can address',
   /* Smaller boxes get smaller meshes, never larger ones. */
   const counts = vortex.TIERS.map(tier => tier.strands * (tier.segments + 1) + tier.motes + tier.field);
   counts.slice(1).forEach((count, i) => assert.ok(count > counts[i], 'a smaller screen is given a heavier scene'));
-  assert.ok(/if \(vertices > VERTEX_LIMIT\) \{ res\.indexCount = 0; return; \}/.test(source),
-    'build() no longer refuses a mesh past the limit');
+  /* A budget past the limit is refused outright: no lattice is drawn, rather than one stitched to itself. */
+  const past = { upTo: Infinity, strands: 1000, segments: 72, motes: 10, field: 10, comets: 1 };
+  assert.ok(vortex.strandVertices(past) > vortex.VERTEX_LIMIT);
+  const refused = drawVortex({ options: { tiers: [past] } });
+  assert.ok(refused.scene, 'a scene with a budget past the limit was not made at all');
+  assert.deepStrictEqual(refused.called('drawElements'), [], 'a mesh past the limit was drawn');
+  assert.ok(!refused.called('bufferData').some(([target]) => target === GL.ELEMENT_ARRAY_BUFFER),
+    'a mesh past the limit was handed to the GPU');
 });
 
 /*
@@ -854,14 +921,45 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
   assert.deepStrictEqual({ ...vortex.resolveShape('no-such-shape') }, { ...vortex.PRESETS.column },
     'an unknown shape does not fall back to the landing default');
   assert.strictEqual(vortex.resolveShape({ waistAt: 0.3 }).waistAt, 0.3, 'a shape object is not honoured on its own');
+  /* A name is looked up among the shapes and palettes themselves, never among what every object inherits. */
+  for (const inherited of ['constructor', 'toString', '__proto__']) {
+    assert.deepStrictEqual({ ...vortex.resolveShape(inherited) }, { ...vortex.PRESETS.column },
+      `a shape named ${inherited} is not the landing default`);
+  }
+  const themed = drawVortex();
+  const blendOf = () => themed.called('blendFunc').slice(-1)[0];
+  themed.scene.setTheme('light');
+  assert.deepStrictEqual(blendOf(), [GL.ONE, GL.ONE_MINUS_SRC_ALPHA], 'a light palette is not composited normally');
+  themed.scene.setTheme('constructor');
+  assert.deepStrictEqual(blendOf(), [GL.ONE, GL.ONE], 'a palette named like an inherited property is not the dark default');
   /* The canvas fades in the scene; every side fades, and none past its middle. */
   ['left', 'right', 'top', 'bottom'].forEach(side => {
     const f = vortex.FEATHER[side];
     assert.ok(f > 0 && f < 0.45, `the ${side} edge of the scene does not fade, or fades past its middle`);
   });
-  const source = fs.readFileSync(path.join(root, 'public/vortex.js'), 'utf8');
-  assert.ok(/failIfMajorPerformanceCaveat/.test(source) && /swiftshader/i.test(source),
-    'the scene no longer asks whether it would be drawn in software, so a runner without a GPU pays for multisampling');
+});
+
+/*
+ * Whether the scene would be drawn in software decides how it is drawn: a
+ * renderer without a GPU pays for multisampling four times over, so there the
+ * scene runs lite. A browser that refuses a context it would draw in software
+ * says so; headless Chromium hands one over regardless, and names its
+ * renderer.
+ */
+check('the scene asks whether it would be drawn in software, and draws lite when it would', () => {
+  const gpu = drawVortex();
+  assert.ok(gpu.asked[0] && gpu.asked[0].failIfMajorPerformanceCaveat === true && gpu.asked[0].antialias === true,
+    'the scene no longer asks for a context the browser would refuse to draw in software');
+  assert.strictEqual(gpu.scene.budget().lite, false, 'a device with a GPU was given the lite scene');
+  for (const [device, setting] of [
+    ['a renderer named as software', { renderer: 'Google SwiftShader' }],
+    ['a browser that refuses a context it would draw in software', { refusesCaveat: true }]
+  ]) {
+    const software = drawVortex(setting);
+    assert.ok(software.scene, `${device}: the scene was not drawn at all`);
+    assert.strictEqual(software.scene.budget().lite, true, `${device}: the scene still pays for multisampling`);
+    assert.ok(software.asked.every(request => request.antialias === false), `${device}: a multisampled context was asked for`);
+  }
 });
 
 /*
@@ -881,6 +979,17 @@ check('every vortex preset and theme is complete, and a shape is clamped rather 
 function runLandingStage(options) {
   const settings = options || {};
   const calls = { start: 0, stop: 0, still: 0, theme: [], reaching: [], created: [] };
+  /* Every part of the page the module asks for, and every style it writes on one. */
+  const queried = [];
+  const styleWrites = [];
+  const styleOf = owner => new Proxy({}, {
+    get(target, name) {
+      if (name === 'setProperty') return (property, value) => styleWrites.push([owner, property, value]);
+      if (name === 'removeProperty') return property => styleWrites.push([owner, property, null]);
+      return target[name];
+    },
+    set(target, name, value) { styleWrites.push([owner, name, value]); target[name] = value; return true; }
+  });
   let running = false;
   let resting = false;
   const ring = {
@@ -904,6 +1013,7 @@ function runLandingStage(options) {
    */
   const canvas = {
     hidden: false,
+    style: styleOf('the canvas'),
     dataset: settings.vortex ? { vortex: settings.vortex } : {},
     drawnAtReveal: null,
     classList: {
@@ -930,10 +1040,12 @@ function runLandingStage(options) {
   const inside = { name: 'a field in the card' };
   const outside = { name: 'something else on the page' };
   const card = {
+    style: styleOf('the card'),
     addEventListener(name, fn) { (cardListeners[name] = cardListeners[name] || []).push(fn); },
     contains: node => node === inside
   };
   const lp = {
+    style: styleOf('the stage'),
     classList: {
       names: new Set(),
       add(n) { this.names.add(n); },
@@ -942,16 +1054,19 @@ function runLandingStage(options) {
     }
   };
   const hero = {
+    style: styleOf('the hero'),
     addEventListener(name, fn) { (hostListeners[name] = hostListeners[name] || []).push(fn); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 500 })
   };
   const documentStub = {
     getElementById: id => {
+      queried.push(`#${id}`);
       if (id === 'page-alpha-access') return gate;
       if (id === 'lpPortal') return settings.noCanvas ? null : canvas;
       return null;
     },
     querySelector: selector => {
+      queried.push(selector);
       if (selector === '.lp') return settings.noStage ? null : lp;
       if (selector === '.lp-card') return settings.noStage ? null : card;
       if (selector === '.lp-hero') return hero;
@@ -1001,13 +1116,14 @@ function runLandingStage(options) {
     MutationObserver: function (cb) {
       this.observe = (target, options) =>
         mutations.set(target, { cb, filter: (options && options.attributeFilter) || null });
-    },
-    NebulaVortex: settings.noWebgl ? { create: () => null } : {
-      create: (el, options) => { calls.created.push({ el, options }); return ring; }
     }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8'), sandbox, { filename: 'public/landing-stage.js' });
+  /* The scene the stage drives: one that is drawn, or one this device refuses. */
+  const vortex = settings.noWebgl ? { create: () => null } : {
+    create: (el, options) => { calls.created.push({ el, options }); return ring; }
+  };
+  loadPageModule('apps/web/src/visualizations/landing-stage.ts', sandbox, { imports: { './vortex.ts': vortex } });
   /* An attribute changes; only the observers that asked for it hear about it. */
   const mutate = (target, attribute) => {
     const watch = mutations.get(target);
@@ -1016,7 +1132,7 @@ function runLandingStage(options) {
     watch.cb();
   };
   return {
-    calls, ring, canvas,
+    calls, ring, canvas, queried, styleWrites,
     motion: value => {
       documentStub.documentElement.dataset.motion = value ? 'on' : 'off';
       mutate(documentStub.documentElement, 'data-motion');
@@ -1232,8 +1348,6 @@ check('the scene follows the theme rather than reading it once at load', () => {
 check('no light box sits behind the vortex, and nothing moves one', () => {
   assert.ok(!/lp-glow/.test(htmlSource), 'the landing markup still carries the old bloom layer');
   assert.ok(!/\.lp-glow\b/.test(cssSource), 'the stylesheet still styles the old bloom layer');
-  const stage = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
-  assert.ok(!/--gx|--gy|lp-glow/.test(stage), 'the landing script still drives a pointer-following light');
   const lpRules = rules.filter(rule => eachSelector(rule).some(one => /(^|\s)\.lp$/.test(one.selector.trim())));
   /* The paint only: the same rule also carries colour tokens for the copy. */
   const painted = lpRules.map(rule => (rule.body.match(/background(?:-image)?\s*:[^;]*/g) || []).join(' ')).join(' ');
@@ -1250,6 +1364,14 @@ check('no light box sits behind the vortex, and nothing moves one', () => {
   run.point(900, 400);
   run.depart();
   assert.strictEqual(run.pending(), queued, 'a pointer over the hero schedules work outside the scene');
+  /* Nor does the script look for the old layer, or move a light by the pointer's position, through a whole visit. */
+  run.gesture();
+  run.focusIn();
+  run.focusOut(false);
+  run.pump(4);
+  assert.ok(!run.queried.some(asked => /lp-glow/.test(asked)), 'the landing script still looks for the old bloom layer');
+  assert.ok(!run.styleWrites.some(([, property]) => /^--g[xy]$/.test(property)),
+    'the landing script still drives a pointer-following light');
 });
 
 /*
@@ -1280,17 +1402,10 @@ check('the access flow survived being given a stage', () => {
 /*
  * Focusing an input scrolls it into view. On a bare gate that was helpful; on
  * a landing page it threw the reader past the headline before they had read a
- * word of it -- measured at 323px on a phone.
+ * word of it -- measured at 323px on a phone. Every focus the gate gives the
+ * invitation is checked for preventScroll by test/alpha-ui.test.js, on the
+ * module as it runs.
  */
-check('raising the gate does not scroll the page past its own headline', () => {
-  const alphaSource = fs.readFileSync(path.join(root, 'public/alpha-ui.js'), 'utf8');
-  const focuses = [...alphaSource.matchAll(/invite\.focus\(([^)]*)\)/g)];
-  assert.ok(focuses.length >= 1, 'nothing focuses the invitation any more');
-  focuses.forEach(match => {
-    assert.ok(/preventScroll:\s*true/.test(match[1]),
-      'the invitation is focused without preventScroll, which scrolls the landing page away');
-  });
-});
 
 check('the stylesheet actually carries overlay exits', () => {
   assert.ok(exits.length >= 8,
@@ -1364,37 +1479,13 @@ check('every focus taken on an opening layer declines the scroll', () => {
 
 /* ---------------- a sign-in that did not finish ---------------- */
 
-check('a failed OAuth exchange returns to the application', () => {
-  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
-  const body = route.slice(0, route.indexOf('\napp.get('));
-  /*
-   * Every failure used to end on a bare page with no navigation: the only way
-   * back was to retype the address. A reader on a phone should never be asked
-   * to do that.
-   */
-  assert.ok(!/res\.status\(\d+\)\.send\(/.test(body),
-    'a failed sign-in still ends on a bare page the reader has to escape by editing the address bar');
-  assert.ok(/res\.redirect\(`\/\?oauth=/.test(body),
-    'a failed sign-in does not return to the application with a reason');
-  assert.ok(/Max-Age=0/.test(body),
-    'the state cookie is not cleared on failure, so a retry replays a code the provider has already spent');
-});
-
-check('the token response is parsed defensively', () => {
-  const route = serverSource.slice(serverSource.indexOf("app.get('/api/oauth/callback'"));
-  const body = route.slice(0, route.indexOf('\napp.get('));
-  /*
-   * The provider answers with an HTML page when it refuses the request itself
-   * rather than the exchange. Handing that straight to a JSON parser throws
-   * "Unexpected token '<'", and that message reached the reader verbatim.
-   */
-  assert.ok(!/await tr\.json\(\)/.test(body),
-    'the token response is parsed as JSON unguarded, so an HTML error page throws a parser message at the reader');
-  assert.ok(/tr\.text\(\)/.test(body) && /JSON\.parse/.test(body),
-    'the response is not read as text and parsed under a guard');
-  assert.ok(/td\.error/.test(body),
-    "the provider's own refusal is discarded, so an expired code reports nothing useful");
-});
+/*
+ * A failed OAuth sign-in returns to the application with its reason, the
+ * state cookie cleared so a retry starts a fresh exchange; a token answer that
+ * is not JSON is reported as unreadable rather than thrown at the reader; and
+ * the provider's own refusal, such as an expired code, is the reason given.
+ * The route is asked all of it over HTTP by test/identity-security-routes.test.js.
+ */
 
 check('the reader is told which failure it was', () => {
   assert.ok(/function oauthCallbackNotice/.test(appSource), 'nothing reads the failure back out of the address bar');
@@ -1410,7 +1501,7 @@ check('the moving ground yields where the galaxy is drawn', () => {
   assert.ok(/#page-repos\.active\)?[^{]*#lightWaves\{[^}]*display:none/.test(cssSource),
     'the waves still run underneath the galaxy on the repositories screen, where two full-bleed animations compete');
   /*
-   * display:none, not opacity: light-waves.js holds when it has no box to
+   * display:none, not opacity: light-waves.ts holds when it has no box to
    * measure, so removing it from the layout also ends its render loop.
    */
   const rule = cssSource.match(/body:has\(#page-repos\.active\) #lightWaves\{([^}]*)\}/);
@@ -1580,7 +1671,7 @@ check('a layer on its way out stops taking presses', () => {
 /* ---------------- lifting a function out of the shell ---------------- */
 
 /*
- * public/app.js is a classic script, not a module: there is nothing to
+ * apps/web/src/legacy/app.js is a classic script, not a module: there is nothing to
  * require. These checks want behaviour rather than the shape of the text, so
  * the named function is cut out of the source and compiled on its own with
  * whatever it closes over passed in. A rewrite that keeps the words and loses
@@ -1958,49 +2049,6 @@ check('a reading is drawn as an arc, not filled in by a legend colour', () => {
       `${name} never sets fill:none, so a class that sets fill will paint it as a disc`);
     assert.ok(/stroke(-width)?\s*:/.test(body), `${name} is not stroked, so there is no arc to see`);
   });
-  /*
-   * The collision itself: an element may not carry both an arc class and a
-   * fill-setting class. Read off the source that builds the ring rather than
-   * off a list kept in step by hand.
-   */
-  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
-  const classed = [...pulseSource.matchAll(/class:\s*[`'"]([^`'"]*(?:gauge-arc|donut-arc)[^`'"]*)[`'"]/g)]
-    .map(match => match[1]);
-  assert.ok(classed.length, 'nothing builds an arc any more');
-  /*
-   * Matched by prefix, not by name. The first version of this compared whole
-   * class names and a template interpolation walked straight through it:
-   * `wp-fill-${status}` is not the string `wp-fill-good`, so the check passed
-   * on the very rewrite it was written to catch. What survives interpolation is
-   * the literal text before the `${`, and that is enough to recognise the
-   * family a class belongs to.
-   */
-  const fillFamilies = [...filling].map(name => name.replace(/^\./, ''));
-  classed.forEach(list => {
-    list.split(/\s+/).filter(Boolean).forEach(token => {
-      const literal = token.split('${')[0];
-      if (!literal) return;
-      const clash = fillFamilies.find(name => name === literal || name.startsWith(literal));
-      assert.ok(!clash,
-        `an arc carries "${token}", and .${clash} sets fill -- the arc will paint as a disc`);
-    });
-  });
-});
-
-/*
- * A gauge with nothing to report draws its track and no arc. Drawing a
- * zero-length arc would be a reading of zero, and this model exists to tell
- * "not measured" apart from "measured and failing".
- */
-check('an unmeasured reading draws no arc at all', () => {
-  const pulseSource = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
-  const at = pulseSource.indexOf('function gauge(');
-  assert.ok(at >= 0, 'the gauge primitive is gone');
-  const body = pulseSource.slice(at, pulseSource.indexOf('\n  }\n', at));
-  assert.ok(/if \(measured\)[\s\S]{0,220}wp-gauge-arc/.test(body),
-    'the arc is drawn whether or not there is a reading behind it');
-  assert.ok(/\\u2014|\u2014/.test(body),
-    'an unmeasured gauge prints something other than a dash where its figure goes');
 });
 
 check('the live rail reports a session rather than asserting one', () => {
@@ -2124,10 +2172,14 @@ check('the motion itself is in the cascade, gated both ways', () => {
    * directly the reduced-motion and data-motion gates below stop applying to
    * it, because they are cascade rules.
    */
-  const source = fs.readFileSync(path.join(root, 'public/landing-stage.js'), 'utf8');
-  const reaching = source.slice(source.indexOf('is-reaching'));
-  assert.ok(!/\.style\./.test(reaching.slice(0, 400)),
-    'the moment writes a style directly, which no motion setting can then turn off');
+  const run = runLandingStage({});
+  run.gesture();
+  run.focusIn();
+  assert.ok(run.reaching(), 'the moment never carried its class');
+  run.focusOut(false);
+  assert.ok(!run.reaching(), 'the moment kept its class after the reader left the card');
+  const written = run.styleWrites.filter(([owner]) => owner === 'the stage' || owner === 'the card');
+  assert.deepStrictEqual(written, [], 'the moment writes a style directly, which no motion setting can then turn off');
 
   const moved = rules.filter(rule => /\.is-reaching\b/.test(rule.selector)
     && /transform\s*:|opacity\s*:/.test(rule.body));
@@ -2186,7 +2238,7 @@ check('the landing page wears the product mark rather than one drawn in place', 
  */
 function runThemeBoot(options) {
   const settings = options || {};
-  const source = fs.readFileSync(path.join(root, 'public/theme-boot.js'), 'utf8');
+  const source = fs.readFileSync(path.join(root, 'apps/web/public/theme-boot.js'), 'utf8');
   const documentElement = { dataset: { theme: 'dark' } };
   const meta = { content: '' };
   const toggles = Array.from({ length: settings.toggles || 0 }, () => ({
@@ -2207,7 +2259,7 @@ function runThemeBoot(options) {
       : { getItem: key => key === 'nv_settings' ? (settings.motionSettings || null) : (key === 'nv_theme' ? (settings.stored || null) : null) }
   };
   sandbox.globalThis = sandbox;
-  vm.runInNewContext(source, sandbox, { filename: 'public/theme-boot.js' });
+  vm.runInNewContext(source, sandbox, { filename: 'apps/web/public/theme-boot.js' });
   return {
     theme: () => documentElement.dataset.theme,
     motion: () => documentElement.dataset.motion,
@@ -2256,7 +2308,8 @@ check('the restore runs from the head, before anything is painted', () => {
   assert.ok(/<script[^>]+src="\/theme-boot\.js/.test(head),
     'theme-boot is not in the head, so the shell paints in one theme and corrects to the other');
   /* An inline block here would be refused: script-src is 'self' with no 'unsafe-inline'. */
-  assert.ok(/script-src 'self'/.test(serverSource),
+  const { contentSecurityPolicy } = require('../apps/api/src/http/pipeline/index.ts');
+  assert.ok([true, false].every(production => contentSecurityPolicy(production).split('; ').includes("script-src 'self'")),
     'the policy this file is a file rather than an inline block for has changed');
   /*
    * In the landing nav specifically. Counting toggles across the document
@@ -2386,8 +2439,8 @@ check('the root element publishes no release version', () => {
   assert.ok(root, 'the root element is gone');
   assert.ok(!/data-nv-version/.test(root[0]),
     'the release version is back on the root element, where nothing reads it');
-  assert.ok(/data-nv-asset-version/.test(root[0]),
-    'the asset version is gone, and app.js reads it to stamp every asset URL');
+  assert.ok(!/data-nv-asset-version/.test(root[0]) && !/nvAssetVersion/.test(appSource),
+    'an asset stamp is back on the root element; the build names every file by its content instead');
 });
 
 /*
@@ -2408,8 +2461,6 @@ check('the overview charts draw in one hue per preset, never in status colours',
   const obsidian = cssSource.match(/\[data-design="obsidian"\]\{\s*--wp-series:([^;]+);/);
   assert.ok(obsidian, 'Obsidian has no series ink of its own, so its charts draw in Nebula violet');
   assert.ok(!/8b5cf6|9a77f7|7c3aed|a78bfa/i.test(obsidian[1]), 'Obsidian draws its charts in violet');
-  const pulse = fs.readFileSync(path.join(root, 'public/workspace-pulse.js'), 'utf8');
-  assert.ok(!/'stop-color':\s*'#/.test(pulse), 'a chart gradient carries a colour of its own instead of the preset ink');
 });
 
 /*

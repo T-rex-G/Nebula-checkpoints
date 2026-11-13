@@ -2,15 +2,17 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const {
-  stableJson, hashJson, hmacJson, evidenceRecordHash, verifyGithubSignature, normalizeGithubWebhook,
+  evidenceRecordHash,
   EVIDENCE_ACTIVE_KEY_ID, EVIDENCE_LEGACY_KEY_ID, verifyEvidenceRecord, acceptsLegacySessionKey, parseRetiredSessionSecrets,
-  evidenceKeyrings,
-  riskForEvent, pathMatches, protectedPatternsForRepository, referenceSha, canAcceptLiveClient,
+  evidenceKeyrings, protectedPatternsForRepository,
   normalizeRepoPath, normalizeBranchName, normalizeCommitSha, lfsAttributePattern, shortestPath,
-  compareSnapshots, riskForAccessSurface, normalizeProviderBranches
-} = require('../src/intelligence');
-const { normalizeDatabaseUrl } = require('../src/config');
-const { KEY_PURPOSES, deriveSecret } = require('../src/key-derivation');
+  compareSnapshots, riskForAccessSurface
+} = require('../apps/api/src/modules/corona/index.ts');
+const { stableJson, hashJson, hmacJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { referenceSha, normalizeProviderBranches } = require('../apps/api/src/modules/github-provider/index.ts');
+const { verifyGithubSignature, normalizeGithubWebhook, riskForEvent, canAcceptLiveClient } = require('../apps/api/src/modules/pulsar/index.ts');
+const { normalizeDatabaseUrl } = require('../apps/api/src/platform/config/config.ts');
+const { KEY_PURPOSES, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 assert.strictEqual(stableJson({ b: 2, a: 1 }), '{"a":1,"b":2}');
 assert.strictEqual(stableJson({ z: [2, { b: true, a: false }], a: null }), '{"a":null,"z":[2,{"a":false,"b":true}]}');
@@ -58,13 +60,7 @@ assert.strictEqual(canAcceptLiveClient(100, 0), false);
 assert.strictEqual(canAcceptLiveClient(4, 5), false);
 
 
-assert(pathMatches('.github/workflows/**', '.github/workflows/deploy.yml'));
-assert(pathMatches('infra', 'infra/prod/main.tf'));
-assert(pathMatches('src/*.js', 'src/app.js'));
-assert(pathMatches('docs/??.md', 'docs/en.md'));
-assert(!pathMatches('src/*.js', 'src/lib/a.js'));
-assert(!pathMatches('../secret', 'secret'));
-assert(!pathMatches('', 'src/a.js'));
+/* What a protected-path pattern covers is test/protected-path-patterns.test.js's, put to the server's matcher and the page's alike. */
 
 
 assert.strictEqual(normalizeRepoPath('\\assets\\release file.zip'), 'assets/release file.zip');

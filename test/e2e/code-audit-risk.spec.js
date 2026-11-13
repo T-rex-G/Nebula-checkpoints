@@ -15,9 +15,8 @@ test.use({ serviceWorkers: 'block' });
 
 const AUDIT = /\/api\/repo\/sandbox\/demo\/code-audit(\?|$)/;
 
-async function audited(page) {
+async function audited(page, result = riskyResult()) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
-  const result = riskyResult();
   await page.route(AUDIT, route => (new URL(route.request().url()).searchParams.get('run') ? route.fulfill({ status: 200, json: result }) : route.fallback()));
   await page.goto('/#/sandbox/demo@main/audit');
   const pane = page.locator('#tab-audit');
@@ -131,4 +130,64 @@ test('the exploited filter narrows the findings, and the exports carry the same 
   const spdx = JSON.parse(require('fs').readFileSync(await spdxFile.path(), 'utf8'));
   expect(spdx.spdxVersion).toBe('SPDX-2.3');
   expect(spdx.packages.map(item => item.name)).toContain('qs');
+});
+
+/*
+ * A vulnerable version declared in two manifests is one thing to upgrade:
+ * one row, which says where else it is declared. The count belongs to the
+ * reading. It used to be kept beside the finding and grew by one with every
+ * drawing of the screen and every brief written, so a filter pressed three
+ * times said five places.
+ */
+test('a version declared in two places is one row that says two, however often the screen is drawn', async ({ page }) => {
+  const result = riskyResult();
+  const jquery = result.findings.find(finding => finding.detail && finding.detail.package === 'jquery');
+  result.findings.push({ ...jquery, id: `${jquery.id}-site`, path: 'site/package-lock.json' });
+  const pane = await audited(page, result);
+  const rows = pane.locator('.audit-risk-row');
+  await expect(rows).toHaveCount(4);
+  const places = rows.filter({ hasText: 'jquery' }).locator('.audit-risk-places');
+  const said = 'Declared in 2 places; the finding below each one says where.';
+  await expect(places).toHaveText(said);
+  await expect(rows.filter({ hasText: 'lodash' }).locator('.audit-risk-places')).toHaveCount(0);
+  const toggle = pane.locator('.audit-risk-stats').getByRole('button', { name: /exploited in the wild/ });
+  for (const pressed of ['true', 'false', 'true']) {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', pressed);
+  }
+  await expect(places).toHaveText(said);
+  await pane.getByRole('button', { name: /^Export/ }).click();
+  const [brief] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Export developer brief' }).click()]);
+  expect(require('fs').readFileSync(await brief.path(), 'utf8').match(/^\| \d+ urgent \| jquery 3\.4\.1 \|/gm)).toHaveLength(1);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(places).toHaveText(said);
+});
+
+test('the team’s decisions and the code’s waivers each stay as the reader left them while the list is drawn again', async ({ page }) => {
+  const result = riskyResult();
+  const [first, second] = result.findings;
+  result.suppressed = [
+    { ...first, id: 'decided-1', suppression: { triage: { findingId: 'decided-1', rule: first.rule, disposition: 'false-positive', reason: 'validated', decidedBy: 'ada', decidedAt: '2026-09-20T09:00:00.000Z' } } },
+    { ...second, id: 'waived-1', suppression: { reason: 'pinned by the vendor until the next release' } }
+  ];
+  const pane = await audited(page, result);
+  const decided = pane.locator('details.audit-triaged');
+  const waived = pane.locator('details.audit-waived:not(.audit-triaged)');
+  await expect(decided.locator('.audit-waived-title')).toHaveText('Triaged by the team');
+  await expect(waived.locator('.audit-waived-title')).toHaveText('Waived in code');
+  await waived.locator('summary').click();
+  await expect(waived).toHaveAttribute('open', '');
+  /* Each press below draws the list again: what the reader opened stays open, and what they did not stays shut. */
+  const search = pane.getByRole('searchbox', { name: 'Search findings' });
+  await search.fill('jquery');
+  await expect(pane.locator('.audit-findings .audit-item')).not.toHaveCount(result.findings.length);
+  await search.press('Escape');
+  await expect(waived).toHaveAttribute('open', '');
+  await expect(decided).not.toHaveAttribute('open', /.*/);
+  await decided.locator('summary').click();
+  await waived.locator('summary').click();
+  await pane.getByRole('group', { name: 'Show by severity' }).getByRole('button', { name: /^Serious/ }).click();
+  await expect(decided).toHaveAttribute('open', '');
+  await expect(waived).not.toHaveAttribute('open', /.*/);
 });

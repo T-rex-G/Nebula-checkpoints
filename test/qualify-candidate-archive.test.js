@@ -10,6 +10,7 @@ const {
   assertPinnedNodeVersion,
   assertTrustedQualificationPrograms,
   AUTOMATED_CLAIM_REQUIREMENTS,
+  browserSliceFailureDetail,
   buildPackageManagerEnvironment,
   buildQualificationEnvironment,
   deriveTrustedAutomatedClaims,
@@ -20,7 +21,8 @@ const {
   validateArchiveEntries,
   validateBrowserReport,
   validateMatrixReport,
-  DEFAULT_TRUSTED_PROGRAM_PATHS
+  DEFAULT_TRUSTED_PROGRAM_PATHS,
+  qualificationProgramClosure
 } = require('../scripts/qualify-candidate-archive');
 const leakProbe = ['must-not', 'reach-candidate'].join('-');
 const registry = require('../config/public-alpha-capabilities.json');
@@ -28,9 +30,11 @@ const { qualificationCatalog } = require('../src/public-alpha-qualification');
 const { validateEvidenceEnvelope } = require('../src/qualification-evidence');
 const repositoryRoot = path.join(__dirname, '..');
 
-assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.1'));
+assert.doesNotThrow(() => assertPinnedNodeVersion('v22.23.5'));
 assert.strictEqual(MINIMUM_MATRIX_TESTS, 141);
-assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.1/);
+assert.throws(() => assertPinnedNodeVersion('v22.23.0'), /requires Node v22\.23\.5/);
+assert.throws(() => assertPinnedNodeVersion('v22.23.1'), /requires Node v22\.23\.5/, 'the pin before the October security release is refused');
+assert.throws(() => assertPinnedNodeVersion('v22.23.4'), /requires Node v22\.23\.5/, 'the pin before the November security release is refused');
 assert.throws(
   () => runCommand(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
     label: 'synthetic stalled qualifier command',
@@ -39,12 +43,39 @@ assert.throws(
   /synthetic stalled qualifier command timed out after 50 ms/,
   'every qualifier child process must have an explicit finite timeout'
 );
+/*
+ * A failing browser slice is reported by the tests that failed. Its stderr
+ * holds only the web server's warnings, so a message built from stderr named
+ * a warning and hid the failure; the slice's own summary is what is shown.
+ */
+const failingSlice = [
+  'process.stderr.write("[WebServer] (node:1) Warning: The NO_COLOR env is ignored\\n");',
+  'console.log("\\u001b[31m  1) [desktop] \\u203a test/e2e/a.spec.js:3:1 \\u203a the drawer closes\\u001b[39m");',
+  'console.log("    Error: expect(locator).toBeHidden() failed");',
+  'console.log("  1 failed");',
+  'console.log("    [desktop] \\u203a test/e2e/a.spec.js:3:1 \\u203a the drawer closes");',
+  'console.log("  40 passed (2.0m)");',
+  'process.exit(1);'
+].join('');
+assert.throws(
+  () => runCommand(process.execPath, ['-e', failingSlice], {
+    label: 'synthetic browser slice',
+    failureDetail: browserSliceFailureDetail
+  }),
+  error => /synthetic browser slice failed/.test(error.message) &&
+    /1 failed\n\s+\[desktop\] \u203a test\/e2e\/a\.spec\.js:3:1 \u203a the drawer closes/.test(error.message) &&
+    /toBeHidden\(\) failed/.test(error.message) &&
+    !/\u001b/.test(error.message),
+  'a failing slice names its failed tests, without terminal colour codes'
+);
+assert.strictEqual(browserSliceFailureDetail({ stdout: '', stderr: 'only a warning' }), 'only a warning',
+  'a slice that printed no summary still reports what it wrote');
 const processVersionDescriptor = Object.getOwnPropertyDescriptor(process, 'version');
 try {
   Object.defineProperty(process, 'version', { ...processVersionDescriptor, value: 'v22.23.0' });
   assert.throws(
     () => qualifyCandidateArchive(undefined),
-    /requires Node v22\.23\.1/,
+    /requires Node v22\.23\.5/,
     'the runtime pin must fail before qualifier arguments or archive paths are read'
   );
 } finally {
@@ -131,6 +162,7 @@ function stableJson(value) {
 const args = process.argv.slice(2);
 const reportIndex = args.indexOf('--report');
 if (!args.includes('--require-all') || !args.includes('--require-subject') || reportIndex < 0) process.exit(9);
+if (!fs.existsSync(path.join(__dirname, '..', 'web-build.marker'))) process.exit(8);
 const reportPath = path.resolve(args[reportIndex + 1]);
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 const reportCore = {
@@ -182,6 +214,12 @@ if (fs.existsSync(require('path').join(__dirname, 'tamper-matrix'))) {
   fs.writeFileSync(path.join(candidate, 'scripts', 'copy-vendor.js'), `'use strict';
 require('fs').writeFileSync(require('path').join(__dirname, '..', 'vendor-copy.marker'), 'copied\\n');
 `);
+  fs.writeFileSync(path.join(candidate, 'scripts', 'build-web.js'), `'use strict';
+const fs = require('fs');
+const path = require('path');
+if (!fs.existsSync(path.join(__dirname, '..', 'vendor-copy.marker'))) process.exit(7);
+fs.writeFileSync(path.join(__dirname, '..', 'web-build.marker'), 'built\\n');
+`);
   /*
    * A stand-in for the audit gate. The real one spawns npm against the public
    * registry, and a qualification test that needed the registry would be
@@ -217,6 +255,7 @@ const fixtureTrustedProgramPaths = Object.freeze([
   'scripts/test-matrix.js',
   'scripts/fake-browser.js',
   'scripts/copy-vendor.js',
+  'scripts/build-web.js',
   'scripts/audit-production.js'
 ]);
 
@@ -238,8 +277,11 @@ function fixtureClaimRequirements() {
     'scripts/copy-vendor.js',
     'scripts/check-secrets.js',
     'scripts/audit-production.js',
+    'scripts/build-web.js',
+    'apps/web/vite.config.js',
     'src/test-matrix.js',
-    'src/governance-model.js',
+    'packages/contracts/src/canonical-json.ts',
+    'packages/contracts/src/guards.ts',
     'test/example.test.js'
   ];
   try {
@@ -267,16 +309,97 @@ function fixtureClaimRequirements() {
       path.join(trustedRoot, 'src', 'test-matrix.js'),
       path.join(candidateRoot, 'src', 'test-matrix.js')
     );
-    fs.appendFileSync(path.join(candidateRoot, 'src', 'governance-model.js'), '// forged hash\n');
+    fs.appendFileSync(path.join(candidateRoot, 'packages', 'contracts', 'src', 'canonical-json.ts'), '// forged hash\n');
     assert.throws(
       () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
-      /does not match trusted source: src\/governance-model\.js/,
+      /does not match trusted source: packages\/contracts\/src\/canonical-json\.ts/,
       'the candidate must not replace the matrix report canonicalizer'
+    );
+    fs.copyFileSync(
+      path.join(trustedRoot, 'packages', 'contracts', 'src', 'canonical-json.ts'),
+      path.join(candidateRoot, 'packages', 'contracts', 'src', 'canonical-json.ts')
+    );
+    fs.appendFileSync(path.join(candidateRoot, 'packages', 'contracts', 'src', 'guards.ts'), '// forged guard\n');
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /does not match trusted source: packages\/contracts\/src\/guards\.ts/,
+      'the candidate must not replace the guard the canonicalizer is built on'
     );
   } finally {
     fs.rmSync(trustedRoot, { recursive: true, force: true });
     fs.rmSync(candidateRoot, { recursive: true, force: true });
   }
+}
+
+/*
+ * What a qualification program loads is compared with it. The web build ran
+ * from the candidate with its release helpers unread, so an archive could
+ * change how its own page was built and still qualify; a file named in front
+ * of one a program requires would be loaded in its place; and a spec added
+ * beside the trusted ones would run in the browser matrix. Each is refused.
+ */
+{
+  const trustedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-trusted-closure-'));
+  const candidateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-candidate-closure-'));
+  const sources = Object.fromEntries(DEFAULT_TRUSTED_PROGRAM_PATHS.map(relative => [relative, `'use strict'; // ${relative}\n`]));
+  Object.assign(sources, {
+    'scripts/build-web.js': "'use strict';\nrequire('../apps/api/src/platform/release/web-build.ts');\n",
+    'apps/api/src/platform/release/web-build.ts': "import './directory-digest.ts';\nexport const built = true;\n",
+    'apps/api/src/platform/release/directory-digest.ts': 'export const digest = 1;\n',
+    'scripts/test-matrix.js': "'use strict';\nrequire('../src/test-matrix');\n",
+    'src/test-matrix.js': "'use strict';\nmodule.exports = {};\n",
+    'test/example.test.js': "'use strict';\n"
+  });
+  const write = (root, relative, contents) => {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), contents);
+  };
+  try {
+    for (const [relative, contents] of Object.entries(sources)) {
+      for (const root of [trustedRoot, candidateRoot]) write(root, relative, contents);
+    }
+    assert.match(assertTrustedQualificationPrograms(candidateRoot, trustedRoot), /^[0-9a-f]{64}$/);
+    assert(qualificationProgramClosure(trustedRoot, ['scripts/build-web.js']).includes('apps/api/src/platform/release/directory-digest.ts'),
+      'the closure follows an ES module import as well as a require');
+
+    fs.appendFileSync(path.join(candidateRoot, 'apps', 'api', 'src', 'platform', 'release', 'directory-digest.ts'), '// forged\n');
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /does not match trusted source: apps\/api\/src\/platform\/release\/directory-digest\.ts/,
+      'a helper the web build loads, two steps down, is compared'
+    );
+    write(candidateRoot, 'apps/api/src/platform/release/directory-digest.ts', sources['apps/api/src/platform/release/directory-digest.ts']);
+
+    write(candidateRoot, 'src/test-matrix', "'use strict'; process.exit(0);\n");
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /resolves \.\.\/src\/test-matrix differently: scripts\/test-matrix\.js/,
+      'a file placed in front of the one the matrix launcher requires is refused'
+    );
+    fs.rmSync(path.join(candidateRoot, 'src', 'test-matrix'));
+
+    write(candidateRoot, 'test/e2e/added.spec.js', "'use strict';\n");
+    assert.throws(
+      () => assertTrustedQualificationPrograms(candidateRoot, trustedRoot),
+      /adds an untrusted qualification program: test\/e2e\/added\.spec\.js/,
+      'a spec the trusted tree does not have is refused before the browser matrix could find it'
+    );
+    fs.rmSync(path.join(candidateRoot, 'test', 'e2e', 'added.spec.js'));
+
+    assert.match(assertTrustedQualificationPrograms(candidateRoot, trustedRoot), /^[0-9a-f]{64}$/);
+  } finally {
+    fs.rmSync(trustedRoot, { recursive: true, force: true });
+    fs.rmSync(candidateRoot, { recursive: true, force: true });
+  }
+}
+
+/* The real tree: every file the default programs load is found, and the build's release helpers are among them. */
+{
+  const closure = qualificationProgramClosure(repositoryRoot, DEFAULT_TRUSTED_PROGRAM_PATHS);
+  for (const relative of ['apps/api/src/platform/release/web-build.ts', 'apps/api/src/platform/release/directory-digest.ts', 'src/public-assets.js', 'packages/contracts/src/canonical-json.ts']) {
+    assert(closure.includes(relative), `the qualification closure must include ${relative}`);
+  }
+  assert.match(assertTrustedQualificationPrograms(repositoryRoot, repositoryRoot), /^[0-9a-f]{64}$/);
 }
 
 {
@@ -556,6 +679,8 @@ try {
   assert.strictEqual(result.subjectSha256, expectedSha256);
   assert.strictEqual(result.candidateRoot, path.join(extractDir, 'candidate-fixture'));
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'vendor-copy.marker')), true);
+  assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'web-build.marker')), true,
+    'the candidate must build its page before any program starts its server');
   assert.strictEqual(fs.existsSync(path.join(result.candidateRoot, 'lifecycle.marker')), false);
   const auditInvocations = fs.readFileSync(
     path.join(result.candidateRoot, 'audit-invocations.jsonl'),

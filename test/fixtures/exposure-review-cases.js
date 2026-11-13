@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { ExposureStore } = require('../../src/exposure-store');
+const { ExposureStore } = require('../../apps/api/src/modules/quasar/index.ts');
 
 async function checkStoreBoundaries(pool) {
   const store = new ExposureStore({ pool });

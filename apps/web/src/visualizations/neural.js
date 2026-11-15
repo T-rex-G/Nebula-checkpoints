@@ -8,12 +8,11 @@ import {
   dlFile, currentTab, purgeLocalData
 } from '../legacy/app.js';
 import { probeSource } from '../platform/probe.ts';
-import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph, isNodeType } from '../features/neural/graph-model.ts';
+import { TYPE_STYLE, MODE_TYPES, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph, isNodeType } from '../features/neural/graph-model.ts';
 import {
-  MAX_ROWS, PAGE_ROWS, SEVERITY_RANK,
+  MAX_ROWS, PAGE_ROWS,
   layoutAspect, layoutModeOf, worldRadius, placeGraph, layoutBounds
 } from '../features/neural/graph-layout.ts';
-import { TYPE_ICON, inspectorMark } from '../features/neural/graph-marks.ts';
 import { paletteFor, hexAlpha } from '../features/neural/graph-paint.ts';
 import {
   worldToScreen as sceneToScreen, screenToWorld as sceneToWorld, worldSpace, screenSpace, worldView, focusSets
@@ -27,13 +26,13 @@ import { shortestPath } from '../features/neural/graph-path.ts';
 import {
   placementKey as viewKey, placementMemory, readHiddenGroups, writeHiddenGroups, forgetHiddenGroups
 } from '../features/neural/graph-memory.ts';
+import { dataGaps as gapsOf, summarize, streamLabel as streamLabelOf } from '../features/neural/graph-summary.ts';
+import { timelineIndex, timelineCaption, eventStrip } from '../features/neural/graph-timeline.ts';
+import { legendModel } from '../features/neural/graph-legend.ts';
+import { CARD_WIDTH, cardMode as cardModeOf, cardModel, cardPlacement, leaderLine, announcement } from '../features/neural/graph-card.ts';
+import { renderCard as drawCard, renderLegend as drawLegend, renderEvents, clearPanel } from '../features/neural/NeuralPanels.tsx';
 
 const neuralGraph = (() => {
-
-  /* The inspector's mark for a node: the drawn mark for the four drawn types (graph-marks.ts), its letter for the rest. */
-  function nodeBadge(node) {
-    return inspectorMark(node.mark) ?? nEsc(node.glyph || '');
-  }
 
 
   const NVN = {
@@ -123,16 +122,6 @@ const neuralGraph = (() => {
     return Number.isFinite(n) ? Math.round(n) : 0;
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function timeAgoN(date) {
-    if (!date) return 'unknown time';
-    const d = new Date(date); if (!Number.isFinite(d.getTime())) return String(date);
-    const sec = Math.max(0, (Date.now() - d.getTime()) / 1000);
-    if (sec < 60) return `${Math.floor(sec)}s ago`;
-    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-    if (sec < 2592000) return `${Math.floor(sec / 86400)}d ago`;
-    return d.toLocaleDateString();
-  }
   function workPath() {
     const w = state && state.work;
     return w ? `${encodeURIComponent(w.owner)}/${encodeURIComponent(w.repo)}` : '';
@@ -269,6 +258,10 @@ const neuralGraph = (() => {
     NVN.nodes = []; NVN.edges = []; NVN.events = [];
     NVN.data = null; NVN.totals = {};
     NVN.selected = null; NVN.hover = null;
+    /* A search was for the last repository's names; left, it would filter the next map down to its hub. */
+    NVN.search = '';
+    const search = document.getElementById('neuralSearch');
+    if (search) search.value = '';
     NVN.intelligenceCursor = '';
     NVN.timelineIndex = -1;
     NVN.userCamera = false;
@@ -350,82 +343,40 @@ const neuralGraph = (() => {
   }
 
   function nodeById(id) { return NVN.nodes.find(n => n.id === id); }
-  function edgeById(id) { return NVN.edges.find(e => e.id === id); }
   function visibleNodes() { return NVN.nodes.filter(n => n.visible); }
 
-  function dataGaps(data) {
-    if (!data) return ['Map data'];
-    const gaps = new Set(data.unavailable || []);
-    for (const [name, value] of [['Activity', data.activity], ['References', data.refs], ['Dependencies', data.deps], ['Sessions', data.sessions], ['Live events', data.live], ['Event history', data.intelligence], ['Recovery', data.signedSnapshots], ['Access', data.access], ['Exposure', data.exposure]]) {
-      if (value && (value.available === false || value.partial || value.truncated || value.hasMore || value.truncatedBefore)) gaps.add(name);
-    }
-    if (data.deps && data.deps.osv && data.deps.osv.available === false) gaps.add('Dependencies');
-    if (data.activity && Object.values(data.activity.sources || {}).some(source => source && source.requested !== false && (source.available === false || source.truncated))) gaps.add('Activity');
-    if (data.activity && [['commits', 'date'], ['pulls', 'updated'], ['issues', 'updated'], ['releases', 'published']].some(([kind, field]) => (data.activity[kind] || []).some(item => !item[field] || !Number.isFinite(Date.parse(item[field]))))) gaps.add('Activity timestamps');
-    if (NVN.catchUpError) gaps.add('Event history');
-    return [...gaps];
-  }
+  /* What the map could not read whole (graph-summary.ts). */
+  function dataGaps(data) { return gapsOf(data, !!NVN.catchUpError); }
 
+  /* The four summary cards and the head's controls, as graph-summary.ts reads the repository. */
   function updateSummary() {
     if (!NVN.data) return;
-    const d = NVN.data;
-    const vulnCritical = NVN.nodes.filter(n => n.type === 'vulnerability' && n.severity === 'critical').length;
-    const vulnWarnings = NVN.nodes.filter(n => n.type === 'vulnerability' && n.severity === 'warning').length;
-    const criticalLeaks = NVN.nodes.filter(n => n.type === 'leak' && n.severity === 'critical').length;
-    const failedRuns = (d.actions || []).filter(a => a.conclusion === 'failure' || a.conclusion === 'cancelled').length;
-    const protectedN = ((((d.safety || {}).protected || {})[`${state.work.owner}/${state.work.repo}`]) || []).length;
-    const protectedBranches = (d.refs.refs || []).filter(r => r.protected).length;
-    const latestSigned = d.signedSnapshots && d.signedSnapshots.snapshots && d.signedSnapshots.snapshots[0];
-    const hasSnapshot = !!((latestSigned && latestSigned.signatureValid === true) || d.storedSnapshot);
-    const invalidSnapshot = !!(latestSigned && latestSigned.signatureValid !== true);
-    const recoveryUnknown = d.signedSnapshots && d.signedSnapshots.available === false && !d.storedSnapshot;
-    const otherSessions = ((d.sessions && d.sessions.sessions) || []).filter(s => !s.current).length;
-    const verified = ((d.intelligence || {}).events || []);
-    const highestVerified = verified.reduce((m, e) => Math.max(m, Number(e.score || 0)), 0);
-    const accessRisk = Number(d.access && d.access.risk && d.access.risk.score || 0);
-    let risk = Math.max(12 + vulnCritical * 22 + vulnWarnings * 9 + failedRuns * 6 + otherSessions * 3, highestVerified, accessRisk);
-    if (!hasSnapshot) risk += 9;
-    if (!protectedN && !protectedBranches) risk += 7;
-    if (d.safety.readOnly) risk -= 10;
-    if (criticalLeaks) risk = Math.max(75, risk);
-    risk = clamp(Math.round(risk), 0, 100);
-    const gaps = dataGaps(d);
-    const label = risk >= 75 ? 'Critical' : risk >= 50 ? 'Elevated' : risk >= 28 ? 'Guarded' : 'Low';
-    const level = risk >= 75 ? 'critical' : risk >= 40 ? 'warning' : 'good';
+    const summary = summarize({ data: NVN.data, nodes: NVN.nodes, events: NVN.events.length, work: state.work, catchUpError: !!NVN.catchUpError, now: Date.now() });
+    const level = (el, value) => { const card = el.closest('.neural-kpi'); if (card) card.dataset.level = value; };
     const riskEl = document.getElementById('neuralRiskScore');
-    if (riskEl) { riskEl.textContent = gaps.length ? `${risk >= 75 ? 'Critical · ' : ''}Incomplete` : `${label} · ${risk}`; const card = riskEl.closest('.neural-kpi'); if (card) card.dataset.level = gaps.length && risk < 75 ? 'warning' : level; }
+    if (riskEl) { riskEl.textContent = summary.risk.text; level(riskEl, summary.risk.level); }
     const hint = document.getElementById('neuralRiskHint');
-    const latestCritical = [...verified].reverse().find(e => e.severity === 'critical');
-    const accessReason = d.access && d.access.risk && d.access.risk.reasons && d.access.risk.reasons[0];
-    if (hint) hint.textContent = criticalLeaks ? `${criticalLeaks} critical exposed credential signal(s)` : latestCritical
-      ? `${latestCritical.summary} · ${latestCritical.reasons && latestCritical.reasons[0] ? latestCritical.reasons[0].message : `risk ${latestCritical.score}`}`
-      : accessRisk >= 70 ? `Critical access path · ${accessReason ? accessReason.message : `risk ${accessRisk}`}`
-      : vulnCritical ? `${vulnCritical} critical vulnerability signal(s)`
-      : failedRuns ? `${failedRuns} failed workflow run(s)`
-      : accessRisk >= 35 ? `Access posture warning · ${accessReason ? accessReason.message : `risk ${accessRisk}`}`
-      : gaps.length ? `Incomplete sources: ${gaps.join(', ')}` : 'No critical signals in the observed data';
-    if (hint && gaps.length && (criticalLeaks || latestCritical || accessRisk >= 35 || vulnCritical || failedRuns)) hint.textContent += ` · Incomplete: ${gaps.join(', ')}`;
-    const signals = document.getElementById('neuralSignalCount'); if (signals) signals.textContent = String(NVN.events.length);
-    const protectedEl = document.getElementById('neuralProtectedCount'); if (protectedEl) protectedEl.textContent = String(protectedN + protectedBranches);
+    if (hint) hint.textContent = summary.risk.hint;
+    const signals = document.getElementById('neuralSignalCount'); if (signals) signals.textContent = summary.signals;
+    const protectedEl = document.getElementById('neuralProtectedCount'); if (protectedEl) protectedEl.textContent = summary.protectedCount;
     const recovery = document.getElementById('neuralRecoveryState');
+    if (recovery) { recovery.textContent = summary.recovery.text; level(recovery, summary.recovery.level); }
     const recoveryHint = document.getElementById('neuralRecoveryHint');
-    if (recovery) { recovery.textContent = invalidSnapshot ? 'Unverified' : hasSnapshot ? 'Captured' : recoveryUnknown ? 'Unknown' : 'Gap'; const card = recovery.closest('.neural-kpi'); if (card) card.dataset.level = hasSnapshot && !invalidSnapshot ? 'good' : 'warning'; }
-    if (recoveryHint) recoveryHint.textContent = invalidSnapshot ? 'Retained snapshot signature could not be verified' : hasSnapshot ? `${latestSigned ? 'Verified' : 'Local'} snapshot ${timeAgoN(latestSigned ? latestSigned.createdAt : d.storedSnapshot.capturedAt)}` : recoveryUnknown ? 'Recovery evidence could not be read' : 'Capture refs before an incident';
-    document.body.classList.toggle('neural-emergency-active', !!(d.safety.readOnly && d.safety.freezeSync));
-    NVN.emergency = !!(d.safety.readOnly && d.safety.freezeSync);
+    if (recoveryHint) recoveryHint.textContent = summary.recovery.hint;
+    document.body.classList.toggle('neural-emergency-active', summary.emergency);
+    NVN.emergency = summary.emergency;
     const roBtn = document.getElementById('neuralReadOnlyBtn');
-    if (roBtn) roBtn.textContent = d.safety.readOnly ? 'Disable read-only' : 'Enable read-only';
+    if (roBtn) roBtn.textContent = summary.readOnlyLabel;
     const liveBtn = document.getElementById('neuralLiveBtn');
     if (liveBtn) {
-      liveBtn.disabled = !d.live.available;
+      liveBtn.disabled = summary.live.disabled;
       /* The control carries a full label and a short one for narrow widths;
          both change together, and the icon beside them stays. */
       const long = liveBtn.querySelector('.nh-long');
-      const short = liveBtn.querySelector('.nh-short');
-      const full = d.live.connected ? 'Disconnect verified live events' : 'Connect verified live events';
-      if (long) long.textContent = full; else liveBtn.textContent = full;
-      if (short) short.textContent = d.live.connected ? 'Disconnect' : 'Live events';
-      liveBtn.title = d.live.available ? '' : (d.live.reason || 'Neon and GitHub are required');
+      const brief = liveBtn.querySelector('.nh-short');
+      if (long) long.textContent = summary.live.label; else liveBtn.textContent = summary.live.label;
+      if (brief) brief.textContent = summary.live.short;
+      liveBtn.title = summary.live.title;
     }
   }
 
@@ -437,13 +388,7 @@ const neuralGraph = (() => {
   }
 
   function streamLabel() {
-    if (NVN.paused) return 'PAUSED';
-    if (NVN.catchUpError) return 'EVENT HISTORY UNAVAILABLE';
-    if (NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore) return 'LIVE CATCHING UP';
-    if (NVN.liveStatus === 'live') return 'VERIFIED LIVE';
-    if (NVN.liveStatus === 'connecting') return 'LIVE CONNECTING';
-    if (NVN.liveStatus === 'reconnecting') return 'LIVE RECONNECTING';
-    return dataGaps(NVN.data).length ? 'PARTIAL TOPOLOGY' : 'POLLING TOPOLOGY';
+    return streamLabelOf({ paused: NVN.paused, catchUpError: !!NVN.catchUpError, data: NVN.data, liveStatus: NVN.liveStatus });
   }
 
   function setStream(label, live) {
@@ -1246,25 +1191,9 @@ const neuralGraph = (() => {
   function announceNode(node) {
     const live = document.getElementById('neuralLive');
     if (!live || !node) return;
-    const count = NVN.edges.filter(e => e.visible && (e.source === node.id || e.target === node.id)).length;
-    const severity = node.severity === 'critical' ? 'critical signal' : node.severity === 'warning' ? 'review recommended' : 'normal';
-    live.textContent = `${(TYPE_STYLE[node.type] || {}).label || 'Node'}: ${node.label}. ${severity}. ${count} connection${count === 1 ? '' : 's'}.`;
+    live.textContent = announcement(node, NVN.edges);
   }
 
-  function iconSvg(type) {
-    const d = TYPE_ICON[type];
-    if (!d) return '';
-    return type === 'repo'
-      ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="${d}"/></svg>`
-      : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
-  }
-  function factValue(value) {
-    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-    const text = String(value);
-    if (/^\d{4}-\d{2}-\d{2}T/.test(text) && !Number.isNaN(Date.parse(text))) return timeAgoN(text);
-    return short(text, 40);
-  }
-  const FACT_SKIP = new Set(['description', 'summary', 'message', 'title', 'verifiedEvent', 'url']);
 
   /*
    * Where the card goes. Beside the node when the stage has room for both; along
@@ -1272,12 +1201,8 @@ const neuralGraph = (() => {
    * a strip between the header and the bottom navigation, as a sheet over the
    * page, which is the only place with room to read it.
    */
-  const CARD_WIDTH = 312;
   let cardHome = null;
-  function cardMode() {
-    if (window.innerWidth < 720 && !stageExpanded()) return 'sheet';
-    return NVN.width < CARD_WIDTH + 300 ? 'docked' : 'float';
-  }
+  function cardMode() { return cardModeOf(window.innerWidth, stageExpanded(), NVN.width); }
   function cardDocked() { return cardMode() !== 'float'; }
   function placeCardElement(card) {
     const mode = cardMode();
@@ -1294,36 +1219,12 @@ const neuralGraph = (() => {
     return mode;
   }
 
+  /* The card's words are graph-card.ts's and its markup NeuralPanels.tsx's; where it stands is the map's. */
   function renderCard(node, fresh) {
     const card = document.getElementById('neuralCard');
     if (!card) return;
-    const st = TYPE_STYLE[node.type] || TYPE_STYLE.repo;
-    const links = NVN.edges
-      .filter(e => e.visible && (e.source === node.id || e.target === node.id))
-      .map(e => ({ edge: e, other: nodeById(e.source === node.id ? e.target : e.source) }))
-      .filter(item => item.other)
-      .sort((a, b) => (SEVERITY_RANK[a.edge.severity] ?? 2) - (SEVERITY_RANK[b.edge.severity] ?? 2) || a.other.label.localeCompare(b.other.label));
-    const facts = Object.entries(node.meta || {})
-      .filter(([k, v]) => !FACT_SKIP.has(k) && v !== '' && v != null && typeof v !== 'object')
-      .slice(0, 6);
-    const desc = node.meta.description || inspectorDescription(node);
-    const status = node.severity === 'critical' ? 'Critical signal' : node.severity === 'warning' ? 'Review recommended' : 'Normal';
-    const shown = links.slice(0, 8);
+    drawCard(card, cardModel({ node, edges: NVN.edges, nodeById, explaining: !!NVN.explainStart, now: Date.now() }), CARD_HANDLERS);
     card.style.setProperty('--node', node.color);
-    card.innerHTML = `
-      <header class="neural-card-head">
-        <span class="neural-card-icon" aria-hidden="true">${iconSvg(node.type) || nodeBadge(node)}</span>
-        <div class="neural-card-title"><span class="neural-card-kicker">${nEsc(st.label)}</span><h3 id="neuralCardTitle">${nEsc(node.label)}</h3></div>
-        <button type="button" class="neural-card-close" data-neural-card-close aria-label="Close details"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
-      </header>
-      <div class="neural-card-body">
-        <span class="neural-card-status" data-severity="${nEsc(node.severity || 'normal')}"><i aria-hidden="true"></i>${status}</span>
-        <p class="neural-card-copy">${nEsc(desc)}</p>
-        ${facts.length ? `<dl class="neural-card-facts">${facts.map(([k, v]) => `<div><dt>${nEsc(k.replace(/([A-Z])/g, ' $1').toLowerCase())}</dt><dd>${nEsc(factValue(v))}</dd></div>`).join('')}</dl>` : ''}
-        <h4 class="neural-card-section">Connected <span>${links.length}</span></h4>
-        ${shown.length ? `<ul class="neural-card-links">${shown.map(({ edge, other }) => `<li><button type="button" data-neural-goto="${nEsc(other.id)}" style="--node:${nEsc(other.color)}"><i aria-hidden="true">${iconSvg(other.type)}</i><span><b>${nEsc(short(other.label, 30))}</b><small>${nEsc(edge.type)}</small></span>${edge.severity !== 'normal' ? `<em data-severity="${nEsc(edge.severity)}" aria-label="${edge.severity === 'critical' ? 'critical' : 'warning'}"></em>` : ''}</button></li>`).join('')}</ul>${links.length > shown.length ? `<p class="neural-card-more">${links.length - shown.length} more in the graph</p>` : ''}` : '<p class="neural-card-more">Nothing connected in this mode.</p>'}
-        <div class="neural-card-actions">${inspectorActions(node)}</div>
-      </div>`;
     card.hidden = false;
     NVN.cardMode = placeCardElement(card);
     if (fresh) {
@@ -1344,7 +1245,7 @@ const neuralGraph = (() => {
     if (!card || card.hidden) return;
     const hadFocus = card.contains(document.activeElement);
     card.hidden = true;
-    card.innerHTML = '';
+    clearPanel(card);
     card.classList.remove('is-sheet', 'is-docked');
     NVN.cardMode = null;
     if (card.parentNode === document.body && cardHome && cardHome.parentNode) cardHome.parentNode.insertBefore(card, cardHome);
@@ -1364,20 +1265,14 @@ const neuralGraph = (() => {
       if (NVN.cardPos) { card.style.left = ''; card.style.top = ''; NVN.cardPos = null; }
       return;
     }
-    const W = NVN.width, H = NVN.height;
     const size = NVN.cardSize || { w: card.offsetWidth, h: card.offsetHeight };
     const p = worldToScreen(node.x, node.y);
-    /* Beside the node's panel, not over it: the rows under the card are the
-     * node's own group, and the reader is usually comparing it with them. */
+    /* Clear of the node's panel, or of the node where it has none (graph-card.ts). */
     const panel = (NVN.panels || []).find(item => item.type === node.type);
-    const leftEdge0 = panel ? worldToScreen(panel.x, 0).x : p.x - nodeRadius(node) - 12;
-    const rightEdge0 = panel ? worldToScreen(panel.x + panel.w, 0).x : p.x + nodeRadius(node) + 12;
-    let left = rightEdge0 + 16, side = 'right';
-    if (left + size.w > W - 60) { left = leftEdge0 - 16 - size.w; side = 'left'; }
-    const leftEdge = viewportInsets().left - 4;
-    left = clamp(left, leftEdge, Math.max(leftEdge, W - size.w - 60));
-    const inset = viewportInsets();
-    const top = clamp(p.y - 44, inset.top - 2, Math.max(inset.top - 2, H - size.h - inset.bottom + 8));
+    const span = panel
+      ? { left: worldToScreen(panel.x, 0).x, right: worldToScreen(panel.x + panel.w, 0).x }
+      : { left: p.x - nodeRadius(node) - 12, right: p.x + nodeRadius(node) + 12 };
+    const { left, top, side } = cardPlacement({ width: NVN.width, height: NVN.height, size, at: p, span, insets: viewportInsets() });
     const prev = NVN.cardPos;
     if (!prev || Math.abs(prev.left - left) > .5 || Math.abs(prev.top - top) > .5) {
       card.style.left = `${Math.round(left)}px`;
@@ -1395,23 +1290,18 @@ const neuralGraph = (() => {
     const card = document.getElementById('neuralCard');
     if (!card || card.hidden) return;
     const p = worldToScreen(node.x, node.y);
-    const r = node.type === 'repo' ? nodeRadius(node) * 1.1 : nodeRadius(node) * 1.1;
-    const ex = pos.side === 'right' ? pos.left : pos.left + pos.w;
-    const ey = clamp(p.y, pos.top + 18, pos.top + pos.h - 18);
-    /* The line leaves from the row's end, so it runs along the row it names. */
+    /* The line leaves from the row's end, so it runs along the row it names (graph-card.ts). */
     const panel = (NVN.panels || []).find(item => item.type === node.type);
     const rowEnd = panel ? worldToScreen(pos.side === 'right' ? panel.x + panel.w - 6 : panel.x + 6, node.y) : null;
-    const angle = Math.atan2(ey - p.y, ex - p.x);
-    const sx = rowEnd ? rowEnd.x : p.x + Math.cos(angle) * (r + 3);
-    const sy = rowEnd ? rowEnd.y : p.y + Math.sin(angle) * (r + 3);
+    const { from, to } = leaderLine(p, nodeRadius(node) * 1.1, pos, rowEnd);
     ctx.save();
     ctx.strokeStyle = hexAlpha(node.color, .7);
     ctx.lineWidth = 1.2;
     ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = colors.ink(node.color);
-    ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(to.x, to.y, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
@@ -1419,26 +1309,6 @@ const neuralGraph = (() => {
    * The legend is the list of groups actually on screen, with their counts,
    * and each entry is a control: pressing one lights that group and frames it.
    */
-  /*
-   * The groups, organised by what they are about -- who can reach the
-   * repository, its code, how it ships, what it depends on, what protects
-   * it -- each with its count (and the repository's total where the graph
-   * holds fewer), its critical and warning counts, a press that lights and
-   * frames it, and an eye that hides it from the graph. For a large
-   * repository this is where the picture is managed: hide what is not the
-   * question, open or fold every group at once.
-   */
-  const GROUP_CATEGORIES = [
-    ['Access', ['user', 'credential', 'leak', 'session', 'integration']],
-    ['Code', ['branch', 'commit', 'tag', 'pull', 'issue', 'release']],
-    ['Delivery', ['workflow', 'external']],
-    ['Supply chain', ['package', 'vulnerability', 'scan']],
-    ['Protection', ['protected', 'safety', 'snapshot']]
-  ];
-  const EYE_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
-  const EYE_SHUT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M9.9 5.8A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.9 3.7M6.1 7.4C3.8 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5a9.6 9.6 0 0 0 4.2-.9"/></svg>';
-  /* The stage's own Reset layout: shown while this repository, mode and
-   * shape have panels the reader moved. */
   function syncResetChip() {
     const chip = document.getElementById('neuralResetLayout');
     const stage = document.getElementById('neuralStage');
@@ -1446,57 +1316,18 @@ const neuralGraph = (() => {
     if (chip) chip.hidden = !moved;
     if (stage) stage.classList.toggle('has-placements', moved);
   }
+  /* The groups list: what graph-legend.ts makes of the graph, drawn by NeuralPanels.tsx. */
   function renderLegend() {
     syncResetChip();
     const host = document.getElementById('neuralLegend');
     if (!host) return;
-    const stats = new Map();
-    for (const n of NVN.nodes) {
-      if (!n.inScope || n.type === 'repo') continue;
-      const entry = stats.get(n.type) || { count: 0, critical: 0, warning: 0 };
-      entry.count++;
-      if (n.severity === 'critical') entry.critical++;
-      else if (n.severity === 'warning') entry.warning++;
-      stats.set(n.type, entry);
-    }
-    if (NVN.focusGroup && (!stats.has(NVN.focusGroup) || NVN.hiddenGroups.has(NVN.focusGroup))) NVN.focusGroup = null;
-    const known = new Set(GROUP_CATEGORIES.flatMap(([, types]) => types));
-    const categories = GROUP_CATEGORIES.map(([name, types]) => [name, types.filter(type => stats.has(type))]);
-    const other = [...stats.keys()].filter(type => !known.has(type));
-    if (other.length) categories.push(['Other', other]);
-    const foldable = (NVN.panels || []).filter(panel => panel.members.length > MAX_ROWS);
-    const allOpen = foldable.length && foldable.every(panel => NVN.expandedGroups.has(panel.type));
-    const hiddenHere = [...NVN.hiddenGroups].filter(type => stats.has(type));
-    const tools = [
-      foldable.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="${allOpen ? 'fold' : 'open'}">${allOpen ? 'Fold all' : 'Open all'}</button>` : '',
-      hiddenHere.length ? `<button type="button" class="neural-groups-tool" data-neural-groups="show">Show all (${hiddenHere.length} hidden)</button>` : '',
-      hasPlacements() ? '<button type="button" class="neural-groups-tool" data-neural-groups="reset-layout">Reset layout</button>' : ''
-    ].join('');
-    host.innerHTML = (tools ? `<div class="neural-groups-tools">${tools}</div>` : '') + categories.filter(([, types]) => types.length).map(([name, types]) => {
-      const rows = types.map(type => {
-        const st = TYPE_STYLE[type] || TYPE_STYLE.repo;
-        const entry = stats.get(type);
-        const hidden = NVN.hiddenGroups.has(type);
-        const on = NVN.focusGroup === type;
-        const total = (NVN.totals || {})[type];
-        const plural = st.plural || st.label;
-        /* A name too long for the row beside its counts is shortened there;
-         * the whole name is the row's tooltip and the panel's header. */
-        const name = st.short || plural;
-        const pips = [
-          entry.critical ? `<i class="ng-pip is-critical" title="${entry.critical} critical">${entry.critical}</i>` : '',
-          entry.warning ? `<i class="ng-pip is-warning" title="${entry.warning} to review">${entry.warning}</i>` : ''
-        ].join('');
-        return `<div class="neural-group-row${hidden ? ' is-hidden' : ''}" style="--node:${nEsc(st.color)}">`
-          + `<button type="button" class="neural-chip${on ? ' is-on' : ''}" data-neural-group="${nEsc(type)}" aria-pressed="${on}"${hidden ? ' aria-disabled="true"' : ''}>`
-          + `<span class="ng-icon" aria-hidden="true">${iconSvg(type)}</span><span class="ng-name" title="${nEsc(plural)}">${nEsc(name)}</span>${pips}`
-          + `<b>${entry.count}</b>${total > entry.count ? `<small>of ${total}</small>` : ''}</button>`
-          + `<button type="button" class="neural-eye" data-neural-toggle="${nEsc(type)}" aria-pressed="${!hidden}" aria-label="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}" title="${hidden ? 'Show' : 'Hide'} ${nEsc(plural.toLowerCase())}">${hidden ? EYE_SHUT : EYE_OPEN}</button>`
-          + '</div>';
-      }).join('');
-      return `<section class="neural-group-cat" aria-label="${nEsc(name)}"><h4>${nEsc(name)}</h4>${rows}</section>`;
-    }).join('');
-    host.hidden = !stats.size;
+    const legend = legendModel({
+      nodes: NVN.nodes, panels: NVN.panels || [], expanded: NVN.expandedGroups, hidden: NVN.hiddenGroups,
+      focusGroup: NVN.focusGroup, totals: NVN.totals || {}, moved: hasPlacements()
+    });
+    NVN.focusGroup = legend.focusGroup;
+    drawLegend(host, legend, LEGEND_HANDLERS);
+    host.hidden = legend.empty;
   }
   function focusGroup(type) {
     NVN.focusGroup = NVN.focusGroup === type ? null : type;
@@ -1510,42 +1341,7 @@ const neuralGraph = (() => {
     } else fitGraph(true);
   }
 
-  function inspectorDescription(node) {
-    return {
-      repo: 'Central node connecting repository activity, protection, dependencies and recovery state.',
-      branch: 'A mutable Git reference. Protected branches reduce the risk of destructive direct changes.',
-      commit: 'A historical repository change observed during the selected activity window.',
-      workflow: 'A CI/CD execution connected to a branch or commit.',
-      vulnerability: 'A known advisory affecting a dependency version found in the repository manifest.',
-      protected: 'A path guarded by the Nebulaverse-X protected-file policy.',
-      snapshot: 'A retained reference manifest used for rapid repository-state recovery.',
-      session: 'An authenticated Nebulaverse-X session associated with this identity.',
-      credential: 'A repository deploy key. Writable keys represent a direct non-human modification path.',
-      leak: 'A credential an Exposure scan found in the repository or its history. The secret itself is never stored or shown.',
-      integration: 'A repository webhook integration and its destination security posture.'
-    }[node.type] || 'Repository intelligence object correlated by the Neural Command Center.';
-  }
 
-  function inspectorActions(node) {
-    const buttons = [];
-    if (node.type === 'protected' && node.meta.path) buttons.push(`<button class="btn btn-ghost small" data-neural-action="open-file" data-path="${nEsc(node.meta.path)}">Open protected file</button>`);
-    if (node.type === 'branch') buttons.push(`<button class="btn btn-ghost small" data-neural-action="branch" data-branch="${nEsc(node.label)}">Switch to this branch</button>`);
-    if (node.type === 'commit') buttons.push('<button class="btn btn-ghost small" data-neural-action="commits">Open commit history</button>');
-    if (node.type === 'pull') buttons.push('<button class="btn btn-ghost small" data-neural-action="pulls">Open pull requests</button>');
-    if (node.type === 'issue') buttons.push('<button class="btn btn-ghost small" data-neural-action="issues">Open issues</button>');
-    if (node.type === 'workflow') {
-      buttons.push('<button class="btn btn-ghost small" data-neural-action="actions">Open workflow runs</button>');
-      if (node.meta.url) buttons.push(`<button class="btn btn-ghost small" data-neural-action="external-url" data-url="${nEsc(node.meta.url)}">Open on provider</button>`);
-    }
-    if (node.type === 'package' || node.type === 'vulnerability' || node.type === 'scan') buttons.push('<button class="btn btn-ghost small" data-neural-action="security-scan">Run full dependency scan</button>');
-    if (node.type === 'snapshot') buttons.push('<button class="btn btn-ghost small" data-neural-action="snapshot">Capture fresh references</button><button class="btn btn-ghost small" data-neural-action="recovery-preview">Preview recovery impact</button><button class="btn btn-ghost small" data-neural-action="recovery">Open recovery workflow</button>');
-    if (node.type === 'safety' || node.type === 'repo' || node.type === 'protected') buttons.push('<button class="btn btn-ghost small" data-neural-action="safeguards">Open safeguards</button>');
-    if (node.type === 'leak') buttons.push('<button class="btn btn-ghost small" data-neural-action="exposure">Open in Exposure</button>');
-    if (node.type === 'session' || node.type === 'user') buttons.push('<button class="btn btn-ghost small" data-neural-action="revoke">Revoke other sessions</button>');
-    buttons.push(`<button class="btn btn-ghost small" data-neural-action="explain">${NVN.explainStart ? 'Explain from selected start' : 'Use for connection path'}</button>`);
-    if (!buttons.length) buttons.push('<button class="btn btn-ghost small" data-neural-action="refresh">Refresh intelligence</button>');
-    return buttons.join('');
-  }
 
   function closeLiveStream() {
     if (NVN.eventSource) { try { NVN.eventSource.close(); } catch {} }
@@ -1759,14 +1555,6 @@ const neuralGraph = (() => {
     document.getElementById('neuralTimeline')?.addEventListener('input', e => setTimeline(+e.target.value));
     document.getElementById('neuralPrevEvent')?.addEventListener('click', () => setTimeline(Math.max(0, NVN.timelineIndex - 1)));
     document.getElementById('neuralNextEvent')?.addEventListener('click', () => setTimeline(Math.min(NVN.events.length - 1, NVN.timelineIndex + 1)));
-    document.getElementById('neuralEventStrip')?.addEventListener('click', e => { const c = e.target.closest('[data-event-index]'); if (c) setTimeline(+c.dataset.eventIndex); });
-    const card = document.getElementById('neuralCard');
-    card?.addEventListener('click', event => {
-      if (event.target.closest('[data-neural-card-close]')) { selectNode(null); NVN.canvas?.focus({ preventScroll: true }); return; }
-      const goto = event.target.closest('[data-neural-goto]');
-      if (goto) { const node = nodeById(goto.dataset.neuralGoto); if (node) selectNode(node, { fly: true, announce: true }); return; }
-      inspectorClick(event);
-    });
     /* Escape closes an open card from anywhere on the page -- the card may be
      * a sheet appended to the body, far from the canvas that has focus rules
      * of its own. It runs before the enlarged stage's own Escape, so one press
@@ -1781,23 +1569,6 @@ const neuralGraph = (() => {
       selectNode(null);
       if (hadFocus) NVN.canvas?.focus({ preventScroll: true });
     }, true);
-    document.getElementById('neuralLegend')?.addEventListener('click', event => {
-      const eye = event.target.closest('[data-neural-toggle]');
-      if (eye) { setGroupHidden(eye.dataset.neuralToggle, !NVN.hiddenGroups.has(eye.dataset.neuralToggle)); return; }
-      const tool = event.target.closest('[data-neural-groups]');
-      if (tool) {
-        const action = tool.dataset.neuralGroups;
-        if (action === 'show') { NVN.hiddenGroups.clear(); forgetHiddenGroups(browserStorage); applyMode(); fitGraph(true); }
-        else if (action === 'reset-layout') resetPlacements();
-        else setAllGroupsOpen(action === 'open');
-        return;
-      }
-      const chip = event.target.closest('[data-neural-group]');
-      if (!chip) return;
-      /* A hidden group's name brings it back, lit. */
-      if (NVN.hiddenGroups.has(chip.dataset.neuralGroup)) setGroupHidden(chip.dataset.neuralGroup, false);
-      focusGroup(chip.dataset.neuralGroup);
-    });
     document.getElementById('neuralZoomInBtn')?.addEventListener('click', () => zoomBy(1.25));
     document.getElementById('neuralZoomOutBtn')?.addEventListener('click', () => zoomBy(1 / 1.25));
   }
@@ -1813,11 +1584,10 @@ const neuralGraph = (() => {
     setStream(NVN.paused ? 'PAUSED' : 'LIVE TOPOLOGY', !NVN.paused); updateVisibleCount();
   }
 
-  async function inspectorClick(e) {
-    const b = e.target.closest('[data-neural-action]'); if (!b) return;
-    const action = b.dataset.neuralAction;
-    if (action === 'open-file' && typeof openFile === 'function') { switchTab('editor'); openFile(b.dataset.path); }
-    else if (action === 'branch') switchBranchFromGraph(b.dataset.branch);
+  /* What a card's action does (graph-card.ts says which a node offers). */
+  async function cardAction({ action, path, branch, url }) {
+    if (action === 'open-file' && typeof openFile === 'function') { switchTab('editor'); openFile(path); }
+    else if (action === 'branch') switchBranchFromGraph(branch);
     else if (['commits', 'pulls', 'issues', 'actions'].includes(action)) switchTab(action);
     else if (action === 'security-scan' && typeof securityScanFlow === 'function') securityScanFlow();
     else if (action === 'snapshot') { await captureSnapshot(false); await load(true); }
@@ -1826,10 +1596,26 @@ const neuralGraph = (() => {
     else if (action === 'safeguards' && typeof openSafeguards === 'function') openSafeguards();
     else if (action === 'exposure' && typeof switchTab === 'function') { if (stageExpanded()) setStageExpanded(false); switchTab('exposure'); }
     else if (action === 'revoke') revokeOtherSessions(true);
-    else if (action === 'external-url' && /^https:\/\//.test(b.dataset.url || '')) window.open(b.dataset.url, '_blank', 'noopener');
+    else if (action === 'external-url' && /^https:\/\//.test(url || '')) window.open(url, '_blank', 'noopener');
     else if (action === 'explain') explainFromSelected();
     else if (action === 'refresh') load(true);
   }
+  /* What the panels do when the reader presses in them (NeuralPanels.tsx). */
+  const CARD_HANDLERS = Object.freeze({
+    onClose() { selectNode(null); NVN.canvas?.focus({ preventScroll: true }); },
+    onGoto(id) { const node = nodeById(id); if (node) selectNode(node, { fly: true, announce: true }); },
+    onAction(action) { void cardAction(action); }
+  });
+  const LEGEND_HANDLERS = Object.freeze({
+    onToggle(type) { setGroupHidden(type, !NVN.hiddenGroups.has(type)); },
+    onTool(action) {
+      if (action === 'show') { NVN.hiddenGroups.clear(); forgetHiddenGroups(browserStorage); applyMode(); fitGraph(true); }
+      else if (action === 'reset-layout') resetPlacements();
+      else setAllGroupsOpen(action === 'open');
+    },
+    /* A hidden group's name brings it back, lit. */
+    onGroup(type) { if (NVN.hiddenGroups.has(type)) setGroupHidden(type, false); focusGroup(type); }
+  });
 
   function switchBranchFromGraph(name) {
     const select = document.getElementById('branchSelect');
@@ -1841,14 +1627,13 @@ const neuralGraph = (() => {
     const range = document.getElementById('neuralTimeline');
     if (!range) return;
     range.max = Math.max(0, NVN.events.length - 1);
-    if (toLatest) NVN.timelineIndex = NVN.events.length - 1;
-    NVN.timelineIndex = clamp(NVN.timelineIndex, NVN.events.length ? 0 : -1, NVN.events.length - 1);
+    NVN.timelineIndex = timelineIndex(NVN.timelineIndex, NVN.events.length, !!toLatest);
     range.value = Math.max(0, NVN.timelineIndex);
     renderEventStrip(); updateTimelineCaption();
   }
   function setTimeline(index) {
     if (!NVN.events.length) return;
-    NVN.timelineIndex = clamp(index, 0, NVN.events.length - 1);
+    NVN.timelineIndex = timelineIndex(index, NVN.events.length, false);
     const range = document.getElementById('neuralTimeline'); if (range) range.value = NVN.timelineIndex;
     const ev = NVN.events[NVN.timelineIndex], node = nodeById(ev.nodeId);
     if (node && node.visible) selectNode(node, { fly: true });
@@ -1857,15 +1642,11 @@ const neuralGraph = (() => {
   function updateTimelineCaption() {
     const cap = document.getElementById('neuralTimelineCaption');
     if (!cap) return;
-    const ev = NVN.events[NVN.timelineIndex];
-    cap.textContent = ev ? `${ev.label} · ${timeAgoN(ev.time)}` : 'No activity events available';
+    cap.textContent = timelineCaption(NVN.events[NVN.timelineIndex], Date.now());
   }
   function renderEventStrip() {
     const host = document.getElementById('neuralEventStrip'); if (!host) return;
-    if (!NVN.events.length) { host.innerHTML = '<div class="neural-event-card"><b>No events</b><small>Refresh or use demo mode</small></div>'; return; }
-    const start = clamp(NVN.timelineIndex - 3, 0, Math.max(0, NVN.events.length - 6));
-    const slice = NVN.events.slice(start, start + 6);
-    host.innerHTML = slice.map((ev, i) => `<button class="neural-event-card ${start + i === NVN.timelineIndex ? 'active' : ''}" data-event-index="${start + i}"><b>${nEsc(ev.label)}</b><small>${nEsc(ev.type)} · ${nEsc(timeAgoN(ev.time))}</small></button>`).join('');
+    renderEvents(host, eventStrip(NVN.events, NVN.timelineIndex, Date.now()), setTimeline);
   }
 
   async function toggleReadOnly() {

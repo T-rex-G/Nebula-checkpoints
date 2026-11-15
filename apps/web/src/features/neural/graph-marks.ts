@@ -37,22 +37,23 @@ export const TYPE_ICON: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /*
- * The same four marks for the inspector, which is DOM rather than canvas.
- * Node types that carry a letter keep it; the drawn ones get the drawing, so
- * the panel and the graph agree about what a node looks like.
+ * The same four marks for the card, which is DOM rather than canvas. Node
+ * types that carry a letter keep it; the drawn ones get the drawing, so the
+ * card and the graph agree about what a node looks like. Each is one or more
+ * paths on the 24-unit grid; the star is filled, the rest are stroked.
  */
-export const INSPECTOR_MARK: Readonly<Record<NodeMark, string>> = Object.freeze({
-  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z"/></svg>',
-  restore: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 12a7.2 7.2 0 1 0 2.1-5.1"/><path d="M4.8 6.2v5.1h5.1"/></svg>',
-  shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5z"/></svg>',
-  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 12.4l4.2 4.2 9-9.2"/></svg>'
+export const MARK_PATHS: Readonly<Record<NodeMark, { readonly paths: readonly string[]; readonly filled: boolean }>> = Object.freeze({
+  star: { paths: ['M12 3.4c.6 3.6 1.8 5.4 5.4 6.6-3.6 1.2-4.8 3-5.4 6.6-.6-3.6-1.8-5.4-5.4-6.6 3.6-1.2 4.8-3 5.4-6.6z'], filled: true },
+  restore: { paths: ['M4.8 12a7.2 7.2 0 1 0 2.1-5.1', 'M4.8 6.2v5.1h5.1'], filled: false },
+  shield: { paths: ['M12 3.6l7 2.9v5.1c0 4.2-2.9 7.6-7 8.9-4.1-1.3-7-4.7-7-8.9V6.5z'], filled: false },
+  check: { paths: ['M5.4 12.4l4.2 4.2 9-9.2'], filled: false }
 });
 
 const own = (table: object, key: string): boolean => Object.prototype.hasOwnProperty.call(table, key);
 
-/* The inspector's mark for a drawn type, or nothing for a type set in a letter. */
-export function inspectorMark(mark: string | undefined): string | undefined {
-  return mark && own(INSPECTOR_MARK, mark) ? INSPECTOR_MARK[mark as NodeMark] : undefined;
+/* A type's icon path, or nothing for a name that is not a type's own. */
+export function iconPath(type: string): string | undefined {
+  return own(TYPE_ICON, type) ? TYPE_ICON[type] : undefined;
 }
 
 /*
@@ -109,7 +110,7 @@ export function drawNodeMark(ctx: CanvasRenderingContext2D, mark: string, x: num
 
 /* Paths are compiled once; a Path2D is reused every frame. */
 const ICON_CACHE = new Map<string, Path2D>();
-function iconPath(type: string): Path2D | null {
+function compiledIcon(type: string): Path2D | null {
   if (typeof Path2D !== 'function' || !own(TYPE_ICON, type)) return null;
   let path = ICON_CACHE.get(type);
   if (!path) { path = new Path2D(TYPE_ICON[type]); ICON_CACHE.set(type, path); }
@@ -118,7 +119,7 @@ function iconPath(type: string): Path2D | null {
 
 /* A type's icon, centred on (x, y): false where the canvas cannot draw a path. */
 export function drawIcon(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, size: number, color: string): boolean {
-  const path = iconPath(type);
+  const path = compiledIcon(type);
   if (!path) return false;
   ctx.save();
   ctx.translate(x - size / 2, y - size / 2);

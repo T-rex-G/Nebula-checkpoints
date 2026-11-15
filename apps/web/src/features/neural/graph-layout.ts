@@ -144,7 +144,8 @@ function stackHeight(list: readonly { readonly h: number }[]): number {
   return list.reduce((sum, panel) => sum + panel.h, 0) + PANEL_GAP * Math.max(0, list.length - 1);
 }
 
-const rankOf = (severity: string): number => (Object.prototype.hasOwnProperty.call(SEVERITY_RANK, severity) ? SEVERITY_RANK[severity as Severity] : 2);
+/* Critical first, then warnings, then the rest; a severity the map does not know ranks with the rest. */
+export const severityRank = (severity: string): number => (Object.prototype.hasOwnProperty.call(SEVERITY_RANK, severity) ? SEVERITY_RANK[severity as Severity] : 2);
 
 /* A panel before it has a place: its rows and its size. */
 interface Rows {
@@ -168,7 +169,7 @@ function rowsOf(type: NodeType, group: readonly GraphNode[], input: LayoutInput,
   /* Critical first, then in the source's own order where it has one --
    * newest commit, default branch -- then by name. */
   const members = group.slice().sort((a, b) =>
-    rankOf(a.severity) - rankOf(b.severity)
+    severityRank(a.severity) - severityRank(b.severity)
     || (a.order ?? 1e9) - (b.order ?? 1e9)
     || a.label.localeCompare(b.label));
   let shown: readonly GraphNode[] = members;

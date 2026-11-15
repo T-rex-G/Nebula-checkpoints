@@ -417,7 +417,7 @@ must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migr
 must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
 const neural = read('apps/web/src/visualizations/neural.js');
 /* "Explain this connection": the shortest chain of relations (features/neural/graph-path.ts) is test/neural-graph-interaction.test.js's, and the dialog it opens test/e2e/neural-safety.spec.js's. */
-must(neural.includes('EventSource') && neural.includes('VERIFIED LIVE'), 'Neural verified live stream is missing');
+/* The verified live stream -- an EventSource the map calls live only once it is ready, and opens again on return -- is test/pulsar-reliability.test.js's; its words, test/neural-graph-panels.test.js's. */
 must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeURIComponent(after)}'), 'Cursor-based Neural event catch-up is missing');
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');
 /* That an upload carrying a malware signature is refused, MALWARE_DETECTED, is test/composition.test.js's. */

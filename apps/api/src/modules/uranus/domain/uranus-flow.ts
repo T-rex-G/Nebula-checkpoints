@@ -40,6 +40,7 @@ import { getHeapStatistics } from 'node:v8';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
 import { analyseCFamily, CFAMILY_FILE } from './uranus-cfamily.ts';
+import { CONTRACTS, SAFE, bothCleared, isAllowListReplace, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
 import type { CFamilyReading, Flow, Step } from './uranus-cfamily.ts';
 import type { Route, RouteUse } from './uranus-surface.ts';
 
@@ -67,6 +68,7 @@ interface FlowValue {
   html: boolean;
   built: boolean;
   guarded: Guard | null;
+  cleared: ReadonlySet<FlowSinkKind> | null; /* The sinks a sanitiser has made this value safe for; every other sink still counts. */
   steps: Step[];
   object?: boolean;
   wholeInside?: FlowValue | null;
@@ -191,6 +193,7 @@ interface SummarySink {
 interface Summary {
   readonly sinks: SummarySink[];
   readonly returns: Set<number>;
+  readonly returned: Map<number, Returned<Guard>>;
   readonly fn: FnInfo | undefined;
   readonly name: string;
   readonly line: number | undefined;
@@ -324,6 +327,7 @@ function taint(kind: string, path: string, line: number, extra: TaintExtra = {})
     html: false,
     built: false,
     guarded: null,
+    cleared: null,
     steps: [{ path, line, role: 'entrypoint', note: extra.note || `${kind} enters here` }]
   };
 }
@@ -341,7 +345,7 @@ function merge(a: Value | undefined, b: Value | undefined): Value {
   /* A strong source outranks a weak one, and a real source a parameter placeholder. */
   const rank = (value: FlowValue): number => (value.param !== null ? 0 : value.weak ? 1 : 2);
   const first = rank(b) > rank(a) ? b : a;
-  return { ...first, sql: a.sql || b.sql, html: a.html || b.html, built: a.built || b.built, guarded: first.guarded };
+  return { ...first, sql: a.sql || b.sql, html: a.html || b.html, built: a.built || b.built, guarded: first.guarded, cleared: bothCleared(a.cleared, b.cleared) };
 }
 
 /* ---- Scope -------------------------------------------------------------- */
@@ -386,17 +390,6 @@ const PY_REQUEST_FIELDS = table<string>({
   full_path: 'request URL', path: 'request path'
 });
 const BROWSER_LOCATION = /^(window\.|document\.|self\.|globalThis\.)?location\.(search|hash|href|pathname)$|^document\.(URL|documentURI|referrer|baseURI)$|^window\.name$/;
-
-/* ---- Sanitisers and propagation -------------------------------------------- */
-
-/*
- * Calls whose result is safe whatever went in: a number, a boolean, an
- * encoded component, a hash, a file's bare name, a schema's parsed output, a
- * validation verdict. Anything else is assumed to carry its input through.
- */
-const SANITISER = /^(parseInt|parseFloat|Number|Boolean|BigInt|isNaN|isFinite|encodeURIComponent|escape\w*|htmlEscape|escapeHtml|escapeRegExp|sanitiz\w*|sanitis\w*|purify|clean\w*|validate\w*|verify\w*|isValid\w*|hash\w*|digest|createHash|compare\w*|bcrypt\w*|argon2\w*|uuid\w*|randomUUID|basename|extname|safeParse|parseAsync|safeParseAsync|toNumber|toInteger|toInt|int|float|bool|quote|secure_filename|escape_string|mark_safe_escape|quote_plus|urlencode|slugify|test|includes|startsWith|endsWith|indexOf|lastIndexOf|has|some|every|count\w*|exists|size|toFixed|len|isdigit|isnumeric|isalnum|abs|round|floor|ceil|max|min|typeof|format_number|UUID|uuid4|urlsafe_b64encode|assertPublic\w*|assertSafe\w*|assertAllowed\w*|assertTrusted\w*|assertHttps\w*|requireHttps\w*|requireSafe\w*|ensureSafe\w*|toSafe\w*|safeUrl|safePath|safeJoin|safe_join|cleanPath|normali[sz]eSafe\w*|resolveInside|within\w*)$/;
-/* `.parse` is a schema's validation -- except JSON's and a URL module's, which only restructure the input. */
-const PASS_THROUGH_PARSE = /^(JSON|url|querystring|qs|URLSearchParams|path|yaml|YAML|toml|json|ast)$/;
 
 /* ---- Sinks -------------------------------------------------------------------- */
 
@@ -1005,7 +998,7 @@ class JsWalker {
       if (isWord(token, 'return') || isWord(token, 'throw')) {
         const stop = expressionEnd(tokens, index + 1, end, false);
         const value = stop > index + 1 ? this.expression(index + 1, stop, scope, roles) : null;
-        if (isWord(token, 'return') && value && this.summaryOf && value.param !== null) this.summaryOf.returns.add(value.param);
+        if (isWord(token, 'return')) noteReturn(this.summaryOf, value);
         index = stop + 1;
         continue;
       }
@@ -1254,7 +1247,7 @@ class JsWalker {
     if (fn.block) this.walk(fn.bodyStart, fn.bodyEnd, child, merged);
     else {
       const value = this.expression(fn.bodyStart, fn.bodyEnd, child, merged);
-      if (value && this.summaryOf && this.summaryOf.fn === fn && value.param !== null) this.summaryOf.returns.add(value.param);
+      if (this.summaryOf && this.summaryOf.fn === fn) noteReturn(this.summaryOf, value);
     }
     this.bodyEndLine = outerEnd;
     if (hint && hint.route && this.mode === 'flow') {
@@ -1623,21 +1616,15 @@ class JsWalker {
       return { value: taint('model reply', this.ctx.path, line, { note: 'a language model’s reply enters here' }) };
     }
 
-    /* Sanitisers. */
-    if (SANITISER.test(name) && !(name === 'parse' && PASS_THROUGH_PARSE.test(objectName))) return { value: null };
+    /* Sanitisers (uranus-sanitise.ts), and a replace that keeps only letters, digits, underscore and hyphen. */
+    const how = sanitising(name, objectName, module, chainText);
+    if (how || (receiver && isAllowListReplace(name, call.args))) return { value: how ? this.sanitisedCall(how, () => this.summaryFor(segments, resolved), args, receiver, call.args, line, scope, roles) : null };
 
     if (this.sinkForCall(segments, module, name, objectName, args, call, receiver, r, line, scope, roles)) return { value: null };
 
     /* A helper this file or an imported file defines. */
     const summary = this.summaryFor(segments, resolved);
-    if (summary) {
-      args.forEach((value, position) => {
-        if (!value) return;
-        for (const sink of summary.sinks.filter(entry => entry.param === position)) this.throughHelper(value, sink, line, call.args[position] ?? null, scope, roles);
-      });
-      const returned = [...summary.returns].map(position => args[position]).find(Boolean);
-      return { value: returned ? extend(returned, this.ctx.path, line, 'passed through a function') : null };
-    }
+    if (summary) return { value: this.throughSummary(summary, args, call.args, line, scope, roles, false) };
 
     const any = args.find(Boolean);
     /* Methods on a tainted value carry it: .trim(), .toString(), .then(...). */
@@ -1652,6 +1639,26 @@ class JsWalker {
       return { value: extend({ ...any, whole: false, wholeInside: null }, this.ctx.path, line, name === 'join' || name === 'resolve' ? 'joined into a path' : 'transformed') };
     }
     return { value: null };
+  }
+
+  /* A sanitising call: a safe result ends the value; a claim, or a destination check, that this repository defines is read from its body; a contract clears the value for its own sinks. */
+  sanitisedCall(how: Sanitising, defined: () => Summary | null, args: readonly Value[], receiver: Value, argTokens: readonly Tokens[] | null, line: number, scope: Scope, roles: Roles | null): Value {
+    if ('safe' in how) return null;
+    const body = 'contract' in how && how.contract !== CONTRACTS.url ? null : defined();
+    if (body) return this.throughSummary(body, args, argTokens, line, scope, roles, true);
+    const input = 'contract' in how ? args.find(Boolean) || receiver : null;
+    return input && 'contract' in how ? { ...sanitised(input, how.contract, this.ctx.path, line, 'sanitised for one context', MAX_STEPS), wholeInside: null } : null;
+  }
+
+  /* A call to a function this repository defines: its arguments reach its sinks, and what it returns is as safe as its body left it. */
+  throughSummary(summary: Summary, args: readonly Value[], argTokens: readonly Tokens[] | null, line: number, scope: Scope, roles: Roles | null, claims: boolean): Value {
+    args.forEach((value, position) => {
+      if (!value) return;
+      for (const sink of summary.sinks.filter(entry => entry.param === position)) this.throughHelper(value, sink, line, argTokens ? argTokens[position] ?? null : null, scope, roles);
+    });
+    const position = [...summary.returns].find(index => args[index]) ?? -1;
+    const argument = args[position];
+    return argument ? returnedThrough(extend(argument, this.ctx.path, line, claims ? 'passed through a function named as a sanitiser' : 'passed through a function'), summary.returned.get(position), claims ? { path: this.ctx.path, line } : null) : null;
   }
 
   /* A system prompt or a system message built from what a caller sent. */
@@ -1805,6 +1812,7 @@ class JsWalker {
   }
 
   throughHelper(value: FlowValue, sink: SummarySink, line: number, argTokens: Tokens | null, scope: Scope, roles: Roles | null): void {
+    if (value.cleared && value.cleared.has(sink.kind)) return;
     /* A URL or a redirect target led by a fixed origin or a local path where it is built is not the caller's to choose. */
     if ((sink.kind === 'ssrf' || sink.kind === 'redirect') && argTokens && argTokens.length) {
       const lead = this.lead(argTokens, scope, roles);
@@ -1824,6 +1832,7 @@ class JsWalker {
 
   sink(kind: FlowSinkKind, value: Value | undefined, line: number): void {
     if (!value) return;
+    if (value.cleared && value.cleared.has(kind)) return;
     if (value.param !== null) {
       if (this.summaryOf) this.summaryOf.sinks.push({ kind, param: value.param, path: this.ctx.path, line, steps: value.steps.slice(1), guarded: value.guarded });
       return;
@@ -2272,7 +2281,7 @@ class PyWalker extends JsWalker {
     this.tokens = tokens;
     if (isWord(first, 'return')) {
       const value = this.expression(1, tokens.length, scope, roles);
-      if (value && this.summaryOf && value.param !== null) this.summaryOf.returns.add(value.param);
+      noteReturn(this.summaryOf, value);
       if (value && value.html && !value.weak && this.inRoute) this.sink('html', value, line.line);
       return;
     }
@@ -2444,10 +2453,8 @@ class PyWalker extends JsWalker {
     if (MODEL_CHAINS.test(joined) || (/^(invoke|ainvoke|predict|run|generate)$/.test(name) && /^(llm|chain|model|agent|chat|qa|pipeline)$/i.test(objectName))) {
       return { value: taint('model reply', this.ctx.path, line, { note: 'a language model’s reply enters here' }) };
     }
-    /* Sanitisers. */
-    if (SANITISER.test(name) || /^(escape|quote|basename|secure_filename|UUID|int|float|bool|len|str\.isdigit)$/.test(name) || joined === 'os.path.basename' || joined === 're.escape' || joined === 'html.escape' || joined === 'shlex.quote' || joined === 'bleach.clean') {
-      return { value: null };
-    }
+    const how = /^(UUID|int|float|bool|len)$/.test(name) || joined === 'str.isdigit' ? SAFE : sanitising(name, objectName, '', joined);
+    if (how) return { value: this.sanitisedCall(how, () => this.pySummary(segments), args, receiver, null, line, scope, roles) };
     const report = (kind: FlowSinkKind, value: Value | undefined): CallResult => { this.sink(kind, value, line); return { value: null }; };
     /* SQL: cursor.execute(built_string, params) */
     if (/^(execute|executemany|executescript|raw|exec_driver_sql)$/.test(name) && segments.length > 1 && first) {
@@ -2513,14 +2520,7 @@ class PyWalker extends JsWalker {
     if (spread && (/^[A-Z]/.test(root) || /^(create|update|update_or_create|get_or_create|insert|add)$/.test(name))) return report('mass', spread);
     /* Helpers. */
     const summary = this.pySummary(segments);
-    if (summary) {
-      args.forEach((value, position) => {
-        if (!value) return;
-        for (const sink of summary.sinks.filter(entry => entry.param === position)) this.throughHelper(value, sink, line, null, scope, roles);
-      });
-      const returned = [...summary.returns].map(position => args[position]).find(Boolean);
-      return { value: returned ? extend(returned, this.ctx.path, line, 'passed through a function') : null };
-    }
+    if (summary) return { value: this.throughSummary(summary, args, null, line, scope, roles, false) };
     if (receiver) return { value: extend(receiver, this.ctx.path, line, 'transformed') };
     const any = args.find(Boolean);
     if (any && segments.length === 1 && !/^(print|len|isinstance|type|jsonify|abort|log|logger|range|enumerate|zip|sorted)$/.test(name)) return { value: extend(any, this.ctx.path, line, 'passed through a function') };
@@ -2708,7 +2708,7 @@ class Program {
     const entry = ctx.functions.get(local);
     if (!entry) return null;
     this.inProgress.add(key);
-    const summary: Summary = { sinks: [], returns: new Set(), fn: 'fn' in entry ? entry.fn : undefined, name: local, line: 'py' in entry ? entry.line : undefined };
+    const summary: Summary = { sinks: [], returns: new Set(), returned: new Map(), fn: 'fn' in entry ? entry.fn : undefined, name: local, line: 'py' in entry ? entry.line : undefined };
     if (ctx.language === 'javascript' && 'fn' in entry) {
       const walker = new JsWalker(ctx.tokens, { ...ctx, flows: [], routes: [], handlerHints: new Map(), namedHandlers: new Map() }, 'summary', this);
       walker.summaryOf = summary;

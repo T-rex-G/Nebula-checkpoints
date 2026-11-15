@@ -229,12 +229,17 @@ checked value is settled with it. Calls are followed through helpers of
 helpers, a parent class's methods, a typed field's class (an injected Spring
 service and the one class implementing its interface, a Laravel controller's
 service), and a Go method of a name only one type defines. The engine is
-measured on a corpus of 138 cases in JavaScript, TypeScript, Python, Go, Java
-and PHP: 100% precision and 98% recall. Each case is a small application whose
+measured on a corpus of 169 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 98% precision and 99% recall. Each case is a small application whose
 own comments say what must be found and where, run through the whole audit
 (`node scripts/uranus-benchmark.js`); the one miss it records, a function the
-caller names and the code calls, is written down rather than left out, and the
-unit suite fails if any case regresses. A finding
+caller names and the code calls, and its two false alarms, pattern leads on a
+value an allow-list replace or a shell quoter had already made safe, are
+written down rather than left out, and the unit suite fails if any case
+regresses. A sanitiser clears a value only for the sinks its context covers:
+escaped HTML still reaches SQL and the shell, a URL component still ends a SQL
+string, and a function of this repository that is only named like a sanitiser
+is read by its body. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to

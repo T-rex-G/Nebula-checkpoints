@@ -30,6 +30,8 @@ interface TokenBase {
 }
 export interface PlainToken extends TokenBase {
   t: 'id' | 'kw' | 'num' | 're' | 'punc' | 'nl';
+  /* A regular expression literal as written, flags included. */
+  src?: string;
 }
 export interface StringToken extends TokenBase {
   t: 'str';
@@ -230,7 +232,7 @@ export function lexJs(text: string, nesting = 0): Token[] {
       }
       if (ok) {
         while (cursor < length && /[a-z]/i.test(text.charAt(cursor))) cursor += 1;
-        tokens.push({ t: 're', v: '/', line, i: 0 });
+        tokens.push({ t: 're', v: '/', line, i: 0, src: text.slice(index, cursor) });
         index = cursor;
         continue;
       }

@@ -1,3 +1,4 @@
+import { SANITISERS, bothCleared, contractOf, sanitised, type Contract } from './uranus-sanitise.ts';
 import type { Route, RouteUse } from './uranus-surface.ts';
 
 /*
@@ -78,6 +79,7 @@ interface Value {
   lead: string | null;
   whole: boolean;
   guarded: Guard | null;
+  cleared?: Contract | null;
   via?: string[] | undefined;
   param?: number;
   weakRoute?: boolean;
@@ -203,7 +205,7 @@ function merge(a: Value | null, b: Value | null): Value | null {
   /* a check on a name settles the merged value only if every tainted part came through that name */
   const bVia = b.via;
   const via = a.via && bVia ? a.via.filter(name => bVia.includes(name)) : undefined;
-  return { ...a, built: a.built || b.built, sql: a.sql || b.sql, html: a.html || b.html, whole: a.whole || b.whole, guarded: a.guarded || b.guarded, via };
+  return { ...a, built: a.built || b.built, sql: a.sql || b.sql, html: a.html || b.html, whole: a.whole || b.whole, guarded: a.guarded || b.guarded, via, cleared: bothCleared(a.cleared || null, b.cleared || null) };
 }
 
 /* ---- Lexing ------------------------------------------------------------------------ */
@@ -653,14 +655,8 @@ function sourceAt(tokens: Tokens, index: number, roles: Roles, language: Languag
   return null;
 }
 
-/* ---- Sanitisers and string shaping ------------------------------------------------ */
+/* ---- String shaping (the sanitisers are uranus-sanitise.ts) ----------------------- */
 
-/* Calls whose result no longer carries what the caller wrote in a dangerous form. */
-const SANITISERS: Readonly<Record<Language, RegExp>> = Object.freeze(Object.assign(Object.create(null), {
-  go: /^(Atoi|ParseInt|ParseUint|ParseFloat|ParseBool|Itoa|FormatInt|Base|EscapeString|QueryEscape|PathEscape|HTMLEscapeString|JSEscapeString|Parse|ParseUUID|MustParse|len|cap|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float32|float64|bool|Contains|HasPrefix|HasSuffix|EqualFold|Compare|Index|Count|Match|MatchString|IsAbs|Hash|Sum256|Sum|Equal|ConstantTimeCompare|NewString|Sprint\w*Int)$/,
-  java: /^(parseInt|parseLong|parseDouble|parseFloat|parseBoolean|valueOf|fromString|escapeHtml\w*|escapeXml\w*|escapeEcmaScript|escapeJava|htmlEscape\w*|encodeForHTML\w*|encodeForSQL|encodeForURL|encodeForOS|encode|getName|normalize|isValid\w*|matches|equals\w*|contains|startsWith|endsWith|length|size|isEmpty|hashCode|sanitize\w*|clean|toInt|toLong|UUID|compare\w*)$/,
-  php: /^(intval|floatval|boolval|abs|round|ceil|floor|count|strlen|mb_strlen|is_numeric|is_int|ctype_digit|ctype_alnum|ctype_alpha|htmlspecialchars|htmlentities|strip_tags|e|esc_html|esc_attr|esc_url|esc_sql|sanitize_\w+|filter_var|filter_input|escapeshellarg|escapeshellcmd|basename|realpath|urlencode|rawurlencode|addslashes|mysqli_real_escape_string|real_escape_string|quote|pg_escape_string|pg_escape_literal|password_hash|hash|md5|sha1|crc32|in_array|array_key_exists|isset|empty|preg_match|str_contains|str_starts_with|uniqid|json_encode|number_format|date|strtotime|checkdate|max|min)$/
-}));
 /* Calls that shape a string and keep carrying what went into them. */
 const SHAPERS: Readonly<Record<Language, RegExp>> = Object.freeze(Object.assign(Object.create(null), {
   go: /^(Sprintf|Sprint|Sprintln|Join|TrimSpace|Trim|TrimPrefix|TrimSuffix|TrimLeft|TrimRight|ToLower|ToUpper|Replace|ReplaceAll|Split|SplitN|Fields|Title|Repeat|QueryUnescape|PathUnescape|Unquote|DecodeString|string|Clean|Dir|Ext|Get|Values|Value|Query|ReadAll|NewReader|NewBufferString|Bytes|String|Errorf)$/,
@@ -1045,9 +1041,13 @@ class Walker {
         const close = closing(tokens, callOpen);
         if (close === -1) break;
         const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
-        if (SANITISERS[this.language].test(name)) { k = close; seenOperand = true; continue; }
+        const contract = contractOf(this.language, name, callee.segments);
+        if (!contract && SANITISERS[this.language].test(name)) { k = close; seenOperand = true; continue; }
         const argsValue = this.evaluateArgs(callOpen, scope, roles);
         const receiverValue = callee.segments.length > 1 ? this.read(scope, callee.segments[0] ?? '', k) || null : null;
+        const input = contract ? argsValue.value || receiverValue : null;
+        if (input && contract) value = merge(value, sanitised(input, contract, this.path, token.line, `sanitised by ${name} for one context`, MAX_STEPS));
+        if (contract) { k = close; seenOperand = true; continue; }
         if (SHAPERS[this.language].test(name)) {
           const carried = merge(argsValue.value, receiverValue ? extend(receiverValue, this.path, token.line, `passed through ${name}`) : null);
           if (carried) value = merge(value, { ...carried, built: carried.built || /^(Sprintf|format|formatted|sprintf|vsprintf|concat|Join|join|implode|append)$/.test(name) });
@@ -1469,7 +1469,7 @@ class Walker {
           const arg = args[sink.param];
           if (!arg) continue;
           const value = this.evaluate(arg[0], arg[1], scope, roles);
-          if (!value) continue;
+          if (!value || (value.cleared && value.cleared.has(sink.kind))) continue;
           const through = extend(value, this.path, at(tokens, k).line, `passed to ${helperName}`);
           const flags = { built: Boolean(through.built || sink.flags.built), sql: Boolean(through.sql || sink.flags.sql), html: Boolean(through.html || sink.flags.html) };
           /* a sink that needs a built string: the caller's value must be one, or carry the need on */
@@ -1701,7 +1701,7 @@ class Walker {
   }
 
   report(kind: SinkKind, value: Value | null, line: number, guards: Guards, from: number, to: number): void {
-    if (!value) return;
+    if (!value || (value.cleared && value.cleared.has(kind))) return;
     if (this.summary && value.param !== undefined && value.param !== null && value.kind === 'parameter') {
       if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html }, requires: value.requires || null });
       return;

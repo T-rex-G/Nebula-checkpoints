@@ -280,4 +280,71 @@ function surfaceOf(files) {
   assert(bounded.findings.some(finding => finding.rule === 'SEC-001' && finding.evidence !== 'traced'));
 }
 
+/* ---- A sanitiser clears a value for its own context, and for no other ------------- */
+{
+  const js = body => ({ path: 'server/app.js', text: `const express = require('express');\nconst { exec } = require('child_process');\nconst fs = require('fs');\nconst path = require('path');\nconst app = express();\n${body}\n` });
+  const py = body => ({ path: 'app.py', text: `from flask import Flask, request\nimport os, html, shlex, requests\nfrom urllib.parse import quote_plus\napp = Flask(__name__)\n${body}\n` });
+  const sql = call => `app.get('/u', async (req, res) => {\n  const n = ${call};\n  res.json(await db.query("SELECT * FROM users WHERE name = '" + n + "'"));\n});`;
+  const shell = call => `app.get('/u', (req, res) => {\n  const n = ${call};\n  exec('convert ' + n, () => res.end());\n});`;
+  const page = call => `app.get('/u', (req, res) => {\n  const n = ${call};\n  res.send('<h1>' + n + '</h1>');\n});`;
+
+  /* The wrong context: the value is still the caller's. */
+  const encoded = fires('a URL component in SQL', [js(sql('encodeURIComponent(req.query.name)'))], ['SEC-001@server/app.js:8']);
+  assert.strictEqual(encoded[0].verdict, 'confirmed');
+  assert(encoded[0].trace.some(step => /sanitised for one context/.test(step.note)), 'the trace says the value was sanitised, and for what');
+  fires('a URL component in a shell command', [js(shell('encodeURIComponent(req.query.name)'))], ['SEC-011@server/app.js:8']);
+  fires('escaped HTML in SQL', [js(sql('escapeHtml(req.query.name)'))], ['SEC-001@server/app.js:8']);
+  fires('escaped HTML in a shell command', [js(shell('escapeHtml(req.query.name)'))], ['SEC-011@server/app.js:8']);
+  fires('a bare file name in SQL', [js(sql('path.basename(req.query.name)'))], ['SEC-001@server/app.js:8']);
+  fires('a bare file name in a shell command', [js(shell('path.basename(req.query.name)'))], ['SEC-011@server/app.js:8']);
+  fires('an escaped pattern in a page', [js(page('escapeRegExp(req.query.name)'))], ['SEC-033@server/app.js:8']);
+  fires('SQL escaping in a page', [js(page('mysql.escape(req.query.name)'))], ['SEC-033@server/app.js:8']);
+  fires('cleaned markup in a shell command', [js(shell('DOMPurify.sanitize(req.query.name)'))], ['SEC-011@server/app.js:8']);
+  fires('a markup sanitiser, by its name, in SQL', [js(`const sanitizeHtml = require('sanitize-html');\n${sql('sanitizeHtml(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  /* The right context: quiet, as before. */
+  quiet('a URL component in a link', [js(page('encodeURIComponent(req.query.name)'))]);
+  quiet('escaped HTML in a page', [js(page('escapeHtml(req.query.name)'))]);
+  quiet('cleaned markup in a page', [js(page('DOMPurify.sanitize(req.query.name)'))]);
+  quiet('SQL escaping in SQL', [js(sql('mysql.escape(req.query.name)'))]);
+  quiet('a bare file name in a path', [js("app.get('/u', (req, res) => {\n  const n = path.basename(req.query.name);\n  res.send(fs.readFileSync(path.join('/srv/uploads', n)));\n});")]);
+  quiet('a number anywhere', [js(sql('parseInt(req.query.id, 10)'))]);
+  /* Joined with a value that was not sanitised, the whole is not. */
+  fires('a sanitised value beside a raw one', [js("app.get('/u', (req, res) => {\n  res.send('<h1>' + encodeURIComponent(req.query.a) + req.query.b + '</h1>');\n});")], ['SEC-033@server/app.js:7']);
+
+  /* A name that only claims to sanitise: this repository's own is read by its body. */
+  const named = fires('a sanitiser that only trims', [js(`function sanitizeInput(v) { return String(v).trim(); }\n${sql('sanitizeInput(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  assert.strictEqual(named[0].verdict, 'needs-validation', 'a flow through a function named as a sanitiser is a lead to confirm');
+  assert.deepStrictEqual(named[0].blocker, { reason: 'guarded', path: 'server/app.js', line: 8 });
+  fires('a cleaner that returns what it was given', [js(`const cleanName = v => v;\n${shell('cleanName(req.query.name)')}`)], ['SEC-011@server/app.js:9']);
+  quiet('a sanitiser that keeps only letters and digits', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_-]/g, ''); }\n${shell('sanitizeName(req.query.name)')}`)]);
+  fires('a replace that keeps a quote is not an allow-list', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_' -]/g, ''); }\n${sql('sanitizeName(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  fires('a replace that fills with a quote is not an allow-list', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_-]/g, "'"); }\n${sql('sanitizeName(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  fires('an allow-list replace of the first match only', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_-]/, ''); }\n${shell('sanitizeName(req.query.name)')}`)], ['SEC-011@server/app.js:9']);
+  quiet('a sanitiser that wraps an HTML escape, in a page', [js(`function sanitize(v) { return escapeHtml(v); }\n${page('sanitize(req.query.name)')}`)]);
+  fires('a sanitiser that wraps an HTML escape, in SQL', [js(`function sanitize(v) { return escapeHtml(v); }\n${sql('sanitize(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  /* One whose body cannot be read is taken at its word, as before. */
+  quiet('an imported sanitiser of no stated context', [js(`const { sanitize } = require('some-lib');\n${sql('sanitize(req.query.name)')}`)]);
+
+  /* A destination check is read, not believed. */
+  const fetches = check => `${check}\napp.get('/p', async (req, res) => {\n  const u = validateUrl(req.query.url);\n  const r = await fetch(u);\n  res.send(await r.text());\n});`;
+  const https = fires('a URL check that only asks for https', [js(fetches("function validateUrl(u) { if (!u.startsWith('https://')) throw new Error('https only'); return u; }"))], ['SEC-021@server/app.js:9']);
+  assert.strictEqual(https[0].verdict, 'needs-validation');
+  quiet('a URL check against an allow-list', [js(fetches("const ALLOWED = new Set(['api.example.com']);\nfunction validateUrl(u) { if (!ALLOWED.has(new URL(u).hostname)) throw new Error('no'); return u; }"))]);
+
+  /* Python, the same. */
+  const pySql = call => `@app.route('/u')\ndef u():\n    n = ${call}\n    cur.execute("SELECT * FROM users WHERE name = '" + n + "'")\n    return 'ok'`;
+  const pyShell = call => `@app.route('/u')\ndef u():\n    n = ${call}\n    os.system('convert ' + n)\n    return 'ok'`;
+  fires('html.escape in SQL', [py(pySql("html.escape(request.args.get('name'))"))], ['SEC-001@app.py:8']);
+  fires('shlex.quote in SQL', [py(pySql("shlex.quote(request.args.get('name'))"))], ['SEC-001@app.py:8']);
+  fires('quote_plus in a shell command', [py(pyShell("quote_plus(request.args.get('name'))"))], ['SEC-011@app.py:8']);
+  fires('a bare file name in a shell command', [py(pyShell("os.path.basename(request.args.get('name'))"))], ['SEC-011@app.py:8']);
+  quiet('shlex.quote in a shell command', [py(pyShell("shlex.quote(request.args.get('name'))"))]);
+  quiet('a quote nothing places, in a shell command', [py(`from shlex import quote\n${pyShell("quote(request.args.get('name'))")}`)]);
+  quiet('html.escape in a page', [py("@app.route('/u')\ndef u():\n    n = html.escape(request.args.get('name'))\n    return '<h1>' + n + '</h1>'")]);
+  quiet('a number in SQL', [py("@app.route('/u')\ndef u():\n    n = int(request.args.get('id'))\n    cur.execute('SELECT * FROM users WHERE id = ' + str(n))\n    return 'ok'")]);
+  const strip = fires('a sanitiser that only strips', [py(`def sanitize_input(v):\n    return v.strip()\n\n${pySql("sanitize_input(request.args.get('name'))")}`)], ['SEC-001@app.py:11']);
+  assert.strictEqual(strip[0].verdict, 'needs-validation');
+  fires('a URL check that only asks for https', [py("def validate_url(u):\n    if not u.startswith('https://'):\n        raise ValueError('https')\n    return u\n\n@app.route('/p')\ndef p():\n    u = validate_url(request.args.get('url'))\n    return requests.get(u).text")], ['SEC-021@app.py:13']);
+}
+
 console.log('uranus tests passed');

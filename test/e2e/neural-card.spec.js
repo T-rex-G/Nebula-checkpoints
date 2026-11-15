@@ -344,6 +344,33 @@ test('the keyboard walks the graph and every step is announced', async ({ page }
   await expect(page.locator('#neuralCard')).toBeHidden();
 });
 
+/* From the hub, each arrow goes the way it points -- to the nearest node that way -- and stays put only where nothing lies that way. */
+test('each arrow key goes the way it points', async ({ page }) => {
+  await openGraph(page);
+  await page.locator('#neuralCanvas').focus();
+  const ways = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
+  let moved = 0;
+  for (const [key, way] of Object.entries(ways)) {
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.evaluate(() => (window.__NV_PROBE__.read('neural').selected || {}).id)).toBe('repo:current');
+    await page.keyboard.press(key);
+    const step = await page.evaluate(([dx, dy]) => {
+      const s = window.__NV_PROBE__.read('neural');
+      const hub = s.nodes.find(n => n.type === 'repo');
+      const along = n => (n.tx - hub.tx) * dx + (n.ty - hub.ty) * dy;
+      return {
+        id: s.selected && s.selected.id, along: s.selected ? along(s.selected) : 0,
+        ahead: s.nodes.filter(n => n.visible && !n.folded && n !== hub && n.id !== hub.id && along(n) > 1).length
+      };
+    }, way);
+    if (step.id === 'repo:current') { expect(step.ahead, `${key}: nothing lies that way`).toBe(0); continue; }
+    expect(step.along, `${key} went that way`).toBeGreaterThan(1);
+    moved += 1;
+  }
+  expect(moved).toBeGreaterThanOrEqual(2);
+});
+
 test('each group chip names a group on screen and lights it when pressed', async ({ page }) => {
   await openGraph(page);
   const panel = page.locator('#neuralStage');
@@ -478,8 +505,18 @@ test('the eye hides a group from the graph and the list keeps it to bring back',
   expect(await page.evaluate(t => window.__NV_PROBE__.read('neural').nodes.some(n => n.type === t && n.visible), type)).toBe(false);
   await expect(page.locator(`#neuralLegend [data-neural-toggle="${type}"]`)).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator(`#neuralLegend .neural-group-row.is-hidden [data-neural-group="${type}"]`)).toBeVisible();
-  /* Remembered in this browser, and "Show all" undoes it. */
+  /* Remembered in this browser: the page opened again keeps it hidden. */
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_hidden_groups')))).toEqual([type]);
+  await page.reload();
+  await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
+  /* The graph read again, with the hidden group's nodes in it but not shown. */
+  await expect.poll(() => page.evaluate(t => (window.__NV_PROBE__.read('neural') || { nodes: [] }).nodes.some(n => n.type === t), type)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').panels.length)).toBeGreaterThan(0);
+  expect(await visibleTypes()).not.toContain(type);
+  expect(await page.evaluate(t => window.__NV_PROBE__.read('neural').nodes.some(n => n.type === t && n.visible), type)).toBe(false);
+  await openGroups(page);
+  await expect(page.locator(`#neuralLegend [data-neural-toggle="${type}"]`)).toHaveAttribute('aria-pressed', 'false');
+  /* And "Show all" undoes it. */
   await page.locator('#neuralLegend [data-neural-groups="show"]').click();
   await expect.poll(visibleTypes).toContain(type);
   expect(await page.evaluate(() => localStorage.getItem('nv_neural_hidden_groups'))).toBeNull();
@@ -554,4 +591,36 @@ test('a search keeps the hub in view and selects the first match', async ({ page
   expect(state).toEqual({ hub: true, others: ['Pipeline 12'] });
   await page.locator('#neuralSearch').fill('');
   await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').nodes.filter(n => n.visible && n.type === 'workflow').length)).toBe(14);
+});
+
+/* On a phone the card is a sheet over the lower part of the screen: a node chosen low on the stage is brought up above it. */
+test('on a phone a node chosen low on the stage is brought up above the card', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width >= 720, 'the card is a sheet on a phone');
+  await openGraph(page);
+  const low = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const canvas = document.getElementById('neuralCanvas');
+    const rect = canvas.getBoundingClientRect();
+    for (const node of s.nodes) {
+      if (!node.visible || node.folded || node.type === 'repo') continue;
+      const x = s.width / 2 + s.panX + node.x * s.zoom, y = s.height / 2 + s.panY + node.y * s.zoom;
+      if (y < s.height * .55 || y > s.height - 24 || x < 24 || x > s.width - 24) continue;
+      if (document.elementFromPoint(rect.left + x, rect.top + y) !== canvas) continue;
+      return { id: node.id, x: rect.left + x, y: rect.top + y };
+    }
+    return null;
+  });
+  expect(low, 'a node in the lower part of the stage').not.toBeNull();
+  await page.mouse.click(low.x, low.y);
+  await expect.poll(() => page.evaluate(() => (window.__NV_PROBE__.read('neural').selected || {}).id)).toBe(low.id);
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
+  const at = await page.evaluate(id => {
+    const s = window.__NV_PROBE__.read('neural');
+    const node = s.nodes.find(n => n.id === id);
+    return { x: s.width / 2 + s.panX + node.tx * s.zoom, y: s.height / 2 + s.panY + node.ty * s.zoom, width: s.width, height: s.height };
+  }, low.id);
+  expect(at.y).toBeLessThan(at.height * .42);
+  expect(at.y).toBeGreaterThan(0);
+  expect(at.x).toBeGreaterThan(at.width * .15);
+  expect(at.x).toBeLessThan(at.width * .85);
 });

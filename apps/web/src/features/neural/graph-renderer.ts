@@ -9,7 +9,7 @@
  * decides when each is drawn; this draws what it is handed.
  */
 import { TYPE_STYLE } from './graph-model.ts';
-import { HEAD_H, HUB_R, NODE_R, PAGE_ROWS, ROW_H, layoutBounds, type Panel } from './graph-layout.ts';
+import { FOOTER, HEAD_H, HUB_R, NODE_R, PAGE_ROWS, ROW_H, layoutBounds, type Panel } from './graph-layout.ts';
 import { drawIcon, drawNodeMark } from './graph-marks.ts';
 import { hexAlpha, type Palette } from './graph-paint.ts';
 import {
@@ -78,8 +78,6 @@ export function forgetFittedText(): void {
 
 const ROW_FONT = "500 13px 'Public Sans Variable', system-ui, sans-serif";
 const ROW_FONT_BOLD = "700 13px 'Public Sans Variable', system-ui, sans-serif";
-/* Where a panel footer's controls sit, in world units from the panel's right edge. */
-export const FOOTER = Object.freeze({ lessEnd: 118, prevX: -140, nextX: -26, rangeX: -83, hit: 15 });
 
 const letterSpacing = (ctx: CanvasRenderingContext2D, value: string): void => {
   if ('letterSpacing' in ctx) ctx.letterSpacing = value;

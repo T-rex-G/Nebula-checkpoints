@@ -8,9 +8,9 @@ import {
   dlFile, currentTab, purgeLocalData
 } from '../legacy/app.js';
 import { probeSource } from '../platform/probe.ts';
-import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph } from '../features/neural/graph-model.ts';
+import { TYPE_STYLE, MODE_TYPES, short, addNode, addEdge, addEvent, buildGraph as buildNeuralGraph, isNodeType } from '../features/neural/graph-model.ts';
 import {
-  HEAD_H, ROW_H, MAX_ROWS, PAGE_ROWS, HUB_R, SEVERITY_RANK,
+  MAX_ROWS, PAGE_ROWS, SEVERITY_RANK,
   layoutAspect, layoutModeOf, worldRadius, placeGraph, layoutBounds
 } from '../features/neural/graph-layout.ts';
 import { TYPE_ICON, inspectorMark } from '../features/neural/graph-marks.ts';
@@ -19,7 +19,14 @@ import {
   worldToScreen as sceneToScreen, screenToWorld as sceneToWorld, worldSpace, screenSpace, worldView, focusSets
 } from '../features/neural/graph-scene.ts';
 import { drawField as paintField, addRipple } from '../features/neural/graph-field.ts';
-import { drawStatic, drawAnimated, drawMinimap as paintMinimap, overflows, forgetFittedText, FOOTER } from '../features/neural/graph-renderer.ts';
+import { drawStatic, drawAnimated, drawMinimap as paintMinimap, overflows, forgetFittedText } from '../features/neural/graph-renderer.ts';
+import { FIT, DEFAULT_INSETS, stageInsets, zoomAround, zoomStep, frameBox, panelBox, groupBox, approach } from '../features/neural/graph-camera.ts';
+import { easeNodes, easeCamera } from '../features/neural/graph-motion.ts';
+import { DRAG_THRESHOLD, hitNode as nodeAt, panelHitAt as panelPartAt, cursorFor, walkStep, walk } from '../features/neural/graph-pointer.ts';
+import { shortestPath } from '../features/neural/graph-path.ts';
+import {
+  placementKey as viewKey, placementMemory, readHiddenGroups, writeHiddenGroups, forgetHiddenGroups
+} from '../features/neural/graph-memory.ts';
 
 const neuralGraph = (() => {
 
@@ -661,29 +668,14 @@ const neuralGraph = (() => {
     NVN.raf = 0;
   }
 
-  /* Eases nodes toward their targets and the camera toward where it was sent. */
+  /* Eases nodes toward their targets and the camera toward where it was sent (graph-motion.ts). */
   function integrate(dt) {
-    const motion = state.settings.motion;
-    const k = motion ? 1 - Math.exp(-dt / 130) : 1;
-    let moving = false;
-    for (const n of NVN.nodes) {
-      if (!n.visible) continue;
-      if (n.tx == null) { n.tx = n.x; n.ty = n.y; }
-      const dx = n.tx - n.x, dy = n.ty - n.y;
-      if (Math.abs(dx) > .25 || Math.abs(dy) > .25) { n.x += dx * k; n.y += dy * k; moving = true; }
-      else if (dx || dy) { n.x = n.tx; n.y = n.ty; moving = true; }
-      if ((n.appear ?? 1) < 1) { n.appear = Math.min(1, n.appear + (motion ? dt / 280 : 1)); moving = true; }
-    }
+    const motion = !!state.settings.motion;
+    let moving = easeNodes(NVN.nodes, dt, motion);
     const cam = NVN.camTarget;
-    if (cam) moving = true;
     if (cam) {
-      const c = motion ? 1 - Math.exp(-dt / 110) : 1;
-      NVN.zoom += (cam.zoom - NVN.zoom) * c;
-      NVN.panX += (cam.panX - NVN.panX) * c;
-      NVN.panY += (cam.panY - NVN.panY) * c;
-      if (Math.abs(cam.zoom - NVN.zoom) < .001 && Math.abs(cam.panX - NVN.panX) < .5 && Math.abs(cam.panY - NVN.panY) < .5) {
-        NVN.zoom = cam.zoom; NVN.panX = cam.panX; NVN.panY = cam.panY; NVN.camTarget = null;
-      }
+      moving = true;
+      if (easeCamera(NVN, cam, dt, motion)) NVN.camTarget = null;
     }
     return moving;
   }
@@ -775,8 +767,8 @@ const neuralGraph = (() => {
    * A press is not yet a click: it becomes a drag or a pan once it moves past a
    * few pixels, and only a press that stayed put selects. Without that, every
    * pan that happened to start on a node picked the node up instead.
+   * (DRAG_THRESHOLD and the hit tests are graph-pointer.ts's.)
    */
-  const DRAG_THRESHOLD = 5;
   /*
    * A short note over the stage when a gesture did not do what the reader
    * may have meant: a wheel over the graph on the page scrolls the page, and
@@ -873,9 +865,7 @@ const neuralGraph = (() => {
       }
       const hit = hitNode(pos.x, pos.y);
       if (hit !== NVN.hover) NVN.hover = hit;
-      const panelHit = hit ? null : panelHitAt(pos.x, pos.y);
-      c.style.cursor = hit || (panelHit && panelHit.kind !== 'body' && panelHit.kind !== 'header') ? 'pointer'
-        : panelHit && panelHit.kind === 'header' ? 'move' : 'grab';
+      c.style.cursor = cursorFor(hit, hit ? null : panelHitAt(pos.x, pos.y));
     });
     c.addEventListener('pointerleave', () => { NVN.fieldState.pointer = null; if (!NVN.pointerStart) NVN.hover = null; });
     const up = e => {
@@ -933,38 +923,19 @@ const neuralGraph = (() => {
       canvas.addEventListener('contextrestored', () => { NVN.staticKey = ''; invalidate(); startLoop(); });
     }
   }
+  /* The camera's moves are graph-camera.ts's; the map applies them. */
   function zoomAt(x, y, zoom) {
     NVN.userCamera = true;
-    const before = screenToWorld(x, y);
-    NVN.zoom = clamp(zoom, .35, 2.6);
-    const after = worldToScreen(before.x, before.y);
-    NVN.panX += x - after.x; NVN.panY += y - after.y;
+    const next = zoomAround(NVN, x, y, zoom);
+    NVN.zoom = next.zoom; NVN.panX = next.panX; NVN.panY = next.panY;
   }
   function zoomBy(factor) {
     NVN.userCamera = true;
-    const target = NVN.camTarget || { zoom: NVN.zoom, panX: NVN.panX, panY: NVN.panY };
-    const zoom = clamp(target.zoom * factor, .35, 2.6);
-    const scale = zoom / target.zoom;
-    NVN.camTarget = { zoom, panX: target.panX * scale, panY: target.panY * scale };
+    NVN.camTarget = zoomStep(NVN.camTarget || NVN, factor);
   }
   /* What a press on a panel means, away from its rows: the header lights and
    * frames the group, "+ n more" opens it, the rest of the card is ground. */
-  function panelHitAt(sx, sy) {
-    const w = screenToWorld(sx, sy);
-    for (const panel of NVN.panels || []) {
-      if (w.x < panel.x || w.x > panel.x + panel.w || w.y < panel.y || w.y > panel.y + panel.h) continue;
-      if (w.y < panel.y + HEAD_H) return { kind: 'header', type: panel.type };
-      if (panel.moreY != null && Math.abs(w.y - panel.moreY) <= ROW_H / 2) {
-        if (panel.footer === 'more') return { kind: 'more', type: panel.type };
-        if (w.x - panel.x < FOOTER.lessEnd) return { kind: 'less', type: panel.type };
-        const right = panel.x + panel.w;
-        if (panel.pages > 1 && Math.abs(w.x - (right + FOOTER.prevX)) <= FOOTER.hit) return { kind: 'prev', type: panel.type };
-        if (panel.pages > 1 && Math.abs(w.x - (right + FOOTER.nextX)) <= FOOTER.hit) return { kind: 'next', type: panel.type };
-      }
-      return { kind: 'body', type: panel.type };
-    }
-    return null;
-  }
+  function panelHitAt(sx, sy) { return panelPartAt(NVN, sx, sy); }
   function toggleGroupRows(type, open) {
     const expanded = NVN.expandedGroups;
     const opening = open == null ? !expanded.has(type) : open;
@@ -973,7 +944,7 @@ const neuralGraph = (() => {
     if (NVN.selected && NVN.selected.folded) selectNode(null);
     renderLegend();
     const panel = (NVN.panels || []).find(item => item.type === type);
-    if (panel) fitRect({ minX: panel.x - 30, minY: panel.y - 30, maxX: panel.x + panel.w + 30, maxY: panel.y + panel.h + 30 }, true, 1.25, true);
+    if (panel) fitRect(panelBox(panel), true, 1.25, true);
   }
   /* The next or previous page of an opened group. Pages are the same height,
    * so nothing else on the stage moves. */
@@ -1007,52 +978,18 @@ const neuralGraph = (() => {
   }
   /*
    * Where the reader has put each panel, per repository, mode and shape of
-   * stage (a phone's column and a desktop's two columns are different
-   * arrangements). Kept in this browser only, and cleared with the rest of
-   * the repository-scoped data when the account changes.
+   * stage, and which groups they have hidden: kept in this browser only
+   * (graph-memory.ts). The arrangements go with the rest of the
+   * repository-scoped data when the account changes.
    */
-  const PLACEMENT_KEY = 'nv_neural_layout';
-  function placementKey() {
-    const w = state && state.work;
-    return w ? `${w.owner}/${w.repo}|${NVN.mode}|${NVN.layoutMode}` : '';
-  }
-  function placementStore() {
-    if (NVN.placementStore) return NVN.placementStore;
-    try {
-      const saved = JSON.parse(localStorage.getItem(PLACEMENT_KEY) || '{}');
-      NVN.placementStore = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-    } catch { NVN.placementStore = {}; }
-    return NVN.placementStore;
-  }
-  function savedPlacements() {
-    const key = placementKey();
-    const saved = (key && placementStore()[key]) || {};
-    const live = NVN.dragPlacement;
-    return live ? { ...saved, [live.type]: { x: live.x, y: live.y } } : saved;
-  }
-  function persistPlacements() {
-    const store = placementStore();
-    /* Bounded: the arrangements of the 40 most recently arranged views. */
-    const keys = Object.keys(store);
-    if (keys.length > 40) for (const key of keys.slice(0, keys.length - 40)) delete store[key];
-    try { localStorage.setItem(PLACEMENT_KEY, JSON.stringify(store)); } catch { /* not remembered */ }
-  }
-  function commitPlacement(type, x, y) {
-    const key = placementKey();
-    if (!key) return;
-    const store = placementStore();
-    const entry = { ...(store[key] || {}), [type]: { x: Math.round(x), y: Math.round(y) } };
-    delete store[key];
-    store[key] = entry;
-    persistPlacements();
-  }
-  function hasPlacements() {
-    const key = placementKey();
-    return !!(key && placementStore()[key] && Object.keys(placementStore()[key]).length);
-  }
+  const browserStorage = () => localStorage;
+  const placements = placementMemory(browserStorage);
+  function placementKey() { return viewKey(state && state.work, NVN.mode, NVN.layoutMode); }
+  function savedPlacements() { return placements.arrangement(placementKey(), NVN.dragPlacement); }
+  function commitPlacement(type, x, y) { placements.remember(placementKey(), type, x, y); }
+  function hasPlacements() { return placements.has(placementKey()); }
   function resetPlacements() {
-    const key = placementKey();
-    if (key) { delete placementStore()[key]; persistPlacements(); }
+    placements.forget(placementKey());
     layoutGraph();
     renderLegend();
     fitGraph(true);
@@ -1068,18 +1005,15 @@ const neuralGraph = (() => {
 
   /* A group hidden from the sidebar leaves the graph until it is shown again;
    * the choice is this viewer's and is remembered in this browser. */
-  const HIDDEN_KEY = 'nv_neural_hidden_groups';
   function loadHiddenGroups() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
-      if (Array.isArray(saved)) NVN.hiddenGroups = new Set(saved.filter(type => typeof type === 'string' && TYPE_STYLE[type] && type !== 'repo'));
-    } catch { /* storage unavailable: nothing hidden */ }
+    const hidden = readHiddenGroups(browserStorage);
+    if (hidden) NVN.hiddenGroups = hidden;
   }
   function setGroupHidden(type, hidden) {
-    if (!TYPE_STYLE[type] || type === 'repo') return;
+    if (!isNodeType(type) || type === 'repo') return;
     if (hidden) NVN.hiddenGroups.add(type); else NVN.hiddenGroups.delete(type);
     if (hidden && NVN.focusGroup === type) NVN.focusGroup = null;
-    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...NVN.hiddenGroups])); } catch { /* not remembered */ }
+    writeHiddenGroups(browserStorage, NVN.hiddenGroups);
     applyMode();
     fitGraph(true);
   }
@@ -1087,23 +1021,7 @@ const neuralGraph = (() => {
   function pointerPos(e) { const r = NVN.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   /* A node is hit on its disc or anywhere on its row, so its name is as good a
    * target as its icon. */
-  function hitNode(sx, sy) {
-    const w = screenToWorld(sx, sy);
-    let best = null, bestD = Infinity;
-    for (const n of NVN.nodes) {
-      if (!n.visible || n.folded) continue;
-      const r = worldRadius(n) + (n.type === 'repo' ? 10 : 7);
-      const d = Math.hypot(n.x - w.x, n.y - w.y);
-      if (d < r && d < bestD) { best = n; bestD = d; }
-    }
-    if (best) return best;
-    for (const panel of NVN.panels || []) {
-      if (w.x < panel.x + 6 || w.x > panel.x + panel.w - 6) continue;
-      const row = Math.floor((w.y - panel.y - HEAD_H) / ROW_H);
-      if (row >= 0 && row < panel.shown.length) return panel.shown[row];
-    }
-    return null;
-  }
+  function hitNode(sx, sy) { return nodeAt(NVN, sx, sy); }
 
 
   /*
@@ -1134,22 +1052,12 @@ const neuralGraph = (() => {
       if (row >= 0 && next.shown.length) selectNode(next.shown[Math.min(row, next.shown.length - 1)], { fly: true, announce: true });
       return;
     }
-    const dirs = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
-    if (dirs[key]) {
+    const step = walkStep(key);
+    if (step) {
       e.preventDefault();
       const from = NVN.selected || NVN.nodes.find(n => n.type === 'repo' && n.visible);
       if (!from) return;
-      const [dx, dy] = dirs[key];
-      let best = null, bestScore = Infinity;
-      for (const n of NVN.nodes) {
-        if (!n.visible || n.folded || n === from) continue;
-        const vx = n.tx - from.tx, vy = n.ty - from.ty;
-        const along = vx * dx + vy * dy;
-        if (along <= 1) continue;
-        const across = Math.abs(vx * dy - vy * dx);
-        const score = along + across * 2.2;
-        if (score < bestScore) { bestScore = score; best = n; }
-      }
+      const best = walk(NVN.nodes, from, step[0], step[1]);
       if (best) selectNode(best, { fly: true, announce: true });
       return;
     }
@@ -1268,65 +1176,30 @@ const neuralGraph = (() => {
   /* The part of the canvas nothing is drawn over: the status bar and search
    * above, the tool column on the right, and the modes panel on the left when
    * the enlarged stage has it open. */
+  /* What covers the stage's edges, measured from the page (graph-camera.ts
+   * reads the rectangles), until the stage next changes size. */
   function viewportInsets() {
     if (NVN.insets) return NVN.insets;
     const stage = document.getElementById('neuralStage');
     const rail = document.getElementById('neuralRail');
     const rect = NVN.canvas ? NVN.canvas.getBoundingClientRect() : null;
-    const inset = { left: 16, right: 64, top: 64, bottom: 20 };
-    if (!stage || !rect || !rect.width) return inset;
-    /* Measured, not assumed: the status and search may sit below a phone's
-     * clock, the tools may have wrapped into a second column on a short
-     * stage, and the edges may be clear of a notch -- the fit frames the
-     * graph in whatever is actually left. */
+    if (!stage || !rect || !rect.width) return DEFAULT_INSETS;
     const top = stage.querySelector('.neural-stage-top');
-    const topRect = top ? top.getBoundingClientRect() : null;
-    if (topRect && topRect.height) {
-      inset.top = Math.max(24, topRect.bottom - rect.top + 10);
-      inset.left = Math.max(16, topRect.left - rect.left + 3);
-    }
     const tools = stage.querySelector('.neural-stage-tools');
-    const toolRect = tools ? tools.getBoundingClientRect() : null;
-    if (toolRect && toolRect.width) {
-      inset.right = Math.max(16, rect.right - toolRect.left + 10);
-      inset.bottom = Math.max(16, rect.bottom - toolRect.bottom + 6);
-    }
-    if (stage.classList.contains('panel-open') && rail && rail.classList.contains('is-docked') && window.matchMedia('(min-width: 900px)').matches) {
-      inset.left = Math.max(inset.left, rail.getBoundingClientRect().right - rect.left + 16);
-    }
-    NVN.insets = inset;
-    return inset;
+    const docked = stage.classList.contains('panel-open') && rail && rail.classList.contains('is-docked') && window.matchMedia('(min-width: 900px)').matches;
+    NVN.insets = stageInsets(rect, top ? top.getBoundingClientRect() : null, tools ? tools.getBoundingClientRect() : null, docked ? rail.getBoundingClientRect() : null);
+    return NVN.insets;
   }
-  /*
-   * Frames a world rectangle in the part of the stage nothing covers. A tall
-   * stacked layout is framed by its width and read from the top down, the way
-   * a list is -- fitting all of its height would shrink it past reading.
-   */
-  function fitRect(b, animateFit = true, maxZoom = 1.35, whole = false) {
+  /* Frames a world rectangle in the part of the stage nothing covers
+   * (graph-camera.ts), at once with motion off. */
+  function fitRect(b, animateFit = true, maxZoom = FIT.max, whole = false) {
     if (!NVN.width || !NVN.height) { NVN.fitPending = true; return; }
     NVN.fitPending = false;
-    const inset = viewportInsets();
-    const boxW = Math.max(80, NVN.width - inset.left - inset.right);
-    const boxH = Math.max(80, NVN.height - inset.top - inset.bottom);
-    const byWidth = boxW / Math.max(1, b.maxX - b.minX);
-    const byHeight = boxH / Math.max(1, b.maxY - b.minY);
-    const tall = NVN.layoutMode === 'stack' && !whole;
-    let zoom = clamp(tall ? Math.min(byWidth, 1.1) : Math.min(byWidth, byHeight), .3, maxZoom);
-    /* A large topology fitted whole would shrink every label past reading.
-     * The fit stops at a zoom where a row can still be read, centred on the
-     * hub; the minimap shows what lies beyond. */
-    if (!tall && !whole && zoom < READABLE_ZOOM) zoom = Math.min(maxZoom, Math.max(zoom, Math.min(byWidth, READABLE_ZOOM)));
-    const offsetX = inset.left + boxW / 2 - NVN.width / 2;
-    const panX = offsetX - ((b.minX + b.maxX) / 2) * zoom;
-    const panY = tall && (b.maxY - b.minY) * zoom > boxH
-      ? inset.top - NVN.height / 2 - b.minY * zoom
-      : inset.top + boxH / 2 - NVN.height / 2 - ((b.minY + b.maxY) / 2) * zoom;
-    const target = { zoom, panX, panY };
+    const target = frameBox({ width: NVN.width, height: NVN.height, insets: viewportInsets(), layoutMode: NVN.layoutMode }, b, maxZoom, whole);
     NVN.userCamera = false;
-    if (!animateFit || !state.settings.motion) { NVN.zoom = zoom; NVN.panX = panX; NVN.panY = panY; NVN.camTarget = null; return; }
+    if (!animateFit || !state.settings.motion) { NVN.zoom = target.zoom; NVN.panX = target.panX; NVN.panY = target.panY; NVN.camTarget = null; return; }
     NVN.camTarget = target;
   }
-  const READABLE_ZOOM = .78;
   function fitGraph(animateFit = true) {
     if (!(NVN.panels || []).length && !visibleNodes().length) return;
     fitRect(layoutBounds(NVN.panels || []), animateFit);
@@ -1359,27 +1232,14 @@ const neuralGraph = (() => {
     if (options.fly) flyToNode(node);
     if (options.announce) announceNode(node);
   }
+  /* The camera goes to a chosen node only when it has to (graph-camera.ts). */
   function flyToNode(node) {
-    const W = NVN.width, H = NVN.height;
-    if (!W || !H) return;
-    const zoom = Math.max(NVN.camTarget ? NVN.camTarget.zoom : NVN.zoom, .75);
-    const docked = cardDocked();
-    const x = node.tx ?? node.x, y = node.ty ?? node.y;
-    const current = worldToScreen(x, y);
-    const nodePanel = (NVN.panels || []).find(item => item.type === node.type);
-    const goalLimit = W - 64 - CARD_WIDTH - 16 - (nodePanel ? (nodePanel.x + nodePanel.w - x) * zoom : 0);
-    const comfortable = docked
-      ? current.x > W * .15 && current.x < W * .85 && current.y > 70 && current.y < H * .42
-      : current.x > viewportInsets().left + 40 && current.x < goalLimit && current.y > H * .18 && current.y < H * .82;
-    if (comfortable && zoom === NVN.zoom) return;
-    const inset = viewportInsets();
-    const panel = (NVN.panels || []).find(item => item.type === node.type);
-    /* Where the node must sit for its whole panel, and the card beside it, to
-     * fit: the panel's right edge lands just short of the card. */
-    const toRight = panel ? (panel.x + panel.w - x) * zoom : worldRadius(node) * zoom;
-    const goalX = docked ? W * .5 : clamp(W - 64 - CARD_WIDTH - 16 - toRight, inset.left + 50, Math.max(inset.left + 50, W * .6));
-    const goalY = docked ? H * .27 : H * .5;
-    NVN.camTarget = { zoom, panX: goalX - W / 2 - x * zoom, panY: goalY - H / 2 - y * zoom };
+    const target = approach({
+      camera: NVN, heading: NVN.camTarget, docked: cardDocked(), insets: viewportInsets, cardWidth: CARD_WIDTH,
+      panel: (NVN.panels || []).find(item => item.type === node.type) || null
+    }, node);
+    if (!target) return;
+    NVN.camTarget = target;
     NVN.userCamera = true;
   }
 
@@ -1644,7 +1504,7 @@ const neuralGraph = (() => {
     renderLegend();
     const panel = (NVN.panels || []).find(item => item.type === NVN.focusGroup);
     if (panel) {
-      fitRect({ minX: Math.min(panel.x, -HUB_R) - 30, minY: Math.min(panel.y, -HUB_R) - 30, maxX: Math.max(panel.x + panel.w, HUB_R) + 30, maxY: Math.max(panel.y + panel.h, HUB_R) + 30 }, true, 1.2, true);
+      fitRect(groupBox(panel), true, 1.2, true);
       /* A framed group stays framed through a resize. */
       NVN.userCamera = true;
     } else fitGraph(true);
@@ -1832,32 +1692,6 @@ const neuralGraph = (() => {
     } catch (e) { if (typeof toast === 'function') toast(e.message, 'err'); }
   }
 
-  function graphShortestPath(startId, endId) {
-    const ids = new Set(NVN.nodes.map(n => n.id));
-    if (!ids.has(startId) || !ids.has(endId)) return null;
-    const adjacency = new Map([...ids].map(id => [id, []]));
-    NVN.edges.forEach(edge => {
-      if (!ids.has(edge.source) || !ids.has(edge.target)) return;
-      adjacency.get(edge.source).push({ next: edge.target, edge });
-      adjacency.get(edge.target).push({ next: edge.source, edge: { ...edge, reversed: true } });
-    });
-    const queue = [startId], previous = new Map([[startId, null]]);
-    while (queue.length) {
-      const current = queue.shift();
-      for (const step of adjacency.get(current) || []) {
-        if (previous.has(step.next)) continue;
-        previous.set(step.next, { node: current, edge: step.edge });
-        if (step.next === endId) {
-          const nodeIds = [endId], pathEdges = []; let at = endId;
-          while (at !== startId) { const p = previous.get(at); pathEdges.unshift(p.edge); at = p.node; nodeIds.unshift(at); }
-          return { nodeIds, edges: pathEdges };
-        }
-        queue.push(step.next);
-      }
-    }
-    return null;
-  }
-
   async function explainFromSelected() {
     const node = NVN.selected;
     if (!node) { if (typeof toast === 'function') toast('Select a node first', 'err'); return; }
@@ -1872,7 +1706,7 @@ const neuralGraph = (() => {
       if (typeof toast === 'function') toast('Connection selection cleared', 'ok');
       renderInspector(node); return;
     }
-    const result = graphShortestPath(NVN.explainStart, node.id);
+    const result = shortestPath(NVN.nodes, NVN.edges, NVN.explainStart, node.id);
     const startNode = nodeById(NVN.explainStart);
     if (!result) { if (typeof toast === 'function') toast('No relationship path was found in the current graph', 'err'); return; }
     NVN.highlightNodes = new Set(result.nodeIds);
@@ -1953,7 +1787,7 @@ const neuralGraph = (() => {
       const tool = event.target.closest('[data-neural-groups]');
       if (tool) {
         const action = tool.dataset.neuralGroups;
-        if (action === 'show') { NVN.hiddenGroups.clear(); try { localStorage.removeItem(HIDDEN_KEY); } catch {} applyMode(); fitGraph(true); }
+        if (action === 'show') { NVN.hiddenGroups.clear(); forgetHiddenGroups(browserStorage); applyMode(); fitGraph(true); }
         else if (action === 'reset-layout') resetPlacements();
         else setAllGroupsOpen(action === 'open');
         return;

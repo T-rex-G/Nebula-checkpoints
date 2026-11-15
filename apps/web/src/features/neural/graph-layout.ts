@@ -33,6 +33,10 @@ export const MAX_ROWS = 6;
  * rest, so no panel becomes a column taller than the stage. */
 export const PAGE_ROWS = 10;
 export const NODE_R = 16;
+/* Where a panel footer's controls sit, in world units: "Show less" from the
+ * panel's left edge, the pager's chevrons and range from its right edge, and
+ * how far from a chevron's centre a press still lands on it. */
+export const FOOTER = Object.freeze({ lessEnd: 118, prevX: -140, nextX: -26, rangeX: -83, hit: 15 });
 export const HUB_R = 58;
 /* On a tall stage the spine every row branches from: straight down from
  * the bottom of the hub, on its centre line. */

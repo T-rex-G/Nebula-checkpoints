@@ -472,6 +472,7 @@ const HANDOFFS = Object.freeze({
   'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
   'formatRoute <- work': 'writes an address from the route\'s names, strings',
   'renderGalaxyPulseGrid <- repos': 'counts the repositories and their languages into a new view, and draws that',
+  'viewKey <- work': 'reads the owner and repository, strings, into the key of a view\'s panel arrangement (graph-memory.ts\'s placementKey)',
   'writeRoute <- work': 'writes an address from the route\'s names, strings'
 });
 

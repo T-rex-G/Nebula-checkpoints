@@ -2983,6 +2983,20 @@ body.neural-emergency-active .neural-live-dot,body.neural-emergency-active #neur
 @media(orientation:landscape) and (max-height:520px){
   .neural-stage.is-expanded .neural-minimap{bottom:calc(9px + var(--sab));left:calc(9px + var(--sal))}
 }
+/*
+ * Messages over the full view. On a phone a message drops from the top of the
+ * screen (.toast-stack), where the page has nothing else; in the full view the
+ * top is the stage's own -- its status and search, and its tools down the
+ * right -- and a message lay across the tools for as long as it showed. It
+ * comes down under the status instead, beside the tools, over the graph,
+ * which is not a control. On a wider screen messages keep to the bottom right
+ * and step left of the tools, which in a short window run down to meet them.
+ */
+body.neural-stage-expanded .toast-stack{right:calc(64px + env(safe-area-inset-right,0px))}
+@media(max-width:900px){
+  body.neural-stage-expanded .toast-stack{top:calc(64px + env(safe-area-inset-top,0px));
+    left:calc(16px + env(safe-area-inset-left,0px))}
+}
 
 /* ===== v5.3.0-alpha.2 — Optional GitHub App management ===== */
 .github-app-panel{display:grid;gap:9px}

@@ -147,7 +147,8 @@ export function short(value: unknown, n = 44): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-const isNodeType = (type: string): type is NodeType => Object.prototype.hasOwnProperty.call(TYPE_STYLE, type);
+/* A type the map knows: its own entry in TYPE_STYLE, never a name every object inherits. */
+export const isNodeType = (type: string): type is NodeType => Object.prototype.hasOwnProperty.call(TYPE_STYLE, type);
 
 export function addNode(map: Map<string, GraphNode>, id: string, type: NodeType, label: unknown, meta: Meta = {}, severity: Severity = 'normal'): GraphNode | undefined {
   if (!id || map.has(id)) return map.get(id);

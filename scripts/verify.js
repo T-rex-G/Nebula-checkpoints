@@ -416,7 +416,7 @@ must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migr
 /* The activity export's CSV defuses a cell a spreadsheet would run: test/e2e/activity-export.spec.js reads the file. */
 must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
 const neural = read('apps/web/src/visualizations/neural.js');
-must(neural.includes('graphShortestPath') && neural.includes('Explain this connection'), 'Deterministic connection explanation is missing');
+/* "Explain this connection": the shortest chain of relations (features/neural/graph-path.ts) is test/neural-graph-interaction.test.js's, and the dialog it opens test/e2e/neural-safety.spec.js's. */
 must(neural.includes('EventSource') && neural.includes('VERIFIED LIVE'), 'Neural verified live stream is missing');
 must(neural.includes('catchUpIntelligence') && neural.includes('after=${encodeURIComponent(after)}'), 'Cursor-based Neural event catch-up is missing');
 must(neural.includes('/emergency-manifest'), 'Signed Emergency Shield transaction is missing from the Neural client');

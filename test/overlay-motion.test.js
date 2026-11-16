@@ -1442,18 +1442,26 @@ check('the stylesheet actually carries overlay exits', () => {
  * the cut the other six were fixed for. Named here so the set is seven.
  */
 check('the floating action menu leaves the way it arrived', () => {
-  const close = appSource.slice(appSource.indexOf('function closeFloatingActions'));
-  const body = close.slice(0, close.indexOf('\n}'));
-  assert.ok(/closeOverlay\(menu\)/.test(body),
-    'the floating action menu is still cut away instead of animated out');
-  assert.ok(!/menu\.hidden\s*=\s*true/.test(body),
-    'the floating action menu still hides itself directly, which skips the exit');
-  const open = appSource.slice(appSource.indexOf('function openFloatingActions'));
-  const openBody = open.slice(0, open.indexOf('\n}'));
-  assert.ok(/openOverlay\(menu\)/.test(openBody),
-    'the floating action menu is shown without cancelling a pending close');
-  assert.ok(/preventScroll/.test(openBody),
-    'the first entry is focused without preventScroll, so the browser scrolls it into view mid-animation');
+  /* Asked of features/shell/floating-actions-controller.ts: the menu goes through the layer's own entrance and exit, never a bare `hidden`. */
+  const { createFloatingActions } = require('../apps/web/src/features/shell/floating-actions-controller.ts');
+  const calls = [];
+  let shown = false;
+  const first = { focus: options => calls.push(['focus', JSON.stringify(options)]) };
+  const menu = {
+    get hidden() { return !shown; }, set hidden(value) { calls.push(['hidden set directly', value]); },
+    innerHTML: '', setAttribute() {}, contains: () => false, appendChild() {}, querySelector: () => first
+  };
+  const dock = { hidden: false, title: '', offsetParent: {}, dataset: {}, setAttribute() {}, getAttribute: () => null, contains: () => false, focus: () => calls.push(['dock focus']) };
+  const floating = createFloatingActions({
+    dock: () => dock, menu: () => menu, stand: () => ({ dataset: {} }), screen: () => null, create: () => ({}),
+    openOverlay: element => { shown = true; calls.push(['openOverlay', element === menu]); },
+    closeOverlay: element => { shown = false; calls.push(['closeOverlay', element === menu]); },
+    overlayOpen: () => shown, anchor: () => {}, applyCapabilities: () => {}, activeElement: () => null, scrollY: () => 0
+  });
+  floating.open();
+  floating.close();
+  assert.deepStrictEqual(calls, [['openOverlay', true], ['focus', '{"preventScroll":true}'], ['closeOverlay', true], ['dock focus']],
+    'the floating action menu is shown without its entrance, cut away instead of animated out, or its first entry scrolled into view mid-animation');
   /*
    * An unanchored search finds the motion-off rule, whose body is
    * `animation:none` -- which would report an exit while there is none. The
@@ -1469,11 +1477,22 @@ check('every focus taken on an opening layer declines the scroll', () => {
   /*
    * Focusing an element inside a layer that is still moving makes the browser
    * scroll it into view, and the jump lands on top of the animation. Four
-   * layers take focus as they open.
+   * layers take focus as they open: the floating menu (above), the dialog
+   * (test/page-dialogs.test.js), the rail's drawer, asked here, and the
+   * palette, still in app.js.
    */
-  const focuses = appSource.match(/\.focus\(\{ preventScroll: true \}\)/g) || [];
-  assert.ok(focuses.length >= 4,
-    `only ${focuses.length} focus calls decline the scroll; the rail, the modal, the palette and the floating menu all take focus while still animating`);
+  const { createRail } = require('../apps/web/src/features/shell/rail-controller.ts');
+  const focused = [];
+  const body = { dataset: {}, classList: { toggle() { return true; }, remove() {}, contains: () => false } };
+  const rail = createRail({
+    body, collapseToggle: () => null, entries: () => [{ dataset: {}, hidden: false, title: '', setAttribute() {}, removeAttribute() {}, querySelector: () => null, closest: () => null, focus: options => focused.push(options) }],
+    securityEntries: () => [], fold: () => null, foldHead: () => null, rail: () => null, scrim: () => ({}), menuButtons: () => [], user: () => null, userText: () => null,
+    storage: () => null, viewportWidth: () => 800, openOverlay: () => {}, closeOverlay: () => {}, activeTab: () => '', me: () => null, now: () => 0,
+    attached: () => true, setTimeout: () => 0, clearTimeout: () => {}
+  });
+  rail.setMenu(true, null);
+  assert.deepStrictEqual(focused, [{ preventScroll: true }], 'the drawer focuses its first entry while still sliding in, and scrolls it into view');
+  assert.ok(/inp\.focus\(\{ preventScroll: true \}\)/.test(appSource), 'the palette focuses its field while still rising, and scrolls it into view');
 });
 
 /* ---------------- a sign-in that did not finish ---------------- */

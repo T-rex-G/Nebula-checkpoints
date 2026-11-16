@@ -1354,6 +1354,14 @@ test('the navigation drawer closes from its own button, by swipe, and by Escape'
   await expect(page.locator('body')).not.toHaveClass(/nav-open/);
   await expect(opener).toBeFocused();
 
+  /* Escape closes it, and focus goes back to the bar that opened it. */
+  await opener.click();
+  await expect(page.locator('body')).toHaveClass(/nav-open/);
+  await expect(rail.locator('.nv-rail-item').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).not.toHaveClass(/nav-open/);
+  await expect(opener).toBeFocused();
+
   /* A drag to the left carries the drawer away. */
   await opener.click();
   await expect(page.locator('body')).toHaveClass(/nav-open/);

@@ -33,7 +33,7 @@ function element(tag = 'div') {
     remove() { node.removed = true; },
     addEventListener(type, listener) { (node.listeners[type] = node.listeners[type] || []).push(listener); },
     fire(type, event = {}) { for (const listener of node.listeners[type] || []) listener(event); },
-    focus() { node.focused += 1; page.active = node; },
+    focus(options) { node.focused += 1; node.focusOptions = options; page.active = node; },
     contains(other) { return other === node || node.inside.includes(other); },
     inside: [],
     querySelector() { return node.found || null; }
@@ -236,6 +236,7 @@ check('focus goes to the first field, or to the way out of a panel, and only whi
   dialog.open({ title: 'Name', bodyHTML: '<input>' });
   time.flush();
   assert.strictEqual(page.active, input, 'a field takes focus');
+  assert.deepStrictEqual(input.focusOptions, { preventScroll: true }, 'without scrolling it into view while the dialog still rises');
   dialog.open({ title: 'Settings', bodyHTML: '<input>', autofocus: false, cancel: false });
   assert.strictEqual(parts.cancel.hidden, true, 'a panel with nothing to confirm has no Cancel');
   page.active = null;

@@ -19,6 +19,9 @@ import { createGithubApp } from '../features/settings/github-app-controller.ts';
 import { createSettingsPanel } from '../features/settings/settings-panel.ts';
 import { createAppearance } from '../features/shell/appearance-controller.ts';
 import { watchSpotlights } from '../components/spotlight.ts';
+import { isRepositoryTool } from '../features/shell/rail.ts';
+import { createRail } from '../features/shell/rail-controller.ts';
+import { createFloatingActions } from '../features/shell/floating-actions-controller.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -191,7 +194,7 @@ const dialog = createModal({
    * A dialog just finished is a reader between actions, not one reading down
    * the page: the floating actions come back, wherever the page is scrolled.
    */
-  onClosed: () => { setFloatingActionRetracted(false); _fabScrollY = Math.max(0, window.scrollY); }
+  onClosed: () => floatingActions.settle()
 });
 dialog.wire();
 /* A shared scrim being open does not mean it still belongs to this request. */
@@ -241,305 +244,56 @@ function measureTopbar() {
 }
 window.addEventListener('resize', measureTopbar);
 window.addEventListener('orientationchange', measureTopbar);
-/*
- * The sidebar's collapsed state. Remembered per reader, because a rail width
- * is a working preference rather than a per-visit decision, and restored
- * before the first paint of any authenticated screen so it does not visibly
- * snap narrower a moment after arriving.
- */
-function setRailCollapsed(collapsed) {
-  document.body.dataset.rail = collapsed ? 'collapsed' : 'expanded';
-  const toggle = $('#railCollapse');
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', collapsed ? 'Expand the sidebar' : 'Collapse the sidebar');
-  }
-  /*
-   * Collapsed entries show only their mark, so the name has to survive
-   * somewhere a pointer can reach it as well as in the accessibility tree.
-   */
-  $$('.nv-rail-item').forEach(item => {
-    const name = ((item.querySelector('.nv-rail-t') || {}).textContent || '').trim();
-    const sub = ((item.querySelector('.nv-rail-d') || {}).textContent || '').trim();
-    if (collapsed) item.title = sub ? `${name} — ${sub}` : name;
-    else item.removeAttribute('title');
-  });
-  try { localStorage.setItem('nv_rail_collapsed', collapsed ? '1' : '0'); } catch {}
-  const fold = $('#railSecurityFold');
-  if (fold && typeof setSecurityFold === 'function') setSecurityFold(fold.dataset.open === 'true', { remember: false });
-}
-
-/*
- * Magnetar Sec opens and closes like a menu, and the reader's choice is kept
- * for the next visit. Folded, its tools are out of the tab order as well as
- * out of sight; and when the screen in front of the reader is one of them,
- * the heading opens by itself so the current entry is never hidden. On a rail
- * narrowed to icons the marks are the only way to the tools, so it stays open.
- */
-const SECURITY_FOLD = 'nv_ui:rail-security';
-function setSecurityFold(open, { remember = true } = {}) {
-  const head = $('#railSecurityLabel');
-  const fold = $('#railSecurityFold');
-  if (!head || !fold) return;
-  const narrowed = document.body.dataset.rail === 'collapsed' && window.innerWidth >= 1140;
-  /* Clipped while it moves, and only then: at rest the current entry's glow spreads past the list. */
-  if (fold.dataset.open !== String(open)) {
-    fold.dataset.moving = '';
-    clearTimeout(fold.settleTimer);
-    fold.settleTimer = setTimeout(() => { delete fold.dataset.moving; }, 480);
-  }
-  fold.dataset.open = String(open);
-  head.setAttribute('aria-expanded', String(open));
-  fold.inert = !open && !narrowed;
-  head.tabIndex = narrowed ? -1 : 0;
-  const count = $$('#railSecurityFold .nv-rail-item').filter(item => !item.hidden && !item.closest('[hidden]')).length;
-  const badge = head.querySelector('.nv-rail-group-n');
-  if (badge) badge.textContent = String(count);
-  head.setAttribute('aria-label', `Magnetar Sec, ${count} security ${count === 1 ? 'tool' : 'tools'}`);
-  if (remember) try { localStorage.setItem(SECURITY_FOLD, open ? '1' : '0'); } catch {}
-}
-$('#railSecurityFold') && $('#railSecurityFold').addEventListener('transitionend', event => {
-  if (event.target === event.currentTarget && event.propertyName === 'grid-template-rows') delete event.currentTarget.dataset.moving;
+/* The rail: narrowed or not, Magnetar Sec folded or open, the screen marked, the drawer (features/shell/rail-controller.ts). */
+const rail = createRail({
+  body: document.body,
+  collapseToggle: () => $('#railCollapse'),
+  entries: () => $$('#navRail .nv-rail-item'),
+  securityEntries: () => $$('#railSecurityFold .nv-rail-item'),
+  fold: () => $('#railSecurityFold'),
+  foldHead: () => $('#railSecurityLabel'),
+  rail: () => $('#navRail'),
+  scrim: () => $('#navScrim'),
+  menuButtons: () => $$('.nav-menu-btn'),
+  user: () => $('#navUser'),
+  userText: part => $(part === 'initial' ? '#navUserInitial' : part === 'name' ? '#navUserName' : '#navUserSub'),
+  storage: () => localStorage,
+  viewportWidth: () => window.innerWidth,
+  openOverlay: element => openOverlay(element),
+  closeOverlay: (element, settled) => closeOverlay(element, settled),
+  activeTab: () => ($('.tabpane.active') || {}).id || '',
+  me: () => state.me,
+  now: () => Date.now(),
+  attached: node => document.contains(node),
+  setTimeout: (run, ms) => setTimeout(run, ms),
+  clearTimeout: timer => clearTimeout(timer)
 });
-$('#railSecurityLabel') && $('#railSecurityLabel').addEventListener('click', () => {
-  setSecurityFold($('#railSecurityFold').dataset.open !== 'true');
+$('#railSecurityFold') && $('#railSecurityFold').addEventListener('transitionend', event => rail.foldSettled(event));
+$('#railSecurityLabel') && $('#railSecurityLabel').addEventListener('click', () => rail.toggleSecurityFold());
+$('#railCollapse') && $('#railCollapse').addEventListener('click', () => rail.toggleCollapsed());
+rail.restore();
+
+/* The floating action: the controls a screen's top bar had no room for (features/shell/floating-actions-controller.ts). */
+const floatingActions = createFloatingActions({
+  dock: () => $('#paletteFab'),
+  menu: () => $('#fabMenu'),
+  stand: () => $('.nv-fab-dock'),
+  screen: name => $('#page-' + name),
+  create: tag => document.createElement(tag),
+  openOverlay: element => openOverlay(element),
+  closeOverlay: element => closeOverlay(element),
+  overlayOpen: element => overlayOpen(element),
+  anchor: (overlay, origin) => anchorOverlayOrigin(overlay, origin),
+  applyCapabilities: root => CapabilityUI.apply(root),
+  activeElement: () => document.activeElement,
+  scrollY: () => window.scrollY
 });
-(function restoreSecurityFold() {
-  let open = true;
-  try { open = localStorage.getItem(SECURITY_FOLD) !== '0'; } catch {}
-  setSecurityFold(open, { remember: false });
-})();
-
-$('#railCollapse') && $('#railCollapse').addEventListener('click', () => {
-  setRailCollapsed(document.body.dataset.rail !== 'collapsed');
-});
-
-(function restoreRailPreference() {
-  let collapsed = false;
-  try { collapsed = localStorage.getItem('nv_rail_collapsed') === '1'; } catch {}
-  setRailCollapsed(collapsed);
-})();
-
-/*
- * The floating action is not one button that always opens the palette. Each
- * screen has a different next thing a reader reaches for, and below the
- * breakpoint the top bar has no room to offer it -- so the action carries
- * whatever that screen's is, and says so in its own name.
- */
-/*
- * The floating action carries the controls this screen could not place.
- *
- * Not a written list. The top bar drops controls below the breakpoint for want
- * of room -- they are marked as dropped in the markup -- and those are exactly
- * the controls that then have nowhere to be. Reading them off the bar means
- * the dock cannot fall out of step with it: a control that stops fitting turns
- * up here without anyone remembering to add it, and one that finds a place of
- * its own stops being offered here without anyone remembering to remove it.
- *
- * Which is why it is empty on the overview and the inventory. Those bars drop
- * nothing a reader cannot otherwise reach, so there is nothing for a floating
- * menu to solve, and a menu that repeats the screen behind it is worse than no
- * menu at all. The workbench gets a dock with two entries.
- */
-const DOCK_LABELS = Object.freeze({ overview: 'Overview actions', repos: 'Repository actions', work: 'Workspace actions' });
-/*
- * Of what the bar drops, the dock carries two: Settings and the command
- * palette, in that order. The others the bar drops on a phone -- the file
- * panel's toggle, Safeguards -- each have a place of their own there (the
- * tab strip, the security menu), and a dock that grew with every control
- * that stopped fitting had become a second, longer menu.
- */
-const DOCK_ACTIONS = Object.freeze(['settings', 'palette']);
-const dockAction = control => (/^settingsBtn/.test(control.id) ? 'settings' : control.id === 'paletteBtn' ? 'palette' : '');
-
-function accessibleName(control) {
-  return (control.getAttribute('aria-label') || control.textContent || '').replace(/\s+/g, ' ').trim();
-}
-
-function placedElsewhere(page, control, name) {
-  /*
-   * Same action, somewhere a thumb can already reach. The inventory's bar
-   * drops "Sign out" and the inventory's own body offers it as a full-width
-   * control, so it is placed -- just not in the bar.
-   */
-  return [...page.querySelectorAll('button, a[href]')].some(other => other !== control
-    && !control.contains(other)
-    && other.offsetParent !== null
-    && accessibleName(other) === name);
-}
-
-function floatingActionsFor(name) {
-  const page = $('#page-' + name);
-  if (!page) return null;
-  const bar = page.querySelector('.topbar');
-  if (!bar) return null;
-  const dropped = [...bar.querySelectorAll('button.hide-sm')]
-    .filter(control => DOCK_ACTIONS.includes(dockAction(control)))
-    .map(control => ({ control, label: accessibleName(control) }))
-    .filter(entry => entry.label && !placedElsewhere(page, entry.control, entry.label))
-    .sort((a, b) => DOCK_ACTIONS.indexOf(dockAction(a.control)) - DOCK_ACTIONS.indexOf(dockAction(b.control)));
-  if (!dropped.length) return null;
-  return { label: DOCK_LABELS[name] || 'Actions', items: dropped };
-}
-
-function closeFloatingActions({ restoreFocus = true } = {}) {
-  const fab = $('#paletteFab');
-  const menu = $('#fabMenu');
-  if (!fab || !menu || !overlayOpen(menu)) return;
-  /* The seventh layer, and the last one still cut away: it arrived on an
-     animation and left without one, like the other six used to. */
-  closeOverlay(menu);
-  fab.setAttribute('aria-expanded', 'false');
-  if (restoreFocus && fab.offsetParent !== null) fab.focus();
-}
-
-function openFloatingActions() {
-  const fab = $('#paletteFab');
-  const menu = $('#fabMenu');
-  if (!fab || !menu) return;
-  openOverlay(menu);
-  anchorOverlayOrigin(menu, fab);
-  fab.setAttribute('aria-expanded', 'true');
-  /* Whatever the page was doing, the control stays while its menu is open. */
-  setFloatingActionRetracted(false);
-  const first = menu.querySelector('.nv-fab-item:not([hidden])');
-  /* Focused while the menu is still rising; without this the browser scrolls
-     it into view mid-animation and the rise reads as a stutter. */
-  if (first) first.focus({ preventScroll: true });
-}
-
-/*
- * The floating action steps aside while the reader moves down the page.
- *
- * It is anchored above the bottom navigation, which on a narrow screen puts it
- * over whatever sits in the lower right -- the intelligence-mode grid, among
- * others. A floating control overlays content by definition, but standing on a
- * destination while someone is trying to reach it is not the bargain: it holds
- * the controls the top bar had no room for, and that does not require it to be
- * in front of them at every moment.
- *
- * Down the page is reading, so it withdraws. Back up the page is looking for
- * something, so it returns -- as it does near the top, and whenever its own
- * menu is open, and whenever it takes focus. That last one matters most: a
- * control that is focusable while invisible sends the keyboard somewhere the
- * reader cannot see, so the CSS restores it on :focus-within rather than
- * leaving that to a listener that might not run.
- */
-let _fabScrollY = 0;
-
-function setFloatingActionRetracted(retracted) {
-  const dock = $('.nv-fab-dock');
-  if (dock) dock.dataset.retracted = retracted ? 'true' : 'false';
-}
-
-function paintFloatingActionRetraction() {
-  const dock = $('.nv-fab-dock');
-  const fab = $('#paletteFab');
-  if (!dock || !fab) return;
-  const y = Math.max(0, window.scrollY);
-  const open = fab.getAttribute('aria-expanded') === 'true';
-  /* A small threshold, so a rubber-band or a one-pixel jitter is not a gesture. */
-  const movedDown = y > _fabScrollY + 6;
-  const movedUp = y < _fabScrollY - 6;
-  if (open || y < 80) setFloatingActionRetracted(false);
-  else if (movedDown) setFloatingActionRetracted(true);
-  else if (movedUp) setFloatingActionRetracted(false);
-  _fabScrollY = y;
-}
-
-window.addEventListener('scroll', paintFloatingActionRetraction, { passive: true });
-
-function paintFloatingAction(name) {
-  const fab = $('#paletteFab');
-  const menu = $('#fabMenu');
-  if (!fab || !menu) return;
-  closeFloatingActions({ restoreFocus: false });
-  menu.innerHTML = '';
-  const action = floatingActionsFor(name);
-  fab.hidden = !action;
-  if (!action) return;
-  fab.setAttribute('aria-label', action.label);
-  fab.title = action.label;
-  fab.setAttribute('aria-expanded', 'false');
-  menu.setAttribute('aria-label', action.label);
-
-  for (const item of action.items) {
-    const entry = document.createElement('button');
-    entry.type = 'button';
-    entry.className = 'nv-fab-item';
-    /*
-     * The gate travels with the control. An action that is refused in the bar
-     * and offered here would be an action with no gate at all.
-     */
-    if (item.control.dataset.feature) entry.dataset.feature = item.control.dataset.feature;
-    const mark = item.control.querySelector('svg');
-    if (mark) {
-      const copy = mark.cloneNode(true);
-      copy.setAttribute('class', 'ico');
-      copy.removeAttribute('width');
-      copy.removeAttribute('height');
-      copy.setAttribute('aria-hidden', 'true');
-      entry.appendChild(copy);
-    }
-    const text = document.createElement('span');
-    text.textContent = item.label;
-    entry.appendChild(text);
-    const slot = document.createElement('div');
-    slot.className = 'nv-fab-slot';
-    slot.appendChild(entry);
-    entry.addEventListener('click', () => {
-      /*
-       * Focus returns to the dock before the action runs, not after. Anything
-       * the action opens records what was focused when it opened, and the
-       * entry that was pressed is removed with the menu -- so a dialog that
-       * restored focus faithfully was handing it to an element that no longer
-       * existed, and it landed on the body instead.
-       */
-      closeFloatingActions();
-      item.control.click();
-    });
-    menu.appendChild(slot);
-  }
-  fab.dataset.action = name;
-  /* Freshly built entries have to be re-read against the session's
-     capabilities, or a blocked action arrives looking available. */
-  CapabilityUI.apply(menu);
-}
-
-$('#paletteFab') && $('#paletteFab').addEventListener('click', () => {
-  const menu = $('#fabMenu');
-  if (!menu) return;
-  if (menu.hidden) openFloatingActions();
-  else closeFloatingActions();
-});
-
-/*
- * Escape closes it and hands focus back, and a press anywhere outside closes it
- * without stealing focus from wherever the reader chose to go.
- */
-document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape') return;
-  const menu = $('#fabMenu');
-  const fab = $('#paletteFab');
-  if (!menu || menu.hidden) return;
-  /*
-   * Only when the reader is actually in it, and never in the capture phase.
-   * Listening first and stopping the event meant that any dialog opened while
-   * these actions happened to be showing could no longer be dismissed with
-   * Escape: this closed the actions behind it and swallowed the key. Escape
-   * belongs to whatever holds focus.
-   */
-  const active = document.activeElement;
-  if (!menu.contains(active) && active !== fab) return;
-  closeFloatingActions();
-});
-document.addEventListener('pointerdown', event => {
-  const menu = $('#fabMenu');
-  const fab = $('#paletteFab');
-  if (!menu || menu.hidden) return;
-  if (menu.contains(event.target) || (fab && fab.contains(event.target))) return;
-  closeFloatingActions({ restoreFocus: false });
-});
+function paintFloatingAction(name) { floatingActions.paint(name); }
+window.addEventListener('scroll', () => floatingActions.onScroll(), { passive: true });
+$('#paletteFab') && $('#paletteFab').addEventListener('click', () => floatingActions.toggle());
+/* Escape closes it and hands focus back; a press outside closes it without taking focus from where the reader went. */
+document.addEventListener('keydown', event => { floatingActions.onKey(event.key); });
+document.addEventListener('pointerdown', event => floatingActions.onPointerDown(event.target));
 
 /* Which screen owns which piece of the design's artwork. */
 const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
@@ -7804,39 +7558,7 @@ $('#reposRefreshBtn').addEventListener('click', () => loadRepos(true));
  * the screen in view as current, which is what a reader navigating by landmark
  * relies on to know where they are.
  */
-const RAIL_SCREENS = new Set(['overview', 'repos', 'work', 'site', 'findings']);
-function paintRail(name) {
-  const rail = $('#navRail');
-  if (!rail) return;
-  rail.hidden = !RAIL_SCREENS.has(name);
-  const activeTab = ($('.tabpane.active') || {}).id || '';
-  /*
-   * Five of the workbench's tabs are destinations in their own right rather
-   * than views of the file it has open, and the rail offers them as such -- so
-   * when one of them is what the reader is looking at, the rail marks that
-   * entry rather than the workbench it technically sits inside.
-   */
-  const promoted = { 'tab-neural': 'neural', 'tab-governance': 'governance', 'tab-exposure': 'exposure', 'tab-audit': 'audit', 'tab-safeguards': 'safeguards' };
-  const shown = name === 'work' && promoted[activeTab] ? promoted[activeTab] : name;
-  $$('.nv-rail-item').forEach(item => {
-    const current = item.dataset.rail === shown;
-    if (current) item.setAttribute('aria-current', 'page');
-    else item.removeAttribute('aria-current');
-  });
-  const fold = $('#railSecurityFold');
-  if (fold) setSecurityFold(fold.dataset.open === 'true' || Boolean(fold.querySelector('.nv-rail-item[aria-current="page"]')), { remember: false });
-  const user = $('#navUser');
-  const me = state.me;
-  if (user) {
-    const label = me && (me.name || me.login);
-    user.hidden = !label;
-    if (label) {
-      $('#navUserInitial').textContent = String(label).trim().charAt(0).toUpperCase();
-      $('#navUserName').textContent = label;
-      $('#navUserSub').textContent = (me && me.login) ? `@${me.login}` : '';
-    }
-  }
-}
+function paintRail(name) { rail.paint(name); }
 /*
  * Neural and the workbench are views of an open repository rather than places
  * of their own, so the rail offers them as destinations and refuses when there
@@ -7850,92 +7572,23 @@ function paintRail(name) {
  * Focus returns to whichever bar opened it: a reader dismissed back to the top
  * of the document has lost their place.
  */
-let navMenuOpener = null;
-function navMenuOpen() { return document.body.classList.contains('nav-open'); }
-function setNavMenu(open, opener) {
-  const scrim = $('#navScrim');
-  const was = navMenuOpen();
-  document.body.classList.toggle('nav-open', open);
-  /*
-   * `nav-open` is what makes the rail a drawer at all, so dropping it on close
-   * would delete the very thing that is meant to slide away. `nav-closing`
-   * carries the same layout for as long as the exit lasts, and is lifted by
-   * the same settled callback that hides the scrim -- the timer path included,
-   * so a window resized mid-dismissal cannot leave the rail stuck as a drawer.
-   * It is only put on when there was something open to dismiss.
-   */
-  document.body.classList.toggle('nav-closing', !open && was);
-  if (open) openOverlay(scrim);
-  else closeOverlay(scrim, () => document.body.classList.remove('nav-closing'));
-  $$('.nav-menu-btn').forEach(button => button.setAttribute('aria-expanded', String(open)));
-  if (open) {
-    navMenuOpener = opener || null;
-    const first = $('#navRail .nv-rail-item');
-    /*
-     * Without preventScroll the browser scrolls the freshly focused item into
-     * view, and it does that while the drawer is still sliding in -- a jump
-     * laid over the slide, which is what made opening the rail look unsteady.
-     */
-    if (first) first.focus({ preventScroll: true });
-    return;
-  }
-  const restore = navMenuOpener;
-  navMenuOpener = null;
-  if (restore && document.contains(restore)) restore.focus();
-}
-function closeNavMenu() { if (navMenuOpen()) setNavMenu(false); }
+function closeNavMenu() { rail.closeMenu(); }
 $$('.nav-menu-btn').forEach(button => button.addEventListener('click', () => {
-  setNavMenu(!navMenuOpen(), button);
+  rail.setMenu(!rail.menuOpen(), button);
 }));
 $('#navScrim') && $('#navScrim').addEventListener('click', closeNavMenu);
 $('#navClose') && $('#navClose').addEventListener('click', closeNavMenu);
-/*
- * A drawer follows the finger that closes it. A horizontal drag to the left
- * moves the rail with the touch; let go past a third of its width, or with a
- * quick flick, and it closes; otherwise it springs back. A vertical drag is
- * the list scrolling and is left alone.
- */
+/* A drawer follows the finger that closes it (features/shell/rail.ts). */
 (function drawerSwipe() {
-  const rail = $('#navRail');
-  if (!rail) return;
-  let start = null;
-  rail.addEventListener('touchstart', event => {
-    if (!navMenuOpen() || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    start = { x: touch.clientX, y: touch.clientY, t: Date.now(), dx: 0, horizontal: null };
-  }, { passive: true });
-  rail.addEventListener('touchmove', event => {
-    if (!start) return;
-    const touch = event.touches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (start.horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) start.horizontal = Math.abs(dx) > Math.abs(dy);
-    if (!start.horizontal) return;
-    start.dx = Math.min(0, dx);
-    rail.classList.add('is-dragging');
-    rail.style.transform = `translateX(${start.dx}px)`;
-  }, { passive: true });
-  const end = () => {
-    if (!start) return;
-    const { dx, t, horizontal } = start;
-    start = null;
-    rail.classList.remove('is-dragging');
-    rail.style.transform = '';
-    if (!horizontal) return;
-    const fast = Math.abs(dx) / Math.max(1, Date.now() - t) > 0.5;
-    if (-dx > rail.getBoundingClientRect().width / 3 || (fast && dx < -24)) closeNavMenu();
-  };
-  rail.addEventListener('touchend', end);
-  rail.addEventListener('touchcancel', end);
+  const drawer = $('#navRail');
+  if (!drawer) return;
+  drawer.addEventListener('touchstart', event => rail.dragStart([...event.touches]), { passive: true });
+  drawer.addEventListener('touchmove', event => { if (event.touches[0]) rail.dragMove(event.touches[0]); }, { passive: true });
+  drawer.addEventListener('touchend', () => rail.dragEnd());
+  drawer.addEventListener('touchcancel', () => rail.dragEnd());
 })();
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && navMenuOpen()) { event.preventDefault(); closeNavMenu(); }
-});
-/* A drawer is a narrow-screen affordance; widening the window makes the rail
-   standing chrome again, and a scrim over it would be stranded. */
-window.addEventListener('resize', () => {
-  if (window.innerWidth >= 1140) closeNavMenu();
-});
+document.addEventListener('keydown', event => { if (rail.onKey(event.key)) event.preventDefault(); });
+window.addEventListener('resize', () => rail.onResize());
 
 $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   const target = item.dataset.rail;
@@ -7953,14 +7606,14 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
     const opening = openRepoRequest;
     return state.opening.then(() => {
       if (opening !== openRepoRequest || !state.work) return;
-      if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
+      if (isRepositoryTool(target)) switchTab(target);
     });
   }
   if (!state.work) return PICK_TOOLS[target] ? pickRepository(target) : toast('Open a repository first.', 'err');
   /* Governance and Safeguards belong to a repository's collaborators: with somebody else's open, they ask which of yours. */
   if (visitingRepository() && VISITOR_TABS.has(target)) return pickRepository(target, { own: true });
   showPage('work');
-  if (['neural', 'governance', 'exposure', 'audit', 'safeguards'].includes(target)) switchTab(target);
+  if (isRepositoryTool(target)) switchTab(target);
   else paintRail('work');
 }));
 $('#paletteInput').addEventListener('input', e => renderPalette(e.target.value));

@@ -1,5 +1,6 @@
 import { ownEntry } from '../../../platform/values/fields.ts';
 import type { SourceFile } from './uranus-reach.ts';
+import { serviceIndex, type ServiceIndex } from './uranus-services.ts';
 
 /*
  * Uranus: the attack surface, and who is let through it.
@@ -122,25 +123,29 @@ function closing(source: string, open: number): number {
   }
   return source.length;
 }
-/* The statement that begins at `start`: to a semicolon or a line end outside every bracket, a chained call on the next line included. */
+/*
+ * The statement that begins at `start`: to a semicolon or a line end outside
+ * every bracket. A body reaches here as its tokens joined by spaces, or as
+ * Python's logical lines, so a call chained over several lines is one already.
+ */
 function statementFrom(source: string, start: number): string {
   let depth = 0;
   for (let index = start; index < source.length; index += 1) {
     const char = source[index];
     if (char === '(' || char === '[' || char === '{') depth += 1;
     else if (char === ')' || char === ']' || char === '}') { if (depth === 0) return source.slice(start, index); depth -= 1; }
-    else if (depth === 0 && (char === ';' || (char === '\n' && !/^\s*(\.|\?\.|->|\|\||&&|AND\b|and\b)/.test(source.slice(index + 1, index + 40))))) return source.slice(start, index);
+    else if (depth === 0 && (char === ';' || char === '\n')) return source.slice(start, index);
   }
   return source.slice(start);
 }
-/* Where the statement holding `at` begins: back to a semicolon, the bracket it sits in, or a line that does not continue a chain. */
+/* Where the statement holding `at` begins: back to a semicolon, a line end, or the bracket it sits in. */
 function statementStart(source: string, at: number): number {
   let depth = 0;
   for (let index = at - 1; index >= 0; index -= 1) {
     const char = source[index];
     if (char === ')' || char === ']' || char === '}') depth += 1;
     else if (char === '(' || char === '[' || char === '{') { if (depth === 0) return index + 1; depth -= 1; }
-    else if (depth === 0 && (char === ';' || (char === '\n' && !/^\s*(\.|\?\.|->)/.test(source.slice(index + 1, index + 40))))) return index + 1;
+    else if (depth === 0 && (char === ';' || char === '\n')) return index + 1;
   }
   return 0;
 }
@@ -188,6 +193,38 @@ function tiedToCaller(body: string, lookup: RegExp, extra: RegExp | null): boole
       const value = declared.get(word);
       if (value !== undefined && names(value)) return true;
     }
+  }
+  return false;
+}
+
+/* What a handler cannot hand on as a record's id: control flow and the calls every handler makes. */
+const NOT_A_SERVICE = /^(if|for|while|switch|catch|return|function|await|typeof|new|require|import|super|json|send|status|end|render|redirect|log|info|warn|error|debug|parseInt|parseFloat|Number|String|Boolean|isNaN|get|post|put|patch|delete|use|then|catch|finally|map|filter|forEach|push|includes|has|test|exec|query|params|abort|jsonify|int|str|len|print)$/;
+
+/* The names a route gives the parts of its path that end in an id: /invoices/:id, /<int:invoice_id>, /{orderId}. */
+function routeIds(label: string | null): string[] {
+  return [...String(label || '').matchAll(/[:{<](?:\w+:)?(\w*(?:id|Id|ID|pk))\b/g)].map(match => match[1] ?? '').filter(Boolean);
+}
+
+/*
+ * A call that hands the caller's id to a function of this repository, defined
+ * once, whose body fetches a record and never ties it to the caller. The
+ * caller named among the arguments (`byId(req.user.id, req.params.id)`) is a
+ * tie: the service may scope by it. One call deep, and only an unambiguous
+ * name: a name defined twice could be either.
+ */
+function lookupInService(body: string, label: string | null, services: () => ServiceIndex): boolean {
+  const ids = routeIds(label);
+  for (const call of body.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const name = call[1] ?? '';
+    if (NOT_A_SERVICE.test(name)) continue;
+    const open = call.index + call[0].length - 1;
+    const args = body.slice(open + 1, closing(body, open) - 1);
+    const handsId = ID_SOURCE.test(args) || ids.some(id => new RegExp(`(^|[^\\w.$])${id}\\b`).test(args));
+    if (!handsId || OWNER_BINDING.test(args) || POLICY_CALL.test(args)) continue;
+    const found = services()(name);
+    const [only] = found;
+    if (!only || found.length !== 1) continue;
+    if (RECORD_LOOKUP.test(only.text) && !tiedToCaller(only.text, RECORD_LOOKUP, null)) return true;
   }
   return false;
 }
@@ -373,6 +410,7 @@ export function analyseSurface({ routes, files }: { routes?: readonly Route[] | 
   const projectHasAuth = all.some(file => typeof file.text === 'string' && PROJECT_AUTH.test(file.text));
   const guards = globalGuards(all);
   const edgeOpen = openEdgeFunctions(all);
+  let services: ServiceIndex | null = null;
   const surfaces: Surface[] = [];
   const raw: SurfaceFinding[] = [];
   for (const route of routes || []) {
@@ -415,7 +453,9 @@ export function analyseSurface({ routes, files }: { routes?: readonly Route[] | 
       const cfamily = Boolean(languagePattern(LANGUAGE_BODY_AUTH, route.language));
       const lookup = cfamily ? CF_RECORD_LOOKUP.test(body) : RECORD_LOOKUP.test(body);
       const owned = tiedToCaller(body, cfamily ? CF_RECORD_LOOKUP : RECORD_LOOKUP, cfamily ? CF_OWNER_BINDING : null) || ROLE_GUARD.test((route.middleware || []).join(' '));
-      if (hasId && lookup && !owned && !/supabase\s*\.\s*from\s*\(/.test(body)) {
+      /* No lookup here: the caller's id may be handed to a service that makes it (JavaScript and Python). */
+      const delegated = hasId && !lookup && !owned && !cfamily && lookupInService(body, label, () => (services ??= serviceIndex(all)));
+      if (hasId && (lookup || delegated) && !owned && !/supabase\s*\.\s*from\s*\(/.test(body)) {
         raw.push({ rule: 'ACC-002', path: route.path, line: route.line, verdict: 'needs-validation', blocker: { reason: 'owner' }, reach });
       }
       continue;

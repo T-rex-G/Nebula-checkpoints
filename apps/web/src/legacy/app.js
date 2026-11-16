@@ -34,6 +34,8 @@ import { discardHeldRepaints, repaintCard } from '../components/held-repaint.ts'
 import { probeSource } from '../platform/probe.ts';
 import { NO_ROUTE, currentRoute, formatRoute, onRouteChange, parseRoute, writeRoute } from '../platform/router.ts';
 import { pageStore, state } from '../platform/page-state.ts';
+import { offlineRepoKey, offlineRepoList as readOfflineRepos, offlineRepoStorageKey, withOfflineRepo } from '../platform/offline-repos.ts';
+import { createTransport } from '../platform/transport.ts';
 import Visuals from '../visualizations/nebula-visuals.ts';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -59,156 +61,45 @@ function rememberHead(commit, branch = state.work && state.work.branch) {
   if (record) pageStore.mutate('work', () => { record.sha = String(commit); });
 }
 
-/* ---------------- fetch helper ---------------- */
-const _cache = new Map();
-function offlineRepoStorageKey() {
-  const scope = state.me && state.me.offlineCacheScope;
-  return scope ? `nv_offline_repos:${scope}` : '';
-}
-function offlineRepoList() {
-  const key = offlineRepoStorageKey();
-  if (!key) return [];
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(value) ? value.filter(item => typeof item === 'string').slice(0, 100) : [];
-  } catch { return []; }
-}
+/* ---------------- fetch helper (platform/transport.ts) ---------------- */
+/* The repositories kept for offline use, under the reader's cache scope (platform/offline-repos.ts). */
+function offlineStorage() { try { return localStorage; } catch { return null; } }
+function offlineRepoList() { return readOfflineRepos(state.me, offlineStorage()); }
 function workOfflineRepoKey() {
   if (!state.work || !state.me) return '';
-  return `${state.me.provider || 'github'}:${state.work.owner}/${state.work.repo}`.toLowerCase();
+  return offlineRepoKey(state.me, state.work.owner, state.work.repo);
 }
 function isOfflineRepoEnabled() {
   const key = workOfflineRepoKey();
   return !!key && offlineRepoList().includes(key);
 }
 async function setOfflineRepoEnabled(enabled) {
-  const storageKey = offlineRepoStorageKey();
+  const storageKey = offlineRepoStorageKey(state.me);
   const repoKey = workOfflineRepoKey();
   if (!storageKey || !repoKey) throw new Error('Sign in and open a repository first');
-  const repos = new Set(offlineRepoList());
-  if (enabled) repos.add(repoKey); else repos.delete(repoKey);
-  localStorage.setItem(storageKey, JSON.stringify([...repos].slice(0, 100)));
+  localStorage.setItem(storageKey, JSON.stringify(withOfflineRepo(offlineRepoList(), repoKey, enabled)));
   if (!enabled) await purgePrivateCaches();
 }
-function offlineHeadersForPath(path, method) {
-  if (String(method || 'GET').toUpperCase() !== 'GET') return {};
-  const scope = state.me && state.me.offlineCacheScope;
-  if (!scope || offlineRepoList().length === 0) return {};
-  if (/^\/api\/repos(?:[?\/]|$)/.test(path)) {
-    return { 'x-nv-offline-scope': scope, 'x-nv-offline-repo': 'account' };
-  }
-  const match = /^\/api\/repo\/([^/]+)\/([^/?]+)/.exec(path);
-  if (!match) return {};
-  const repoKey = `${state.me.provider || 'github'}:${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`.toLowerCase();
-  if (!offlineRepoList().includes(repoKey)) return {};
-  return { 'x-nv-offline-scope': scope, 'x-nv-offline-repo': repoKey };
-}
-let csrfToken = '';
-let csrfExpiresAt = 0;
-let csrfRequest = null;
-function clearCsrfToken() {
-  csrfToken = '';
-  csrfExpiresAt = 0;
-  csrfRequest = null;
-}
-async function refreshCsrfToken() {
-  if (csrfRequest) return csrfRequest;
-  csrfRequest = (async () => {
-    const response = await fetch('/api/security/csrf', {
-      method: 'GET', credentials: 'same-origin', cache: 'no-store', headers: { 'x-nv': '1' }
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.token) {
-      const error = new Error(data.error || 'Unable to establish the request security context');
-      error.status = response.status;
-      error.code = data.code || '';
-      throw error;
-    }
-    csrfToken = String(data.token);
-    csrfExpiresAt = new Date(data.expiresAt || 0).getTime();
-    return csrfToken;
-  })();
-  try { return await csrfRequest; }
-  finally { csrfRequest = null; }
-}
-async function ensureCsrfToken() {
-  if (csrfToken && csrfExpiresAt - Date.now() > 30_000) return csrfToken;
-  clearCsrfToken();
-  return refreshCsrfToken();
-}
 /*
- * What a status means when the server's own JSON did not come with it. The
- * edge in front of the hosting answers for a server that is starting,
- * restarting or too slow, and limits a connection that asks too often; a
- * bare "Request failed (502)" told the reader none of that.
+ * Every request the page makes. A write refused because its branch moved
+ * reads the repository again; an alpha session that ended or was revoked
+ * clears the page and shows why before the refusal reaches the caller.
  */
-function statusMessage(status, fromServer) {
-  if (!fromServer) {
-    if (status === 429) return 'The hosting edge is limiting requests from this connection. Wait a minute, then try again.';
-    if (status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 527)) return 'The server did not answer in time: it may be waking up or restarting. Wait a few seconds, then try again.';
+const transport = createTransport({
+  fetch: (input, init) => fetch(input, init),
+  identity: () => state.me,
+  storage: () => localStorage,
+  now: () => Date.now(),
+  onBranchChanged: () => { if (state.work) queueMicrotask(() => refreshRepoMetadata().catch(() => {})); },
+  onAlphaEnded: async code => {
+    await purgeLocalData(true);
+    broadcastIdentityBoundary();
+    alphaBootStarted = false;
+    AlphaUI.showExpired(code);
+    _page = 'alpha-access';
   }
-  return `Request failed (${status})`;
-}
-async function api(path, opts = {}, allowCsrfRetry = true) {
-  const method = String(opts.method || 'GET').toUpperCase();
-  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(method);
-  const needsCsrf = unsafe && path !== '/api/login';
-  if (unsafe) _cache.clear();
-  if (needsCsrf) await ensureCsrfToken();
-  const r = await fetch(path, {
-    method,
-    credentials: 'same-origin',
-    cache: opts.cache || 'no-store',
-    signal: opts.signal,
-    headers: {
-      ...(opts.headers || {}),
-      'x-nv': '1',
-      ...(needsCsrf ? { 'x-nv-csrf': csrfToken } : {}),
-      ...offlineHeadersForPath(path, method),
-      ...(opts.body ? { 'Content-Type': 'application/json' } : {})
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined
-  });
-  let fromServer = true;
-  const data = await r.json().catch(() => { fromServer = false; return {}; });
-  if (!r.ok) {
-    if (allowCsrfRetry && needsCsrf && ['CSRF_REQUIRED', 'CSRF_INVALID', 'CSRF_EXPIRED'].includes(data.code)) {
-      clearCsrfToken();
-      return api(path, opts, false);
-    }
-    const error = new Error(data.error || statusMessage(r.status, fromServer));
-    error.status = r.status;
-    error.code = data.code || '';
-    /* No JSON body: the answer came from the edge in front of the server, not from the server. */
-    error.edge = !fromServer;
-    error.retryAfter = Number(r.headers.get('retry-after')) || 0;
-    error.correlationId = data.correlationId || r.headers.get('x-nebulaverse-correlation-id') || '';
-    error.providerChanged = data.providerChanged || 'unknown';
-    error.safeState = data.safeState || '';
-    error.nextAction = data.nextAction || '';
-    error.safePassage = data.safePassage && typeof data.safePassage === 'object' ? data.safePassage : null;
-    if (error.code === 'BRANCH_CHANGED' && state.work) {
-      queueMicrotask(() => refreshRepoMetadata().catch(() => {}));
-    }
-    if (['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(error.code)) {
-      await purgeLocalData(true);
-      broadcastIdentityBoundary();
-      alphaBootStarted = false;
-      AlphaUI.showExpired(error.code);
-      _page = 'alpha-access';
-    }
-    throw error;
-  }
-  if (/^\/api\/(?:login|logout|accounts\/(?:switch|switch-idx|remove))$/.test(path)) clearCsrfToken();
-  return data;
-}
-async function apiCached(path, ttl = 45000) {
-  const hit = _cache.get(path);
-  if (hit && Date.now() - hit.t < ttl) return hit.d;
-  const d = await api(path);
-  _cache.set(path, { d, t: Date.now() });
-  return d;
-}
+});
+const { api, apiCached, ensureCsrfToken, clearCsrfToken } = transport;
 
 async function requestStepUp(action, scope, label = 'sensitive action') {
   if (!state.me || !state.me.login) throw new Error('Sign in before authorizing a sensitive action');
@@ -1872,7 +1763,7 @@ async function purgeLocalData(full) {
     if (typeof element.replaceChildren === 'function') element.replaceChildren();
     else element.textContent = '';
   }
-  if (full) _cache.clear();
+  if (full) transport.cache.clear();
 }
 const NV_IDENTITY_BOUNDARY_STORAGE_KEY = 'nv_identity_boundary_event';
 const identityBoundaryChannel = (() => {
@@ -2390,7 +2281,7 @@ async function loadPullBoard(force) {
     try {
       if (!force) return await apiCached(path, PULL_BOARD_TTL_MS);
       const fresh = await api(path);
-      _cache.set(path, { d: fresh, t: Date.now() });
+      transport.cache.set(path, fresh);
       return fresh;
     } catch (error) {
       error.offline = isOfflineError(error);
@@ -9042,7 +8933,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     if (mode !== 'batch') status.textContent = 'Launching…';
 
 
-    await ensureCsrfToken();
+    const csrf = await ensureCsrfToken();
     checkContext();
     const xhr = new XMLHttpRequest();
     let outcome;
@@ -9052,7 +8943,7 @@ async function uploadOne(file, rel, settings = uploadSettings(file, rel)) {
     xhr.open('POST', `/api/repo/${w.owner}/${w.repo}/upload?${qs}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('x-nv', '1');
-    xhr.setRequestHeader('x-nv-csrf', csrfToken);
+    xhr.setRequestHeader('x-nv-csrf', csrf);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) {
         const pct = Math.round(e.loaded / e.total * 100);
@@ -10220,13 +10111,14 @@ function updateBatchBar() {
   const button = $('#batchCommitBtn');
   if (button) button.textContent = plan.atomic ? 'Commit all as one ✦' : `Commit in ${plan.commits} parts ✦`;
 }
-function uploadBlob(q) {
+/* `csrf` is the request-security token, asked for each blob so a long batch never sends one that has lapsed. */
+function uploadBlob(q, csrf) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/repo/${wPath()}/blob?path=${encodeURIComponent(q.targetPath)}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('x-nv', '1');
-    xhr.setRequestHeader('x-nv-csrf', csrfToken);
+    xhr.setRequestHeader('x-nv-csrf', csrf);
     xhr.upload.onprogress = ev => { if (ev.lengthComputable) q.fill.style.width = Math.min(Math.round(ev.loaded / ev.total * 100), 90) + '%'; };
     xhr.onload = () => {
       try { const r = JSON.parse(xhr.responseText); r.ok ? resolve(r.sha) : reject(new Error(r.error || 'blob failed')); }
@@ -10266,7 +10158,7 @@ $('#batchCommitBtn').addEventListener('click', async () => {
       const ops = [];
       for (const q of part) {
         q.status.textContent = `Uploading blob…${partLabel}`;
-        ops.push({ op: 'put', path: q.targetPath, sha: await uploadBlob(q) });
+        ops.push({ op: 'put', path: q.targetPath, sha: await uploadBlob(q, await ensureCsrfToken()) });
         q.status.textContent = 'Blob stored — waiting for the commit…';
       }
       const out = await api(`/api/repo/${wPath()}/batch`, {
@@ -10515,7 +10407,7 @@ async function loadActions() {
     });
   } catch (e) { host.innerHTML = ''; toast(e.message, 'err'); }
 }
-$('#actionsRefreshBtn').addEventListener('click', () => { _cache.clear(); loadActions(); });
+$('#actionsRefreshBtn').addEventListener('click', () => { transport.cache.clear(); loadActions(); });
 
 /* ---- branch manager ---- */
 async function openBranchManager() {

@@ -189,19 +189,17 @@ test('reset aborts map reads and late responses cannot populate a new repository
 });
 
 test('browser API forwards caller cancellation to fetch', async () => {
-  const app = fs.readFileSync(path.join(ROOT, 'apps/web/src/legacy/app.js'), 'utf8');
-  const start = app.indexOf('async function api(');
-  const end = app.indexOf('\n}\n', start) + 2;
-  const context = {
-    offlineHeadersForPath: () => ({}),
+  /* The page's one transport (platform/transport.ts), as the page makes it. */
+  const { createTransport } = require('../apps/web/src/platform/transport.ts');
+  const transport = createTransport({
     fetch: (_url, options) => {
       assert(options.signal, 'the actual shared API adapter must pass the caller signal');
       return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
-    }
-  };
-  vm.runInNewContext(app.slice(start, end), context);
+    },
+    identity: () => null, storage: () => null, now: () => Date.now(), onBranchChanged() {}, onAlphaEnded: async () => {}
+  });
   const controller = new AbortController();
-  const pending = context.api('/api/repo/acme/demo/activity', { signal: controller.signal });
+  const pending = transport.api('/api/repo/acme/demo/activity', { signal: controller.signal });
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
 });

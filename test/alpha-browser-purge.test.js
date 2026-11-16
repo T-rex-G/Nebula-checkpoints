@@ -172,7 +172,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
         return tx;
       }
     }),
-    _cache: { clear: () => operations.push(['memory-cache']) },
+    /* The page's memory of reads, kept by its transport (platform/transport.ts). */
+    transport: { cache: { clear: () => operations.push(['memory-cache']) } },
     /*
      * The unread marker is neither a value nor a child list, so the sweep
      * below cannot reach it: hiding it is what clearing it means, and the
@@ -218,6 +219,8 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     'the purge must clear the workspace posture, or the next session is scored with the previous one\'s credential and leaks');
   assert.strictEqual(operations.findIndex(([kind]) => kind === 'held-repaints'), 0,
     'the purge must drop the repaints a press was holding before it clears anything, or one drawn afterwards brings the previous reader back');
+  assert.deepStrictEqual(operations.filter(([kind]) => kind === 'memory-cache'), [['memory-cache']],
+    'a full purge forgets the page\'s memory of reads, or the next session is answered from the previous one\'s');
 }
 
 (async () => {

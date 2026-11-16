@@ -3,7 +3,7 @@
     "src/public-alpha-qualification.js": 5,
     "src/qualification-evidence.js": 2,
     "src/work-continuity.js": 2,
-    "apps/web/src/legacy/app.js": 13
+    "apps/web/src/legacy/app.js": 5
   },
   "unconsumed": [
     "actor.ts AUTHORIZATION_EVIDENCE_STATUSES",

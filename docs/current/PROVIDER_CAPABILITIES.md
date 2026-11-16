@@ -228,15 +228,26 @@ early exit) quiets the flow inside what it guards, and what was built from the
 checked value is settled with it. Calls are followed through helpers of
 helpers, a parent class's methods, a typed field's class (an injected Spring
 service and the one class implementing its interface, a Laravel controller's
-service), and a Go method of a name only one type defines. The engine is
-measured on a corpus of 169 cases in JavaScript, TypeScript, Python, Go, Java
-and PHP: 98% precision and 99% recall. Each case is a small application whose
+service), and a Go method of a name only one type defines. In JavaScript,
+TypeScript and Python a call is followed to the function it names wherever the
+repository defines it: a method of a class or an object, through the instance
+or the injected field that names it, a module that exports an instance, a
+re-export, and a module imported under an alias; a statement built in one
+function and run by another is a flow where it is run, a query or a page a
+function builds and returns is still built when it comes back, a response
+handed to a helper is still the response, and a callback is handed the value
+it is run over. The engine is
+measured on a corpus of 253 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 93% precision and 99% recall. Each case is a small application whose
 own comments say what must be found and where, run through the whole audit
 (`node scripts/uranus-benchmark.js`); the one miss it records, a function the
-caller names and the code calls, and its two false alarms, pattern leads on a
-value an allow-list replace or a shell quoter had already made safe, are
-written down rather than left out, and the unit suite fails if any case
-regresses. A sanitiser clears a value only for the sinks its context covers:
+caller names and the code calls, and its eleven false alarms are written down
+rather than left out, and the unit suite fails if any case regresses. Every
+one of the eleven is a pattern lead to confirm, never a confirmed finding: two
+on a value an allow-list replace or a shell quoter had already made safe, and
+nine on a statement a helper builds from a parameter that no caller in the
+repository hands a request's value -- a constant, a parsed number, or no call
+at all -- where the trace is quiet and the line rule cannot know it. A sanitiser clears a value only for the sinks its context covers:
 escaped HTML still reaches SQL and the shell, a URL component still ends a SQL
 string, and a function of this repository that is only named like a sanitiser
 is read by its body. A finding

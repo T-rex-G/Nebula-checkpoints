@@ -119,20 +119,22 @@ export function sanitised<V extends Sanitisable>(value: V, contract: Contract, p
   return { ...value, steps: steps.slice(0, limit), cleared: value.cleared ? new Set([...value.cleared, ...contract]) : contract, whole: false };
 }
 /* How safe a summarised function left a parameter it returns. */
-export interface Returned<G> { cleared: Contract | null; guarded: G | null }
+export interface Returned<G> { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean }
 /* A summarised function returns one of its parameters: remember how safe every return left it. */
-export function noteReturn<G>(summary: { readonly returns: Set<number>; readonly returned: Map<number, Returned<G>> } | null | undefined, value: { param: number | null; cleared: Contract | null; guarded: G | null } | null): void {
+export function noteReturn<G>(summary: { readonly returns: Set<number>; readonly returned: Map<number, Returned<G>> } | null | undefined, value: { param: number | null; cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean } | null): void {
   if (!summary || !value || value.param === null) return;
   const before = summary.returned.get(value.param);
   summary.returns.add(value.param);
   summary.returned.set(value.param, before
-    ? { cleared: bothCleared(before.cleared, value.cleared), guarded: before.guarded && value.guarded }
-    : { cleared: value.cleared, guarded: value.guarded });
+    ? { cleared: bothCleared(before.cleared, value.cleared), guarded: before.guarded && value.guarded, built: before.built || value.built, sql: before.sql || value.sql, html: before.html || value.html }
+    : { cleared: value.cleared, guarded: value.guarded, built: value.built, sql: value.sql, html: value.html });
 }
 /* What a call to a summarised function returns to its caller: the argument, as safe as the function's body left it; one that only claims to sanitise leaves a check to be confirmed. */
-export function returnedThrough<G, V extends { cleared: Contract | null; guarded: G | null }>(value: V, left: Returned<G> | undefined, claimed: G | null): V {
+export function returnedThrough<G, V extends { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean }>(value: V, left: Returned<G> | undefined, claimed: G | null): V {
   const cleared = left && left.cleared ? new Set([...(value.cleared || []), ...left.cleared]) : value.cleared;
-  return { ...value, cleared, guarded: value.guarded || (left && left.guarded) || claimed };
+  /* A statement or a page the function built around the argument is still built when it comes back. */
+  const shape = left ? { built: value.built || left.built, sql: value.sql || left.sql, html: value.html || left.html } : null;
+  return { ...value, ...shape, cleared, guarded: value.guarded || (left && left.guarded) || claimed };
 }
 /*
  * `x.replace(/[^A-Za-z0-9_-]/g, '')`: every match of a class that keeps only

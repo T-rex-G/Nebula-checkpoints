@@ -1621,7 +1621,7 @@ class Walker {
       return;
     }
     /* $pdo->query($q), $mysqli->query($q), DB::select($q), $wpdb->get_results($q), ->whereRaw($q); another receiver's update() is a model's */
-    const sqlTarget = PHP_SQL_METHODS.test(name) && callee.segments.length > 1 && (/Raw$|^raw$/.test(name) || receiver === 'DB' || /^\$(pdo|db|dbh|mysqli|conn|connection|link|wpdb|database|pdoConn|sql|em|entityManager|dbal)$/i.test(receiver || '') || /->(db|pdo|conn|connection|mysqli|em|entityManager|dbal)$/.test(callee.segments.join('->')) ||
+    const sqlTarget = PHP_SQL_METHODS.test(name) && callee.segments.length > 1 && (/Raw$|^raw$/.test(name) || receiver === 'DB' || /^\$(pdo|db|dbh|mysqli|conn|connection|link|wpdb|database|pdoConn|sql|em|entityManager|dbal)$/i.test(receiver || '') || /->(db|pdo|conn|connection|mysqli|em|entityManager|dbal)$/.test(callee.segments.slice(0, -1).join('->')) ||
       (/^(executeQuery|executeStatement|executeUpdate|createQuery|createNativeQuery)$/.test(name) && /(conn|connection|db|em|manager|dbal)$/i.test(receiver || '')));
     if (sqlTarget) {
       const value = this.arg(args, 0, scope, roles);
@@ -2045,8 +2045,7 @@ class Program {
   /* What a named function does with each parameter: which reach its return value, which reach a sink. */
   helper(language: Language, name: string, callee: Callee | null, fromPath: string): Summary | null {
     if (!name || !callee) return null;
-    /* a function of this codebase: called by name, or on this object */
-    /* Go: store.FindByEmail(x) names a function of an imported package */
+    /* a function of this codebase: called by name, or on this object. Go: store.FindByEmail(x) names a function of an imported package */
     const head = callee.segments[0] ?? '';
     const imported = language === 'go' && callee.segments.length === 2 && this.goImports(fromPath).has(head) ? head : null;
     /* Java and PHP: userService.find(x), this.userService.find(x), $this->reports->forRegion($x) -- a field of a type declared here */
@@ -2125,7 +2124,8 @@ class Program {
     const pattern = language === 'php'
       ? new RegExp(`(?:private|protected|public|readonly|var)\\s+(?:readonly\\s+)?\\??\\\\?(?:[\\w\\\\]+\\\\)?([A-Z]\\w*)\\s+\\$${field}\\b`)
       : new RegExp(`\\b([A-Z]\\w*)(?:<[^;=(){}]{0,200}>)?\\s+${field}\\s*[;=,)]`);
-    const match = pattern.exec(entry.file.text);
+    /* A field or a declaration of that type, or a local made here: $users = new Users(...), var users = new Users(...) */
+    const match = pattern.exec(entry.file.text) ?? new RegExp(`(?:\\$|\\bvar\\s+)${field}\\s*=\\s*new\\s+\\\\?(?:[\\w\\\\]+\\\\)?([A-Z]\\w*)\\s*\\(`).exec(entry.file.text);
     return match ? match[1] ?? null : null;
   }
 

@@ -12,9 +12,9 @@
  *             Remix, Supabase edge functions, Lambda, Flask, Django and
  *             FastAPI; the URL and messages in the browser; and a language
  *             model's reply, which is text somebody else's prompt shaped;
- *   steps     assignments, destructuring, string building, closures, helper
- *             functions in the same file, and functions imported from another
- *             file of the repository, one call deep;
+ *   steps     assignments, destructuring, string building, closures,
+ *             callbacks, and the functions and methods of the repository a
+ *             call names, in the same file or another, helper after helper;
  *   sanitisers the calls that make a value safe for its use -- a number
  *             parsed, a component encoded, a path reduced to its name, a
  *             schema's parse -- after which the value is no longer followed;
@@ -30,8 +30,8 @@
  * no text from any of them. The trace is what makes a finding checkable by a
  * person in a minute rather than argued about: it names the exact lines.
  *
- * It is not a compiler. It reads tokens, not types, and follows one call
- * across files, not the whole graph. What it cannot see it does not claim:
+ * It is not a compiler. It reads tokens, not types, and follows a call to
+ * the function its name resolves to, not every function it could be. What it cannot see it does not claim:
  * a flow it could not finish is not a finding, and the audit's coverage says
  * which languages were followed and which were only pattern-checked.
  */
@@ -39,6 +39,8 @@
 import { getHeapStatistics } from 'node:v8';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
+import { RE_EXPORT, at, bindingNames, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, skipType } from './uranus-shape.ts';
+import type { Binding, FnInfo, FunctionEntry as ShapeEntry, ImportEntry, Tokens } from './uranus-shape.ts';
 import { analyseCFamily, CFAMILY_FILE } from './uranus-cfamily.ts';
 import { CONTRACTS, SAFE, bothCleared, isAllowListReplace, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
 import type { CFamilyReading, Flow, Step } from './uranus-cfamily.ts';
@@ -46,7 +48,6 @@ import type { Route, RouteUse } from './uranus-surface.ts';
 
 /* ---- Types ------------------------------------------------------------------------ */
 
-type Tokens = readonly Token[];
 type Severity = 'critical' | 'serious' | 'warning';
 export type FlowSinkKind = 'sql' | 'command' | 'code' | 'ssrf' | 'path' | 'redirect' | 'dom' | 'html' | 'template' | 'regex' | 'nosql' | 'merge' | 'mass' | 'deserialize' | 'xxe' | 'prompt';
 interface SinkSpec {
@@ -80,27 +81,6 @@ interface TaintExtra {
   readonly whole?: boolean | undefined;
   readonly param?: number;
   readonly note?: string;
-}
-/* A name a declaration or parameter binds, and the key it was destructured from. */
-interface Binding {
-  name: string;
-  key: string | null;
-  rest?: boolean;
-  decorator?: string;
-}
-/* A function found in the tokens: its parameters' bindings by position and where its body is. */
-interface FnInfo {
-  start: number;
-  name: string | null;
-  params: Binding[][];
-  bodyStart: number;
-  bodyEnd: number;
-  next: number;
-  line: number;
-  isAsync: boolean;
-  block: boolean;
-  method?: boolean;
-  arrow?: boolean;
 }
 /* One link of a member chain after its root: a computed index, a call, or a tagged template. */
 interface IndexStep {
@@ -177,10 +157,6 @@ interface Hint {
   readonly kind: HintKind;
   readonly route?: FlowRoute | null;
 }
-interface ImportEntry {
-  readonly module: string;
-  readonly name: string;
-}
 interface SummarySink {
   readonly kind: FlowSinkKind;
   readonly param: number;
@@ -188,6 +164,8 @@ interface SummarySink {
   readonly line: number;
   readonly steps: Step[];
   readonly guarded: Guard | null;
+  /* The parameter is a statement handed to the database as it came: a flow only once a caller builds that statement from a value. */
+  readonly statement?: boolean;
 }
 /* What a function's parameters reach: the sinks each one ends in, and the positions it returns. */
 interface Summary {
@@ -197,10 +175,10 @@ interface Summary {
   readonly fn: FnInfo | undefined;
   readonly name: string;
   readonly line: number | undefined;
+  /* How many leading parameters no caller writes: a Python method's instance. */
+  readonly shift: number;
 }
-type FunctionEntry =
-  | { readonly fn: FnInfo; summary: Summary | null }
-  | { readonly py: true; readonly lineIndex: number; readonly line: number; readonly name: string; readonly indent: number; summary: Summary | null };
+type FunctionEntry = ShapeEntry<Summary>;
 /* A name a check settled, and the lines over which it holds. */
 interface SettledName {
   readonly name: string;
@@ -230,6 +208,7 @@ interface ContextBase {
   readonly imports: Map<string, ImportEntry>;
   readonly functions: Map<string, FunctionEntry>;
   readonly exportsMap: Map<string, string>;
+  readonly aliases: Map<string, string>;
   flows: FlowRecord[];
   routes: FlowRoute[];
   serverActions: boolean;
@@ -275,11 +254,6 @@ interface ReadableFile extends FlowFile {
   readonly text: string;
 }
 
-/* A token that matches nothing: what an index past either end of a list reads as. */
-const NO_TOKEN: PlainToken = Object.freeze({ t: 'nl', v: '', line: 0, i: -1 });
-function at(tokens: Tokens, index: number): Token {
-  return tokens[index] ?? NO_TOKEN;
-}
 /* A lookup table read by names from the code: no inherited keys, so `toString` or `constructor` finds nothing. */
 function frozenTable<T extends object>(entries: T): Readonly<T> {
   return Object.freeze(Object.assign(Object.create(null), entries));
@@ -439,6 +413,8 @@ const WRITE_KEYS = /^(data|values|set|\$set|attributes|fields|update|doc|documen
 /* new Model(req.body) */
 const MASS_CONSTRUCT = /^[A-Z][A-Za-z0-9]*$/;
 /* Free functions whose result does not carry their argument. */
+/* Methods that run their callback over the value they are called on: a promise's result, a list's items. */
+const HANDS_ON = /^(then|map|forEach|filter|flatMap|some|every|find|findIndex)$/;
 const NON_CARRYING = /^(require|setTimeout|setInterval|clearTimeout|clearInterval|log|emit|next|resolve|reject|done|cb|callback|push|json|status|alert|confirm|t|i18n|translate|track|captureException|notFound|Boolean|Number|isNaN|isFinite|String\.raw)$/;
 /* Methods that pass their argument through, reshaped. */
 const CARRYING_METHOD = /^(join|resolve|normalize|format|concat|from|stringify|parse|decodeURIComponent|decodeURI|toString|trim|trimStart|trimEnd|toLowerCase|toUpperCase|slice|substring|substr|replace|replaceAll|split|padStart|padEnd|entries|values|keys|fromEntries|at|flat|map|filter|find|reduce|assign)$/;
@@ -450,9 +426,6 @@ const CHECK_TEXT = /\b(includes|has|startsWith|endsWith|test|match|indexOf|isVal
 const STRONG_CHECK = /\bNumber\s*\.\s*(isInteger|isSafeInteger)\s*\(|\b(isUUID|isUuid|uuidValidate|isInt|isNumeric|isMongoId)\s*\(|\/\^[^/]*\$\/[a-z]*\s*\.\s*test\s*\(/;
 const ALLOW_LIST = /\b([A-Z][A-Z0-9_]{2,}|\w*(allow|whitelist|permitted|trusted|safe|valid)\w*)\s*\.\s*(has|includes)\s*\(|\bin\s+([A-Z][A-Z0-9_]{2,}|\w*(allow|whitelist|permitted|trusted)\w*)\b/i;
 
-function isStr(token: Token | undefined): token is Token & { t: 'str' } { return token !== undefined && (token.t === 'str'); }
-function isPunc(token: Token | undefined, value: string): boolean { return token !== undefined && token.t === 'punc' && token.v === value; }
-function isWord(token: Token | undefined, value: string): boolean { return token !== undefined && (token.t === 'id' || token.t === 'kw') && token.v === value; }
 
 /* Every string literal and template text in a token range, joined: how a sink's argument reads. */
 function literalText(tokens: Tokens): string {
@@ -472,232 +445,6 @@ function leadingLiteral(tokens: Tokens): string | null {
   return null;
 }
 
-/* ---- Binding patterns ------------------------------------------------------ */
-
-/*
- * The names a declaration or a parameter binds: a name, or every name inside
- * an object or array pattern, skipping defaults and type annotations.
- */
-function bindingNames(tokens: Tokens): Binding[] {
-  const names: Binding[] = [];
-  const first = tokens[0];
-  if (!first) return names;
-  if (first.t === 'id') {
-    names.push({ name: first.v, key: null });
-    return names;
-  }
-  const second = tokens[1];
-  if (isPunc(first, '...') && second && second.t === 'id') return [{ name: second.v, key: null, rest: true }];
-  if (isPunc(first, '{') || isPunc(first, '[')) {
-    const close = matching(tokens, 0);
-    const inner = tokens.slice(1, close);
-    let depth = 0;
-    let part: Token[] = [];
-    const parts: Token[][] = [];
-    for (const token of inner) {
-      if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
-      if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
-      if (depth === 0 && isPunc(token, ',')) { parts.push(part); part = []; continue; }
-      part.push(token);
-    }
-    if (part.length) parts.push(part);
-    for (const piece of parts) {
-      const head = piece[0];
-      if (!head) continue;
-      const second = piece[1];
-      if (isPunc(head, '...') && second && second.t === 'id') { names.push({ name: second.v, key: null, rest: true }); continue; }
-      const colon = piece.findIndex((token, index) => index > 0 && isPunc(token, ':'));
-      if (isPunc(first, '{') && colon > 0) {
-        const key = head.t === 'id' || head.t === 'str' ? head.v : null;
-        for (const inner2 of bindingNames(piece.slice(colon + 1))) names.push({ ...inner2, key: inner2.key || key });
-      } else if (head.t === 'id') {
-        names.push({ name: head.v, key: isPunc(first, '{') ? head.v : null });
-      } else if (isPunc(head, '{') || isPunc(head, '[')) {
-        names.push(...bindingNames(piece));
-      }
-    }
-  }
-  return names;
-}
-
-/* Parameters of a function: each parameter's bound names, by position. */
-function parameters(tokens: Tokens): Binding[][] {
-  const list: Token[][] = [];
-  let depth = 0;
-  let part: Token[] = [];
-  for (const token of tokens) {
-    if (token.t === 'punc' && '([{<'.includes(token.v)) depth += 1;
-    if (token.t === 'punc' && ')]}>'.includes(token.v)) depth -= 1;
-    if (depth === 0 && isPunc(token, ',')) { list.push(part); part = []; continue; }
-    part.push(token);
-  }
-  if (part.length) list.push(part);
-  return list.map(raw => {
-    /* A parameter decorator, as NestJS writes them: @Body() dto, @Param('id') id. */
-    let piece = raw;
-    let decorator: string | null = null;
-    while (isPunc(piece[0], '@')) {
-      const named = piece[1];
-      if (!named || named.t !== 'id') break;
-      decorator = decorator || named.v;
-      let skip = 2;
-      if (isPunc(piece[2], '(')) skip = matching(piece, 2) + 1;
-      piece = piece.slice(skip);
-    }
-    /* Drop a TypeScript annotation and a default: `req: Request = x`. */
-    let cut = piece.length;
-    let level = 0;
-    for (let index = 0; index < piece.length; index += 1) {
-      const token = at(piece, index);
-      if (token.t === 'punc' && '([{'.includes(token.v)) level += 1;
-      if (token.t === 'punc' && ')]}'.includes(token.v)) level -= 1;
-      if (level === 0 && index > 0 && (isPunc(token, ':') || isPunc(token, '=') || isPunc(token, '?'))) { cut = index; break; }
-    }
-    const head = piece.slice(0, cut).filter(token => !((token.t === 'kw' || token.t === 'id') && ['public', 'private', 'protected', 'readonly'].includes(token.v)));
-    const names = bindingNames(head);
-    if (decorator) for (const binding of names) binding.decorator = decorator;
-    return names;
-  });
-}
-
-/* ---- JavaScript: functions ------------------------------------------------- */
-
-const NOT_METHOD = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'await', 'new', 'with', 'super', 'import']);
-
-/*
- * Whether a function starts at tokens[i], and if so where its parameters and
- * body are. Declarations, expressions, arrows (with or without parentheses,
- * with a block or an expression body) and object and class methods.
- */
-function functionAt(tokens: Tokens, i: number, end: number): FnInfo | null {
-  const token = tokens[i];
-  if (!token) return null;
-  let index = i;
-  let isAsync = false;
-  const after = tokens[i + 1];
-  if (isWord(token, 'async') && after && (isWord(after, 'function') || isPunc(after, '(') || (after.t === 'id' && isPunc(tokens[i + 2], '=>')))) {
-    isAsync = true;
-    index += 1;
-  }
-  const head = tokens[index];
-  if (!head) return null;
-  if (isWord(head, 'function')) {
-    let cursor = index + 1;
-    if (isPunc(tokens[cursor], '*')) cursor += 1;
-    let name: string | null = null;
-    const named = tokens[cursor];
-    if (named && named.t === 'id') { name = named.v; cursor += 1; }
-    if (isPunc(tokens[cursor], '<')) cursor = skipAngles(tokens, cursor);
-    if (!isPunc(tokens[cursor], '(')) return null;
-    const close = matching(tokens, cursor);
-    let body = close + 1;
-    if (isPunc(tokens[body], ':')) body = skipType(tokens, body + 1, '{', end);
-    if (!isPunc(tokens[body], '{')) return null;
-    const bodyEnd = matching(tokens, body);
-    return { start: i, name, params: parameters(tokens.slice(cursor + 1, close)), bodyStart: body + 1, bodyEnd, next: bodyEnd + 1, line: head.line, isAsync, block: true };
-  }
-  if (head.t === 'id' && isPunc(tokens[index + 1], '=>')) {
-    return arrowBody(tokens, i, index + 2, [[{ name: head.v, key: null }]], end, head.line, isAsync);
-  }
-  if (isPunc(head, '(')) {
-    const close = matching(tokens, index);
-    let arrow = close + 1;
-    if (isPunc(tokens[arrow], ':')) arrow = skipType(tokens, arrow + 1, '=>', end);
-    if (isPunc(tokens[arrow], '=>')) {
-      return arrowBody(tokens, i, arrow + 1, parameters(tokens.slice(index + 1, close)), end, head.line, isAsync);
-    }
-    return null;
-  }
-  /* A method: name(params) { ... } where a statement or property could begin. */
-  if (head.t === 'id' && !NOT_METHOD.has(head.v) && isPunc(tokens[index + 1], '(')) {
-    const before = tokens[i - 1];
-    /* After a decorator: @Get() find(...) { ... } */
-    let decorated = false;
-    if (isPunc(before, ')')) {
-      let depth = 0;
-      for (let back = i - 1; back >= 0 && back > i - 80; back -= 1) {
-        if (isPunc(tokens[back], ')')) depth += 1;
-        else if (isPunc(tokens[back], '(')) { depth -= 1; if (depth === 0) { decorated = tokens[back - 1]?.t === 'id' && isPunc(tokens[back - 2], '@'); break; } }
-      }
-    }
-    const methodPlace = !before || decorated || isPunc(before, '{') || isPunc(before, ',') || isPunc(before, ';') || isPunc(before, '}') ||
-      (before.t === 'kw' && ['async', 'static', 'get', 'set'].includes(before.v)) || (before.t === 'id' && ['static', 'get', 'set', 'public', 'private', 'protected', 'override'].includes(before.v));
-    if (!methodPlace) return null;
-    const close = matching(tokens, index + 1);
-    let body = close + 1;
-    if (isPunc(tokens[body], ':')) body = skipType(tokens, body + 1, '{', end);
-    if (!isPunc(tokens[body], '{')) return null;
-    const bodyEnd = matching(tokens, body);
-    return { start: i, name: head.v, params: parameters(tokens.slice(index + 2, close)), bodyStart: body + 1, bodyEnd, next: bodyEnd + 1, line: head.line, isAsync, block: true, method: true };
-  }
-  return null;
-}
-function arrowBody(tokens: Tokens, start: number, bodyAt: number, params: Binding[][], end: number, line: number, isAsync: boolean): FnInfo {
-  if (isPunc(tokens[bodyAt], '{')) {
-    const bodyEnd = matching(tokens, bodyAt);
-    return { start, name: null, params, bodyStart: bodyAt + 1, bodyEnd, next: bodyEnd + 1, line, isAsync, block: true, arrow: true };
-  }
-  const stop = expressionEnd(tokens, bodyAt, end, true);
-  return { start, name: null, params, bodyStart: bodyAt, bodyEnd: stop, next: stop, line, isAsync, block: false, arrow: true };
-}
-/* A generic parameter list is short; one left open is not looked for to the end of the file. */
-const MAX_TYPE_PARAMETERS = 256;
-function skipAngles(tokens: Tokens, index: number): number {
-  let depth = 0;
-  for (let cursor = index; cursor < Math.min(tokens.length, index + MAX_TYPE_PARAMETERS); cursor += 1) {
-    if (isPunc(tokens[cursor], '<')) depth += 1;
-    else if (isPunc(tokens[cursor], '>')) { depth -= 1; if (depth === 0) return cursor + 1; }
-    else if (isPunc(tokens[cursor], '>>')) { depth -= 2; if (depth <= 0) return cursor + 1; }
-  }
-  return index;
-}
-/* Past a return-type annotation, to the token that ends it. */
-function skipType(tokens: Tokens, index: number, until: string, end: number): number {
-  let depth = 0;
-  for (let cursor = index; cursor < Math.min(end, index + 60); cursor += 1) {
-    const token = at(tokens, cursor);
-    if (depth === 0 && isPunc(token, until)) return cursor;
-    if (token.t === 'punc' && '(<['.includes(token.v)) depth += 1;
-    if (token.t === 'punc' && ')>]'.includes(token.v)) depth -= 1;
-    if (isPunc(token, '{') && until === '{' && depth === 0) return cursor;
-  }
-  return index;
-}
-
-const CONTINUES = new Set(['.', '?.', '+', '-', '*', '/', '%', '&&', '||', '??', '?', ':', '==', '===', '!=', '!==', '<', '>', '<=', '>=', '|', '&', '^', '=>', '=', '+=', '-=', '**', 'instanceof', 'in', ',']);
-
-/*
- * Where an expression starting at `index` ends: at a top-level semicolon or
- * comma, at a bracket that closes something it did not open, or at a line
- * break where the next line cannot continue it. A bracket it opens is stepped
- * over to its partner -- nothing inside one can end it -- so an arrow nested
- * in an arrow does not walk the rest of the file again at every level. One
- * that never closes before `end` runs the expression to `end`.
- */
-function expressionEnd(tokens: Tokens, index: number, end: number, stopAtComma = true): number {
-  const pairs = partners(tokens);
-  for (let cursor = index; cursor < end; cursor += 1) {
-    let token = at(tokens, cursor);
-    if (token.t === 'punc') {
-      if (token.v === '(' || token.v === '[' || token.v === '{') {
-        const partner = pairs[cursor] ?? -1;
-        if (partner < 0 || partner >= end) return end;
-        cursor = partner;
-        token = at(tokens, cursor);
-      } else if (token.v === ')' || token.v === ']' || token.v === '}') return cursor;
-      else if (token.v === ';' || (stopAtComma && token.v === ',')) return cursor;
-    }
-    const next = tokens[cursor + 1];
-    if (next && next.line > token.line && cursor + 1 < end) {
-      const ends = token.t === 'id' || token.t === 'num' || token.t === 'str' || token.t === 'tpl' || token.t === 're' ||
-        isPunc(token, ')') || isPunc(token, ']') || isPunc(token, '}') || (token.t === 'kw' && ['this', 'null', 'true', 'false', 'undefined'].includes(token.v));
-      const continues = (next.t === 'punc' && CONTINUES.has(next.v)) || (next.t === 'kw' && ['instanceof', 'in', 'of'].includes(next.v));
-      if (ends && !continues) return cursor + 1;
-    }
-  }
-  return end;
-}
-
 /* ---- The analysis of one file ------------------------------------------------ */
 
 /*
@@ -712,6 +459,7 @@ function fileContext(file: ReadableFile, program: Program): ContextBase {
     program,
     imports: new Map(),
     functions: new Map(),
+    aliases: new Map(),
     exportsMap: new Map(),
     flows: [],
     routes: [],
@@ -721,115 +469,6 @@ function fileContext(file: ReadableFile, program: Program): ContextBase {
     handlerHints: new Map(),
     namedHandlers: new Map()
   };
-}
-
-/* ---- JavaScript: imports and exports ------------------------------------------- */
-
-function jsImports(tokens: Tokens, ctx: FileContext): void {
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (isWord(token, 'import') && !isPunc(tokens[index + 1], '(') && !isPunc(tokens[index + 1], '.')) {
-      /* import a, { b as c }, * as d from 'm' */
-      let cursor = index + 1;
-      if (isWord(tokens[cursor], 'type')) cursor += 1;
-      const bindings: { local: string; imported: string }[] = [];
-      while (cursor < tokens.length && !isWord(tokens[cursor], 'from') && !isStr(tokens[cursor])) {
-        const item = at(tokens, cursor);
-        if (item.t === 'id' && !isPunc(tokens[cursor - 1], 'as')) bindings.push({ local: item.v, imported: 'default' });
-        const alias = tokens[cursor + 2];
-        if (isPunc(item, '*') && isWord(tokens[cursor + 1], 'as') && alias) { bindings.push({ local: alias.v, imported: '*' }); cursor += 3; continue; }
-        if (isPunc(item, '{')) {
-          const close = matching(tokens, cursor);
-          for (let inner = cursor + 1; inner < close; inner += 1) {
-            const name = at(tokens, inner);
-            if (name.t !== 'id' && name.t !== 'kw') continue;
-            if (isWord(name, 'type')) continue;
-            const renamed = tokens[inner + 2];
-            if (isWord(tokens[inner + 1], 'as') && renamed) { bindings.push({ local: renamed.v, imported: name.v }); inner += 2; continue; }
-            if (isPunc(tokens[inner + 1], ',') || isPunc(tokens[inner + 1], '}')) bindings.push({ local: name.v, imported: name.v });
-          }
-          cursor = close + 1;
-          continue;
-        }
-        cursor += 1;
-        if (cursor - index > 80) break;
-      }
-      const from = isWord(tokens[cursor], 'from') ? tokens[cursor + 1] : tokens[cursor];
-      if (isStr(from)) for (const binding of bindings) ctx.imports.set(binding.local, { module: from.v, name: binding.imported });
-      continue;
-    }
-    /* const x = require('m'), const { a, b: c } = require('m'), const x = require('m').y */
-    if ((isWord(token, 'const') || isWord(token, 'let') || isWord(token, 'var')) && tokens[index + 1]) {
-      const patternEnd = isPunc(tokens[index + 1], '{') || isPunc(tokens[index + 1], '[') ? matching(tokens, index + 1) : index + 1;
-      if (!isPunc(tokens[patternEnd + 1], '=')) continue;
-      let cursor = patternEnd + 2;
-      if (isWord(tokens[cursor], 'await')) cursor += 1;
-      const specifier = tokens[cursor + 2];
-      if (isWord(tokens[cursor], 'require') && isPunc(tokens[cursor + 1], '(') && isStr(specifier)) {
-        const module = specifier.v;
-        const property = isPunc(tokens[cursor + 4], '.') ? tokens[cursor + 5]?.v ?? null : null;
-        const names = bindingNames(tokens.slice(index + 1, patternEnd + 1));
-        for (const binding of names) {
-          ctx.imports.set(binding.name, { module, name: property || (binding.key || (names.length === 1 && !isPunc(tokens[index + 1], '{') ? '*' : binding.name)) });
-        }
-      }
-    }
-  }
-}
-
-function jsExports(tokens: Tokens, ctx: FileContext): void {
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (isWord(token, 'export')) {
-      let cursor = index + 1;
-      const isDefault = isWord(tokens[cursor], 'default');
-      if (isDefault) cursor += 1;
-      if (isWord(tokens[cursor], 'async')) cursor += 1;
-      if (isWord(tokens[cursor], 'function')) {
-        const name = tokens[cursor + 1]?.t === 'id' ? at(tokens, cursor + 1).v : (isPunc(tokens[cursor + 1], '*') ? tokens[cursor + 2]?.v ?? null : null);
-        if (name) ctx.exportsMap.set(name, name);
-        if (isDefault) ctx.exportsMap.set('default', name || '#default');
-      } else if (isWord(tokens[cursor], 'const') || isWord(tokens[cursor], 'let') || isWord(tokens[cursor], 'var')) {
-        const name = tokens[cursor + 1]?.t === 'id' ? at(tokens, cursor + 1).v : null;
-        if (name) ctx.exportsMap.set(name, name);
-      } else if (isPunc(tokens[cursor], '{')) {
-        const close = matching(tokens, cursor);
-        for (let inner = cursor + 1; inner < close; inner += 1) {
-          const name = at(tokens, inner);
-          if (name.t !== 'id') continue;
-          const alias = tokens[inner + 2];
-          if (isWord(tokens[inner + 1], 'as') && alias) { ctx.exportsMap.set(alias.v, name.v); inner += 2; continue; }
-          ctx.exportsMap.set(name.v, name.v);
-        }
-      } else if (isDefault && tokens[cursor]?.t === 'id') {
-        ctx.exportsMap.set('default', at(tokens, cursor).v);
-      }
-    }
-    /* module.exports = { a, b: c } / module.exports.a = / exports.a = */
-    if (isWord(token, 'module') && isPunc(tokens[index + 1], '.') && isWord(tokens[index + 2], 'exports')) {
-      if (isPunc(tokens[index + 3], '=') && isPunc(tokens[index + 4], '{')) {
-        const close = matching(tokens, index + 4);
-        for (let inner = index + 5; inner < close; inner += 1) {
-          const name = at(tokens, inner);
-          if (name.t !== 'id') continue;
-          const value = tokens[inner + 2];
-          if (isPunc(tokens[inner + 1], ':') && value && value.t === 'id') { ctx.exportsMap.set(name.v, value.v); inner += 2; continue; }
-          if (isPunc(tokens[inner + 1], ',') || isPunc(tokens[inner + 1], '}')) ctx.exportsMap.set(name.v, name.v);
-        }
-      } else if (isPunc(tokens[index + 3], '=') && tokens[index + 4]?.t === 'id') {
-        ctx.exportsMap.set('default', at(tokens, index + 4).v);
-      } else if (isPunc(tokens[index + 3], '.') && tokens[index + 4] && isPunc(tokens[index + 5], '=')) {
-        const exported = at(tokens, index + 4);
-        const target = tokens[index + 6]?.t === 'id' ? at(tokens, index + 6).v : exported.v;
-        ctx.exportsMap.set(exported.v, target);
-      }
-    }
-    const exported = tokens[index + 2];
-    if (isWord(token, 'exports') && isPunc(tokens[index + 1], '.') && exported && isPunc(tokens[index + 3], '=') && !isPunc(tokens[index - 1], '.')) {
-      const target = tokens[index + 4]?.t === 'id' ? at(tokens, index + 4).v : exported.v;
-      ctx.exportsMap.set(exported.v, target);
-    }
-  }
 }
 
 /* ---- JavaScript: the walker ---------------------------------------------------------- */
@@ -954,6 +593,8 @@ class JsWalker {
   readonly mode: Mode;
   readonly program: Program;
   summaryOf: Summary | null;
+  /* A value about to be handed to the callback that starts at this token: p.then(v => ...), list.map(item => ...). */
+  handed: { readonly at: number; readonly value: FlowValue } | null = null;
   sub: boolean;
   pyRoles: PyRoles | undefined;
   inRoute: boolean | undefined;
@@ -1207,18 +848,24 @@ class JsWalker {
     const child = new Scope(scope);
     const hint = this.sub ? null : this.hintFor(fn, name);
     const inner = handlerRoles(fn, hint);
+    const handed = this.handed && this.handed.at === fn.start ? this.handed.value : null;
+    this.handed = null;
     fn.params.forEach((param, position) => {
       for (const binding of param) {
         let value: Value = null;
         const nest = binding.decorator === undefined ? undefined : entryOf(NEST_SOURCES, binding.decorator);
         if (this.mode === 'summary' && this.summaryOf && this.summaryOf.fn === fn) {
           value = taint('parameter', this.ctx.path, fn.line, { param: position, note: 'a parameter' });
+          /* A response handed to a helper is still the response. */
+          if (/^(res|response|reply)$/.test(binding.name)) inner.response.add(binding.name);
         } else if (inner.actionArgs) {
           value = taint('action argument', this.ctx.path, fn.line, { note: 'a server action’s argument, sent by the browser' });
         } else if (binding.decorator && nest) {
           value = taint(nest, this.ctx.path, fn.line, { whole: binding.decorator === 'Body' && param.length === 1, note: `${nest} enters here` });
         } else if (inner.params.has(binding.name)) {
           value = taint('route parameter', this.ctx.path, fn.line, { note: 'a route parameter enters here' });
+        } else if (handed && position === 0) {
+          value = { ...extend(handed, this.ctx.path, fn.line, 'handed to a callback'), whole: false, wholeInside: null };
         }
         child.declare(binding.name, value);
         if (binding.decorator === 'Req' || binding.decorator === 'Request') inner.request.add(binding.name);
@@ -1588,7 +1235,9 @@ class JsWalker {
       if (value && segments.length === 1 && segments[0] === '$') this.sink('command', value, line);
       return { value: null, stop: true };
     }
+    if (receiver && HANDS_ON.test(name)) this.handed = { at: call.args[0]?.[0]?.i ?? -1, value: receiver };
     const args = call.args.map(arg => this.argValue(arg, scope, roles));
+    this.handed = null;
     const resolved = resolveCallee(segments, this.ctx);
     const module = resolved.module || '';
     const root = segments[0] ?? '';
@@ -1618,12 +1267,12 @@ class JsWalker {
 
     /* Sanitisers (uranus-sanitise.ts), and a replace that keeps only letters, digits, underscore and hyphen. */
     const how = sanitising(name, objectName, module, chainText);
-    if (how || (receiver && isAllowListReplace(name, call.args))) return { value: how ? this.sanitisedCall(how, () => this.summaryFor(segments, resolved), args, receiver, call.args, line, scope, roles) : null };
+    if (how || (receiver && isAllowListReplace(name, call.args))) return { value: how ? this.sanitisedCall(how, () => this.summaryFor(segments), args, receiver, call.args, line, scope, roles) : null };
 
     if (this.sinkForCall(segments, module, name, objectName, args, call, receiver, r, line, scope, roles)) return { value: null };
 
     /* A helper this file or an imported file defines. */
-    const summary = this.summaryFor(segments, resolved);
+    const summary = this.summaryFor(segments);
     if (summary) return { value: this.throughSummary(summary, args, call.args, line, scope, roles, false) };
 
     const any = args.find(Boolean);
@@ -1654,10 +1303,10 @@ class JsWalker {
   throughSummary(summary: Summary, args: readonly Value[], argTokens: readonly Tokens[] | null, line: number, scope: Scope, roles: Roles | null, claims: boolean): Value {
     args.forEach((value, position) => {
       if (!value) return;
-      for (const sink of summary.sinks.filter(entry => entry.param === position)) this.throughHelper(value, sink, line, argTokens ? argTokens[position] ?? null : null, scope, roles);
+      for (const sink of summary.sinks.filter(entry => entry.param === position + summary.shift)) this.throughHelper(value, sink, line, argTokens ? argTokens[position] ?? null : null, scope, roles);
     });
-    const position = [...summary.returns].find(index => args[index]) ?? -1;
-    const argument = args[position];
+    const position = [...summary.returns].find(index => args[index - summary.shift]) ?? -1;
+    const argument = args[position - summary.shift];
     return argument ? returnedThrough(extend(argument, this.ctx.path, line, claims ? 'passed through a function named as a sanitiser' : 'passed through a function'), summary.returned.get(position), claims ? { path: this.ctx.path, line } : null) : null;
   }
 
@@ -1715,7 +1364,7 @@ class JsWalker {
     if (/^(query|execute|exec|all|get|run|prepare|each|many|one|none|any|oneOrNone|manyOrNone|result|sql)$/.test(name) && segments.length > 1 && first) {
       const dbLike = DB_OBJECT.test(objectName) || /(^pg$|mysql|sqlite|postgres|mssql|oracledb|pg-promise|sequelize|knex|@neondatabase|@vercel\/postgres|@planetscale|libsql|drizzle|typeorm|mikro-orm)/.test(module);
       if (first.sql && (dbLike || /^(query|execute)$/.test(name))) { this.sink('sql', first, line); return true; }
-      if (dbLike && first.built && /^(query|execute|exec|all|run|prepare|many|one|none|any)$/.test(name)) { this.sink('sql', first, line); return true; }
+      if (dbLike && /^(query|execute|exec|all|run|prepare|many|one|none|any)$/.test(name) && (first.built ? (this.sink('sql', first, line), true) : this.handedStatement(first, line))) return true;
     }
     if (segments.length === 1 && /^(query|execute|sql)$/.test(name) && first && first.sql) { this.sink('sql', first, line); return true; }
     /* Server-side templates. */
@@ -1794,21 +1443,24 @@ class JsWalker {
     return false;
   }
 
-  summaryFor(segments: readonly string[], resolved: Resolved): Summary | null {
-    const program = this.program;
-    const only = segments.length === 1 ? segments[0] : undefined;
-    if (only !== undefined && !resolved.module) {
-      const local = this.ctx.functions.get(only);
-      if (local) return program.summary(this.ctx.path, only, true);
+  /* The function of this repository a call names: this file's own, a method of an object or class, or one imported from another file. */
+  summaryFor(segments: readonly string[]): Summary | null {
+    if (!segments.length || segments.length > 4) return null;
+    const aliases = this.ctx.aliases;
+    /* `this.users.find`, and Python's `services.users.find` for a module imported under its dotted name. */
+    let names = segments;
+    for (let size = segments.length - 1; size > 1; size -= 1) {
+      const head = segments.slice(0, size).join('.');
+      if (aliases.has(head) || this.ctx.imports.has(head)) { names = [head, ...segments.slice(size)]; break; }
     }
-    const module = resolved.module;
-    if (module && (module.startsWith('.') || /^[@~]\//.test(module))) {
-      const target = program.resolve(this.ctx.path, module);
-      if (!target) return null;
-      const exported = resolved.path[0] ?? 'default';
-      return program.summary(target, exported);
-    }
-    return null;
+    return this.program.named(this.ctx.path, names, false, 0);
+  }
+
+  /* A statement handed to the database as it came, in a function being summarised: its caller may have built it. */
+  handedStatement(first: FlowValue, line: number): boolean {
+    if (!this.summaryOf || first.param === null || first.built || first.sql) return false;
+    this.summaryOf.sinks.push({ kind: 'sql', param: first.param, path: this.ctx.path, line, steps: first.steps.slice(1), guarded: first.guarded, statement: true });
+    return true;
   }
 
   throughHelper(value: FlowValue, sink: SummarySink, line: number, argTokens: Tokens | null, scope: Scope, roles: Roles | null): void {
@@ -1819,12 +1471,14 @@ class JsWalker {
       if (lead.literal !== null && (ABSOLUTE_PREFIX.test(lead.literal) || LOCAL_PATH_PREFIX.test(lead.literal))) return;
       if (lead.literal === null && !lead.value) return;
     }
+    /* A statement the helper runs as it came is a flow once it has been built from the value. */
+    const unbuilt = Boolean(sink.statement) && !value.built && !value.sql;
     if (value.param !== null && this.summaryOf) {
       /* A parameter handed on to a helper that misuses it: this function misuses it too. */
-      this.summaryOf.sinks.push({ ...sink, param: value.param, steps: [...value.steps.slice(1), { path: this.ctx.path, line, role: 'propagation', note: 'passed to a function' }, ...sink.steps] });
+      this.summaryOf.sinks.push({ ...sink, statement: unbuilt, param: value.param, steps: [...value.steps.slice(1), { path: this.ctx.path, line, role: 'propagation', note: 'passed to a function' }, ...sink.steps] });
       return;
     }
-    if (this.mode !== 'flow') return;
+    if (this.mode !== 'flow' || unbuilt) return;
     /* A SQL helper that splices its argument into its own statement counts; one that passes it as a parameter does not. */
     const steps: Step[] = [...value.steps, { path: this.ctx.path, line, role: 'propagation', note: 'passed to a function' }, ...sink.steps];
     this.report(sink.kind, { ...value, steps, guarded: value.guarded || sink.guarded || null }, sink.path, sink.line, sink.path !== this.ctx.path ? 'file' : 'function');
@@ -2103,27 +1757,6 @@ function fileRoutes(tokens: Tokens, ctx: FileContext): void {
       const entry: FlowRoute = { method: 'ACTION', route: null, action: true, path: ctx.path, line: at(tokens, index).line, framework: 'server-action', middleware: [], bodyStart: null, bodyEnd: null };
       ctx.routes.push(entry);
       hints.set(fn.start, { kind: 'action', route: entry });
-    }
-  }
-}
-
-/* ---- Functions a file defines, for summaries ------------------------------------------ */
-
-function jsFunctions(tokens: Tokens, ctx: FileContext): void {
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (isWord(token, 'function') || (isWord(token, 'async') && isWord(tokens[index + 1], 'function'))) {
-      const fn = functionAt(tokens, index, tokens.length);
-      if (fn && fn.name) ctx.functions.set(fn.name, { fn, summary: null });
-      continue;
-    }
-    const declared = tokens[index + 1];
-    if ((isWord(token, 'const') || isWord(token, 'let') || isWord(token, 'var')) && declared && declared.t === 'id' && isPunc(tokens[index + 2], '=')) {
-      const fn = functionAt(tokens, index + 3, tokens.length);
-      if (fn) {
-        fn.name = declared.v;
-        ctx.functions.set(fn.name, { fn, summary: null });
-      }
     }
   }
 }
@@ -2454,12 +2087,13 @@ class PyWalker extends JsWalker {
       return { value: taint('model reply', this.ctx.path, line, { note: 'a language model’s reply enters here' }) };
     }
     const how = /^(UUID|int|float|bool|len)$/.test(name) || joined === 'str.isdigit' ? SAFE : sanitising(name, objectName, '', joined);
-    if (how) return { value: this.sanitisedCall(how, () => this.pySummary(segments), args, receiver, null, line, scope, roles) };
+    if (how) return { value: this.sanitisedCall(how, () => this.summaryFor(segments), args, receiver, null, line, scope, roles) };
     const report = (kind: FlowSinkKind, value: Value | undefined): CallResult => { this.sink(kind, value, line); return { value: null }; };
     /* SQL: cursor.execute(built_string, params) */
     if (/^(execute|executemany|executescript|raw|exec_driver_sql)$/.test(name) && segments.length > 1 && first) {
       if (first.sql || (first.built && SQL_WORDS.test(literalText(firstTokens)))) return report('sql', first);
       if (/^text$/.test(root)) return report('sql', first);
+      if (this.handedStatement(first, line)) return { value: null };
     }
     if (name === 'text' && (root === 'sqlalchemy' || segments.length === 1) && first && first.built) return report('sql', first);
     /* Shell. */
@@ -2519,7 +2153,7 @@ class PyWalker extends JsWalker {
     const spread = args.find(value => value && value.spreadKw && value.whole);
     if (spread && (/^[A-Z]/.test(root) || /^(create|update|update_or_create|get_or_create|insert|add)$/.test(name))) return report('mass', spread);
     /* Helpers. */
-    const summary = this.pySummary(segments);
+    const summary = this.summaryFor(segments);
     if (summary) return { value: this.throughSummary(summary, args, null, line, scope, roles, false) };
     if (receiver) return { value: extend(receiver, this.ctx.path, line, 'transformed') };
     const any = args.find(Boolean);
@@ -2527,21 +2161,6 @@ class PyWalker extends JsWalker {
     if (any && joined === 'json.loads') return { value: any };
     if (any && /^(dumps|join|format|lower|upper|strip|replace|split|encode|decode|unquote|unquote_plus)$/.test(name)) return { value: extend(any, this.ctx.path, line, 'transformed') };
     return { value: null };
-  }
-
-  pySummary(segments: readonly string[]): Summary | null {
-    const program = this.program;
-    const only = segments.length === 1 ? segments[0] : undefined;
-    if (only !== undefined) {
-      const local = this.ctx.functions.get(only);
-      if (local && local.summary) return local.summary;
-      const imported = this.ctx.imports.get(only);
-      if (imported) {
-        const target = program.resolvePython(this.ctx.path, imported.module);
-        if (target) return program.summary(target, imported.name);
-      }
-    }
-    return null;
   }
 
   override chain(chain: Chain, scope: Scope, roles: Roles | null): Value {
@@ -2572,33 +2191,6 @@ class PyWalker extends JsWalker {
     }
     return value;
   }
-}
-
-function pyImports(lines: readonly LogicalLine[], ctx: FileContext): void {
-  for (const line of lines) {
-    const tokens = line.tokens;
-    if (isWord(tokens[0], 'from') && tokens.some(t => isWord(t, 'import'))) {
-      const importAt = tokens.findIndex(t => isWord(t, 'import'));
-      const module = tokens.slice(1, importAt).map(t => t.v).join('');
-      for (let index = importAt + 1; index < tokens.length; index += 1) {
-        const token = at(tokens, index);
-        if (token.t !== 'id') continue;
-        const alias = tokens[index + 2];
-        if (isWord(tokens[index + 1], 'as') && alias) { ctx.imports.set(alias.v, { module, name: token.v }); index += 2; continue; }
-        ctx.imports.set(token.v, { module, name: token.v });
-      }
-    }
-  }
-}
-
-function pyFunctions(lines: readonly LogicalLine[], ctx: FileContext): void {
-  lines.forEach((line, index) => {
-    const tokens = line.tokens;
-    const defAt = isWord(tokens[0], 'def') ? 0 : isWord(tokens[0], 'async') && isWord(tokens[1], 'def') ? 1 : -1;
-    const named = tokens[defAt + 1];
-    if (defAt < 0 || !named) return;
-    ctx.functions.set(named.v, { py: true, lineIndex: index, line: line.line, name: named.v, indent: line.indent, summary: null });
-  });
 }
 
 /* ---- The program: every file, summaries across them -------------------------------- */
@@ -2692,12 +2284,56 @@ class Program {
     return ctx;
   }
 
-  /* What a function's parameters reach, computed once and cached; a cycle reads as "nothing". */
-  summary(path: string, name: string, local = false): Summary | null {
+  /*
+   * The function a dotted name means in a file. `exported` is true when the
+   * name is what another file imports: it is read through this file's exports
+   * first. A name can be the file's own function, a method of an object or a
+   * class it defines (`users.find`, `Users.find`), an instance of one, or
+   * something the file imports or re-exports, which is followed there.
+   */
+  named(path: string, names: readonly string[], exported: boolean, depth: number): Summary | null {
     const ctx = this.context(path);
-    if (!ctx) return null;
-    const own = local ? name : ctx.language === 'javascript' ? (ctx.exportsMap.get(name) || (name === 'default' ? null : name)) : name;
-    return this.summaryOfLocal(ctx, path, own);
+    const first = names[0];
+    if (!ctx || first === undefined || depth > 4) return null;
+    let head = first;
+    const rest = names.slice(1);
+    if (exported && ctx.language === 'javascript') {
+      const own = ctx.exportsMap.get(head) ?? (head === 'default' ? ctx.aliases.get('default') : undefined);
+      if (own !== undefined) head = own;
+      else if (head === 'default') return null;
+      else if (!ctx.functions.has(names.join('.')) && !ctx.aliases.has(head) && !ctx.imports.has(head)) {
+        /* export * from './users' */
+        for (const [key, entry] of ctx.imports) {
+          const target = key.startsWith(`${RE_EXPORT}*`) ? this.resolve(path, entry.module) : null;
+          const found = target ? this.named(target, names, true, depth + 1) : null;
+          if (found) return found;
+        }
+        return null;
+      }
+    }
+    head = ctx.aliases.get(head) ?? head;
+    const own = this.summaryOfLocal(ctx, path, [head, ...rest].join('.'));
+    if (own) return own;
+    const imported = ctx.imports.get(head);
+    if (!imported) return null;
+    if (ctx.language === 'python') {
+      /* from services import users: a module of the package, or a name in it. */
+      const module = imported.name === '*' ? null : this.resolvePython(path, `${imported.module}${imported.module.endsWith('.') ? '' : '.'}${imported.name}`);
+      if (module && rest.length) return this.named(module, rest, true, depth + 1);
+      const target = this.resolvePython(path, imported.module);
+      const inner = imported.name === '*' ? rest : [imported.name, ...rest];
+      return target && inner.length ? this.named(target, inner, true, depth + 1) : null;
+    }
+    const target = this.resolve(path, imported.module);
+    if (!target) return null;
+    /* A whole module is its named exports, or what it exports as one thing; a default import is the other way round. */
+    const whole = imported.name === '*' || imported.name === 'default';
+    const candidates = !whole ? [[imported.name, ...rest]] : imported.name === '*' ? [rest, ['default', ...rest]] : [['default', ...rest], rest];
+    for (const candidate of candidates) {
+      const found = candidate.length ? this.named(target, candidate, true, depth + 1) : null;
+      if (found) return found;
+    }
+    return null;
   }
   summaryOfLocal(ctx: FileContext, path: string, local: string | null): Summary | null {
     if (!local) return null;
@@ -2708,7 +2344,7 @@ class Program {
     const entry = ctx.functions.get(local);
     if (!entry) return null;
     this.inProgress.add(key);
-    const summary: Summary = { sinks: [], returns: new Set(), returned: new Map(), fn: 'fn' in entry ? entry.fn : undefined, name: local, line: 'py' in entry ? entry.line : undefined };
+    const summary: Summary = { sinks: [], returns: new Set(), returned: new Map(), fn: 'fn' in entry ? entry.fn : undefined, name: 'py' in entry ? entry.name : local, line: 'py' in entry ? entry.line : undefined, shift: 'py' in entry ? entry.shift ?? 0 : 0 };
     if (ctx.language === 'javascript' && 'fn' in entry) {
       const walker = new JsWalker(ctx.tokens, { ...ctx, flows: [], routes: [], handlerHints: new Map(), namedHandlers: new Map() }, 'summary', this);
       walker.summaryOf = summary;
@@ -2814,7 +2450,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
     stats[ctx.language] += 1;
     counted.set(file.path, { language: ctx.language, functions: ctx.functions.size });
     stats.functions += ctx.functions.size;
-    for (const name of ctx.functions.keys()) program.summary(file.path, name, true);
+    for (const name of ctx.functions.keys()) program.summaryOfLocal(ctx, file.path, name);
   }
   /* Go, Java and PHP are server code: traced before the browser code is walked. */
   let other: Pick<CFamilyReading, 'flows' | 'routes'> & { readonly settled?: CFamilyReading['settled'] } = { flows: [], routes: [] };

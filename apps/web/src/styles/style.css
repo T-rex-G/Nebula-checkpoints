@@ -877,7 +877,9 @@ html:has(#page-alpha-access.active){scroll-padding-top:calc(env(safe-area-inset-
   border-radius:10px;padding:9px 15px;border:1px solid var(--line);
   background:var(--surface-raised);box-shadow:inset 0 1px 0 rgba(255,255,255,.04), 0 1px 1px rgba(0,0,0,.25);
   transition:background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .12s var(--ease);
-  min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+  min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  /* A link drawn as a button reads as one: no link underline beside controls that have none. */
+  text-decoration:none}
 /* A control answers the pointer with its edge and fill, not by jumping. */
 .btn:hover{background:color-mix(in srgb, var(--surface-raised) 88%, var(--fg));border-color:var(--line-hi)}
 .btn:active{transform:scale(.985)}
@@ -3009,7 +3011,7 @@ body.neural-stage-expanded .toast-stack{right:calc(64px + env(safe-area-inset-ri
 .github-app-identity>div{min-width:0}.github-app-identity b{display:block;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.github-app-identity span{display:block;margin-top:3px;color:var(--muted);font-size:.61rem}
 .github-app-health{flex:0 0 auto;border:1px solid var(--glass-border);border-radius:99px;padding:4px 8px;font-size:.59rem;font-weight:700}
 .github-app-health.healthy{color:var(--teal);background:rgba(34,211,238,.08)}.github-app-health.warning{color:var(--red);background:rgba(244,63,110,.08)}
-.github-app-meta{display:grid;gap:6px;margin:0}.github-app-meta>div{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;padding-top:6px;border-top:1px solid rgba(255,255,255,.055)}.github-app-meta dt{color:var(--muted);font-size:.61rem}.github-app-meta dd{margin:0;font-size:.65rem;word-break:break-word}
+.github-app-meta{display:grid;gap:6px;margin:0}.github-app-meta>div{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;padding-top:6px;border-top:1px solid var(--line)}.github-app-meta dt{color:var(--muted);font-size:.61rem}.github-app-meta dd{margin:0;font-size:.65rem;word-break:break-word}
 .github-app-actions{display:flex;flex-wrap:wrap;gap:6px}.github-app-guide{margin:8px 0 0}.github-app-error{color:var(--red)}
 .github-app-empty>div,.github-app-unavailable>div{min-width:0}.github-app-empty b,.github-app-unavailable b{font-size:.72rem}.github-app-empty p,.github-app-unavailable p{margin:4px 0 0;color:var(--muted);font-size:.62rem;line-height:1.5}
 @media(max-width:560px){.github-app-connection-head,.github-app-empty,.github-app-unavailable{align-items:flex-start;flex-direction:column}.github-app-meta>div{grid-template-columns:1fr;gap:3px}.github-app-actions .btn{flex:1 1 calc(50% - 6px);justify-content:center}}

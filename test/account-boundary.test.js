@@ -17,6 +17,13 @@ assert(/accounts\/switch-idx[\s\S]{0,200}broadcastIdentityBoundary\(\)/.test(app
 assert(/async function receiveIdentityBoundary\(\)[\s\S]{0,300}await purgeLocalData\(true\);[\s\S]{0,100}window\.location\.reload\(\)/.test(app),
   'other tabs must purge identity-bound state before reloading');
 /* That a read of a repository kept for offline use carries the scoped headers, and no other read does, is test/transport.test.js's (platform/offline-repos.ts) and test/e2e/transport.spec.js's. */
-assert(app.includes('Enable offline access for this repository'), 'settings must expose explicit per-repository opt-in');
+/* Settings offers offline use for the repository in hand, and only with one in hand (features/settings/settings-panel.ts). */
+{
+  const { settingsBody } = require('../apps/web/src/features/settings/settings-panel.ts');
+  const view = offline => ({ settings: { fontSize: 14, wrap: true, motion: true, editorTheme: 'material-ocean', editorFont: 'DM Mono', design: 'nebula' }, dark: true, offline, alphaActions: '', release: '' });
+  assert(settingsBody(view(false)).includes('<input type="checkbox" id="setOfflineRepo" > Enable offline access for this repository'), 'settings must expose explicit per-repository opt-in, off until chosen');
+  assert(settingsBody(view(true)).includes('id="setOfflineRepo" checked>'), 'and say when it was chosen');
+  assert(!settingsBody(view(null)).includes('setOfflineRepo'), 'and offer nothing with no repository in hand');
+}
 /* A session revoked elsewhere purges this browser's private data before the reload: test/pulsar-reliability.test.js. */
 console.log('account boundary tests passed');

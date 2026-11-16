@@ -15,7 +15,8 @@ import { createModal } from '../components/modal.ts';
 import { createToasts } from '../components/toasts.ts';
 import { createStepUp } from '../features/security/step-up.ts';
 import { createSafePassage } from '../features/governance/safe-passage.ts';
-import { DESIGNS, EDITOR_FONTS, EDITOR_THEMES, FONT_SIZES } from '../features/shell/appearance.ts';
+import { createGithubApp } from '../features/settings/github-app-controller.ts';
+import { createSettingsPanel } from '../features/settings/settings-panel.ts';
 import { createAppearance } from '../features/shell/appearance-controller.ts';
 import { watchSpotlights } from '../components/spotlight.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
@@ -754,211 +755,52 @@ function oauthCallbackNotice() {
   toast(`Could not finish signing in with GitHub — ${detail}`, 'err');
 }
 
-function githubAppCallbackNotice() {
-  const params = new URLSearchParams(location.search);
-  const githubAppResult = params.get('githubApp');
-  if (!githubAppResult) return;
-  const code = params.get('code');
-  params.delete('githubApp');
-  params.delete('code');
-  const query = params.toString();
-  history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
-  if (githubAppResult === 'connected') {
-    toast('GitHub App installation connected securely ✦', 'ok');
-  } else {
-    const detail = code ? ` (${code.replace(/_/g, ' ').toLowerCase()})` : '';
-    toast(`GitHub App connection was not completed${detail}`, 'err');
-  }
-}
-
-async function loadGithubAppStatus() {
-  const configured = state.runtime.githubApp && state.runtime.githubApp.enabled;
-  if (!state.me) return { enabled: !!configured, webhookConfigured: false, connections: [] };
-  try {
-    return await api('/api/github-app/status');
-  } catch (error) {
-    return { enabled: !!configured, webhookConfigured: false, connections: [], error: error.message };
-  }
-}
-
-function githubAppRepositoryAccess(connection) {
-  return connection.repositorySelection === 'all' ? 'All repositories approved for this installation' : 'Selected repositories only';
-}
-
-function renderGithubAppSettings(status) {
-  const enabled = !!(status && status.enabled);
-  const connections = Array.isArray(status && status.connections) ? status.connections : [];
-  if (!enabled) {
-    return `<div class="github-app-connection github-app-unavailable">
-      <div><b>GitHub App is optional</b><p>It is not configured on this deployment. GitHub token and OAuth access remain available.</p></div>
-    </div>`;
-  }
-  const currentCanAuthorize = !!(state.me && state.me.provider === 'github' && state.me.authMethod !== 'github-app');
-  const connectAction = `<button class="btn btn-ghost small" data-github-app-action="connect" ${currentCanAuthorize ? '' : 'disabled'}>Connect GitHub App</button>`;
-  const guide = currentCanAuthorize ? 'GitHub will ask you to authorize your identity and choose repository access.' : 'Switch to a GitHub PAT or OAuth account to authorize or reauthorize an installation.';
-  const connectionCards = connections.map(connection => {
-    const statusText = connection.status === 'connected' ? 'Healthy' : connection.status || 'Unavailable';
-    const verified = connection.lastVerifiedAt ? new Date(connection.lastVerifiedAt).toLocaleString() : 'Not verified yet';
-    const installLink = /^https:\/\/github\.com\//i.test(connection.installationUrl || '')
-      ? `<a class="btn btn-ghost small" href="${escAttr(connection.installationUrl)}" target="_blank" rel="noopener noreferrer">Manage on GitHub</a>` : '';
-    return `<div class="github-app-connection" data-installation-id="${Number(connection.installationId)}">
-      <div class="github-app-connection-head">
-        <div class="github-app-identity">
-          ${connection.avatar ? `<img class="avatar" src="${escAttr(connection.avatar)}" alt="">` : ''}
-          <div><b>${esc(connection.accountLogin || 'GitHub installation')}</b><span>${esc(connection.accountType || 'Account')} · Installation #${Number(connection.installationId)}</span></div>
-        </div>
-        <span class="github-app-health ${connection.status === 'connected' ? 'healthy' : 'warning'}">${esc(statusText)}</span>
-      </div>
-      <dl class="github-app-meta">
-        <div><dt>Repository access</dt><dd>${esc(githubAppRepositoryAccess(connection))}</dd></div>
-        <div><dt>Authorized by</dt><dd>${esc(connection.authorizedByLogin || 'Unknown')}</dd></div>
-        <div><dt>Last verified</dt><dd>${esc(verified)}</dd></div>
-      </dl>
-      <div class="github-app-actions">
-        <button class="btn btn-ghost small" data-github-app-action="refresh" data-installation-id="${Number(connection.installationId)}">Refresh health</button>
-        <button class="btn btn-ghost small" data-github-app-action="reauthorize" ${currentCanAuthorize ? '' : 'disabled'}>Reauthorize</button>
-        ${installLink}
-        <button class="btn btn-ghost small danger" data-github-app-action="disconnect" data-installation-id="${Number(connection.installationId)}">Disconnect</button>
-      </div>
-    </div>`;
-  }).join('');
-  return `${status && status.error ? `<p class="hint github-app-error">⚠ ${esc(status.error)}</p>` : ''}
-    ${connectionCards || `<div class="github-app-connection github-app-empty"><div><b>No installation connected</b><p>${esc(guide)}</p></div>${connectAction}</div>`}
-    ${connectionCards ? `<p class="hint github-app-guide">${esc(guide)}</p>${currentCanAuthorize ? connectAction : ''}` : ''}`;
-}
-
-async function reloadGithubAppSettings() {
-  const body = $('#githubAppSettingsBody');
-  if (!body) return;
-  body.innerHTML = '<div class="skeleton" style="height:72px"></div>';
-  const status = await loadGithubAppStatus();
-  if (body) body.innerHTML = renderGithubAppSettings(status);
-}
-
-async function beginGithubAppConnection() {
-  const result = await api('/api/github-app/connect', { method: 'POST', body: {} });
-  if (!result.url || !/^https:\/\/github\.com\//i.test(result.url)) throw new Error('GitHub returned an invalid authorization destination');
-  location.assign(result.url);
-}
-
-document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-github-app-action]');
-  if (!button || button.disabled) return;
-  const action = button.dataset.githubAppAction;
-  const installationId = Number(button.dataset.installationId || 0);
-  button.disabled = true;
-  try {
-    if (action === 'connect' || action === 'reauthorize') {
-      button.textContent = 'Opening GitHub…';
-      await beginGithubAppConnection();
-      return;
-    }
-    if (action === 'refresh') {
-      button.textContent = 'Checking…';
-      await api('/api/github-app/refresh', { method: 'POST', body: { installationId } });
-      toast('GitHub App installation health refreshed ✦', 'ok');
-      await reloadGithubAppSettings();
-      return;
-    }
-    if (action === 'disconnect') {
-      if (!window.confirm('Disconnect this GitHub App installation from Nebulaverse-X? This does not uninstall it from GitHub.')) return;
-      const result = await api('/api/github-app/disconnect', { method: 'POST', body: { installationId } });
-      await purgeLocalData(!!result.empty);
-      broadcastIdentityBoundary();
-      toast('GitHub App installation disconnected ✦', 'ok');
-      if (result.empty) {
-        state.me = null;
-        closeModal(false);
-        showPage('login');
-      } else {
-        try {
-          state.me = requireGithubIdentity(await api('/api/me'));
-          state.caps = state.me.caps || null;
-          applyCaps();
-          setAvatar(state.me.avatar);
-        } catch {}
-        await reloadGithubAppSettings();
-      }
-    }
-  } catch (error) {
-    presentError(error);
-  } finally {
-    if (document.contains(button)) {
-      button.disabled = false;
-      if (action === 'refresh') button.textContent = 'Refresh health';
-      if (action === 'connect') button.textContent = 'Connect GitHub App';
-      if (action === 'reauthorize') button.textContent = 'Reauthorize';
-    }
-  }
+/* The GitHub App's part of Settings (features/settings/github-app-controller.ts). */
+const githubApp = createGithubApp({
+  api, toast: (message, kind) => toast(message, kind), presentError: error => presentError(error),
+  confirm: question => window.confirm(question),
+  configured: () => !!(state.runtime.githubApp && state.runtime.githubApp.enabled),
+  me: () => state.me,
+  body: () => $('#githubAppSettingsBody'),
+  formatDate: date => date.toLocaleString(),
+  navigate: url => location.assign(url),
+  attached: node => document.contains(node),
+  purgeLocalData: full => purgeLocalData(full),
+  broadcastIdentityBoundary: () => broadcastIdentityBoundary(),
+  signedOut: () => { state.me = null; closeModal(false); showPage('login'); },
+  identityChanged: async () => {
+    state.me = requireGithubIdentity(await api('/api/me'));
+    state.caps = state.me.caps || null;
+    applyCaps();
+    setAvatar(state.me.avatar);
+  },
+  address: () => location,
+  replaceAddress: url => history.replaceState(null, '', url)
 });
-async function openSettings() {
-  const s = state.settings;
-  const dark = document.documentElement.dataset.theme === 'dark';
-  const closed = modal({
-    title: 'Settings',
-    okText: 'Done',
-    bodyHTML: `
-      <div class="set-group design-presets">
-        <div class="set-label" id="setDesignLabel">Design</div>
-        <div class="design-choices" role="radiogroup" aria-labelledby="setDesignLabel">
-          ${DESIGNS.map(name => `<button type="button" class="design-choice" role="radio" data-design-choice="${name}" aria-checked="${s.design === name}" tabindex="${s.design === name ? 0 : -1}">
-            <span class="design-swatch design-swatch-${name}" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span class="design-name">${name === 'nebula' ? 'Nebula' : 'Obsidian'}</span>
-            <span class="design-note">${name === 'nebula' ? 'Violet glass over the nebula' : 'Polished stone · quartz in light'}</span>
-          </button>`).join('')}
-        </div>
-      </div>
-      <div class="set-row"><span>Interface theme</span>
-        <button class="theme-toggle" type="button" role="switch" aria-checked="${dark}" aria-label="Toggle dark or light theme">
-          <svg class="tt-ico tt-sun" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.4M12 19.4v2.4M21.8 12h-2.4M4.6 12H2.2M18.9 5.1l-1.7 1.7M6.8 17.2l-1.7 1.7M18.9 18.9l-1.7-1.7M6.8 6.8L5.1 5.1"/></svg>
-          <svg class="tt-ico tt-moon" width="14" height="14" viewBox="0 0 24 24"><path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/></svg>
-          <span class="tt-knob"></span>
-        </button>
-      </div>
-      <label class="field-label" for="setEdTheme">Editor theme</label>
-      <select id="setEdTheme">${EDITOR_THEMES.map(([v, l]) => `<option value="${v}" ${v === s.editorTheme ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="field-label" for="setEdFont">Editor font</label>
-      <select id="setEdFont">${EDITOR_FONTS.map(f => `<option ${f === s.editorFont ? 'selected' : ''}>${f}</option>`).join('')}</select>
-      <label class="field-label" for="setFs">Editor font size — <span id="setFsVal">${s.fontSize}px</span></label>
-      <input type="range" min="${FONT_SIZES.min}" max="${FONT_SIZES.max}" value="${s.fontSize}" id="setFs" style="min-height:32px;padding:0">
-      <label class="check"><input type="checkbox" id="setWrap" ${s.wrap ? 'checked' : ''}> Wrap long lines in editor</label>
-      <label class="check"><input type="checkbox" id="setMotion" ${s.motion ? 'checked' : ''}> Animated nebula background</label>
-      ${state.work ? `<label class="check"><input type="checkbox" id="setOfflineRepo" ${isOfflineRepoEnabled() ? 'checked' : ''}> Enable offline access for this repository</label>
-      <p class="hint" style="margin:0 0 10px">Opt-in only. Small text/JSON views are cached for 24 hours in an account/session-isolated cache; raw files, ZIPs, notifications and security data remain network-only.</p>` : ''}
-      <div class="set-group github-app-panel">
-        <div class="set-label">GitHub App <span class="br-tag">optional</span></div>
-        <p class="hint">Use short-lived installation credentials with repository-scoped access. Existing PAT and OAuth connections continue to work.</p>
-        <div id="githubAppSettingsBody"><p class="hint" role="status">Loading connection details…</p></div>
-      </div>
-      ${AlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : ''}
-      <div class="set-group">
-        <div class="set-label">About</div>
-        <p class="hint" style="margin:4px 0 8px">Nebulaverse-X — GitHub from your pocket.</p>
-        ${state.me && state.me.release
-          ? `<p class="hint mono" id="setBuild" style="margin:0 0 8px">Build ${esc(state.me.release)}</p>`
-          : ''}
-        <div class="about-actions">
-          <a class="btn btn-ghost small" href="https://t.me/MonteCristo_X" target="_blank" rel="noopener noreferrer">
-            <svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M21.5 3.6L2.9 10.8c-1 .4-1 1.4.1 1.7l4.6 1.5 1.8 5.5c.3.9 1 .9 1.5.3l2.5-2.4 4.7 3.5c.8.5 1.5.2 1.7-.8l3-15.1c.3-1.2-.5-1.8-1.3-1.4z"/></svg>
-            Support &amp; feedback — Telegram
-          </a>
-          <button class="btn btn-ghost small" id="clearLocalBtn">Clear offline data</button>
-        </div>
-      </div>`
-  });
-  const ownsModal = modalOwner();
-  $('#clearLocalBtn').addEventListener('click', async () => {
-    await purgeLocalData(true);
-    toast('Offline caches and queued commits cleared ✦', 'ok');
-  });
-  // The panel and its controls open immediately; optional provider details
-  // must neither delay the entrance nor replace a later dialog.
-  loadGithubAppStatus().then(status => {
-    if (ownsModal()) $('#githubAppSettingsBody').innerHTML = renderGithubAppSettings(status);
-  });
-  await closed;
-  applySettings();
-}
+function githubAppCallbackNotice() { githubApp.notice(); }
+document.addEventListener('click', event => {
+  githubApp.onClick(event.target && typeof event.target.closest === 'function' ? event.target : null);
+});
+/* Settings (features/settings/settings-panel.ts). */
+const settingsPanel = createSettingsPanel({
+  modal: request => modal(request),
+  modalOwner: () => modalOwner(),
+  view: () => ({
+    settings: state.settings,
+    dark: document.documentElement.dataset.theme === 'dark',
+    offline: state.work ? isOfflineRepoEnabled() : null,
+    alphaActions: AlphaUI.gateEnabled() ? $('#alphaPrivacyActions').innerHTML : '',
+    release: state.me && state.me.release ? String(state.me.release) : ''
+  }),
+  mutateSettings: change => pageStore.mutate('settings', change),
+  apply: () => applySettings(),
+  element: selector => $(selector),
+  setOffline: enabled => setOfflineRepoEnabled(enabled),
+  purgeLocalData: full => purgeLocalData(full),
+  toast: (message, kind) => toast(message, kind),
+  githubApp
+});
+function openSettings() { return settingsPanel.open(); }
 
 function alphaRevocationGuidanceBody(guidance) {
   const list = Array.isArray(guidance) ? guidance : [];
@@ -1051,25 +893,8 @@ document.addEventListener('click', async event => {
     if (document.contains(button)) button.disabled = false;
   }
 });
-document.addEventListener('input', e => {
-  if (e.target.id === 'setFs') {
-    pageStore.mutate('settings', settings => { settings.fontSize = +e.target.value; });
-    const v = $('#setFsVal'); if (v) v.textContent = e.target.value + 'px';
-    applySettings();
-  }
-});
-document.addEventListener('change', async e => {
-  if (e.target.id === 'setWrap') { pageStore.mutate('settings', settings => { settings.wrap = e.target.checked; }); applySettings(); }
-  if (e.target.id === 'setMotion') { pageStore.mutate('settings', settings => { settings.motion = e.target.checked; }); applySettings(); }
-  if (e.target.id === 'setEdTheme') { pageStore.mutate('settings', settings => { settings.editorTheme = e.target.value; }); applySettings(); }
-  if (e.target.id === 'setEdFont') { pageStore.mutate('settings', settings => { settings.editorFont = e.target.value; }); applySettings(); }
-  if (e.target.id === 'setOfflineRepo') {
-    try {
-      await setOfflineRepoEnabled(e.target.checked);
-      toast(e.target.checked ? 'Offline access enabled for this repository ✦' : 'Offline repository cache removed ✦', 'ok');
-    } catch (error) { e.target.checked = !e.target.checked; toast(error.message, 'err'); }
-  }
-});
+document.addEventListener('input', e => settingsPanel.onInput(e.target));
+document.addEventListener('change', e => { settingsPanel.onChange(e.target); });
 
 /* ---------------- cursor spotlight (components/spotlight.ts) ---------------- */
 watchSpotlights(document, window);

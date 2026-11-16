@@ -42,6 +42,12 @@ export const FONT_SIZES = Object.freeze({ min: 11, max: 20 });
 
 export const isDesign = (value: unknown): value is Design => value === 'nebula' || value === 'obsidian';
 
+/* Each design as Settings names and describes it. */
+export const DESIGN_LABELS: Readonly<Record<Design, Readonly<{ name: string; note: string }>>> = Object.freeze({
+  nebula: Object.freeze({ name: 'Nebula', note: 'Violet glass over the nebula' }),
+  obsidian: Object.freeze({ name: 'Obsidian', note: 'Polished stone · quartz in light' })
+});
+
 /* The browser chrome's colour for a look; anything not obsidian is nebula, anything not light is dark. */
 export function themeColor(design: unknown, theme: unknown): string {
   return THEME_COLOR[design === 'obsidian' ? 'obsidian' : 'nebula'][theme === 'light' ? 'light' : 'dark'];

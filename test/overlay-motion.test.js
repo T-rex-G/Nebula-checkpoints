@@ -319,11 +319,22 @@ check('two layers closing are both tracked', () => {
 });
 
 check('the page transition actually consults it', () => {
-  const source = appSource.slice(appSource.indexOf('function withTransition'));
-  const body = source.slice(0, source.indexOf('\n}'));
-  assert.ok(/anyOverlayClosing\(\)/.test(body),
-    'withTransition does not ask whether a layer is leaving, so it will cross-fade a snapshot over one that is');
-  assert.ok(/startViewTransition/.test(body), 'withTransition no longer starts a transition at all');
+  /* Asked of features/shell/pages-controller.ts: a screen change starts a transition, and never while a layer is leaving. */
+  const { createPages } = require('../apps/web/src/features/shell/pages-controller.ts');
+  const started = [];
+  let leaving = false;
+  const screen = { classList: { add() {}, remove() {} }, querySelector: () => null };
+  const pages = createPages({
+    screens: () => [screen], screen: () => screen, activeTopbar: () => null, setRootProperty() {},
+    startViewTransition: change => { started.push('transition'); change(); return { ready: Promise.resolve(), updateCallbackDone: Promise.resolve() }; },
+    motion: () => true, layerLeaving: () => leaving, reducedMotion: () => false, scrollToTop() {}, setTimeout() {}, requestAnimationFrame() {},
+    paintRail() {}, mountVisual() {}, clearAddress() {}, paintDock() {}
+  });
+  pages.show('repos');
+  assert.deepStrictEqual(started, ['transition'], 'a screen change no longer starts a transition at all');
+  leaving = true;
+  pages.show('work');
+  assert.deepStrictEqual(started, ['transition'], 'a screen change does not ask whether a layer is leaving, so it will cross-fade a snapshot over one that is');
 });
 
 /* ---------------- what counts as open ---------------- */
@@ -1943,9 +1954,9 @@ check('the cascade actually reads the origin the shell writes', () => {
  * empty frame on every device that can draw.
  */
 check('every artwork the shell mounts still has somewhere to mount', () => {
-  const registry = appSource.match(/const NEBULA_VISUALS = Object\.freeze\(\{([\s\S]*?)\}\);/);
-  assert.ok(registry, 'the visuals registry is gone');
-  const mounts = [...registry[1].matchAll(/'#([\w-]+)'/g)].map(m => m[1]);
+  /* The registry as the screens hold it (features/shell/pages.ts). */
+  const { NEBULA_VISUALS } = require('../apps/web/src/features/shell/pages.ts');
+  const mounts = Object.values(NEBULA_VISUALS).map(([, selector]) => selector.replace(/^#/, ''));
   assert.ok(mounts.length >= 1, `the registry names ${mounts.length} mount points`);
   /* The Trust core is the SVG instrument in both presets: nothing is mounted
      over it, so no preset can end up drawing the other's centre. */

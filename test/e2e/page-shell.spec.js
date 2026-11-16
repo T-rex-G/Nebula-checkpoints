@@ -44,3 +44,29 @@ test('a narrowed rail\'s security marks are reachable once the window is wide, a
   await expect.poll(() => foldState(page).then(state => [state.inert, state.headingTab])).toEqual([true, 0]);
   expect(await page.evaluate(() => localStorage.getItem('nv_ui:rail-security'))).toBe('0');
 });
+
+test('the galaxy leans toward a pointer on a desk, and rests when it leaves', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile', 'a touch screen has no pointer between presses to lean toward');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/');
+  await expect(page.locator('#page-overview')).toHaveClass(/active/);
+  await page.getByRole('button', { name: 'Galaxies, your repositories', exact: true }).click();
+  await expect(page.locator('#page-repos')).toHaveClass(/active/);
+  const hero = page.locator('.gx-hero');
+  const lean = () => page.locator('#gxHeroArt').evaluate(art => [art.style.getPropertyValue('--gx-ry'), art.style.getPropertyValue('--gx-rx')]);
+  const box = await hero.boundingBox();
+  /*
+   * Toward the right edge and the top: leaning right, and back. The pointer
+   * keeps moving, as a reader's does: while the screen's own cross-fade runs,
+   * the browser hands pointer events to the transition, not to the page.
+   */
+  let nudge = 0;
+  await expect.poll(async () => {
+    nudge = (nudge + 1) % 4;
+    await page.mouse.move(box.x + box.width * 0.95 - nudge, box.y + box.height * 0.05 + nudge);
+    return (await lean()).map(value => Math.sign(parseFloat(value)));
+  }).toEqual([1, 1]);
+  await page.mouse.move(box.x + box.width + 40, box.y + box.height + 200);
+  await expect.poll(lean).toEqual(['', '']);
+});

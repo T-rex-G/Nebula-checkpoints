@@ -22,6 +22,8 @@ import { watchSpotlights } from '../components/spotlight.ts';
 import { isRepositoryTool } from '../features/shell/rail.ts';
 import { createRail } from '../features/shell/rail-controller.ts';
 import { createFloatingActions } from '../features/shell/floating-actions-controller.ts';
+import { createPages, watchLean } from '../features/shell/pages-controller.ts';
+import { createRouteSync } from '../features/shell/route-sync.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -108,7 +110,7 @@ const transport = createTransport({
     broadcastIdentityBoundary();
     alphaBootStarted = false;
     AlphaUI.showExpired(code);
-    _page = 'alpha-access';
+    pages.setCurrent('alpha-access');
   }
 });
 const { api, apiCached, ensureCsrfToken, clearCsrfToken } = transport;
@@ -203,45 +205,25 @@ function modal(request) { return dialog.open(request); }
 function closeModal(confirmed) { dialog.close(confirmed); }
 
 /* ---------------- pages ---------------- */
-let _page = 'alpha-access';
-/* How many times the reader has arrived on a screen: a start that ends late can tell they have moved since it began. */
-let pageArrivals = 0;
-/*
- * A page change, cross-faded -- except while a layer is still leaving.
- *
- * Every destination in the rail and every entry in the bottom sheet dismisses
- * its own overlay and then changes the page, in that order, in one tick. A
- * View Transition snapshots the whole document, so starting one a frame after
- * a drawer began sliding out freezes the drawer half-way and cross-fades that
- * still frame over the drawer's own animation, which is still running
- * underneath. Two animations of the same pixels, disagreeing: the result reads
- * as a glitch, and it is the reason picking a destination from the open rail
- * looked broken.
- *
- * The dismissal is the motion the reader is already watching, so it wins. The
- * page still changes at the same moment; it just changes underneath a moving
- * overlay instead of behind a snapshot of one.
- */
-/* Settles once the update has run: at once without a transition, after the old frame is captured with one. */
-function withTransition(fn) {
-  if (document.startViewTransition && state.settings.motion &&
-      !anyOverlayClosing() &&
-      !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const transition = document.startViewTransition(fn);
-    // A superseding navigation may skip only the animation; its DOM update
-    // still runs. Handle that expected cancellation without hiding real errors.
-    transition.ready.catch(error => { if (error.name !== 'AbortError') throw error; });
-    return transition.updateCallbackDone.catch(() => {});
-  }
-  fn();
-  return Promise.resolve();
-}
-function measureTopbar() {
-  requestAnimationFrame(() => {
-    const bar = document.querySelector('.page.active .topbar');
-    if (bar) document.documentElement.style.setProperty('--tbh', bar.offsetHeight + 'px');
-  });
-}
+/* The screens: one in view, the next brought in, the top bar measured (features/shell/pages-controller.ts). */
+const pages = createPages({
+  screens: () => $$('.page'),
+  screen: name => $('#page-' + name),
+  activeTopbar: () => document.querySelector('.page.active .topbar'),
+  setRootProperty: (name, value) => document.documentElement.style.setProperty(name, value),
+  startViewTransition: typeof document.startViewTransition === 'function' ? change => document.startViewTransition(change) : null,
+  motion: () => !!state.settings.motion,
+  layerLeaving: () => anyOverlayClosing(),
+  reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  scrollToTop: () => window.scrollTo(0, 0),
+  setTimeout: (run, ms) => setTimeout(run, ms),
+  requestAnimationFrame: run => requestAnimationFrame(run),
+  paintRail: name => paintRail(name),
+  mountVisual: (kind, selector) => mountNebulaVisual(kind, selector),
+  clearAddress: () => writeRoute(NO_ROUTE),
+  paintDock: name => paintFloatingAction(name)
+});
+function measureTopbar() { pages.measureTopbar(); }
 window.addEventListener('resize', measureTopbar);
 window.addEventListener('orientationchange', measureTopbar);
 /* The rail: narrowed or not, Magnetar Sec folded or open, the screen marked, the drawer (features/shell/rail-controller.ts). */
@@ -295,165 +277,46 @@ $('#paletteFab') && $('#paletteFab').addEventListener('click', () => floatingAct
 document.addEventListener('keydown', event => { floatingActions.onKey(event.key); });
 document.addEventListener('pointerdown', event => floatingActions.onPointerDown(event.target));
 
-/* Which screen owns which piece of the design's artwork. */
-const NEBULA_VISUALS = Object.freeze({ repos: ['galaxy', '#gxHeroArt'] });
-/*
- * The galaxy leans a few degrees toward the pointer on a desk, eased by CSS.
- * Never on a touch screen, never with motion off; one frame per move at most.
- */
-(function galaxyLean() {
-  const hero = $('.gx-hero');
-  const art = $('#gxHeroArt');
-  if (!hero || !art || !window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-  let frame = 0;
-  hero.addEventListener('pointermove', event => {
-    if (frame || document.documentElement.dataset.motion === 'off') return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      const box = hero.getBoundingClientRect();
-      const x = (event.clientX - box.left) / Math.max(box.width, 1) - 0.5;
-      const y = (event.clientY - box.top) / Math.max(box.height, 1) - 0.5;
-      art.style.setProperty('--gx-ry', `${(x * 12).toFixed(2)}deg`);
-      art.style.setProperty('--gx-rx', `${(-y * 9).toFixed(2)}deg`);
-    });
-  }, { passive: true });
-  hero.addEventListener('pointerleave', () => { art.style.removeProperty('--gx-ry'); art.style.removeProperty('--gx-rx'); });
-})();
+/* The galaxy leans a few degrees toward the pointer on a desk; never on a touch screen (features/shell/pages-controller.ts). */
+if ($('.gx-hero') && $('#gxHeroArt') && window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+  watchLean({ hero: $('.gx-hero'), art: $('#gxHeroArt'), motionOff: () => document.documentElement.dataset.motion === 'off', requestAnimationFrame: run => requestAnimationFrame(run) });
+}
 
 /* Settles once the screen is the one showing. */
-function showPage(name) {
-  setTimeout(measureTopbar, 30);
-  if (_page === name) return Promise.resolve();
-  _page = name;
-  pageArrivals += 1;
-  paintRail(name);
-  /*
-   * Mounted here rather than by each caller. Six paths reach these screens,
-   * and a mount attached to one of them would leave the artwork missing from
-   * the other five -- the same defect the rail carried when its repaint lived
-   * in a click handler.
-   */
-  const visual = NEBULA_VISUALS[name];
-  if (visual) mountNebulaVisual(visual[0], visual[1]);
-  const swapped = withTransition(() => {
-    $$('.page').forEach(p => p.classList.remove('active'));
-    const shown = $('#page-' + name);
-    shown.classList.add('active');
-    /*
-     * Both, because which one is scrolling depends on the width. Inside the
-     * plate the content region is the scroller and the document does not move;
-     * below that breakpoint the document is the scroller. Resetting only the
-     * window left a desktop reader arriving on a new screen part way down it.
-     */
-    window.scrollTo(0, 0);
-    const region = shown.querySelector('.container');
-    if (region) region.scrollTop = 0;
-    /* The findings inbox keeps its filters in the address; every other screen but the workbench has none. */
-    if (name !== 'work' && name !== 'findings') writeRoute(NO_ROUTE);
-  });
-  /*
-   * After the swap has been laid out, not during it.
-   *
-   * The dock works out which of a screen's controls have nowhere to be by
-   * asking what is on screen, so it has to ask once the screen is. Asked
-   * before the swap it read the previous screen -- the inventory offered its
-   * own bar's "Sign out" because the copy in its body was not up yet, and the
-   * workbench offered nothing because the inventory's Settings was still
-   * standing in for its own. Asked inside the swap it read a document mid-
-   * mutation, with a view transition holding the old frame, and saw nothing at
-   * all. Two frames later both are settled.
-   */
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    paintFloatingAction(name);
-  }));
-  return swapped;
-}
-/*
- * The address follows the workbench. A tab change is a step the reader can
- * take back, so it is pushed; everything else (a file opening, the branch
- * settling) replaces the current entry. While an address is being applied
- * nothing is pushed, or Back would walk into the step it just took.
- */
-let routeApplying = false;
-function saveRoute(push = false) {
-  if (_page !== 'work' || !state.work || !state.work.repo) return;
-  const route = {
-    kind: 'workbench', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
-    tab: currentTab(), file: state.file && state.file.path ? state.file.path : null
-  };
-  if (!writeRoute(route, { push: push && !routeApplying })) return;
-  lastAppliedRoute = formatRoute(route);
-}
-/*
- * Back, Forward, a pasted link or an edited address: the same repository
- * moves to the branch, tab and file it names; another repository opens.
- */
-let lastAppliedRoute = '';
-async function applyRoute() {
-  /*
-   * Not before the session is known. A navigation that lands while the page
-   * is still starting (a reload followed at once by a link) used to open the
-   * repository before its capabilities had loaded: the tab it named was
-   * refused, the address fell back to the editor, and start-up then restored
-   * that. Start-up applies the address itself once it can.
-   */
-  if (!state.me) return;
-  const hash = location.hash;
-  if (hash === lastAppliedRoute) return;
-  const route = parseRoute(hash);
-  if (route.kind === 'findings') {
-    lastAppliedRoute = hash;
-    if (findingsOffered()) showFindings(findingsInbox.parseFilters(route.query));
-    return;
-  }
-  /* An address that names nothing -- another screen's, or one mangled in transit -- leaves the workbench as it was. */
-  if (route.kind !== 'workbench') return;
-  lastAppliedRoute = hash;
-  routeApplying = true;
-  try {
-    const same = _page === 'work' && state.work && String(state.work.owner).toLowerCase() === route.owner.toLowerCase()
-      && String(state.work.repo).toLowerCase() === route.repo.toLowerCase();
-    if (!same) { await restoreRoute(); return; }
+function showPage(name) { return pages.show(name); }
+/* The address and the workbench, kept in step (features/shell/route-sync.ts). */
+const routes = createRouteSync({
+  page: () => pages.current(),
+  work: () => state.work,
+  tab: () => currentTab(),
+  file: () => (state.file && state.file.path ? state.file.path : null),
+  signedIn: () => !!state.me,
+  hash: () => location.hash,
+  currentRoute: () => currentRoute(),
+  parseRoute: hash => parseRoute(hash),
+  formatRoute: route => formatRoute(route),
+  writeRoute: (route, options) => writeRoute(route, options),
+  findingsOffered: () => findingsOffered(),
+  showFindings: query => showFindings(findingsInbox.parseFilters(query)),
+  openRepo: (owner, repo) => openRepo(owner, repo),
+  branches: () => { const select = $('#branchSelect'); return select ? [...select.options].map(option => option.value) : []; },
+  selectBranch: branch => {
     const select = $('#branchSelect');
-    if (route.branch && route.branch !== state.work.branch && select && [...select.options].some(option => option.value === route.branch)) {
-      select.value = route.branch;
-      select.dispatchEvent(new Event('change'));
-    }
-    if (route.tab !== currentTab()) switchTab(route.tab);
-    if (route.file && (!state.file || state.file.path !== route.file)) await openFile(route.file);
-  } catch { /* a stale or foreign address leaves the workbench as it was */ }
-  finally { routeApplying = false; }
-}
-onRouteChange(() => { void applyRoute(); });
-async function restoreRoute() {
-  const route = currentRoute();
-  if (route.kind === 'findings' && findingsOffered()) {
-    lastAppliedRoute = location.hash;
-    showFindings(findingsInbox.parseFilters(route.query));
-    return true;
-  }
-  if (route.kind !== 'workbench') return false;
-  lastAppliedRoute = location.hash;
-  const wasApplying = routeApplying;
-  routeApplying = true;
-  try {
-    const opened = await openRepo(route.owner, route.repo);
-    /* A later open took over: the route is being applied there, not failed here. */
-    if (opened === null) return true;
-    if (!opened) return false;
-    const br = route.branch;
-    if (br && br !== state.work.branch && [...$('#branchSelect').options].some(o => o.value === br)) {
-      pageStore.mutate('work', work => { work.branch = br; });
-      $('#branchSelect').value = br;
-      state.fileIndex = null;
-      loadTree('', $('#tree'), true);
-    }
-    if (route.tab && route.tab !== 'editor') switchTab(route.tab);
-    if (route.file) openFile(route.file);
-    return true;
-  } catch { return false; }
-  finally { routeApplying = wasApplying; }
-}
+    select.value = branch;
+    select.dispatchEvent(new Event('change'));
+  },
+  startOnBranch: branch => {
+    pageStore.mutate('work', work => { work.branch = branch; });
+    $('#branchSelect').value = branch;
+    state.fileIndex = null;
+    loadTree('', $('#tree'), true);
+  },
+  switchTab: tab => switchTab(tab),
+  openFile: path => openFile(path)
+});
+function saveRoute(push = false) { routes.save(push); }
+onRouteChange(() => { void routes.apply(); });
+function restoreRoute() { return routes.restore(); }
 
 /* ---------------- theme & settings ---------------- */
 /* How the page looks: the theme, the design, motion and the editor (features/shell/appearance-controller.ts). */
@@ -838,8 +701,8 @@ async function boot() {
    * is left on it -- a start that ended late used to send them back -- and
    * the overview is drawn behind them for whoever is now signed in.
    */
-  const arrivals = pageArrivals;
-  const land = async () => { if (!(await restoreRoute())) showOverview(arrivals === pageArrivals); };
+  const arrivals = pages.arrivals();
+  const land = async () => { if (!(await restoreRoute())) showOverview(arrivals === pages.arrivals()); };
   loadSettings();
   githubAppCallbackNotice();
   oauthCallbackNotice();
@@ -5558,7 +5421,7 @@ async function runStandaloneSiteCheck(address) {
     if (!current()) return;
     siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
   }
-  if (_page === 'site') paintSiteScan();
+  if (pages.current() === 'site') paintSiteScan();
 }
 $('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
 $('#findingsHomeBtn') && $('#findingsHomeBtn').addEventListener('click', () => showOverview());
@@ -5585,7 +5448,7 @@ function findingsFiltersFromHash() {
 }
 function writeFindingsHash() {
   const route = { kind: 'findings', query: findingsInbox.serializeFilters(findingsState.filters) };
-  lastAppliedRoute = formatRoute(route);
+  routes.wrote(route);
   writeRoute(route);
 }
 function clearFindings() {
@@ -5615,7 +5478,7 @@ function loadFindingOwners(items) {
       .then(rules => {
         if (request !== findingsState.request) return;
         findingsState.owners.set(key, rules);
-        if (_page === 'findings') paintFindings();
+        if (pages.current() === 'findings') paintFindings();
       });
   }
 }
@@ -6412,7 +6275,7 @@ function sgRulesHTML(rules) {
  */
 function openSafeguards() {
   if (!state.work || visitingRepository()) return pickRepository('safeguards', { own: true });
-  if (_page !== 'work') showPage('work');
+  if (pages.current() !== 'work') showPage('work');
   switchTab('safeguards');
 }
 let safeguardsRender = 0;
@@ -7411,7 +7274,7 @@ const COMMANDS = [
  */
 let paletteReturnFocus = null;
 async function openPalette() {
-  if (_page !== 'work') return;
+  if (pages.current() !== 'work') return;
   paletteReturnFocus = document.activeElement;
   openOverlay($('#paletteScrim'));
   anchorOverlayOrigin($('#palette'), paletteReturnFocus);
@@ -7656,13 +7519,13 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     // Do not navigate away from an open confirmation or Settings dialog.
     if (overlayOpen($('#scrim'))) return;
-    if (_page === 'overview') { e.preventDefault(); showPage('repos'); }
-    else if (_page === 'work') { e.preventDefault(); openPalette(); }
+    if (pages.current() === 'overview') { e.preventDefault(); showPage('repos'); }
+    else if (pages.current() === 'work') { e.preventDefault(); openPalette(); }
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && _page === 'work' && state.file && !state.file.binary && currentTab() === 'editor') {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && pages.current() === 'work' && state.file && !state.file.binary && currentTab() === 'editor') {
     e.preventDefault(); openFindPanel();
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && _page === 'work' && state.file && !state.file.binary) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && pages.current() === 'work' && state.file && !state.file.binary) {
     e.preventDefault();
     if (!$('#stageFileBtn').disabled) $('#stageFileBtn').click();
   }
@@ -9636,8 +9499,8 @@ function startAuthorizedApp() {
 }
 window.addEventListener('nebula:alpha-access-granted', startAuthorizedApp);
 /*
- * The chrome belongs to the screens, and the gate replaces them. Assigning
- * _page does not repaint it: showPage returns early when handed the screen
+ * The chrome belongs to the screens, and the gate replaces them. Naming the
+ * screen in view does not repaint it: showPage returns early when handed the screen
  * that is already current, which the gate paths have just made true. So an
  * expired session left the workbench's floating action over the gate's own
  * Continue, offering an action against a workspace that was already gone.

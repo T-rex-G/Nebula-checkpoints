@@ -69,6 +69,15 @@ async function everyWidth(page) {
   const found = [];
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 900 });
+    /*
+     * Measured as painted. A resize is laid out at once, but what the page
+     * does about it -- the trend's tip moved back inside its plot, by a
+     * resize observer -- runs in the next frame, before that frame is
+     * painted. Read straight after the resize, the tip still stands where the
+     * last width put it: never on screen, and caught here only on a machine
+     * busy enough to let the read in first.
+     */
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     for (const word of await page.evaluate(strayWords)) found.push(`${width}: ${word}`);
     for (const pane of await page.evaluate(sideways)) found.push(`${width}: ${pane}`);
   }

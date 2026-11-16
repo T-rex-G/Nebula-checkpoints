@@ -470,7 +470,6 @@ const HANDOFFS = Object.freeze({
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
   'defaultGovernanceSimulation <- work': 'reads the default branch, a string, into a new request',
   'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
-  'formatRoute <- work': 'writes an address from the route\'s names, strings',
   'offlineRepoKey <- me': 'reads the provider, a string, into the name the offline list keeps a repository by (platform/offline-repos.ts)',
   'offlineRepoKey <- work': 'reads the owner and repository, strings, into the name the offline list keeps a repository by',
   'offlineRepoStorageKey <- me': 'reads the offline cache scope, a string, into the storage key of the reader\'s offline list',
@@ -479,8 +478,7 @@ const HANDOFFS = Object.freeze({
   'stepUp.send <- work': 'puts the scope it is handed, the owner\'s and repository\'s names, into the step-up request as they are, and asks with the path (features/security/step-up.ts)',
   'summarize <- work': 'reads the owner and repository, strings, to find the repository\'s protected files (graph-summary.ts)',
   'takeSafePassage <- file': 'reads the file\'s content, message and sha, strings, into the route\'s requests (features/governance/safe-passage.ts)',
-  'viewKey <- work': 'reads the owner and repository, strings, into the key of a view\'s panel arrangement (graph-memory.ts\'s placementKey)',
-  'writeRoute <- work': 'writes an address from the route\'s names, strings'
+  'viewKey <- work': 'reads the owner and repository, strings, into the key of a view\'s panel arrangement (graph-memory.ts\'s placementKey)'
 });
 
 if (require.main === module) {

@@ -237,8 +237,8 @@ function and run by another is a flow where it is run, a query or a page a
 function builds and returns is still built when it comes back, a response
 handed to a helper is still the response, and a callback is handed the value
 it is run over. The engine is
-measured on a corpus of 253 cases in JavaScript, TypeScript, Python, Go, Java
-and PHP: 93% precision and 99% recall. Each case is a small application whose
+measured on a corpus of 292 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 94% precision and 99% recall. Each case is a small application whose
 own comments say what must be found and where, run through the whole audit
 (`node scripts/uranus-benchmark.js`); the one miss it records, a function the
 caller names and the code calls, and its eleven false alarms are written down
@@ -247,7 +247,12 @@ one of the eleven is a pattern lead to confirm, never a confirmed finding: two
 on a value an allow-list replace or a shell quoter had already made safe, and
 nine on a statement a helper builds from a parameter that no caller in the
 repository hands a request's value -- a constant, a parsed number, or no call
-at all -- where the trace is quiet and the line rule cannot know it. A sanitiser clears a value only for the sinks its context covers:
+at all -- where the trace is quiet and the line rule cannot know it. A guarded
+endpoint that fetches a record by a caller's id is a lead to confirm unless the
+handler ties the record to the caller: the caller named where the record is
+asked for, in a condition, or a call that asks a policy, or a route only a role
+may reach. A user id in a log line, an audit row, the reply or the data written
+is not a tie. A sanitiser clears a value only for the sinks its context covers:
 escaped HTML still reaches SQL and the shell, a URL component still ends a SQL
 string, and a function of this repository that is only named like a sanitiser
 is read by its body. A finding

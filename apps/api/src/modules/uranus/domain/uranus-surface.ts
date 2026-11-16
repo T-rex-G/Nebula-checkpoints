@@ -70,7 +70,7 @@ const MUTATION_PY = /\b(?:session|db)\s*\.\s*(add|add_all|delete|merge|commit|fl
 export const PUBLIC_ROUTE = /(^|\/|-|_|\.)(login|log-in|signin|sign-in|signup|sign-up|register|logout|log-out|signout|sign-out|auth|oauth|oidc|sso|saml|callback|webhooks?|hooks?|health|healthz|healthcheck|ready|readyz|live|livez|ping|status|version|contact|subscribe|unsubscribe|newsletter|waitlist|forgot|reset|password|verify|verification|confirm|magic|magic-link|otp|invite|invitation|public|csp-report|report-uri|track|tracking|analytics|events?|beacon|feedback|stripe|paddle|lemonsqueezy|checkout|cron|og|sitemap|robots|manifest|favicon|revalidate|preview|share|feed|rss|search|graphql|trpc|session|csrf|captcha|recaptcha|turnstile|redeem|config|client-config|settings\.json)(\/|$|\.|-|_|\[|:)/i;
 export const ADMIN_ROUTE = /(^|\/)(admin|administrator|debug|_debug|__debug__|internal|metrics|env|\.env|seed|reset-db|resetdb|flush|test-only|phpinfo|actuator|console|graphql-playground|playground|migrate|migrations|backup|export-all|impersonate|sudo|superuser|maintenance|dev-tools|devtools)(\/|$|\[|:|\.)/i;
 const ID_SOURCE = /\b(params|query|body|searchParams|args|path_params|kwargs)\s*\??\.\s*(get\s*\(\s*['"])?\w*(id|Id|ID|uuid|Uuid|UUID)['"]?\b|\[\s*['"]\w*(id|Id|ID|uuid)['"]\s*\]/;
-const RECORD_LOOKUP = /\.\s*(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findById|findByPk|findOne|findOneBy|findOneByOrFail|getItem|findOneAndUpdate|findByIdAndUpdate|findByIdAndDelete|findOneAndDelete)\s*\(|\.\s*(doc|document)\s*\(\s*\w|\.\s*(update|delete|destroy)\s*\(\s*\{\s*where\b|\.\s*eq\s*\(\s*['"]id['"]|where\s*:\s*\{\s*id\b|WHERE\s+[\w."]*\bid\s*=|objects\s*\.\s*(get|filter)\s*\(|get_object_or_404\s*\(|query\s*\.\s*get\s*\(|session\s*\.\s*get\s*\(/;
+const RECORD_LOOKUP = /\.\s*(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findById|findByPk|findOne|findOneBy|findOneByOrFail|getItem|findOneAndUpdate|findByIdAndUpdate|findByIdAndDelete|findOneAndDelete)\s*\(|\.\s*(doc|document)\s*\(\s*\w|\.\s*(update|delete|destroy)\s*\(\s*\{\s*where\b|\.\s*eq\s*\(\s*['"]id['"]|where\s*:\s*\{\s*id\b|WHERE\s+[\w."]*\bid\s*=|objects\s*\.\s*(get|filter)\s*\(|get_object_or_404\s*\(|query\s*\.\s*get(_or_404)?\s*\(|session\s*\.\s*get\s*\(|\.\s*filter_by\s*\(\s*\w*id\s*=|\.\s*filter\s*\(\s*\w+\s*\.\s*\w*id\s*==|\.\s*where\s*\(\s*(\{\s*\w*id\b|['"]\w*id['"])/;
 const OWNER_BINDING = /\b(userId|user_id|ownerId|owner_id|authorId|author_id|createdBy|created_by|creatorId|creator_id|tenantId|tenant_id|orgId|org_id|organizationId|organization_id|accountId|account_id|teamId|team_id|workspaceId|workspace_id|memberId|member_id|profileId|profile_id|customerId|customer_id|uid|owner|user\s*\.\s*id|user\s*\.\s*sub|user\s*\?\.\s*id|session\s*\.\s*user|auth\s*\.\s*uid|auth\.uid|currentUser|current_user|request\s*\.\s*user|req\s*\.\s*user\s*\.\s*(id|_id|sub)|can\s*\(|cannot\s*\(|authorize|ability|policy|checkPermission|hasPermission|has_perm|isOwner|is_owner|assertOwner|ensureOwner|canAccess|canEdit|canView|canDelete|belongsTo|belongs_to|user\s*=\s*request\.user|filter\s*\(\s*user)\b/;
 const PROJECT_AUTH = /(spring-boot-starter-security|org\.springframework\.security|@EnableWebSecurity|javax\.annotation\.security|jakarta\.annotation\.security|laravel\/(sanctum|passport|breeze|fortify|jetstream|ui)|Illuminate\\Support\\Facades\\Auth|symfony\/security-bundle|Symfony\\Component\\Security|golang-jwt|dgrijalva\/jwt-go|lestrrat-go\/jwx|go-chi\/jwtauth|gin-contrib\/sessions|gorilla\/sessions|casbin|coreos\/go-oidc|markbates\/goth|next-auth|@auth\/|@clerk\/|@supabase\/(auth-helpers|ssr)|supabase\s*\.\s*auth|passport|lucia|better-auth|@kinde-oss|iron-session|express-session|jsonwebtoken|\bjose\b|jwt\s*\.\s*verify|getServerSession|firebase\/auth|firebase-admin|@auth0|auth0|keycloak|flask_login|flask_jwt|django\.contrib\.auth|fastapi_users|authlib|login_required|Depends\s*\(\s*get_current_user|@nestjs\/passport|AuthGuard|clerkMiddleware|withAuth|requireAuth)/;
 
@@ -105,6 +105,93 @@ export interface Route {
 }
 
 /* The pattern a language's handlers are checked with, by own name: an inherited name is no language. */
+/* A call that asks whether this caller may touch this record: naming one anywhere is a tie to the caller. */
+const POLICY_CALL = /\b(can|cannot|authorize\w*|checkPermission|hasPermission|has_perm|has_object_permission|check_object_permissions|isOwner|is_owner|assertOwner|ensureOwner|canAccess|canEdit|canView|canDelete|belongsTo|belongs_to|ownedBy|owned_by|denyAccessUnlessGranted|isGranted)\s*\(|\bGate\s*::|\b[Pp]olicy\b|\bability\b|@\s*(PreAuthorize|PostAuthorize|IsGranted)\b/;
+/* A route only a role may reach: any record by its id is that role's to read. */
+const ROLE_GUARD = /\b(require|is|ensure|check|only|verify|has)_?(admin|role|staff|superuser|moderator)\w*|\badmin_?(only|required|guard)\b|\broles?\b|\bstaff_member_required\b|\bcan:|\brole:/i;
+/* An object that is written, not matched: an owner named there says who wrote, not whose it is. */
+const WRITTEN_OBJECT = /\b(data|set|\$set|values|defaults|update|create|returning)\s*:\s*[{[]/g;
+
+/* The index just past the bracket that closes the one at `open`, or the end of the text. */
+function closing(source: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '(' || char === '[' || char === '{') depth += 1;
+    else if (char === ')' || char === ']' || char === '}') { depth -= 1; if (depth <= 0) return index + 1; }
+  }
+  return source.length;
+}
+/* The statement that begins at `start`: to a semicolon or a line end outside every bracket, a chained call on the next line included. */
+function statementFrom(source: string, start: number): string {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '(' || char === '[' || char === '{') depth += 1;
+    else if (char === ')' || char === ']' || char === '}') { if (depth === 0) return source.slice(start, index); depth -= 1; }
+    else if (depth === 0 && (char === ';' || (char === '\n' && !/^\s*(\.|\?\.|->|\|\||&&|AND\b|and\b)/.test(source.slice(index + 1, index + 40))))) return source.slice(start, index);
+  }
+  return source.slice(start);
+}
+/* Where the statement holding `at` begins: back to a semicolon, the bracket it sits in, or a line that does not continue a chain. */
+function statementStart(source: string, at: number): number {
+  let depth = 0;
+  for (let index = at - 1; index >= 0; index -= 1) {
+    const char = source[index];
+    if (char === ')' || char === ']' || char === '}') depth += 1;
+    else if (char === '(' || char === '[' || char === '{') { if (depth === 0) return index + 1; depth -= 1; }
+    else if (depth === 0 && (char === ';' || (char === '\n' && !/^\s*(\.|\?\.|->)/.test(source.slice(index + 1, index + 40))))) return index + 1;
+  }
+  return 0;
+}
+function withoutWritten(span: string): string {
+  let out = span;
+  for (let guard = 0; guard < 8; guard += 1) {
+    WRITTEN_OBJECT.lastIndex = 0;
+    const match = WRITTEN_OBJECT.exec(out);
+    if (!match) break;
+    const open = match.index + match[0].length - 1;
+    out = `${out.slice(0, match.index)}${out.slice(closing(out, open))}`;
+  }
+  return out;
+}
+
+/*
+ * Whether a handler ties the record it fetches to the caller. A word like
+ * `userId` somewhere in the handler is not that: it is as often a log line,
+ * an audit row, a field of the reply or who last wrote the record. A tie is
+ * the caller named where the record is asked for (the lookup itself, the
+ * chain it starts, a value it is handed), in a condition, or a call that
+ * asks a policy. What is written into a record is not what it is matched by.
+ */
+function tiedToCaller(body: string, lookup: RegExp, extra: RegExp | null): boolean {
+  if (POLICY_CALL.test(body)) return true;
+  const names = (span: string): boolean => OWNER_BINDING.test(span) || Boolean(extra && extra.test(span));
+  /* A condition: if (...), a comparison, a Python or Go `if` with no brackets, a guard clause. */
+  const conditions = /\bif\s*\(|\b(?:if|elif|unless|assert|abort_if|abort_unless)\b[^\n(]*|[^\n;]*(?:[!=]==?|\bis\s+not\b|\bnot\s+in\b)[^\n;]*/g;
+  for (const match of body.matchAll(conditions)) {
+    const at = match.index;
+    const span = match[0].endsWith('(') ? body.slice(at, closing(body, at + match[0].length - 1)) : match[0];
+    if (names(span)) return true;
+  }
+  /* Where the record is asked for, and what that statement is handed by name. */
+  const declared = new Map<string, string>();
+  for (const match of body.matchAll(/(?:\b(?:const|let|var)\s+|^[ \t]*|:=?\s*)([A-Za-z_$][\w$]*)\s*:?=(?!=)\s*/gm)) {
+    const name = match[1];
+    if (name !== undefined && !declared.has(name)) declared.set(name, withoutWritten(statementFrom(body, match.index + match[0].length)));
+  }
+  const global = new RegExp(lookup.source, lookup.flags.includes('g') ? lookup.flags : `${lookup.flags}g`);
+  for (const match of body.matchAll(global)) {
+    const span = withoutWritten(statementFrom(body, statementStart(body, match.index)));
+    if (names(span)) return true;
+    for (const word of span.match(/[A-Za-z_$][\w$]*/g) || []) {
+      const value = declared.get(word);
+      if (value !== undefined && names(value)) return true;
+    }
+  }
+  return false;
+}
+
 function languagePattern(table: Readonly<Record<string, RegExp>>, language: string | undefined): RegExp | undefined {
   return language === undefined ? undefined : ownEntry(table, language);
 }
@@ -323,10 +410,11 @@ export function analyseSurface({ routes, files }: { routes?: readonly Route[] | 
     if (guarded || auth === 'platform') {
       /* A guarded endpoint that fetches a record by a caller's id and never ties it to the caller. */
       const body = text(route);
-      const hasId = ID_SOURCE.test(body) || /[:[<{]\w*id\b/i.test(label || '');
+      /* An id in the request, in the route, or (a Django view, whose route is written elsewhere) among the view's own parameters. */
+      const hasId = ID_SOURCE.test(body) || /[:[<{]\w*id\b/i.test(label || '') || /^\s*(async\s+)?def\s+\w+\s*\([^)]*\b(\w+_id|id|pk)\b/.test(body);
       const cfamily = Boolean(languagePattern(LANGUAGE_BODY_AUTH, route.language));
       const lookup = cfamily ? CF_RECORD_LOOKUP.test(body) : RECORD_LOOKUP.test(body);
-      const owned = cfamily ? CF_OWNER_BINDING.test(body) || OWNER_BINDING.test(body) : OWNER_BINDING.test(body);
+      const owned = tiedToCaller(body, cfamily ? CF_RECORD_LOOKUP : RECORD_LOOKUP, cfamily ? CF_OWNER_BINDING : null) || ROLE_GUARD.test((route.middleware || []).join(' '));
       if (hasId && lookup && !owned && !/supabase\s*\.\s*from\s*\(/.test(body)) {
         raw.push({ rule: 'ACC-002', path: route.path, line: route.line, verdict: 'needs-validation', blocker: { reason: 'owner' }, reach });
       }

@@ -1524,7 +1524,7 @@ class JsWalker {
 
 const ROUTER_OBJECT = /^(app|router|api|server|r|route|routes|fastify|instance|v1|v2|admin\w*|\w*[Rr]outer|\w*[Aa]pp|hono|elysia|srv)$/;
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'del', 'all', 'options', 'head']);
-const ROUTE_TEXT = /^[A-Za-z0-9/_:.\-*[\]{}()$+?@~]*$/;
+const ROUTE_TEXT = /^[A-Za-z0-9/_:.\-*[\]{}()$+?@~<>]*$/; /* `<` and `>` are Flask's and Django's converters */
 
 export function safeRoute(value: unknown): string | null {
   const text = String(value || '').trim();

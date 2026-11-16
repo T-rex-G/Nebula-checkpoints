@@ -31,8 +31,10 @@ const QUEUED = ['one.txt', 'two.txt', 'three.txt', 'four.txt', 'five.txt'];
 test('the upload queue sends one file at a time', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   const heads = [];
+  const tokens = [];
   await page.route('**/api/repo/sandbox/demo/upload?**', route => {
     heads.push(new URL(route.request().url()).searchParams.get('expectedHeadSha'));
+    tokens.push(route.request().headers()['x-nv-csrf']);
     return route.fulfill({ json: { ok: true, commit: String(heads.length).repeat(40), strategy: 'git-data-api' } });
   });
 
@@ -101,6 +103,8 @@ test('the upload queue sends one file at a time', async ({ page }) => {
   await expect(page.locator('#uploadQueue .uq-item.done')).toHaveCount(QUEUED.length);
   await expect.poll(() => page.evaluate(() => window.__uploadFlight.open)).toBe(0);
   expect(heads).toEqual(['a', '1', '2', '3', '4'].map(value => value.repeat(40)));
+  /* Each raw upload carries the session's request-security token, as a JSON write does. */
+  expect(tokens).toEqual(QUEUED.map(() => 'upload-guard-csrf'));
 
   const flight = await page.evaluate(() => window.__uploadFlight);
   expect(
@@ -209,9 +213,11 @@ test('individual Retry preserves folder, message, LFS choice and commit mode', a
 test('batch selection says queued until the commit actually lands', async ({ page }) => {
   await openUploads(page);
   const writes = [];
+  const tokens = [];
   await page.route('**/api/repo/sandbox/demo/*', route => {
     if (route.request().method() === 'GET') return route.fallback();
     writes.push(new URL(route.request().url()).pathname);
+    tokens.push(route.request().headers()['x-nv-csrf']);
     return route.fulfill({ json: { ...GOOD, sha: 'c'.repeat(40) } });
   });
   await page.locator('#uploadMode [data-v="batch"]').click();
@@ -224,6 +230,8 @@ test('batch selection says queued until the commit actually lands', async ({ pag
   await expect(page.locator('#uploadQueue .done')).toHaveCount(2);
   await expect(page.locator('.toast.ok')).toContainText(['2 files landed as one commit']);
   expect(writes).toEqual(['/api/repo/sandbox/demo/blob', '/api/repo/sandbox/demo/blob', '/api/repo/sandbox/demo/batch']);
+  /* The blobs, sent raw, and the commit, sent as JSON, each carry the token. */
+  expect(tokens).toEqual(['fixture-csrf-value', 'fixture-csrf-value', 'fixture-csrf-value']);
 });
 
 test('unchanged files are reported as skipped, never uploaded', async ({ page }) => {

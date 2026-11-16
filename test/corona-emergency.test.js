@@ -90,7 +90,7 @@ function browser(options = {}) {
     }),
     forgetRepositoryWork() {},
     $: () => null,
-    _cache: { clear() {} }
+    transport: { cache: { clear() {} } }
   };
   vm.createContext(sandbox);
   /* The shield purges through the workbench's own purge, which it imports by that name. */

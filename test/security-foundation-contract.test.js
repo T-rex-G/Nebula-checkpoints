@@ -57,8 +57,7 @@ const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizat
   assert(logout && ['auth', 'accountAuth'].includes(logout.guards[0]), 'logout must be an authenticated CSRF-protected mutation');
 }
 
-assert(app.includes("'x-nv-csrf': csrfToken"), 'JSON mutations must carry the CSRF token');
-assert(app.includes("opts.headers"), 'API helper must support action-specific authorization headers');
+/* That a mutation carries the request-security token, and a caller's own headers such as a step-up grant, is test/transport.test.js's, asked of the page's transport. */
 assert(app.includes('async function requestStepUp'), 'client must request action-scoped step-up authorization');
 assert(app.includes("'x-nv-step-up': grant"), 'sensitive mutations must carry the one-time step-up grant');
 assert((app.match(/setRequestHeader\('x-nv-csrf'/g) || []).length >= 2, 'raw upload paths must carry CSRF tokens');

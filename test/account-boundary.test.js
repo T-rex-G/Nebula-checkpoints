@@ -16,7 +16,7 @@ assert(app.includes("sessionStorage.setItem('nv_me'") && app.includes("sessionSt
 assert(/accounts\/switch-idx[\s\S]{0,200}broadcastIdentityBoundary\(\)/.test(app), 'successful account switches must purge other tabs');
 assert(/async function receiveIdentityBoundary\(\)[\s\S]{0,300}await purgeLocalData\(true\);[\s\S]{0,100}window\.location\.reload\(\)/.test(app),
   'other tabs must purge identity-bound state before reloading');
-assert(app.includes('x-nv-offline-scope') && app.includes('x-nv-offline-repo'), 'eligible API reads must carry scoped offline headers');
+/* That a read of a repository kept for offline use carries the scoped headers, and no other read does, is test/transport.test.js's (platform/offline-repos.ts) and test/e2e/transport.spec.js's. */
 assert(app.includes('Enable offline access for this repository'), 'settings must expose explicit per-repository opt-in');
 /* A session revoked elsewhere purges this browser's private data before the reload: test/pulsar-reliability.test.js. */
 console.log('account boundary tests passed');

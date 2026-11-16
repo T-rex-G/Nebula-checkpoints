@@ -58,8 +58,10 @@ const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizat
 }
 
 /* That a mutation carries the request-security token, and a caller's own headers such as a step-up grant, is test/transport.test.js's, asked of the page's transport. */
-assert(app.includes('async function requestStepUp'), 'client must request action-scoped step-up authorization');
-assert(app.includes("'x-nv-step-up': grant"), 'sensitive mutations must carry the one-time step-up grant');
+/* Step-up is the page's features/security/step-up.ts: asked in test/page-dialogs.test.js, and here for the header its grant travels in. */
+const stepUpModule = require('../apps/web/src/features/security/step-up.ts');
+assert.strictEqual(typeof stepUpModule.createStepUp, 'function', 'client must request action-scoped step-up authorization');
+assert.strictEqual(stepUpModule.STEP_UP_HEADER, 'x-nv-step-up', 'sensitive mutations must carry the one-time step-up grant');
 assert((app.match(/setRequestHeader\('x-nv-csrf'/g) || []).length >= 2, 'raw upload paths must carry CSRF tokens');
 assert(/repository\.delete[\s\S]+method: 'DELETE'/.test(app), 'repository deletion must use step-up authorization');
 assert(/branch\.reset[\s\S]+\/reset/.test(app), 'hard reset must use step-up authorization');

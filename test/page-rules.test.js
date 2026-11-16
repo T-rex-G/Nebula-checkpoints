@@ -476,7 +476,9 @@ const HANDOFFS = Object.freeze({
   'offlineRepoStorageKey <- me': 'reads the offline cache scope, a string, into the storage key of the reader\'s offline list',
   'readOfflineRepos <- me': 'reads the offline cache scope, a string, to find the reader\'s offline list in storage',
   'renderGalaxyPulseGrid <- repos': 'counts the repositories and their languages into a new view, and draws that',
+  'stepUp.send <- work': 'puts the scope it is handed, the owner\'s and repository\'s names, into the step-up request as they are, and asks with the path (features/security/step-up.ts)',
   'summarize <- work': 'reads the owner and repository, strings, to find the repository\'s protected files (graph-summary.ts)',
+  'takeSafePassage <- file': 'reads the file\'s content, message and sha, strings, into the route\'s requests (features/governance/safe-passage.ts)',
   'viewKey <- work': 'reads the owner and repository, strings, into the key of a view\'s panel arrangement (graph-memory.ts\'s placementKey)',
   'writeRoute <- work': 'writes an address from the route\'s names, strings'
 });

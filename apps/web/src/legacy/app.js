@@ -10,6 +10,11 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import CodeMirror from '../components/code-editor.ts';
 import OverlayMotion from '../components/overlay-motion.ts';
+import { anchorOverlayOrigin } from '../components/overlay-origin.ts';
+import { createModal } from '../components/modal.ts';
+import { createToasts } from '../components/toasts.ts';
+import { createStepUp } from '../features/security/step-up.ts';
+import { createSafePassage } from '../features/governance/safe-passage.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -101,56 +106,10 @@ const transport = createTransport({
 });
 const { api, apiCached, ensureCsrfToken, clearCsrfToken } = transport;
 
-async function requestStepUp(action, scope, label = 'sensitive action') {
-  if (!state.me || !state.me.login) throw new Error('Sign in before authorizing a sensitive action');
-  const tokenMethod = (state.me.authMethod || 'token') === 'token';
-  const login = state.me.login;
-  const ok = await modal({
-    title: 'Verify sensitive action',
-    danger: true,
-    okText: 'Authorize once',
-    bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(label)}</b> requires a short-lived, single-use authorization bound to this exact operation.</p>
-      <label class="field-label" for="stepUpLogin">Type the active account login <b class="mono">${esc(login)}</b></label>
-      <input id="stepUpLogin" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text">
-      ${tokenMethod ? `<label class="field-label" for="stepUpCredential">Re-enter the current provider token</label><input id="stepUpCredential" type="password" autocomplete="off" spellcheck="false">` : `<p class="hint">Allowing this on GitHub decides whether the account <em>may</em> do it at all, once. This is the separate question of whether to do it <em>now</em>: the authorization is checked against the provider again, lasts five minutes, and works a single time.</p>`}`
-  });
-  if (!ok) return '';
-  const loginInput = $('#stepUpLogin');
-  const credentialInput = tokenMethod ? $('#stepUpCredential') : null;
-  const confirm = (loginInput ? loginInput.value : '').trim();
-  const credential = credentialInput ? credentialInput.value.trim() : '';
-  if (loginInput) loginInput.value = '';
-  if (credentialInput) credentialInput.value = '';
-  /*
-   * The server compares this character for character, and rejects a mismatch
-   * with a dialog that cannot say what arrived -- it must not echo back what
-   * was typed. So the comparison happens here too, where the two strings are
-   * both in hand and the difference can be named.
-   *
-   * A phone keyboard is the reason this matters. iOS autocorrect and smart
-   * punctuation are on by default and are *not* turned off by spellcheck;
-   * a login with hyphens in it comes back with en-dashes where the hyphens
-   * were, looking identical at a glance and failing an exact match. The
-   * inputs now decline those keyboard features outright, and this catches
-   * anything that still slips through without spending a request on it.
-   */
-  if (confirm !== login) {
-    toast(`That does not match ${login} exactly — check for autocorrect changing the dashes or the capitals.`, 'err');
-    return '';
-  }
-  const result = await api('/api/security/step-up', {
-    method: 'POST', body: { action, scope, confirm, ...(tokenMethod ? { credential } : {}) }
-  });
-  return result.grant || '';
-}
-async function stepUpApi(action, scope, path, opts = {}, label) {
-  const grant = await requestStepUp(action, scope, label);
-  if (!grant) return null;
-  return api(path, {
-    ...opts,
-    headers: { ...(opts.headers || {}), 'x-nv-step-up': grant }
-  });
-}
+/* Step-up: a sensitive action authorized once, now (features/security/step-up.ts). */
+const stepUp = createStepUp({ modal: request => modal(request), api, toast: (message, kind) => toast(message, kind), identity: () => state.me, field: id => document.getElementById(id) });
+function requestStepUp(action, scope, label) { return stepUp.request(action, scope, label); }
+function stepUpApi(action, scope, path, opts, label) { return stepUp.send(action, scope, path, opts, label); }
 
 /* ---------------- toasts ---------------- */
 function hapt(ms = 8) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch {} }
@@ -163,7 +122,6 @@ function safeHexColor(value, fallback = '8a8fa8') {
   const color = String(value || '').replace(/^#/, '');
   return /^[0-9a-f]{6}$/i.test(color) ? color : fallback;
 }
-const TOAST_TONE = { ok: 'Success', err: 'Error' };
 /*
  * The pulse over the repository list (features/repositories/GalaxyPulse.tsx):
  * what this session actually loaded, each measure with its own source.
@@ -189,99 +147,20 @@ function selectSegment(groupSelector, isChosen) {
   });
 }
 
-function toast(msg, kind = '') {
-  if (kind === 'ok') hapt(10);
-  const el = document.createElement('div');
-  el.className = `toast ${kind}`;
-  /*
-   * Outcome was carried by colour alone: a reader saw green or red, and anyone
-   * listening heard only the message. The tone is announced now, as text
-   * placed before it and hidden visually, so the same distinction reaches both
-   * without changing what the toast looks like.
-   */
-  const tone = TOAST_TONE[kind];
-  if (tone) {
-    const label = document.createElement('span');
-    label.className = 'sr-only';
-    label.textContent = `${tone}: `;
-    el.appendChild(label);
-  }
-  el.appendChild(document.createTextNode(msg));
-  $('#toasts').appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; setTimeout(() => el.remove(), 400); }, 3600);
-}
+/* The page's short notices (components/toasts.ts): shown, said with their tone, and gone. */
+const showToast = createToasts({
+  document,
+  stack: () => $('#toasts'),
+  setTimeout: (run, ms) => setTimeout(run, ms),
+  vibrate: ms => { if (navigator.vibrate) navigator.vibrate(ms); }
+});
+function toast(msg, kind = '') { return showToast(msg, kind); }
 function presentError(error) {
   return TrustUI.presentError(error || new Error('The request could not be completed.'));
 }
 
-/*
- * Safe Passage.
- *
- * A write refused because it needs approval comes back with the route to
- * approval attached: a branch derived from the change, and a pull request into
- * the branch that refused it. The server has already checked that policy
- * permits every step, so taking the route uses the ordinary governed endpoints
- * -- there is no separate privileged path to take, which is the point.
- *
- * It is offered, never taken automatically, and the content sent is the same
- * content that was refused.
- */
-async function takeSafePassage(error, change) {
-  const offer = error && error.safePassage;
-  if (!offer || offer.available !== true || !change || typeof change.content !== 'string') return false;
-  if (!state.work) return false;
-
-  const accepted = await modal({
-    title: 'This change needs approval',
-    okText: 'Send for review',
-    bodyHTML: `<p class="sp-lead">Writing <b class="mono">${esc(offer.path)}</b> to
-        <b class="mono">${esc(offer.baseBranch)}</b> needs approval under the active policy, so it was not committed.</p>
-      <p class="sp-lead">Your change can go to a branch of its own and open a pull request for review instead. Nothing is
-        changed on <b class="mono">${esc(offer.baseBranch)}</b> until someone approves it.</p>
-      <ul class="sp-route">
-        <li><span class="sp-step">Branch</span><span class="mono">${esc(offer.branch)}</span></li>
-        <li><span class="sp-step">Commit</span><span class="mono">${esc(offer.path)}</span></li>
-        <li><span class="sp-step">Pull request</span><span class="mono">${esc(offer.branch)} \u2192 ${esc(offer.baseBranch)}</span></li>
-      </ul>
-      <p class="hint">The content sent is exactly what you tried to commit.</p>`
-  });
-  if (!accepted) return false;
-
-  const message = String(change.message || '').trim() || `Update ${offer.path}`;
-  try {
-    await api(`/api/repo/${wPath()}/branches`, {
-      method: 'POST', body: { name: offer.branch, from: offer.baseBranch }
-    });
-  } catch (branchError) {
-    /* The branch already existing is the expected shape of a second attempt at
-     * the same change, and is not a failure. GitHub answers it with 422; the
-     * name was checked before it was sent, so nothing else answers 422 here. */
-    if (branchError.status !== 422) {
-      presentError(branchError);
-      return true;
-    }
-  }
-  try {
-    const written = await api(`/api/repo/${wPath()}/file`, {
-      method: 'PUT',
-      body: { path: offer.path, content: change.content, message, branch: offer.branch, sha: change.sha }
-    });
-    const pull = await api(`/api/repo/${wPath()}/pulls`, {
-      method: 'POST',
-      body: {
-        title: message,
-        head: offer.branch,
-        base: offer.baseBranch,
-        body: `Opened by Safe Passage. Writing \`${offer.path}\` to \`${offer.baseBranch}\` requires approval under the active policy, so the change is proposed here for review instead.`
-      }
-    });
-    toast(pull && pull.number ? `Opened pull request #${pull.number} \u2726` : 'Sent for review \u2726', 'ok');
-    return { written, pull };
-  } catch (routeError) {
-    presentError(routeError);
-    return true;
-  }
-}
+/* Safe Passage, as the page offers it (features/governance/safe-passage.ts). */
+const takeSafePassage = createSafePassage({ modal: request => modal(request), api, toast: (message, kind) => toast(message, kind), presentError: error => presentError(error), repository: () => (state.work ? wPath() : null) });
 
 /* ---------------- overlay motion ---------------- */
 /*
@@ -293,112 +172,28 @@ async function takeSafePassage(error, change) {
  */
 const { overlayOpen, openOverlay, closeOverlay, anyOverlayClosing } = OverlayMotion.createOverlayMotion();
 
-/*
- * Where a layer grows from.
- *
- * A panel that scales up from its own centre appears; a panel that scales up
- * from the control that summoned it arrives, and the reader's eye is already
- * there. It is the difference between a dialog and a menu, and it costs one
- * transform-origin.
- *
- * The origin is the opener's centre expressed in the panel's own box, so it
- * stays correct wherever the panel lands -- centred on a wide screen, full
- * width on a narrow one. When the opener is off-screen, unknown, or the panel
- * is the whole screen, it falls back to the centre, which is the right answer
- * for a dialog that nothing in particular opened.
- */
-function anchorOverlayOrigin(panel, opener) {
-  if (!panel) return;
-  panel.style.removeProperty('--nv-origin');
-  if (!opener || typeof opener.getBoundingClientRect !== 'function' || !opener.isConnected) return;
-  const from = opener.getBoundingClientRect();
-  if (!from.width && !from.height) return;
-  const box = panel.getBoundingClientRect();
-  if (!box.width || !box.height) return;
-  /* Clamped: an origin far outside the panel swings it in from off-screen,
-     which reads as a lurch rather than as growth. */
-  const clamp = (value, span) => Math.max(-0.35, Math.min(1.35, value / span));
-  const x = clamp(from.left + from.width / 2 - box.left, box.width);
-  const y = clamp(from.top + from.height / 2 - box.top, box.height);
-  panel.style.setProperty('--nv-origin', `${(x * 100).toFixed(1)}% ${(y * 100).toFixed(1)}%`);
-}
-
 /* ---------------- modal ---------------- */
-let modalResolve = null;
-let modalReturnFocus = null;
-let modalGeneration = 0;
-// A shared scrim being open does not mean it still belongs to this request.
-function modalOwner() {
-  const generation = modalGeneration;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  return () => generation === modalGeneration && epoch === state.uiEpoch &&
-    identity === state.me && overlayOpen($('#scrim'));
-}
-function modal({ title, bodyHTML, okText = 'Confirm', danger = false, onOpen = null, wide = false, cancel = true, autofocus = true }) {
-  modalGeneration++;
-  if (modalResolve) { modalResolve(false); modalResolve = null; }
-  return new Promise(resolve => {
-    modalResolve = resolve;
-    modalReturnFocus = document.activeElement;
-    $('#modalTitle').textContent = title;
-    $('#modal').classList.toggle('modal-wide', Boolean(wide));
-    /* A panel with nothing to confirm has nothing to cancel either: one way out, Done. */
-    $('#modalCancel').hidden = cancel === false;
-    $('#modalBody').innerHTML = bodyHTML;
-    /* The dialog element is reused: a new one starts at its top, not where the last was left. */
-    $('#modal').scrollTop = 0;
-    const ok = $('#modalOk');
-    ok.textContent = okText;
-    ok.classList.toggle('danger', danger);
-    openOverlay($('#scrim'));
-    const ownsModal = modalOwner();
-    /* Before the entrance is painted, so the first frame already grows from
-       the right place rather than correcting on the second. */
-    anchorOverlayOrigin($('#modal'), modalReturnFocus);
-    if (typeof onOpen === 'function') onOpen($('#modalBody'));
-    /* A panel of controls opens on its way out rather than in a text field, so a phone does not raise its keyboard. */
-    const fi = autofocus ? $('#modalBody input:not([disabled]), #modalBody textarea:not([disabled]), #modalBody select:not([disabled])') : null;
-    const initialFocus = fi || (cancel === false ? $('#modalClose') || $('#modalOk') : $('#modalCancel'));
-    if (initialFocus) setTimeout(() => {
-      const scrim = $('#scrim');
-      if (ownsModal() && initialFocus.isConnected && !scrim.contains(document.activeElement)) initialFocus.focus({ preventScroll: true });
-    }, 60);
-  });
-}
-function closeModal(v) {
-  modalGeneration++;
-  closeOverlay($('#scrim'));
-  if (modalResolve) { modalResolve(v); modalResolve = null; }
+/* The page's one dialog (components/modal.ts). */
+const dialog = createModal({
+  elements: () => ({ scrim: $('#scrim'), modal: $('#modal'), title: $('#modalTitle'), body: $('#modalBody'), ok: $('#modalOk'), cancel: $('#modalCancel'), close: $('#modalClose') }),
+  overlay: { openOverlay, closeOverlay, overlayOpen },
+  anchor: anchorOverlayOrigin,
+  epoch: () => state.uiEpoch,
+  identity: () => state.me,
+  activeElement: () => document.activeElement,
+  setTimeout: (run, ms) => setTimeout(run, ms),
+  requestAnimationFrame: run => requestAnimationFrame(run),
   /*
    * A dialog just finished is a reader between actions, not one reading down
    * the page: the floating actions come back, wherever the page is scrolled.
-   * Without this, an action opened from the foot of a long section left the
-   * dock withdrawn behind the bottom navigation until the reader scrolled up.
    */
-  if (typeof setFloatingActionRetracted === 'function') { setFloatingActionRetracted(false); _fabScrollY = Math.max(0, window.scrollY); }
-  const restore = modalReturnFocus;
-  modalReturnFocus = null;
-  const generation = modalGeneration;
-  if (restore && restore.isConnected && typeof restore.focus === 'function') requestAnimationFrame(() => {
-    /*
-     * Only a focus the closing dialog left behind is handed back. The flow
-     * that awaited the dialog may already have moved it on -- staging a new
-     * file opens the staged-changes panel and focuses its commit control --
-     * and taking it back a frame later would leave the reader behind that
-     * panel, with Enter landing on whatever opened the dialog.
-     */
-    const active = document.activeElement;
-    const left = !active || active === document.body || $('#scrim').contains(active);
-    if (generation === modalGeneration && left) restore.focus({ preventScroll: true });
-  });
-}
-$('#modalOk').addEventListener('click', () => closeModal(true));
-$('#modalCancel').addEventListener('click', () => closeModal(false));
-/* The header control resolves the same way the footer's Cancel does: a dialog
-   dismissed from the corner has not been confirmed. */
-$('#modalClose') && $('#modalClose').addEventListener('click', () => closeModal(false));
-$('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(false); });
+  onClosed: () => { setFloatingActionRetracted(false); _fabScrollY = Math.max(0, window.scrollY); }
+});
+dialog.wire();
+/* A shared scrim being open does not mean it still belongs to this request. */
+function modalOwner() { return dialog.owner(); }
+function modal(request) { return dialog.open(request); }
+function closeModal(confirmed) { dialog.close(confirmed); }
 
 /* ---------------- pages ---------------- */
 let _page = 'alpha-access';
@@ -2526,7 +2321,7 @@ function drawOverviewPulse(section, grid, measures) {
 async function openAccounts() {
   modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
   const ownsModal = modalOwner();
-  const sheet = modalGeneration;
+  const sheet = dialog.generation();
   try {
     const a = await api('/api/accounts');
     if (!ownsModal()) return;
@@ -2580,7 +2375,7 @@ async function openAccounts() {
       for (const control of controls) control.disabled = true;
       return () => { for (const control of controls) control.disabled = false; };
     };
-    const leaveSheet = () => { if (modalGeneration === sheet) closeModal(true); };
+    const leaveSheet = () => { if (dialog.generation() === sheet) closeModal(true); };
     $$('#modalBody [data-switch]').forEach(b => b.addEventListener('click', async () => {
       const release = holdSheet();
       let out = null;
@@ -7595,6 +7390,8 @@ $('#commitFileBtn').addEventListener('click', async () => {
     okText: 'Commit ✦'
   });
   if (!ok) return;
+  /* Read while the dialog that holds it is the one on the page: the overwrite question and Safe Passage each replace it. */
+  const typedMessage = $('#cmMsg') ? $('#cmMsg').value : undefined;
   try {
     /* conflict check: has the file changed on GitHub since we loaded it? */
     try {
@@ -7612,7 +7409,7 @@ $('#commitFileBtn').addEventListener('click', async () => {
     } catch {}
     const out = await api(`/api/repo/${wPath()}/file`, {
       method: 'PUT',
-      body: guardedWrite({ path: state.file.path, content: state.cm.getValue(), message: $('#cmMsg').value || undefined, branch: state.work.branch, sha: state.file.sha })
+      body: guardedWrite({ path: state.file.path, content: state.cm.getValue(), message: typedMessage || undefined, branch: state.work.branch, sha: state.file.sha })
     });
     rememberHead(out.commit);
     pageStore.mutate('file', file => {
@@ -7632,14 +7429,14 @@ $('#commitFileBtn').addEventListener('click', async () => {
      * here, and saying otherwise would be a comfortable lie. */
     const routed = await takeSafePassage(e, {
       content: state.cm.getValue(),
-      message: $('#cmMsg') ? $('#cmMsg').value : undefined,
+      message: typedMessage,
       sha: state.file.sha
     });
     if (routed) return;
     const queued = await queueCommit({
       kind: 'put', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
       path: state.file.path, content: state.cm.getValue(),
-      message: $('#cmMsg') ? $('#cmMsg').value : undefined, sha: state.file.sha,
+      message: typedMessage, sha: state.file.sha,
       expectedHeadSha: currentHeadSha()
     }, e);
     if (queued) { pageStore.mutate('file', file => { file.dirty = false; }); $('#commitFileBtn').disabled = true; }

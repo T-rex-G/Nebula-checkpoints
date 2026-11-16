@@ -519,10 +519,9 @@ check('every dialog offers a close control where a reader looks for one', () => 
   assert.ok(/aria-label="Close dialog"/.test(close[0]),
     'the close control has no accessible name, or one that collides with a footer button named Close');
   assert.ok(/title="Close dialog"/.test(close[0]), 'the close control has no tooltip, so a pointer gets no name');
-  /* Wired to the same answer Cancel gives: a dialog dismissed from the corner
-     has not been confirmed. */
-  assert.ok(/#modalClose'\)[\s\S]{0,120}closeModal\(false\)/.test(appSource),
-    'the close control is not wired, or does not resolve the dialog as dismissed');
+  /* That it answers as Cancel does -- a dialog dismissed from the corner has not
+     been confirmed -- is asked of components/modal.ts in test/page-dialogs.test.js,
+     and of the page in test/e2e/page-dialogs.spec.js. */
   /* And it has to sit beside the title rather than below it. */
   assert.ok(/<div class="modal-head">[\s\S]{0,400}id="modalClose"/.test(htmlSource),
     'the close control is outside the dialog header, so it stacks under the title');
@@ -1567,7 +1566,8 @@ check('every exact-match confirmation declines the phone keyboard', () => {
    * their place, indistinguishable at a glance and guaranteed to fail. Any
    * input the user must retype exactly has to decline those features.
    */
-  const ids = ['stepUpLogin', 'alphaDeleteConfirm', 'recConfirm'];
+  /* The step-up login is features/security/step-up.ts's, asked in test/page-dialogs.test.js. */
+  const ids = ['alphaDeleteConfirm', 'recConfirm'];
   ids.forEach(id => {
     const tag = appSource.match(new RegExp(`<input id="${id}"[^>]*>`));
     assert.ok(tag, `${id} is gone`);
@@ -1578,14 +1578,7 @@ check('every exact-match confirmation declines the phone keyboard', () => {
   });
 });
 
-check('a mismatch is named before a request is spent on it', () => {
-  const fn = appSource.slice(appSource.indexOf('async function requestStepUp'));
-  const body = fn.slice(0, fn.indexOf('\nasync function stepUpApi'));
-  assert.ok(/confirm !== login/.test(body),
-    'the typed value is never compared here, so a mismatch costs a round trip and comes back as a dialog that cannot say what was wrong');
-  assert.ok(/return ''/.test(body.slice(body.indexOf('confirm !== login'))),
-    'a mismatch does not stop the flow, so it is sent anyway');
-});
+/* A mismatch named before a request is spent on it: features/security/step-up.ts, asked in test/page-dialogs.test.js. */
 
 /* ---------------- a way out of the sheet ---------------- */
 
@@ -1860,7 +1853,7 @@ check('a marker with no number is a dot, not an empty box', () => {
 /* ---------------- menus that grow from where they were opened ---------------- */
 
 check('a panel grows from the control that opened it', () => {
-  const anchor = liftFunction('anchorOverlayOrigin', [])();
+  const { anchorOverlayOrigin: anchor } = require('../apps/web/src/components/overlay-origin.ts');
   const panel = fakeElement({ width: 400, height: 300, left: 100, top: 100 });
 
   /* Opened from the top-left corner of the panel. */

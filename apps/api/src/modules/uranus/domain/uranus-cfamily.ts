@@ -1,5 +1,9 @@
 import { SANITISERS, bothCleared, contractOf, sanitised, type Contract } from './uranus-sanitise.ts';
 import type { Route, RouteUse } from './uranus-surface.ts';
+import { argumentsOf, at, calleeAt, closing, decorationsBefore, functionsOf, isPunc, isWord, lex, parametersOf, table } from './uranus-cfamily-lex.ts';
+import type { CToken, Callee, FunctionInfo, Language, Parameter, Span, Tokens } from './uranus-cfamily-lex.ts';
+export type { Language, FunctionInfo, CToken } from './uranus-cfamily-lex.ts';
+export { lex, functionsOf } from './uranus-cfamily-lex.ts';
 
 /*
  * Uranus for Go, Java and PHP: values followed from what a caller sends --
@@ -31,25 +35,6 @@ import type { Route, RouteUse } from './uranus-surface.ts';
  */
 
 /* ---- Types ----------------------------------------------------------------------- */
-
-export type Language = 'go' | 'java' | 'php';
-type CTokenKind = 'id' | 'str' | 'num' | 'punc' | 'shell';
-/* One token of Go, Java or PHP: its kind, its text and its line; a PHP string keeps the variables it interpolates. */
-export interface CToken {
-  readonly t: CTokenKind;
-  readonly v: string;
-  readonly line: number;
-  readonly interp?: readonly string[] | null;
-}
-type Tokens = readonly CToken[];
-/* A range of tokens, [start, end]: a parameter list's brackets, a body's braces, an argument's [start, end). */
-type Span = readonly [number, number];
-
-/* A token that matches nothing: what an index past either end of a list reads as. */
-const NO_TOKEN: CToken = Object.freeze({ t: 'punc', v: '', line: 0 });
-function at(tokens: Tokens, index: number): CToken {
-  return tokens[index] ?? NO_TOKEN;
-}
 
 export type SinkKind = 'sql' | 'command' | 'code' | 'ssrf' | 'path' | 'redirect' | 'html' | 'template' | 'deserialize' | 'mass' | 'xxe';
 interface SinkSpec {
@@ -90,29 +75,12 @@ const ROLE_KEYS = ['request', 'writer', 'gin', 'echo', 'fiber', 'response'] as c
 type Roles = Record<(typeof ROLE_KEYS)[number], Set<string>>;
 
 /* A function, method or closure: its parameter list, its body and the decorations written before it. */
-export interface FunctionInfo {
-  name?: string | null;
-  line: number;
-  params: Span;
-  body: Span;
-  receiver?: Span | null;
-  decorations: string[];
-  arrow?: boolean;
-  skipOnly?: boolean;
-  walked?: boolean;
-}
+
 /* What a walk reads of the function it is in; the top level of a PHP script has no parameters. */
 interface WalkFn {
   readonly body: Span;
   readonly decorations: readonly string[];
   readonly params: Span | null;
-}
-interface Callee {
-  segments: string[];
-  name: string | null;
-  receiver: string | null;
-  constructed: boolean;
-  text: string;
 }
 interface HelperSink {
   kind: SinkKind;
@@ -159,16 +127,11 @@ export interface CRoute extends Route {
 
 const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
-const MAX_TOKENS = 400000;
 const SQL_WORDS = /\b(SELECT|INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE\s+INTO|CREATE|DROP|ALTER|TRUNCATE|WHERE|VALUES|FROM\s+\w|ORDER\s+BY)/i;
 const HTML_TEXT = /<\s*[a-zA-Z!/]/;
 const ABSOLUTE_PREFIX = /^\s*[a-z][a-z0-9+.-]*:\/\/[^/${}\s%]+\//i;
 const LOCAL_PATH_PREFIX = /^\s*\/(?![/\\])/;
 
-/* A lookup table read by names from the code: no inherited keys, so `toString` or `constructor` finds nothing. */
-function table<T>(entries: Readonly<Record<string, T>>): Readonly<Record<string, T>> {
-  return Object.freeze(Object.assign(Object.create(null), entries));
-}
 
 export const SINKS: Readonly<Record<SinkKind, SinkSpec>> = Object.freeze(Object.assign(Object.create(null), {
   sql: { rule: 'SEC-001', severity: 'critical', label: 'a SQL statement' },
@@ -208,368 +171,19 @@ function merge(a: Value | null, b: Value | null): Value | null {
   return { ...a, built: a.built || b.built, sql: a.sql || b.sql, html: a.html || b.html, whole: a.whole || b.whole, guarded: a.guarded || b.guarded, via, cleared: bothCleared(a.cleared || null, b.cleared || null) };
 }
 
-/* ---- Lexing ------------------------------------------------------------------------ */
-
-const PUNCTUATION: readonly string[] = ['...', '<<=', '>>=', '===', '!==', '<=>', '**=', '??=', '?->', '::', '->', '=>', ':=', '==', '!=', '<=', '>=', '&&', '||', '++', '--', '+=', '-=', '*=', '/=', '.=', '%=', '&=', '|=', '^=', '<<', '>>', '??', '<-'];
-const PHP_INTERPOLATION = /\{?\$([A-Za-z_][A-Za-z0-9_]*)/g;
-
 /*
- * Tokens for Go, Java and PHP: identifiers (a PHP variable keeps its $),
- * strings with their text and, for PHP, the variables they interpolate,
- * numbers and punctuation, each with its line. Comments are dropped; PHP's
- * inline HTML is skipped, and its short echo tag reads as `echo`.
+ * What the arms of a branch leave behind. Each arm is read with its own copy
+ * of the scope; a name any arm wrote holds, after the branch, what any arm
+ * left in it -- or what it held before, when no arm need run.
  */
-export function lex(text: string, language: Language): CToken[] {
-  const tokens: CToken[] = [];
-  const n = text.length;
-  let i = 0;
-  let line = 1;
-  const push = (t: CTokenKind, v: string) => { tokens.push({ t, v, line }); };
-  const count = (from: number, to: number) => { for (let k = from; k < to; k += 1) if (text.charCodeAt(k) === 10) line += 1; };
-  /* PHP outside its tags is page text. */
-  const skipInline = () => {
-    const open = text.indexOf('<?', i);
-    const end = open === -1 ? n : open;
-    count(i, end);
-    i = end;
-    if (open === -1) return;
-    if (text.startsWith('<?php', i)) i += 5;
-    else if (text.startsWith('<?=', i)) { i += 3; push('id', 'echo'); }
-    else i += 2;
-  };
-  if (language === 'php') skipInline();
-  while (i < n) {
-    if (tokens.length > MAX_TOKENS) break;
-    const c = text.charAt(i);
-    if (c === '\n') { line += 1; i += 1; continue; }
-    if (c === ' ' || c === '\t' || c === '\r' || c === '\f' || c === '\v') { i += 1; continue; }
-    if (language === 'php' && c === '?' && text.charAt(i + 1) === '>') { i += 2; push('punc', ';'); skipInline(); continue; }
-    if (c === '/' && text.charAt(i + 1) === '/') { while (i < n && text.charAt(i) !== '\n') i += 1; continue; }
-    if (c === '#' && language === 'php' && text.charAt(i + 1) !== '[') { while (i < n && text.charAt(i) !== '\n') i += 1; continue; }
-    if (c === '/' && text.charAt(i + 1) === '*') {
-      const end = text.indexOf('*/', i + 2);
-      const stop = end === -1 ? n : end + 2;
-      count(i, stop);
-      i = stop;
-      continue;
-    }
-    /* Java text blocks. */
-    if (language === 'java' && text.startsWith('"""', i)) {
-      const end = text.indexOf('"""', i + 3);
-      const stop = end === -1 ? n : end + 3;
-      const startLine = line;
-      const value = text.slice(i + 3, end === -1 ? n : end);
-      count(i, stop);
-      tokens.push({ t: 'str', v: value, line: startLine });
-      i = stop;
-      continue;
-    }
-    /* PHP heredoc and nowdoc. */
-    if (language === 'php' && text.startsWith('<<<', i)) {
-      const head = /^<<<\s*(['"]?)([A-Za-z_]\w*)\1\r?\n/.exec(text.slice(i, i + 80));
-      if (head) {
-        const body = i + head[0].length;
-        const close = new RegExp(`\\n[ \\t]*${head[2] ?? ''}\\b`).exec(text.slice(body));
-        const end = close ? body + close.index : n;
-        const value = text.slice(body, end);
-        const startLine = line;
-        const stop = close ? end + close[0].length : n;
-        count(i, stop);
-        const interp = head[1] === "'" ? [] : [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1] ?? ''}`);
-        tokens.push({ t: 'str', v: value, line: startLine, interp });
-        i = stop;
-        continue;
-      }
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      const quote = c;
-      let k = i + 1;
-      let value = '';
-      const startLine = line;
-      while (k < n && text.charAt(k) !== quote) {
-        if (text.charAt(k) === '\\' && quote !== '`' && k + 1 < n) { value += text.charAt(k + 1); if (text.charAt(k + 1) === '\n') line += 1; k += 2; continue; }
-        if (text.charAt(k) === '\n') line += 1;
-        value += text.charAt(k);
-        k += 1;
-      }
-      i = k + 1;
-      const interp = language === 'php' && quote !== "'" ? [...value.matchAll(PHP_INTERPOLATION)].map(match => `$${match[1] ?? ''}`) : null;
-      if (language === 'php' && quote === '`') tokens.push({ t: 'shell', v: value, line: startLine, interp });
-      else tokens.push(interp && interp.length ? { t: 'str', v: value, line: startLine, interp } : { t: 'str', v: value, line: startLine });
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(c) || (c === '\\' && language === 'php' && /[A-Za-z_]/.test(text.charAt(i + 1) || ''))) {
-      let k = i + 1;
-      while (k < n && /[A-Za-z0-9_$\\]/.test(text.charAt(k))) {
-        if (text.charAt(k) === '\\' && language !== 'php') break;
-        k += 1;
-      }
-      let word = text.slice(i, k);
-      /* A PHP name is its last namespace segment. */
-      if (language === 'php' && word.includes('\\')) word = word.slice(word.lastIndexOf('\\') + 1) || word;
-      push('id', word);
-      i = k;
-      continue;
-    }
-    if (/[0-9]/.test(c)) {
-      let k = i + 1;
-      while (k < n && /[0-9A-Za-z_.]/.test(text.charAt(k))) k += 1;
-      push('num', text.slice(i, k));
-      i = k;
-      continue;
-    }
-    const multi = PUNCTUATION.find(p => text.startsWith(p, i));
-    if (multi) { push('punc', multi); i += multi.length; continue; }
-    push('punc', c);
-    i += 1;
+function joinArms(scope: Scope, arms: readonly Scope[], covered: boolean): void {
+  const names = new Set<string>();
+  for (const arm of arms) for (const [name, value] of arm) if (!scope.has(name) || scope.get(name) !== value) names.add(name);
+  for (const name of names) {
+    const before = scope.get(name) ?? null;
+    const left = arms.map(arm => (arm.has(name) ? arm.get(name) ?? null : before));
+    scope.set(name, [...left, ...(covered ? [] : [before])].reduce<Value | null>((joined, value) => merge(joined, value), null));
   }
-  return tokens;
-}
-
-/* ---- Structure --------------------------------------------------------------------- */
-
-const isPunc = (token: CToken | null | undefined, value: string): boolean => Boolean(token && token.t === 'punc' && token.v === value);
-const isWord = (token: CToken | null | undefined, value: string): boolean => Boolean(token && token.t === 'id' && token.v === value);
-
-/*
- * Every bracket's partner, worked out once per file in one pass: a stack per
- * kind, so a bracket matches the nearest unmatched one of its own kind, as
- * counting depth does. Looking each close up by scanning forward instead
- * made a file of unclosed brackets cost the square of its length.
- */
-/* Maps, so a bracket is looked up by its own text and never by a name inherited from Object.prototype. */
-const PAIRS: ReadonlyMap<string, string> = new Map([['(', ')'], ['[', ']'], ['{', '}']]);
-const partnerTables = new WeakMap<Tokens, Int32Array>();
-function partners(tokens: Tokens): Int32Array {
-  let table = partnerTables.get(tokens);
-  if (table) return table;
-  table = new Int32Array(tokens.length).fill(-1);
-  const stacks = new Map<string, number[]>([['(', []], ['[', []], ['{', []]]);
-  const opener = new Map([[')', '('], [']', '['], ['}', '{']]);
-  for (let k = 0; k < tokens.length; k += 1) {
-    const token = at(tokens, k);
-    if (token.t !== 'punc') continue;
-    const opened = stacks.get(token.v);
-    if (opened) opened.push(k);
-    else {
-      const closes = opener.get(token.v);
-      const open = closes === undefined ? undefined : stacks.get(closes)?.pop();
-      if (open !== undefined) { table[open] = k; table[k] = open; }
-    }
-  }
-  partnerTables.set(tokens, table);
-  return table;
-}
-
-/* Matching close for the bracket at `index`, or -1. */
-function closing(tokens: Tokens, index: number, end = tokens.length): number {
-  const token = at(tokens, index);
-  if (!token || !PAIRS.has(token.v)) return -1;
-  const close = partners(tokens)[index] ?? -1;
-  return close > index && close < end ? close : -1;
-}
-
-/* Arguments of the call whose '(' is at `open`: [start, end) ranges at the top level. */
-function argumentsOf(tokens: Tokens, open: number): { args: Span[]; close: number } {
-  const close = closing(tokens, open);
-  if (close === -1) return { args: [], close: open };
-  const args: Span[] = [];
-  const table = partners(tokens);
-  let start = open + 1;
-  /* A bracket inside is stepped over to its partner, so a call reads only its own top level: nested calls cost nothing twice. */
-  for (let k = open + 1; k < close; k += 1) {
-    const token = at(tokens, k);
-    if (token.t !== 'punc') continue;
-    if (PAIRS.has(token.v)) {
-      const partner = table[k] ?? -1;
-      if (partner > k && partner < close) { k = partner; continue; }
-      /* an unclosed bracket: the rest is one argument, as counting depth reads it */
-      break;
-    }
-    if (token.v === ',') { args.push([start, k]); start = k + 1; }
-  }
-  if (close > start) args.push([start, close]);
-  return { args, close };
-}
-
-/*
- * The chain of names before the '(' at `open`: `db.Query`, `$this->db->query`,
- * `DB::select`, `Runtime.getRuntime().exec` (a call inside the chain is a
- * segment ending "()"), and whether `new` constructs it.
- */
-function calleeAt(tokens: Tokens, open: number): Callee {
-  const segments: string[] = [];
-  let k = open - 1;
-  while (k >= 0) {
-    const token = at(tokens, k);
-    if (token.t === 'id') {
-      segments.unshift(token.v);
-      const before = tokens[k - 1];
-      if (before && before.t === 'punc' && (before.v === '.' || before.v === '->' || before.v === '::' || before.v === '?->')) { k -= 2; continue; }
-      k -= 1;
-      break;
-    }
-    if (isPunc(token, ')')) {
-      /* a call in the chain: find its '(' and the name before it */
-      let depth = 0;
-      let m = k;
-      for (; m >= 0; m -= 1) {
-        if (isPunc(tokens[m], ')')) depth += 1;
-        else if (isPunc(tokens[m], '(')) { depth -= 1; if (depth === 0) break; }
-      }
-      const name = tokens[m - 1];
-      if (!name || name.t !== 'id') break;
-      segments.unshift(`${name.v}()`);
-      const before = tokens[m - 2];
-      if (before && before.t === 'punc' && (before.v === '.' || before.v === '->' || before.v === '::' || before.v === '?->')) { k = m - 3; continue; }
-      k = m - 2;
-      break;
-    }
-    break;
-  }
-  const constructed = isWord(tokens[k], 'new');
-  return { segments, name: segments[segments.length - 1] || null, receiver: segments.length > 1 ? segments[segments.length - 2] ?? null : null, constructed, text: segments.join('.') };
-}
-
-/* ---- Functions ----------------------------------------------------------------------- */
-
-const JAVA_NOT_METHOD: ReadonlySet<string> = new Set(['if', 'for', 'while', 'switch', 'catch', 'synchronized', 'return', 'new', 'else', 'try', 'do', 'throw', 'assert', 'super', 'this']);
-
-/*
- * Every function, method and closure with its parameter range, its body
- * range and, for Java, the annotations and modifiers written before it.
- */
-export function functionsOf(tokens: Tokens, language: Language): FunctionInfo[] {
-  const found: FunctionInfo[] = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = at(tokens, i);
-    if (language === 'go' && isWord(token, 'func')) {
-      let k = i + 1;
-      let receiver: Span | null = null;
-      if (isPunc(tokens[k], '(')) {
-        const close = closing(tokens, k);
-        if (close === -1) continue;
-        /* a method's receiver when a name and '(' follow; otherwise these are a literal's parameters */
-        if (tokens[close + 1] && at(tokens, close + 1).t === 'id' && isPunc(tokens[close + 2], '(')) { receiver = [k, close]; k = close + 1; }
-      }
-      const name = tokens[k] && at(tokens, k).t === 'id' ? at(tokens, k).v : null;
-      if (name) k += 1;
-      /* generic type parameters */
-      if (isPunc(tokens[k], '[')) { const close = closing(tokens, k); if (close === -1) continue; k = close + 1; }
-      if (!isPunc(tokens[k], '(')) continue;
-      const paramsClose = closing(tokens, k);
-      if (paramsClose === -1) continue;
-      /* the body is the first '{' at this depth after the results */
-      let b = paramsClose + 1;
-      let depth = 0;
-      while (b < tokens.length) {
-        const t = tokens[b];
-        if (isPunc(t, '(') || isPunc(t, '[')) depth += 1;
-        else if (isPunc(t, ')') || isPunc(t, ']')) depth -= 1;
-        else if (depth === 0 && isPunc(t, '{')) break;
-        else if (depth === 0 && (isPunc(t, ';') || isPunc(t, '}') || isPunc(t, '=') || isPunc(t, ','))) { b = -1; break; }
-        b += 1;
-      }
-      if (b === -1 || b >= tokens.length) continue;
-      const bodyClose = closing(tokens, b);
-      if (bodyClose === -1) continue;
-      found.push({ name, line: token.line, params: [k, paramsClose], body: [b, bodyClose], receiver, decorations: [] });
-    } else if (language === 'php' && (isWord(token, 'function') || isWord(token, 'fn'))) {
-      let k = i + 1;
-      if (isPunc(tokens[k], '&')) k += 1;
-      const name = tokens[k] && at(tokens, k).t === 'id' && !isPunc(tokens[k], '(') ? at(tokens, k).v : null;
-      if (name) k += 1;
-      if (!isPunc(tokens[k], '(')) continue;
-      const paramsClose = closing(tokens, k);
-      if (paramsClose === -1) continue;
-      let b = paramsClose + 1;
-      if (isWord(tokens[b], 'use') && isPunc(tokens[b + 1], '(')) { const close = closing(tokens, b + 1); if (close === -1) continue; b = close + 1; }
-      if (isPunc(tokens[b], ':')) { b += 1; while (b < tokens.length && !isPunc(tokens[b], '{') && !isPunc(tokens[b], '=>') && !isPunc(tokens[b], ';')) b += 1; }
-      if (token.v === 'fn' && isPunc(tokens[b], '=>')) {
-        /* an arrow function's body is one expression */
-        let e = b + 1;
-        let depth = 0;
-        while (e < tokens.length) {
-          const t = tokens[e];
-          if (isPunc(t, '(') || isPunc(t, '[') || isPunc(t, '{')) depth += 1;
-          else if (isPunc(t, ')') || isPunc(t, ']') || isPunc(t, '}')) { if (depth === 0) break; depth -= 1; }
-          else if (depth === 0 && (isPunc(t, ';') || isPunc(t, ','))) break;
-          e += 1;
-        }
-        found.push({ name: null, line: token.line, params: [k, paramsClose], body: [b, e], arrow: true, decorations: decorationsBefore(tokens, i) });
-        continue;
-      }
-      if (!isPunc(tokens[b], '{')) continue;
-      const bodyClose = closing(tokens, b);
-      if (bodyClose === -1) continue;
-      found.push({ name, line: token.line, params: [k, paramsClose], body: [b, bodyClose], decorations: decorationsBefore(tokens, i) });
-    } else if (language === 'java' && token.t === 'id' && isPunc(tokens[i + 1], '(') && !JAVA_NOT_METHOD.has(token.v)) {
-      const before = tokens[i - 1];
-      /* a declaration: a type before the name (a word, a generic's '>' or an array's ']') */
-      /* `List<Map<String, Object>> find(` ends its type with `>>`, read as one token */
-      if (!before || !(before.t === 'id' || isPunc(before, '>') || isPunc(before, '>>') || isPunc(before, '>>>') || isPunc(before, ']'))) continue;
-      if (before.t === 'id' && (before.v === 'new' || before.v === 'return' || before.v === 'throw' || before.v === 'else')) continue;
-      const paramsClose = closing(tokens, i + 1);
-      if (paramsClose === -1) continue;
-      let b = paramsClose + 1;
-      if (isWord(tokens[b], 'throws')) { while (b < tokens.length && !isPunc(tokens[b], '{') && !isPunc(tokens[b], ';')) b += 1; }
-      if (!isPunc(tokens[b], '{')) continue;
-      const bodyClose = closing(tokens, b);
-      if (bodyClose === -1) continue;
-      found.push({ name: token.v, line: token.line, params: [i + 1, paramsClose], body: [b, bodyClose], decorations: decorationsBefore(tokens, i) });
-    }
-  }
-  return found;
-}
-
-/* The annotations, attributes and modifiers written before a declaration, as text, back to the last statement or brace. */
-function decorationsBefore(tokens: Tokens, index: number): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  for (let k = index - 1; k >= 0 && index - k < 160; k -= 1) {
-    const token = at(tokens, k);
-    if (isPunc(token, ')')) depth += 1;
-    else if (isPunc(token, '(')) depth -= 1;
-    else if (depth === 0 && (isPunc(token, ';') || isPunc(token, '{') || isPunc(token, '}'))) break;
-    parts.unshift(token.t === 'str' ? JSON.stringify(token.v) : token.v);
-  }
-  /* `@ GetMapping` reads as `@GetMapping` */
-  return parts.join(' ').replace(/@ /g, '@').split(' ');
-}
-
-/* A parameter list as { name, type, annotations, index }. */
-interface Parameter {
-  name: string | null;
-  type: string;
-  text: string;
-  index: number;
-}
-
-function parametersOf(tokens: Tokens, range: Span, language: Language): Parameter[] {
-  const [open] = range;
-  const { args } = argumentsOf(tokens, open);
-  return args.map(([start, end], index) => {
-    const slice = tokens.slice(start, end);
-    const words = slice.map(t => (t.t === 'str' ? JSON.stringify(t.v) : t.v));
-    let name: string | null = null;
-    let type = '';
-    if (language === 'go') {
-      /* `w http.ResponseWriter`, `r *http.Request`, or a bare type in a shared list */
-      const first = slice.find(t => t.t === 'id');
-      name = first ? first.v : null;
-      type = words.slice(1).join('');
-    } else if (language === 'php') {
-      const variable = slice.find(t => t.t === 'id' && t.v.startsWith('$'));
-      name = variable ? variable.v : null;
-      type = slice.filter(t => t.t === 'id' && !t.v.startsWith('$')).map(t => t.v).join(' ');
-    } else {
-      /* Java: annotations, modifiers, a type, then the name last */
-      const ids = slice.filter(t => t.t === 'id');
-      name = ids.length ? at(ids, ids.length - 1).v : null;
-      type = ids.length > 1 ? at(ids, ids.length - 2).v : '';
-    }
-    return { name, type, text: words.join(' '), index };
-  });
 }
 
 /* ---- Sources ------------------------------------------------------------------------- */
@@ -579,7 +193,7 @@ const GIN_CALLS = table({ Query: 'query string', DefaultQuery: 'query string', G
 const ECHO_CALLS = table({ QueryParam: 'query string', QueryParams: 'query string', Param: 'route parameter', FormValue: 'form field', FormParams: 'form field', Cookie: 'cookie', QueryString: 'query string' });
 const FIBER_CALLS = table({ Query: 'query string', Queries: 'query string', Params: 'route parameter', FormValue: 'form field', Get: 'request header', Cookies: 'cookie', Body: 'request body', BodyRaw: 'request body', OriginalURL: 'request URL' });
 const BINDERS = /^(ShouldBind\w*|Bind\w*|MustBind\w*|BodyParser|QueryParser|ParamsParser|Decode|Unmarshal)$/;
-const SERVLET_CALLS = table({ getParameter: 'query string', getParameterValues: 'query string', getParameterMap: 'query string', getHeader: 'request header', getHeaders: 'request header', getQueryString: 'query string', getRequestURI: 'request URL', getRequestURL: 'request URL', getPathInfo: 'request URL', getCookies: 'cookie', getInputStream: 'request body', getReader: 'request body', getPart: 'uploaded file', getParts: 'uploaded file', getRemoteUser: null });
+const SERVLET_CALLS = table({ getParameter: 'query string', getParameterValues: 'query string', getParameterMap: 'query string', getHeader: 'request header', getHeaders: 'request header', getHeaderNames: 'request header', getParameterNames: 'query string', getQueryString: 'query string', getRequestURI: 'request URL', getRequestURL: 'request URL', getPathInfo: 'request URL', getCookies: 'cookie', getInputStream: 'request body', getReader: 'request body', getPart: 'uploaded file', getParts: 'uploaded file', getRemoteUser: null });
 const SPRING_ANNOTATIONS = table({ RequestParam: 'query string', PathVariable: 'route parameter', RequestBody: 'request body', RequestHeader: 'request header', CookieValue: 'cookie', ModelAttribute: 'form field', RequestPart: 'uploaded file', MatrixVariable: 'route parameter', QueryParam: 'query string', PathParam: 'route parameter', FormParam: 'form field', HeaderParam: 'request header', CookieParam: 'cookie', BeanParam: 'request body' });
 const PHP_SUPERGLOBALS = table({ $_GET: 'query string', $_POST: 'form field', $_REQUEST: 'request parameter', $_COOKIE: 'cookie', $_FILES: 'uploaded file' });
 const PHP_SERVER_KEYS = /^(HTTP_\w+|QUERY_STRING|REQUEST_URI|PHP_SELF|PATH_INFO|ORIG_PATH_INFO|SCRIPT_URI|REDIRECT_URL)$/;
@@ -660,9 +274,20 @@ function sourceAt(tokens: Tokens, index: number, roles: Roles, language: Languag
 /* Calls that shape a string and keep carrying what went into them. */
 const SHAPERS: Readonly<Record<Language, RegExp>> = Object.freeze(Object.assign(Object.create(null), {
   go: /^(Sprintf|Sprint|Sprintln|Join|TrimSpace|Trim|TrimPrefix|TrimSuffix|TrimLeft|TrimRight|ToLower|ToUpper|Replace|ReplaceAll|Split|SplitN|Fields|Title|Repeat|QueryUnescape|PathUnescape|Unquote|DecodeString|string|Clean|Dir|Ext|Get|Values|Value|Query|ReadAll|NewReader|NewBufferString|Bytes|String|Errorf)$/,
-  java: /^(format|formatted|concat|join|trim|strip|toLowerCase|toUpperCase|replace|replaceAll|replaceFirst|substring|split|valueOf|toString|decode|getBytes|append|get|getOrDefault|getValue|getFirst|orElse|orElseGet|stream|collect|of|asList|copyOf|resolve|getDecoder|getUrlDecoder|getMimeDecoder|ByteArrayInputStream|StringReader|InputStreamReader|BufferedReader|BufferedInputStream|InputSource|StreamSource|String|StringBuilder|StringBuffer)$/,
+  java: /^(format|formatted|concat|join|trim|strip|toLowerCase|toUpperCase|replace|replaceAll|replaceFirst|substring|split|valueOf|toString|decode|getBytes|append|get|getOrDefault|getValue|getFirst|orElse|orElseGet|nextElement|next|nextToken|elementAt|firstElement|lastElement|toArray|toCharArray|readLine|getKey|keySet|values|entrySet|iterator|subList|getProperty|poll|peek|pop|stream|collect|of|asList|copyOf|resolve|getDecoder|getUrlDecoder|getMimeDecoder|ByteArrayInputStream|StringReader|InputStreamReader|BufferedReader|BufferedInputStream|InputSource|StreamSource|String|StringBuilder|StringBuffer)$/,
   php: /^(sprintf|vsprintf|implode|join|trim|ltrim|rtrim|strtolower|strtoupper|ucfirst|lcfirst|ucwords|str_replace|str_ireplace|preg_replace|substr|mb_substr|urldecode|rawurldecode|base64_decode|stripslashes|json_decode|explode|array_map|array_values|array_merge|str_pad|str_repeat|nl2br|wordwrap|strval|trans|__|dirname|pathinfo|parse_url|http_build_query|stripcslashes|html_entity_decode|htmlspecialchars_decode|str|Str)$/
 }));
+
+/*
+ * Calls that put a value into the local they are called on -- a list, a
+ * map, a builder, a buffer, properties -- and those that read one back by a
+ * literal key. A value put under a literal key is held under that key too,
+ * so reading another key does not find it.
+ */
+const FILLS = /^(add|addAll|addElement|addFirst|addLast|offer|offerFirst|offerLast|push|append|insert|put|putAll|putIfAbsent|set|setProperty|WriteString|Write|WriteByte|WriteRune|Add|Set)$/;
+const KEYED_FILL = /^(put|putIfAbsent|setProperty|Add|Set)$/;
+const KEYED_READ = /^(get|getProperty|getOrDefault|Get)$/;
+const fieldName = (container: string, key: string): string => `${container}\u0000${key}`;
 
 /* ---- Sinks ---------------------------------------------------------------------------- */
 
@@ -988,6 +613,13 @@ class Walker {
   /* The value of tokens [from, to). */
   evaluate(from: number, to: number, scope: Scope, roles: Roles): Value | null {
     const tokens = this.tokens;
+    /* `cond ? a : b` is a or b, never the condition; PHP's `a ?: b` is a or b */
+    const choice = this.language === 'go' ? null : this.ternary(from, to);
+    if (choice) {
+      const [question, colon] = choice;
+      const left = colon === question + 1 ? this.evaluate(from, question, scope, roles) : this.evaluate(question + 1, colon, scope, roles);
+      return merge(left, this.evaluate(colon + 1, to, scope, roles));
+    }
     let value: Value | null = null;
     let literal = '';
     let built = false;
@@ -1043,6 +675,8 @@ class Walker {
         const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
         const contract = contractOf(this.language, name, callee.segments);
         if (!contract && SANITISERS[this.language].test(name)) { k = close; seenOperand = true; continue; }
+        const keyed = this.keyedRead(callee, callOpen, scope, k);
+        if (keyed !== undefined) { value = merge(value, keyed); seenOperand = true; k = close; continue; }
         const argsValue = this.evaluateArgs(callOpen, scope, roles);
         const receiverValue = callee.segments.length > 1 ? this.read(scope, callee.segments[0] ?? '', k) || null : null;
         const input = contract ? argsValue.value || receiverValue : null;
@@ -1084,6 +718,62 @@ class Walker {
     }
     if (!value || comparison) return null;
     return { ...value, built: value.built || built, sql: value.sql || SQL_WORDS.test(literal), html: value.html || HTML_TEXT.test(literal), lead: leadLiteral !== null ? leadLiteral : value.lead };
+  }
+
+  /* The `?` and `:` of a conditional expression at the top of [from, to), or null. */
+  ternary(from: number, to: number): readonly [number, number] | null {
+    const tokens = this.tokens;
+    let depth = 0;
+    let question = -1;
+    let pending = 0;
+    for (let k = from; k < to; k += 1) {
+      const token = at(tokens, k);
+      if (token.t !== 'punc') continue;
+      if (token.v === '(' || token.v === '[' || token.v === '{') depth += 1;
+      else if (token.v === ')' || token.v === ']' || token.v === '}') depth -= 1;
+      else if (depth !== 0) continue;
+      else if (token.v === '?') { if (question === -1) question = k; else pending += 1; }
+      else if (token.v === ':' && question !== -1) { if (pending === 0) return [question, k]; pending -= 1; }
+    }
+    return null;
+  }
+
+  /* `m.get("k")` on a local that holds a value under "k": that value; undefined when the call is not one. */
+  keyedRead(callee: Callee, open: number, scope: Scope, k: number): Value | null | undefined {
+    const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
+    const holder = callee.segments.length === 2 ? callee.segments[0] ?? '' : '';
+    if (!holder || !KEYED_READ.test(name)) return undefined;
+    const { args } = argumentsOf(this.tokens, open);
+    const key = args[0] && args[0][1] === args[0][0] + 1 ? at(this.tokens, args[0][0]) : null;
+    if (!key || key.t !== 'str' || !scope.has(fieldName(holder, key.v))) return undefined;
+    return this.read(scope, fieldName(holder, key.v), k) ?? null;
+  }
+
+  /* `list.add(v)`, `sb.append(v)`, `map.put("k", v)`: what is put in a local is held by it. */
+  fill(callee: Callee, args: readonly Span[], scope: Scope, roles: Roles, line: number): void {
+    const name = callee.name ? callee.name.replace(/\(\)$/, '') : '';
+    const holder = callee.segments.length === 2 ? callee.segments[0] ?? '' : '';
+    if (!holder || !FILLS.test(name) || !scope.has(holder) || !args.length) return;
+    const keyed = KEYED_FILL.test(name) && args.length >= 2;
+    const value = keyed ? this.arg(args, args.length - 1, scope, roles) : this.evaluateArgsOf(args, scope, roles);
+    if (keyed) {
+      const first = args[0];
+      const key = first && first[1] === first[0] + 1 ? at(this.tokens, first[0]) : null;
+      if (key && key.t === 'str') scope.set(fieldName(holder, key.v), value ? extend(value, this.path, line, `put in ${holder} under "${key.v}"`) : null);
+    }
+    if (value) scope.set(holder, merge(scope.get(holder) ?? null, extend(value, this.path, line, `put in ${holder}`)));
+  }
+
+  evaluateArgsOf(args: readonly Span[], scope: Scope, roles: Roles): Value | null {
+    let value: Value | null = null;
+    for (const [start, end] of args) value = merge(value, this.evaluate(start, end, scope, roles));
+    return value;
+  }
+
+  /* Whether a local is assigned from `init` in this file: `Runtime r = Runtime.getRuntime()`, `PrintWriter out = response.getWriter()`. */
+  localFrom(name: string | null, init: string): boolean {
+    if (!name || !/^[A-Za-z_$][\w$]*$/.test(name)) return false;
+    return new RegExp(`(^|[^\\w$.])${name.replace(/\$/g, '\\$')}\\s*=\\s*${init}`).test(this.file.text);
   }
 
   /* Each argument's value and the literal text among them. */
@@ -1199,7 +889,11 @@ class Walker {
           k = end === -1 ? to : end + 1;
           continue;
         }
-        if (token.t === 'id' && /^(if|elseif|while|for|foreach|switch|catch|synchronized|select|range)$/.test(token.v)) {
+        if (token.t === 'id' && /^(if|while|for|foreach|switch|catch|select)$/.test(token.v)) {
+          k = this.control(k, to, scope, roles, nested, guards, fn);
+          continue;
+        }
+        if (token.t === 'id' && /^(elseif|synchronized|range)$/.test(token.v)) {
           k = this.header(k, to, scope, roles, guards, fn);
           continue;
         }
@@ -1224,6 +918,90 @@ class Walker {
     } finally {
       this.currentScope = saved;
     }
+  }
+
+  /*
+   * A branch, a loop, a switch or a catch: its head read as before, each body
+   * an arm read with its own copy of the scope, and the arms joined after.
+   * An if chain is covered when it ends in a plain else, a switch when it has
+   * a default; a loop or a catch need not run at all. A body this cannot
+   * bound -- PHP's `if (...):` form, an unbraced control statement as a body
+   * -- is read in the scope itself, as straight-line code.
+   */
+  control(k: number, to: number, scope: Scope, roles: Roles, nested: Nested, guards: Guards, fn: WalkFn): number {
+    const tokens = this.tokens;
+    const keyword = at(tokens, k).v;
+    const arms: Scope[] = [];
+    let covered = false;
+    let head = k;
+    for (;;) {
+      const start = this.header(head, to, scope, roles, guards, fn);
+      const end = this.bodyEnd(start, to);
+      if (end === -1) { joinArms(scope, arms, false); return start; }
+      if (keyword === 'switch' || keyword === 'select') {
+        covered = this.caseArms(start, end, scope, roles, nested, guards, fn, arms);
+        head = end;
+        break;
+      }
+      arms.push(this.arm(start, end, scope, roles, nested, guards, fn));
+      head = end;
+      if (keyword !== 'if') break;
+      if (isWord(tokens[head], 'elseif')) continue;
+      if (isWord(tokens[head], 'else') && isWord(tokens[head + 1], 'if')) { head += 1; continue; }
+      if (isWord(tokens[head], 'else')) {
+        const elseEnd = this.bodyEnd(head + 1, to);
+        if (elseEnd === -1) { joinArms(scope, arms, false); return head + 1; }
+        arms.push(this.arm(head + 1, elseEnd, scope, roles, nested, guards, fn));
+        covered = true;
+        head = elseEnd;
+      }
+      break;
+    }
+    joinArms(scope, arms, covered);
+    return head;
+  }
+
+  /* Where the body starting at `start` ends: past its closing brace, or past the one statement; -1 when it cannot be bounded. */
+  bodyEnd(start: number, to: number): number {
+    const tokens = this.tokens;
+    if (isPunc(tokens[start], '{')) {
+      const close = closing(tokens, start);
+      return close === -1 || close >= to ? -1 : close + 1;
+    }
+    const first = tokens[start];
+    if (this.language === 'go' || !first || isPunc(first, ':') || (first.t === 'id' && /^(if|while|for|foreach|switch|try|do|else|elseif)$/.test(first.v))) return -1;
+    const end = this.statementEnd(start, to);
+    return isPunc(tokens[end], ';') ? end + 1 : end;
+  }
+
+  arm(start: number, end: number, scope: Scope, roles: Roles, nested: Nested, guards: Guards, fn: WalkFn): Scope {
+    const arm = new Map(scope);
+    this.walkRange(start, end, arm, roles, nested, guards, fn);
+    this.currentScope = scope;
+    return arm;
+  }
+
+  /* A switch's cases between its braces, each an arm added to `arms`; true when there is a default. */
+  caseArms(open: number, end: number, scope: Scope, roles: Roles, nested: Nested, guards: Guards, fn: WalkFn, arms: Scope[]): boolean {
+    const tokens = this.tokens;
+    const close = end - 1;
+    const labels: number[] = [];
+    let depth = 0;
+    for (let m = open + 1; m < close; m += 1) {
+      const token = at(tokens, m);
+      if (token.t === 'punc' && (token.v === '(' || token.v === '[' || token.v === '{')) depth += 1;
+      else if (token.t === 'punc' && (token.v === ')' || token.v === ']' || token.v === '}')) depth -= 1;
+      else if (depth === 0 && (isWord(token, 'case') || isWord(token, 'default'))) labels.push(m);
+    }
+    if (!labels.length) { arms.push(this.arm(open + 1, close, scope, roles, nested, guards, fn)); return false; }
+    labels.forEach((label, position) => {
+      const next = labels[position + 1] ?? close;
+      /* the label ends at its colon (`case 'a':`, PHP's `case 'a';` too) or Java's arrow */
+      let body = label + 1;
+      while (body < next && !isPunc(tokens[body], ':') && !isPunc(tokens[body], ';') && !(this.language === 'java' && isPunc(tokens[body], '->'))) body += 1;
+      arms.push(this.arm(Math.min(body + 1, next), next, scope, roles, nested, guards, fn));
+    });
+    return labels.some(label => isWord(tokens[label], 'default'));
   }
 
   /* Functions written inside a statement -- a handler passed inline -- walked with the scope they close over. */
@@ -1335,6 +1113,13 @@ class Walker {
       if (token.t === 'id') {
         names.push(token.v);
         m += 1;
+        /* Java's qualified type, `java.util.List<String> x =`: the chain is the type, not the target */
+        if (this.language === 'java' && isPunc(tokens[m], '.')) {
+          let n = m;
+          while (isPunc(tokens[n], '.') && tokens[n + 1] && at(tokens, n + 1).t === 'id') n += 2;
+          const after = tokens[n];
+          if (n > m && after && (after.t === 'id' || isPunc(after, '<') || (isPunc(after, '[') && isPunc(tokens[n + 1], ']')))) { names.pop(); m = n - 1; continue; }
+        }
         /* PHP $x['k'] or Go x[k] as the target */
         if (isPunc(tokens[m], '[')) { const c = closing(tokens, m); if (c === -1) return null; m = c + 1; }
         /* Java/Go declared type between name and '=' is skipped: `String q =` has the type first */
@@ -1461,6 +1246,7 @@ class Walker {
       if (!callee.name) continue;
       const { args, close } = argumentsOf(tokens, k);
       this.sinkCall(callee, args, k, scope, roles, guards, fn);
+      this.fill(callee, args, scope, roles, at(tokens, k).line);
       /* same-codebase helpers that pass a parameter to a sink */
       const helperName = callee.name.replace(/\(\)$/, '');
       const helper = this.program ? this.program.helper(this.language, helperName, callee, this.path) : null;
@@ -1575,7 +1361,7 @@ class Walker {
         this.builtSql(this.arg(args, 0, scope, roles), line, guards, args[0]);
         return;
       }
-      if (name === 'exec' && /getRuntime\(\)/.test(text)) { report('command', 0); return; }
+      if (name === 'exec' && (/getRuntime\(\)/.test(text) || this.localFrom(receiver, '(java\\.lang\\.)?Runtime\\.getRuntime\\(\\)'))) { report('command', 0); return; }
       if (callee.constructed && name === 'ProcessBuilder') {
         const program = args[0] ? this.tokens[args[0][0]] : null;
         if (program && program.t === 'str' && SHELLS.test(program.v)) { for (let index = 1; index < args.length; index += 1) report('command', index); } else report('command', 0);
@@ -1591,10 +1377,20 @@ class Walker {
       if (receiver === 'URI' && name === 'create' && /newBuilder/.test(this.contextText(open))) { report('ssrf', 0); return; }
       if (receiver === 'Jsoup' && name === 'connect') { report('ssrf', 0); return; }
       if (name === 'sendRedirect') { report('redirect', 0); return; }
-      if (/^(write|print|println|append|printf|format)$/.test(name) && /getWriter\(\)|getOutputStream\(\)/.test(text)) {
-        const value = this.arg(args, 0, scope, roles);
-        const first = args[0];
-        if (value && value.html && first) this.report('html', value, line, guards, first[0], first[1]);
+      if (/^(write|print|println|append|printf|format)$/.test(name) && (/getWriter\(\)|getOutputStream\(\)/.test(text) || this.localFrom(receiver, '\\w+\\.(getWriter|getOutputStream)\\(\\)'))) {
+        /* printf and format take an optional Locale, then the format and what fills it: each is written */
+        const formats = name === 'printf' || name === 'format';
+        const firstArg = args[0];
+        const skip = formats && firstArg && /^(java\.util\.)?Locale\b/.test(this.tokens.slice(firstArg[0], firstArg[1]).map(token => token.v).join('')) ? 1 : 0;
+        /* what the response says it is: HTML, something else, or nothing -- which a browser may still read as HTML */
+        const declared = /setContentType\s*\(\s*"text\/html/i.test(this.file.text) ? 'html' : /setContentType\s*\(/.test(this.file.text) ? 'other' : 'none';
+        for (let index = skip; index < (formats ? args.length : Math.min(args.length, 1)); index += 1) {
+          const value = this.arg(args, index, scope, roles);
+          const range = args[index];
+          if (!value || !range || value.whole) continue;
+          if (value.html || declared === 'html') this.report('html', value, line, guards, range[0], range[1]);
+          else if (declared === 'none') this.report('html', { ...value, weakRoute: true }, line, guards, range[0], range[1]);
+        }
         return;
       }
       if (name === 'eval' && receiver && /engine|scriptEngine|js|nashorn|interpreter/i.test(receiver)) { report('code', 0); return; }
@@ -1613,6 +1409,12 @@ class Walker {
       return;
     }
     /* PHP */
+    /* `$action($arg)`: the function called is the one the caller named */
+    if (callee.segments.length === 1 && name.startsWith('$') && at(this.tokens, open - 1).v === name) {
+      const chosen = this.read(scope, name, open);
+      if (chosen) this.report('code', { ...chosen, built: true }, line, guards, open - 1, open);
+      return;
+    }
     /* A null-prototype table: a name is in it only when it is its own key. */
     const sqlArgument = PHP_SQL_FUNCTIONS[name];
     if (sqlArgument !== undefined && callee.segments.length === 1) {
@@ -2050,7 +1852,10 @@ class Program {
     const imported = language === 'go' && callee.segments.length === 2 && this.goImports(fromPath).has(head) ? head : null;
     /* Java and PHP: userService.find(x), this.userService.find(x), $this->reports->forRegion($x) -- a field of a type declared here */
     const owner = callee.segments.filter(segment => !/^(this|\$this)$/.test(segment));
-    const typed = (language === 'java' || language === 'php') && owner.length === 2 ? this.implementations(this.fieldType(fromPath, String(owner[0]).replace(/^\$/, ''), language), language) : null;
+    /* `new Test().doSomething(x)`: a method of the type constructed right there */
+    const made = callee.constructed && owner.length >= 2 ? /^([A-Z]\w*)\(\)$/.exec(String(owner[owner.length - 2])) : null;
+    const typed = (language === 'java' || language === 'php') && made ? this.implementations(made[1] ?? null, language)
+      : (language === 'java' || language === 'php') && owner.length === 2 ? this.implementations(this.fieldType(fromPath, String(owner[0]).replace(/^\$/, ''), language), language) : null;
     /* Go: h.products.SearchByName(x) through an interface -- the one method of that name the codebase defines */
     const goMethods = language === 'go' && callee.segments.length >= 2 && !imported
       ? (this.byName.get(`go:${name}`) || []).filter(entry => entry.fn.receiver) : [];

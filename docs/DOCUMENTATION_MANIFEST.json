@@ -466,6 +466,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/qualification/URANUS_QUALIFICATION.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md",
       "lifecycle": "qualification",
       "authority": "release-qualification-record",

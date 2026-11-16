@@ -171,6 +171,11 @@ const paths = files => [...BASE, ...files].map(file => file.path);
 
   fires('insecure cookie', [...BASE, { path: 'server.js', text: 'res.cookie("session", token, { secure: false });\n' }], ['SEC-004']);
   quiet('hardened cookie', [...BASE, { path: 'server.js', text: 'res.cookie("session", token, { httpOnly: true, secure: true, sameSite: "lax" });\n' }], ['SEC-004']);
+  fires('python cookie flag on its own line', [...BASE, { path: 'app.py', text: "resp.set_cookie('session', token,\n                secure=False)\n" }], ['SEC-004']);
+  fires('servlet cookie switched off', [...BASE, { path: 'src/A.java', text: 'cookie.setSecure(false);\n' }], ['SEC-004']);
+  quiet('servlet cookie switched on', [...BASE, { path: 'src/A.java', text: 'cookie.setSecure(true);\ncookie.setHttpOnly(true);\n' }], ['SEC-004']);
+  fires('go cookie field off', [...BASE, { path: 'main.go', text: 'http.SetCookie(w, &http.Cookie{Name: "s", Value: v, HttpOnly: false})\n' }], ['SEC-004']);
+  quiet('go cookie fields on', [...BASE, { path: 'main.go', text: 'http.SetCookie(w, &http.Cookie{Name: "s", Value: v, HttpOnly: true, Secure: true})\n' }], ['SEC-004']);
 
   fires('weak token randomness', [...BASE, { path: 'lib/t.js', text: 'const resetToken = Math.random().toString(36).slice(2);\n' }], ['SEC-005']);
   fires('python weak randomness', [...BASE, { path: 'lib/t.py', text: 'otp = random.randint(100000, 999999)\n' }], ['SEC-005']);

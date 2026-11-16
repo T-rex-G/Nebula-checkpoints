@@ -2894,3 +2894,28 @@ Two advisories published since S1 reach locked dependencies, both moderate. npm'
 - **Counted.** Four reads of the page's text converted (two in `test/security-foundation-contract.test.js`, one each in `test/account-boundary.test.js` and `test/pulsar-reliability.test.js`): 454 page reads remain. The page rules read four new hand-offs, the reader and the repository handed to the offline list's helpers; each only reads them.
 - **Next:** E4a-2, the toasts, the overlay origin, the modal, step-up and Safe Passage.
 - **Checks:** in the tree it was written in (on `ed1d8d4`): the whole unit list, the mutants above, the whole browser suite (1,142 tests: 1,078 run, 64 skipped by design) and the differential. Brought onto the branch after the two Uranus commits, which touch none of its files but the test list: the unit gate and every verify-job gate, on Node 22.23.5. A copy of the work as first written is kept at `claude/e4a1-safety-399ykp` (`8923cc5`).
+
+### Uranus — closed, with an independent qualification
+
+- **What closed it.** The engine reads each arm of a branch with its own scope and joins them (all six languages); holds what is put in a container, and under a literal key what is put under that key; reads Java's qualified declarations, conditional expressions, enumerations, parameter names, a `Runtime` or a writer kept in a local, a method of a type constructed in the call, and a servlet's printed response; reads a Flask view's plain-text return as a lead; finds insecure cookies in Java and Go; and finds a PHP function the caller names. The C-family lexer and the JavaScript and Python tracer's route reader moved to their own modules (`uranus-cfamily-lex.ts`, `uranus-routes.ts`), so both engine files shrank (2,546 to 2,521 and 2,334 to 2,139 lines).
+- **Evidence kept apart.** Internal corpus: 337 cases, 92% precision and 100% recall on its own labels, its sixteen pattern leads kept and marked. Independent: the OWASP Benchmark's own expected results, scored by its own rule with a committed and tested scorer (`scripts/uranus-owasp-benchmark.js`): Java 0.6% → 27.5%, Python 10.3% → 36.3%, both halves of the cases reported. The criteria, the method, the tables, what is still missed and why, and the limits are in [the Uranus qualification](../../qualification/URANUS_QUALIFICATION.md).
+- **What may not move silently.** `test/uranus-finding-ids.test.js` holds every finding's id, rule, place and verdict on the corpus to `test/oracles/uranus-finding-ids.json`: a moved id or a changed verdict fails on its own, and a finding added or gone fails until the record is written again on purpose. The change above moved no id. The reach sentences are held to never say reachable or exploitable.
+- **Mutants.** 26 of the new logic, every one caught; one survived at first (an else-if chain cut at its first arm), now caught by a case whose request value sits only in that arm.
+- **Next:** E4a-2.
+
+### E4 — what remains, in order
+
+Each step moves one part of `legacy/app.js` into typed modules and React views, holds its behaviour with a differential against the code it replaces, converts the page reads that named it, and is committed with its mutants and the whole browser suite.
+
+- **E4a-2** — the toasts, the overlay origin, the modal, step-up and Safe Passage.
+- **E4b** — the page shell's pages, the theme, the settings and the cursor.
+- **E4c** — sign-in, sign-out, the account boundary and the alpha boundary.
+- **E4d** — the repository list and the repository's header.
+- **E4e** — the workspace, the exposure view and the history.
+- **E4f** — the file tree, its context menu and the safeguards on it.
+- **E4g** — the findings inbox, code search, the editor and staged changes.
+- **E4h** — navigation and the command palette.
+- **E4i** — upload, the batch commit and its retry.
+- **E4j** — commits, pull requests, issues, releases and compare.
+- **E4k** — the offline queue, the time machines, find and replace, and the remaining v3 modules.
+- **E4l** — `main.tsx` and `sw.ts`; `app.js` gone; the page-read census at zero; Gate E.

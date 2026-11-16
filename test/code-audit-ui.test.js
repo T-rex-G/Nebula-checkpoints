@@ -483,6 +483,23 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
     assert.deepStrictEqual([0.9971, 0.5, 0.05, 'x'].map(terms.rank), ['99.7%', '50%', '5%', '']);
   }
 
+  /*
+   * Imported is not reached, and reached is not exploitable: no tier's
+   * sentence says a vulnerable function runs, is reachable or can be
+   * exploited, and a tier the scan could not settle says it does not know.
+   */
+  {
+    const tiers = ['imported', 'named', 'bundled', 'transitive', 'unknown', 'installed', 'build', 'test', 'dev'];
+    const said = tiers.flatMap(tier => [terms.tierSentence({ tier, files: ['src/app.js'], count: 1, through: ['express'] }), terms.tierSentence({ tier, reason: 'graph', seen: 'test' })]);
+    for (const sentence of said) {
+      assert(sentence, 'every tier is said');
+      assert.doesNotMatch(sentence, /\b(reachable|exploitable|exploited|is called|calls the vulnerable|vulnerable (code|function))\b/i, `a reach sentence claims no more than the scan saw: ${sentence}`);
+    }
+    assert.match(terms.tierSentence({ tier: 'unknown', reason: 'graph' }), /unknown/);
+    assert.match(terms.tierSentence({ tier: 'unknown' }), /unknown/);
+    assert.match(terms.tierSentence({ tier: 'installed' }), /not proof it is unused/);
+  }
+
   /* A package that comes with another is said to: by name in a row, and in the brief's risk table. */
   {
     assert.strictEqual(terms.tierWord({ tier: 'transitive', through: ['express', 'body-parser'] }), 'Via express');

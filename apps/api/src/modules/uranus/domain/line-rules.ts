@@ -216,8 +216,13 @@ export const LINE_RULES: readonly LineRule[] = Object.freeze([
   },
   {
     rule: 'SEC-004',
-    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext)),
-    test: line => /\b(httpOnly|secure)\s*:\s*false\b/.test(line) ||
+    applies: file => !isTestPath(file.path) && (JS_EXT.has(file.ext) || PY_EXT.has(file.ext) || file.ext === 'java' || file.ext === 'go'),
+    test: (line, file) => /\b(httpOnly|secure)\s*:\s*false\b/.test(line) ||
+      /* a servlet cookie switched off by its setter; a Go http.Cookie's field */
+      (file.ext === 'java' && /\.set(Secure|HttpOnly)\s*\(\s*false\s*\)/.test(line)) ||
+      (file.ext === 'go' && /\b(Secure|HttpOnly)\s*:\s*false\b/.test(line)) ||
+      /* set_cookie(name, value,\n    secure=False): a Python call written over several lines says it in its keyword */
+      (PY_EXT.has(file.ext) && /\b(secure|httponly)\s*=\s*False\b/.test(line)) ||
       (/\bres\.cookie\s*\(/.test(line) && !/httpOnly\s*:\s*true/.test(line) && /\)\s*;?\s*$/.test(line)) ||
       (/\.set_cookie\s*\(/.test(line) && !/httponly\s*=\s*True/i.test(line) && /\)\s*$/.test(line))
   },

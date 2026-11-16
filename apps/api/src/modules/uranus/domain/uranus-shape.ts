@@ -52,6 +52,9 @@ export const NO_TOKEN: PlainToken = Object.freeze({ t: 'nl', v: '', line: 0, i: 
 export function at(tokens: Tokens, index: number): Token {
   return tokens[index] ?? NO_TOKEN;
 }
+export function lastOf(list: readonly string[]): string {
+  return list[list.length - 1] ?? '';
+}
 export function isStr(token: Token | undefined): token is Token & { t: 'str' } { return token !== undefined && (token.t === 'str'); }
 export function isPunc(token: Token | undefined, value: string): boolean { return token !== undefined && token.t === 'punc' && token.v === value; }
 export function isWord(token: Token | undefined, value: string): boolean { return token !== undefined && (token.t === 'id' || token.t === 'kw') && token.v === value; }
@@ -258,6 +261,41 @@ export const CONTINUES = new Set(['.', '?.', '+', '-', '*', '/', '%', '&&', '||'
  * in an arrow does not walk the rest of the file again at every level. One
  * that never closes before `end` runs the expression to `end`.
  */
+/*
+ * Where the statement that starts at `index` ends, just past it: a block, a
+ * compound statement with its body (an if with its else), or an expression
+ * and its semicolon. What an arm written without braces covers.
+ */
+export function statementEnd(tokens: Tokens, index: number, end: number): number {
+  const token = tokens[index];
+  if (!token || index >= end) return end;
+  const past = (open: number): number => {
+    const close = isPunc(tokens[open], '(') || isPunc(tokens[open], '{') ? matching(tokens, open) : -1;
+    return close < 0 || close >= end ? end : close + 1;
+  };
+  const semicolon = (at: number): number => (isPunc(tokens[at], ';') ? at + 1 : at);
+  if (isPunc(token, '{')) return past(index);
+  if (isPunc(token, ';')) return index + 1;
+  if (isWord(token, 'if')) {
+    const body = statementEnd(tokens, past(index + 1), end);
+    return isWord(tokens[body], 'else') ? statementEnd(tokens, body + 1, end) : body;
+  }
+  if (isWord(token, 'while') || isWord(token, 'with') || isWord(token, 'switch')) return statementEnd(tokens, past(index + 1), end);
+  if (isWord(token, 'for')) return statementEnd(tokens, past(isWord(tokens[index + 1], 'await') ? index + 2 : index + 1), end);
+  if (isWord(token, 'do')) {
+    const body = statementEnd(tokens, index + 1, end);
+    return isWord(tokens[body], 'while') ? semicolon(past(body + 1)) : body;
+  }
+  if (isWord(token, 'try')) {
+    let cursor = statementEnd(tokens, index + 1, end);
+    if (isWord(tokens[cursor], 'catch')) cursor = statementEnd(tokens, isPunc(tokens[cursor + 1], '(') ? past(cursor + 1) : cursor + 1, end);
+    if (isWord(tokens[cursor], 'finally')) cursor = statementEnd(tokens, cursor + 1, end);
+    return cursor;
+  }
+  const stop = expressionEnd(tokens, index, end, false);
+  return Math.min(end, Math.max(index + 1, semicolon(stop)));
+}
+
 export function expressionEnd(tokens: Tokens, index: number, end: number, stopAtComma = true): number {
   const pairs = partners(tokens);
   for (let cursor = index; cursor < end; cursor += 1) {

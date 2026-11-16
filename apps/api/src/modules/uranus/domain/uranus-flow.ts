@@ -39,8 +39,9 @@
 import { getHeapStatistics } from 'node:v8';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
-import { RE_EXPORT, at, bindingNames, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, skipType } from './uranus-shape.ts';
+import { RE_EXPORT, at, bindingNames, lastOf, statementEnd, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, skipType } from './uranus-shape.ts';
 import type { Binding, FnInfo, FunctionEntry as ShapeEntry, ImportEntry, Tokens } from './uranus-shape.ts';
+import { fileRoutes, jsRoutes, safeRoute } from './uranus-routes.ts';
 import { analyseCFamily, CFAMILY_FILE } from './uranus-cfamily.ts';
 import { CONTRACTS, SAFE, bothCleared, isAllowListReplace, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
 import type { CFamilyReading, Flow, Step } from './uranus-cfamily.ts';
@@ -141,7 +142,7 @@ interface PyRoles {
   lambda: string | null;
 }
 /* An endpoint the tracer finds, with where its handler's body lies once the walk reaches it. */
-interface FlowRoute extends Route {
+export interface FlowRoute extends Route {
   route: string | null;
   middleware: string[];
   bodyStart?: number | null;
@@ -151,9 +152,9 @@ interface FlowRoute extends Route {
   view?: boolean;
   handlerName?: string;
 }
-type HintKind = 'route' | 'next-route' | 'kit' | 'action' | 'message' | 'lambda';
+export type HintKind = 'route' | 'next-route' | 'kit' | 'action' | 'message' | 'lambda';
 /* What is known of a function before the walk reaches it: the kind of handler it is, and its endpoint. */
-interface Hint {
+export interface Hint {
   readonly kind: HintKind;
   readonly route?: FlowRoute | null;
 }
@@ -229,7 +230,7 @@ interface PyContext extends ContextBase {
   readonly language: 'python';
   readonly lines: LogicalLine[];
 }
-type FileContext = JsContext | PyContext;
+export type FileContext = JsContext | PyContext;
 type Mode = 'summary' | 'flow';
 interface Lead {
   readonly literal: string | null;
@@ -263,9 +264,6 @@ function table<T>(entries: Readonly<Record<string, T>>): Readonly<Record<string,
 }
 function entryOf<T>(lookup: Readonly<Record<string, T>>, key: string | undefined): T | undefined {
   return key === undefined ? undefined : lookup[key];
-}
-function lastOf(list: readonly string[]): string {
-  return list[list.length - 1] ?? '';
 }
 
 const MAX_STEPS = 6;
@@ -327,13 +325,17 @@ function merge(a: Value | undefined, b: Value | undefined): Value {
 class Scope {
   readonly parent: Scope | null;
   readonly vars: Map<string, Value>;
-  constructor(parent?: Scope | null) {
+  /* An arm of a branch: what it writes to names declared outside it, held here until the arms are joined. */
+  readonly writes: Map<string, Value> | null;
+  constructor(parent?: Scope | null, arm = false) {
     this.parent = parent || null;
     this.vars = new Map();
+    this.writes = arm ? new Map() : null;
   }
   lookup(name: string): Value | undefined {
     for (let scope: Scope | null = this; scope; scope = scope.parent) {
       if (scope.vars.has(name)) return scope.vars.get(name);
+      if (scope.writes && scope.writes.has(name)) return scope.writes.get(name);
     }
     return undefined;
   }
@@ -341,8 +343,42 @@ class Scope {
   assign(name: string, value: Value | undefined): void {
     for (let scope: Scope | null = this; scope; scope = scope.parent) {
       if (scope.vars.has(name)) { scope.vars.set(name, value || null); return; }
+      if (scope.writes) { scope.writes.set(name, value || null); return; }
     }
     this.vars.set(name, value || null);
+  }
+}
+
+/*
+ * Containers. A value stored in an object, a dict, a list, a Map or a Set
+ * goes on in it: `o.k = v`, `o['k'] = v`, `list.push(v)`, `d.append(v)`,
+ * `m.set('k', v)`. What is stored under a key written in the code is kept
+ * under that key as well, so reading `o['a']` after `o['b'] = v` reads only
+ * what was put in `a`; any other read -- a computed key, the whole container,
+ * an element popped -- reads everything it holds.
+ */
+const ADDS_TO_CONTAINER = /^(push|unshift|append|appendleft|insert|extend|add|update|setdefault|set|put)$/;
+const fieldName = (container: string, key: string): string => `${container}\u0000${key}`;
+/* The key of `o.k`, `o['k']`, `o["k"]` read off a chain or a target, or null where it is computed. */
+function keyOf(target: Tokens): string | null {
+  if (target.length === 3 && isPunc(target[1], '.') && target[2]?.t === 'id') return target[2].v;
+  if (target.length === 4 && isPunc(target[1], '[') && isStr(target[2]) && isPunc(target[3], ']')) return target[2].v;
+  return null;
+}
+
+/*
+ * The arms of a branch, walked each on its own, joined: a name an arm wrote
+ * holds whatever any arm left in it, and what it held before where no arm
+ * need run -- an if with no else, a loop's body, a catch. An assignment under
+ * a condition is not certain, so `if (!p) p = ''` leaves `p` the caller's.
+ */
+function joinArms(scope: Scope, arms: readonly Scope[], covered: boolean): void {
+  const names = new Set<string>();
+  for (const arm of arms) for (const name of arm.writes?.keys() ?? []) names.add(name);
+  for (const name of names) {
+    const before = scope.lookup(name) ?? null;
+    const left = arms.map(arm => (arm.writes && arm.writes.has(name) ? arm.writes.get(name) ?? null : before));
+    scope.assign(name, [...left, ...(covered ? [] : [before])].reduce<Value>((joined, value) => merge(joined, value), null));
   }
 }
 
@@ -358,10 +394,10 @@ const REQUEST_BODY_CALLS = new Set(['json', 'formData', 'text', 'arrayBuffer', '
 const HONO_CALLS = table<string>({ query: 'query string', queries: 'query string', param: 'route parameter', header: 'request header', json: 'request body', parseBody: 'request body', formData: 'request body', text: 'request body' });
 const PY_REQUEST_FIELDS = table<string>({
   args: 'query string', form: 'request body', values: 'request body', json: 'request body', get_json: 'request body',
-  data: 'request body', files: 'uploaded file', cookies: 'cookie', headers: 'request header', GET: 'query string',
+  data: 'request body', get_data: 'request body', files: 'uploaded file', cookies: 'cookie', headers: 'request header', GET: 'query string',
   POST: 'request body', body: 'request body', query_params: 'query string', path_params: 'route parameter',
   COOKIES: 'cookie', FILES: 'uploaded file', META: 'request header', stream: 'request body', url: 'request URL',
-  full_path: 'request URL', path: 'request path'
+  full_path: 'request URL', path: 'request path', query_string: 'query string', referrer: 'request header', user_agent: 'request header'
 });
 const BROWSER_LOCATION = /^(window\.|document\.|self\.|globalThis\.)?location\.(search|hash|href|pathname)$|^document\.(URL|documentURI|referrer|baseURI)$|^window\.name$/;
 
@@ -598,6 +634,8 @@ class JsWalker {
   sub: boolean;
   pyRoles: PyRoles | undefined;
   inRoute: boolean | undefined;
+  /* A Flask view: a string it returns is served as text/html. */
+  plainIsHtml = false;
   /* how far a check made in the function being walked holds: its last line */
   bodyEndLine: number | undefined;
   constructor(tokens: Tokens, ctx: FileContext, mode: Mode, program: Program) {
@@ -647,7 +685,9 @@ class JsWalker {
         const close = matching(tokens, index + 1);
         if (!isWord(token, 'switch')) this.guard(index + 2, close, scope);
         this.expression(index + 2, close, scope, roles);
-        index = close + 1;
+        if (isWord(token, 'switch') && isPunc(tokens[close + 1], '{')) index = this.caseArms(close + 1, scope, roles);
+        else if (isWord(token, 'if')) index = this.ifArms(close + 1, end, scope, roles);
+        else index = this.arm(close + 1, statementEnd(tokens, close + 1, end), scope, roles, null);
         continue;
       }
       if (isWord(token, 'for') && (isPunc(tokens[index + 1], '(') || (isWord(tokens[index + 1], 'await') && isPunc(tokens[index + 2], '(')))) {
@@ -665,13 +705,13 @@ class JsWalker {
         } else {
           this.walk(open + 1, close, scope, roles);
         }
-        index = close + 1;
+        index = this.arm(close + 1, statementEnd(tokens, close + 1, end), scope, roles, null);
         continue;
       }
-      if (isWord(token, 'catch') && isPunc(tokens[index + 1], '(')) {
-        const close = matching(tokens, index + 1);
-        for (const binding of bindingNames(tokens.slice(index + 2, close))) scope.declare(binding.name, null);
-        index = close + 1;
+      if (isWord(token, 'catch') && (isPunc(tokens[index + 1], '(') || isPunc(tokens[index + 1], '{'))) {
+        const close = isPunc(tokens[index + 1], '(') ? matching(tokens, index + 1) : index;
+        const caught = bindingNames(tokens.slice(index + 2, close)).map(binding => binding.name);
+        index = this.arm(close + 1, statementEnd(tokens, close + 1, end), scope, roles, caught);
         continue;
       }
       if (isWord(token, 'class')) {
@@ -710,6 +750,123 @@ class JsWalker {
       this.statement(index, stop, scope, roles);
       index = stop + 1;
     }
+  }
+
+  /* What a name holds, or what one of its keys holds where something was stored under it. */
+  held(scope: Scope, segments: readonly string[]): Value {
+    const [name, key] = segments;
+    if (name === undefined) return null;
+    const field = key !== undefined && key !== '[]' ? scope.lookup(fieldName(name, key)) : undefined;
+    return field !== undefined ? field : scope.lookup(name) ?? null;
+  }
+
+  /* `value` stored in the container `name`, under `key` when the code names it; only a container this function holds. */
+  store(scope: Scope, name: string, key: string | null, value: Value, line: number): void {
+    if (scope.lookup(name) === undefined) return;
+    const kept = value && extend({ ...value, whole: false, wholeInside: null }, this.ctx.path, line, 'stored in a container');
+    if (key !== null) scope.assign(fieldName(name, key), kept);
+    if (kept) scope.assign(name, merge(scope.lookup(name), kept));
+  }
+
+  /*
+   * `{ label: 'Search', term }` or `{'label': 'Search'}` given to a name: each
+   * literal key a field of it, so a read of one key finds what that key holds
+   * and not what another does. A spread or a computed key leaves the rest
+   * to the container as a whole.
+   */
+  literalFields(name: string, start: number, stop: number, scope: Scope, roles: Roles | null, stringKeys: boolean): void {
+    const tokens = this.tokens;
+    if (!isPunc(tokens[start], '{') || matching(tokens, start) !== stop - 1) return;
+    let index = start + 1;
+    while (index < stop - 1) {
+      const key = tokens[index];
+      if (!key || !(isStr(key) || (!stringKeys && key.t === 'id'))) return;
+      let end = index + 1;
+      for (let depth = 0; end < stop - 1; end += 1) {
+        const token = at(tokens, end);
+        if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
+        else if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
+        else if (depth === 0 && isPunc(token, ',')) break;
+      }
+      const field = fieldName(name, String(key.v));
+      if (isPunc(tokens[index + 1], ':')) scope.assign(field, this.expression(index + 2, end, scope, roles));
+      else if (end === index + 1 && key.t === 'id') scope.assign(field, scope.lookup(key.v) ?? null);
+      else return;
+      index = end + 1;
+    }
+  }
+
+  /* `list.push(v)`, `d.append(v)`, `m.set(k, v)`: what the call puts in its receiver; `m.get('k')`: what was put under that key. */
+  container(segments: readonly string[], call: CallStep, args: readonly Value[], scope: Scope, roles: Roles | null, line: number): CallResult | null {
+    const [name, method] = segments;
+    if (segments.length !== 2 || name === undefined || method === undefined || scope.lookup(name) === undefined) return null;
+    if (roles && (roles.request.has(name) || roles.response.has(name))) return null;
+    /* The key is every literal argument before the value: m.set('k', v), conf.set('section', 'k', v), m.get('k'), conf.get('section', 'k'). */
+    const literals = (from: readonly Token[][]): string | null => (from.length && from.every(arg => arg.length === 1 && isStr(arg[0])) ? from.map(arg => String(arg[0]?.v)).join('\u0000') : null);
+    if (method === 'get') {
+      for (const key of [literals(call.args), literals(call.args.slice(0, 1))]) {
+        const field = key === null ? undefined : scope.lookup(fieldName(name, key));
+        if (field !== undefined) return { value: field };
+      }
+      return null;
+    }
+    if (!ADDS_TO_CONTAINER.test(method)) return null;
+    const keyed = /^(set|put|setdefault)$/.test(method) && args.length >= 2;
+    const stored = keyed ? args[args.length - 1] ?? null : args.reduce<Value>((all, value) => merge(all, value), null);
+    const literal = keyed ? literals(call.args.slice(0, -1)) : null;
+    this.store(scope, name, keyed ? literal : null, stored, line);
+    return { value: null };
+  }
+
+  /* A body that need not run -- a loop's, a catch's: walked as an arm and joined with what was there before. */
+  arm(start: number, stop: number, scope: Scope, roles: Roles | null, declared: readonly string[] | null): number {
+    const arm = new Scope(scope, true);
+    for (const name of declared ?? []) arm.declare(name, null);
+    this.walk(start, stop, arm, roles);
+    joinArms(scope, [arm], false);
+    return stop;
+  }
+
+  /* An if's arms, the else's included: covered when there is an else. */
+  ifArms(start: number, end: number, scope: Scope, roles: Roles | null): number {
+    const tokens = this.tokens;
+    const then = new Scope(scope, true);
+    const thenEnd = statementEnd(tokens, start, end);
+    this.walk(start, thenEnd, then, roles);
+    if (!isWord(tokens[thenEnd], 'else')) { joinArms(scope, [then], false); return thenEnd; }
+    const other = new Scope(scope, true);
+    const elseEnd = statementEnd(tokens, thenEnd + 1, end);
+    this.walk(thenEnd + 1, elseEnd, other, roles);
+    joinArms(scope, [then, other], true);
+    return elseEnd;
+  }
+
+  /* A switch's cases, each an arm; covered when there is a default. A case that falls through is read as its own arm. */
+  caseArms(open: number, scope: Scope, roles: Roles | null): number {
+    const tokens = this.tokens;
+    const close = matching(tokens, open);
+    const labels: number[] = [];
+    let depth = 0;
+    for (let index = open + 1; index < close; index += 1) {
+      const token = at(tokens, index);
+      if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
+      else if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
+      else if (depth === 0 && (isWord(token, 'case') || isWord(token, 'default'))) labels.push(index);
+    }
+    const arms: Scope[] = [];
+    labels.forEach((label, position) => {
+      const next = labels[position + 1] ?? close;
+      let colon = label + 1;
+      for (let pending = 0; colon < next; colon += 1) {
+        if (isPunc(tokens[colon], '?')) pending += 1;
+        else if (isPunc(tokens[colon], ':') && pending-- === 0) break;
+      }
+      const arm = new Scope(scope, true);
+      this.walk(colon + 1, next, arm, roles);
+      arms.push(arm);
+    });
+    joinArms(scope, arms, labels.some(label => isWord(tokens[label], 'default')));
+    return close + 1;
   }
 
   declaration(start: number, end: number, scope: Scope, roles: Roles | null): number {
@@ -760,6 +917,7 @@ class JsWalker {
         if (bound && destructured && !binding.rest) bound = { ...bound, whole: false, object: false, wholeInside: null };
         scope.declare(binding.name, bound && extend(bound, this.ctx.path, at(tokens, patternStart).line, bound.built ? 'built into a string' : destructured ? 'taken out of an object' : 'assigned to a variable'));
       }
+      if (only && !destructured) this.literalFields(only.name, valueStart, stop, scope, roles, false);
       if (!isPunc(tokens[stop], ',')) return stop + 1;
       index = stop + 1;
     }
@@ -816,6 +974,10 @@ class JsWalker {
       let next = value && extend(value, this.ctx.path, line, value.built ? 'built into a string' : 'assigned to a variable');
       if (operator.v !== '=') next = merge(previous || null, next);
       scope.assign(head.v, next);
+      return;
+    }
+    if (head.t === 'id' && (isPunc(target[1], '.') || isPunc(target[1], '['))) {
+      this.store(scope, head.v, keyOf(target), operator.v === '=' ? value : merge(this.held(scope, [head.v, keyOf(target) ?? '[]']), value), line);
       return;
     }
     if (isPunc(head, '{') || isPunc(head, '[') || (isPunc(head, '(') && isPunc(target[1], '{'))) {
@@ -1197,10 +1359,7 @@ class JsWalker {
     if (value === undefined) {
       const found = this.source(segments, chain, roles);
       if (found) value = taint(found.kind, this.ctx.path, line, { whole: found.whole, weak: found.weak });
-      else {
-        const held = scope.lookup(segments[0] ?? '');
-        value = held || null;
-      }
+      else value = this.held(scope, segments);
       if (!value && segments[0] === 'useSearchParams') value = taint('the page’s URL', this.ctx.path, line);
       /* A count is not content: x.length, x.size, x.byteLength carry nothing the caller wrote. */
       if (value && segments.slice(1).some(segment => /^(length|size|byteLength|count|isArray)$/.test(segment))) value = null;
@@ -1238,6 +1397,8 @@ class JsWalker {
     if (receiver && HANDS_ON.test(name)) this.handed = { at: call.args[0]?.[0]?.i ?? -1, value: receiver };
     const args = call.args.map(arg => this.argValue(arg, scope, roles));
     this.handed = null;
+    const kept = this.container(segments, call, args, scope, roles, line);
+    if (kept) return kept;
     const resolved = resolveCallee(segments, this.ctx);
     const module = resolved.module || '';
     const root = segments[0] ?? '';
@@ -1520,247 +1681,6 @@ class JsWalker {
   }
 }
 
-/* ---- Route registrations and handler shapes, found before the walk ---------------- */
-
-const ROUTER_OBJECT = /^(app|router|api|server|r|route|routes|fastify|instance|v1|v2|admin\w*|\w*[Rr]outer|\w*[Aa]pp|hono|elysia|srv)$/;
-const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'del', 'all', 'options', 'head']);
-const ROUTE_TEXT = /^[A-Za-z0-9/_:.\-*[\]{}()$+?@~<>]*$/; /* `<` and `>` are Flask's and Django's converters */
-
-export function safeRoute(value: unknown): string | null {
-  const text = String(value || '').trim();
-  if (!text.startsWith('/') || text.length > 120 || !ROUTE_TEXT.test(text)) return null;
-  return text;
-}
-
-/*
- * Express-style registrations -- app.post('/x', mw, handler), router.route('/x').get(h),
- * fastify.get('/x', opts, h), app.get('/x', c => ...) in Hono -- and the
- * handler functions they name, found once so the walker knows which
- * parameter is the request when it reaches each handler.
- */
-function jsRoutes(tokens: Tokens, ctx: FileContext): void {
-  const hints = new Map<number, Hint>();
-  const named = new Map<string, Hint>();
-  /* The router's own name for the endpoint list; they all register the same way. */
-  const framework = /['"]hono(\/[\w-]+)?['"]/.test(ctx.text) ? 'hono'
-    : /['"](koa|koa-router|@koa\/router)['"]/.test(ctx.text) ? 'koa'
-      : /['"]fastify['"]/.test(ctx.text) ? 'fastify' : 'express';
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (token.t !== 'id' || !isPunc(tokens[index + 1], '.')) continue;
-    if (isPunc(tokens[index - 1], '.')) continue;
-    const object = token.v;
-    let cursor = index + 2;
-    let path: string | null = null;
-    /* router.route('/x').get(...) */
-    const mounted = tokens[cursor + 2];
-    if (tokens[cursor]?.v === 'route' && isPunc(tokens[cursor + 1], '(') && isStr(mounted)) {
-      path = mounted.v;
-      cursor = matching(tokens, cursor + 1) + 1;
-      if (!isPunc(tokens[cursor], '.')) continue;
-      cursor += 1;
-    }
-    const method = tokens[cursor];
-    if (!method || !HTTP_METHODS.has(String(method.v)) || !isPunc(tokens[cursor + 1], '(')) continue;
-    if (!ROUTER_OBJECT.test(object) && !path) continue;
-    const { args, close } = splitArgs(tokens, cursor + 1);
-    if (!args.length) continue;
-    let handlerArgs = args;
-    if (!path) {
-      const opening = args[0]?.[0];
-      if (!opening || !(isStr(opening) || (opening.t === 'tpl' && opening.exprs.length === 0))) continue;
-      path = opening.t === 'tpl' ? opening.parts.join('') : opening.v;
-      handlerArgs = args.slice(1);
-    }
-    const route = safeRoute(path);
-    if (!route) continue;
-    const entry: FlowRoute = {
-      method: method.v === 'del' ? 'DELETE' : method.v === 'all' ? 'ANY' : method.v.toUpperCase(),
-      route, path: ctx.path, line: token.line, framework, middleware: [], bodyStart: null, bodyEnd: null
-    };
-    const hint: Hint = { kind: 'route', route: entry };
-    handlerArgs.forEach((arg, position) => {
-      const opening = arg[0];
-      const closing = arg[arg.length - 1];
-      if (!opening || !closing) return;
-      const place = tokens.indexOf(opening, cursor + 1);
-      const fn = place >= 0 ? functionAt(tokens, place, close) : null;
-      if (fn) {
-        if (position === handlerArgs.length - 1) hints.set(fn.start, hint);
-        else hints.set(fn.start, { kind: 'route', route: null });
-        return;
-      }
-      /* A named handler or middleware: auth, requireUser, controller.create. */
-      const words = arg.filter(t => t.t === 'id').map(t => t.v);
-      if (position < handlerArgs.length - 1) entry.middleware.push(...words);
-      else if (words.length) {
-        named.set(lastOf(words), hint);
-        entry.handlerName = lastOf(words);
-        if (words.length > 1) entry.middleware.push(...words.slice(0, -1));
-      }
-      /* A wrapped handler: withAuth(async (req, res) => ...) */
-      for (let inner = place; inner >= 0 && inner < tokens.indexOf(closing, place); inner += 1) {
-        const nested = functionAt(tokens, inner, close);
-        if (nested) { hints.set(nested.start, hint); entry.middleware.push(...words.slice(0, 1)); break; }
-      }
-    });
-    ctx.routes.push(entry);
-  }
-  /* Global middleware: app.use(requireAuth), app.use('/api', auth, router). */
-  const uses: RouteUse[] = [];
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (token.t === 'id' && ROUTER_OBJECT.test(token.v) && isPunc(tokens[index + 1], '.') && isWord(tokens[index + 2], 'use') && isPunc(tokens[index + 3], '(')) {
-      const { args } = splitArgs(tokens, index + 3);
-      const mount = args[0]?.[0];
-      const prefix = isStr(mount) ? safeRoute(mount.v) : null;
-      const words = args.flat().filter(t => t.t === 'id').map(t => t.v);
-      uses.push({ line: token.line, prefix, words });
-    }
-  }
-  ctx.uses = uses;
-  /* Message listeners: addEventListener('message', e => ...), window.onmessage = e => ... */
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    const event = tokens[index + 2];
-    if (token.v === 'addEventListener' && isPunc(tokens[index + 1], '(') && isStr(event) && event.v === 'message' && isPunc(tokens[index + 3], ',')) {
-      const fn = functionAt(tokens, index + 4, tokens.length);
-      if (fn) hints.set(fn.start, { kind: 'message' });
-    }
-    if (token.v === 'onmessage' && isPunc(tokens[index + 1], '=')) {
-      const fn = functionAt(tokens, index + 2, tokens.length);
-      if (fn) hints.set(fn.start, { kind: 'message' });
-    }
-  }
-  ctx.handlerHints = hints;
-  ctx.namedHandlers = named;
-}
-
-/*
- * File-based routers: a Next.js route handler's exported GET/POST, a pages
- * API route's default export, a server action file, SvelteKit's +server,
- * Remix and React Router's action and loader, a Supabase edge function.
- */
-const NEXT_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
-
-type FileRouteKind = 'next-app' | 'next-pages' | 'kit' | 'kit-actions' | 'remix' | 'edge' | 'lambda';
-
-export function routeFromPath(path: string, kind: FileRouteKind | null): string {
-  let route = path.replace(/^src\//, '');
-  if (kind === 'next-app') route = route.replace(/^(app)\//, '/').replace(/\/route\.[a-z]+$/, '').replace(/\/\([^/)]+\)/g, '');
-  if (kind === 'next-pages') route = route.replace(/^pages\//, '/').replace(/\.[a-z]+$/, '').replace(/\/index$/, '');
-  if (kind === 'kit') route = route.replace(/^routes\//, '/').replace(/\/\+server\.[a-z]+$|\/\+page\.server\.[a-z]+$/, '').replace(/\/\([^/)]+\)/g, '');
-  if (kind === 'remix') route = route.replace(/^app\/routes\//, '/').replace(/\.[a-z]+$/, '').replace(/\./g, '/').replace(/\$(\w+)/g, ':$1').replace(/\/_index$|\/index$/, '').replace(/\/route$/, '');
-  if (kind === 'edge') route = route.replace(/^supabase\/functions\//, '/functions/v1/').replace(/\/index\.[a-z]+$/, '');
-  route = route || '/';
-  return safeRoute(route.startsWith('/') ? route : `/${route}`) || '/';
-}
-
-export function fileRouteKind(path: string): FileRouteKind | null {
-  const plain = path.replace(/^src\//, '');
-  if (/^app\/.*route\.(js|ts|mjs)$/.test(plain) || /^app\/route\.(js|ts)$/.test(plain)) return 'next-app';
-  if (/^pages\/api\/.+\.(js|ts|mjs)$/.test(plain)) return 'next-pages';
-  if (/^routes\/.*\+server\.(js|ts)$/.test(plain)) return 'kit';
-  if (/^routes\/.*\+page\.server\.(js|ts)$/.test(plain)) return 'kit-actions';
-  if (/^app\/routes\/.+\.(jsx?|tsx?)$/.test(path)) return 'remix';
-  if (/^supabase\/functions\/[^/]+\/index\.(ts|js)$/.test(path)) return 'edge';
-  if (/(^|\/)(netlify\/functions|api|functions|lambda|handlers?)\/[^/]+\.(js|ts|mjs)$/.test(path)) return 'lambda';
-  return null;
-}
-
-function fileRoutes(tokens: Tokens, ctx: FileContext): void {
-  const kind = fileRouteKind(ctx.path);
-  const hints = ctx.handlerHints;
-  const useServerFile = opensWith(ctx.text, 'use server');
-  ctx.serverActions = useServerFile;
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = at(tokens, index);
-    if (!isWord(token, 'export')) continue;
-    let cursor = index + 1;
-    const isDefault = isWord(tokens[cursor], 'default');
-    if (isDefault) cursor += 1;
-    let fnAt = cursor;
-    let name: string | null = null;
-    const declared = tokens[cursor + 1];
-    if (isWord(tokens[cursor], 'async') && isWord(tokens[cursor + 1], 'function')) { name = tokens[cursor + 2]?.t === 'id' ? at(tokens, cursor + 2).v : null; }
-    else if (isWord(tokens[cursor], 'function')) { name = declared?.t === 'id' ? declared.v : null; }
-    else if ((isWord(tokens[cursor], 'const') || isWord(tokens[cursor], 'let')) && declared && isPunc(tokens[cursor + 2], '=')) {
-      name = declared.v;
-      fnAt = cursor + 3;
-      /* export const POST = withAuth(async (req) => ...): the inner function. */
-      if (!functionAt(tokens, fnAt, tokens.length)) {
-        for (let inner = fnAt; inner < Math.min(tokens.length, fnAt + 12); inner += 1) {
-          if (functionAt(tokens, inner, tokens.length)) { fnAt = inner; break; }
-        }
-      }
-    }
-    const fn = functionAt(tokens, fnAt, tokens.length);
-    if (!fn) continue;
-    const line = token.line;
-    const add = (method: string, framework: string, hintKind: HintKind): void => {
-      const entry: FlowRoute = { method, route: routeFromPath(ctx.path, kind === 'kit-actions' ? 'kit' : kind), path: ctx.path, line, framework, middleware: [], bodyStart: null, bodyEnd: null };
-      ctx.routes.push(entry);
-      hints.set(fn.start, { kind: hintKind, route: entry });
-    };
-    if (kind === 'next-app' && name && NEXT_METHODS.has(name)) add(name, 'next', 'next-route');
-    else if (kind === 'next-pages' && isDefault) add('ANY', 'next-pages', 'route');
-    else if (kind === 'kit' && name && NEXT_METHODS.has(name)) add(name, 'sveltekit', 'kit');
-    else if (kind === 'remix' && (name === 'action' || name === 'loader')) add(name === 'action' ? 'POST' : 'GET', 'remix', 'kit');
-    else if (kind === 'lambda' && (name === 'handler' || isDefault)) add('ANY', 'serverless', 'lambda');
-    else if (useServerFile && name) {
-      const entry: FlowRoute = { method: 'ACTION', route: null, action: true, path: ctx.path, line, framework: 'server-action', middleware: [], bodyStart: null, bodyEnd: null };
-      ctx.routes.push(entry);
-      hints.set(fn.start, { kind: 'action', route: entry });
-    }
-  }
-  /* SvelteKit form actions: export const actions = { default: async ({ request }) => ... } */
-  if (kind === 'kit-actions') {
-    for (let index = 0; index < tokens.length; index += 1) {
-      if (at(tokens, index).v === 'actions' && isPunc(tokens[index + 1], '=') && isPunc(tokens[index + 2], '{')) {
-        const close = matching(tokens, index + 2);
-        for (let inner = index + 3; inner < close; inner += 1) {
-          const fn = functionAt(tokens, inner, close);
-          if (fn) {
-            const entry: FlowRoute = { method: 'POST', route: routeFromPath(ctx.path, 'kit'), path: ctx.path, line: at(tokens, inner).line, framework: 'sveltekit', middleware: [], bodyStart: null, bodyEnd: null };
-            ctx.routes.push(entry);
-            hints.set(fn.start, { kind: 'kit', route: entry });
-            inner = fn.next;
-          }
-        }
-      }
-    }
-  }
-  /* Supabase edge function and Deno: serve(async (req) => ...), Deno.serve(...) */
-  if (kind === 'edge') {
-    for (let index = 0; index < tokens.length; index += 1) {
-      const token = at(tokens, index);
-      if ((token.v === 'serve' || (token.v === 'Deno' && tokens[index + 2]?.v === 'serve')) && tokens.slice(index, index + 4).some(t => isPunc(t, '('))) {
-        const open = tokens.findIndex((t, i) => i > index && isPunc(t, '('));
-        for (let inner = open + 1; inner < Math.min(tokens.length, open + 8); inner += 1) {
-          const fn = functionAt(tokens, inner, tokens.length);
-          if (fn) {
-            const entry: FlowRoute = { method: 'ANY', route: routeFromPath(ctx.path, 'edge'), path: ctx.path, line: token.line, framework: 'supabase-edge', middleware: [], bodyStart: null, bodyEnd: null };
-            ctx.routes.push(entry);
-            hints.set(fn.start, { kind: 'route', route: entry });
-            break;
-          }
-        }
-        break;
-      }
-    }
-  }
-  /* Inline server actions: a function whose body opens with 'use server'. */
-  for (let index = 0; index < tokens.length; index += 1) {
-    const fn = functionAt(tokens, index, tokens.length);
-    const directive = fn ? tokens[fn.bodyStart] : undefined;
-    if (fn && fn.block && isStr(directive) && directive.v === 'use server' && !hints.has(fn.start)) {
-      const entry: FlowRoute = { method: 'ACTION', route: null, action: true, path: ctx.path, line: at(tokens, index).line, framework: 'server-action', middleware: [], bodyStart: null, bodyEnd: null };
-      ctx.routes.push(entry);
-      hints.set(fn.start, { kind: 'action', route: entry });
-    }
-  }
-}
-
 /* ---- Python ------------------------------------------------------------------------ */
 
 const PY_ROUTE_DECORATOR = /^@(\w+)\.(route|get|post|put|patch|delete|api_route|websocket)$/;
@@ -1838,10 +1758,70 @@ class PyWalker extends JsWalker {
         index = bodyEnd;
         continue;
       }
+      if (isWord(first, 'if')) { index = this.pyArms(index, end, scope, roles, ['elif', 'else'], true); continue; }
+      if (isWord(first, 'for') || isWord(first, 'while') || isWord(first, 'except')) { index = this.pyArms(index, end, scope, roles, ['else'], false); continue; }
       this.pyStatement(line, scope, roles);
       index += 1;
     }
     return index;
+  }
+
+  /*
+   * A clause and the clauses that continue it at its indent (an if's elif
+   * and else, a loop's else), each an arm: the clause's own line read in the
+   * enclosing scope, its body in the arm. Covered only when an if ends in an
+   * else; a loop's body and an except clause need not run at all.
+   */
+  pyArms(index: number, end: number, scope: Scope, roles: Roles | null, continuing: readonly string[], coverable: boolean): number {
+    const indent = this.lines[index]?.indent ?? 0;
+    const arms: Scope[] = [];
+    let covered = false;
+    let cursor = index;
+    while (cursor < end) {
+      const line = this.lines[cursor];
+      const first = line?.tokens[0];
+      if (!line || (cursor !== index && !(line.indent === indent && continuing.some(word => isWord(first, word))))) break;
+      const arm = new Scope(scope, true);
+      if (isWord(first, 'else')) covered = coverable;
+      const inline = this.pyClause(line, isWord(first, 'except') ? arm : scope, roles);
+      if (inline) this.pyStatement(inline, arm, roles);
+      const bodyEnd = this.blockEnd(cursor + 1, end, indent);
+      this.block(cursor + 1, bodyEnd, arm, roles, indent);
+      arms.push(arm);
+      cursor = bodyEnd;
+    }
+    joinArms(scope, arms, covered);
+    return cursor;
+  }
+
+  /* A clause's own line: its condition read (and checked), its loop target or caught name bound; what follows its colon on the same line, if anything. */
+  pyClause(line: LogicalLine, scope: Scope, roles: Roles | null): LogicalLine | null {
+    const tokens = line.tokens;
+    const first = tokens[0];
+    this.tokens = tokens;
+    /* The clause ends at the top-level colon; a body on the same line is a statement of its own. */
+    let depth = 0;
+    let colon = tokens.length;
+    for (let index = 1; index < tokens.length; index += 1) {
+      const token = at(tokens, index);
+      if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
+      if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
+      if (depth === 0 && isPunc(token, ':')) { colon = index; break; }
+    }
+    if (isWord(first, 'if') || isWord(first, 'elif') || isWord(first, 'while')) {
+      this.guard(1, colon, scope);
+      this.expression(1, colon, scope, roles);
+    } else if (isWord(first, 'for')) {
+      const inAt = tokens.findIndex(t => isWord(t, 'in'));
+      if (inAt > 0) {
+        const value = this.expression(inAt + 1, colon, scope, roles);
+        for (const token of tokens.slice(1, inAt)) if (token.t === 'id') scope.declare(token.v, value && extend(value, this.ctx.path, line.line, 'taken from a list in a loop'));
+      }
+    } else if (isWord(first, 'except')) {
+      const bound = tokens[tokens.findIndex(t => isWord(t, 'as')) + 1];
+      if (bound && bound.t === 'id' && tokens.some(t => isWord(t, 'as'))) scope.declare(bound.v, null);
+    }
+    return colon < tokens.length - 1 ? { tokens: tokens.slice(colon + 1).map((token, position) => ({ ...token, i: position })), line: line.line, indent: line.indent } : null;
   }
 
   blockEnd(start: number, end: number, indent: number): number {
@@ -1898,6 +1878,8 @@ class PyWalker extends JsWalker {
     if (lambda) inner.lambda = 'event';
     const previousRoles = this.pyRoles;
     const previousRoute = this.inRoute;
+    const previousPlain = this.plainIsHtml;
+    if (routeDecorator) this.plainIsHtml = !/FastAPI|fastapi|APIRouter/.test(this.ctx.text);
     this.pyRoles = { request: new Set([...(previousRoles ? previousRoles.request : []), ...inner.request]), lambda: inner.lambda || (previousRoles ? previousRoles.lambda : null) };
     this.inRoute = Boolean(routeDecorator || djangoView) || previousRoute;
     const outerEnd = this.bodyEndLine;
@@ -1906,6 +1888,7 @@ class PyWalker extends JsWalker {
     this.bodyEndLine = outerEnd;
     this.pyRoles = previousRoles;
     this.inRoute = previousRoute;
+    this.plainIsHtml = previousPlain;
   }
 
   pyStatement(line: LogicalLine, scope: Scope, roles: Roles | null): void {
@@ -1916,29 +1899,13 @@ class PyWalker extends JsWalker {
       const value = this.expression(1, tokens.length, scope, roles);
       noteReturn(this.summaryOf, value);
       if (value && value.html && !value.weak && this.inRoute) this.sink('html', value, line.line);
+      /* Text a Flask view returns is served as HTML: the caller's words in it, with no markup to show it, are a lead to confirm. */
+      else if (value && !value.html && !value.object && !value.whole && this.inRoute && this.plainIsHtml && /^(query string|request body|request header|cookie|route parameter|request URL|request path)$/.test(value.kind)) this.sink('html', { ...value, weak: true }, line.line);
       return;
     }
-    if (isWord(first, 'if') || isWord(first, 'elif') || isWord(first, 'while')) {
-      /* The condition ends at the top-level colon; a body on the same line is a statement of its own. */
-      let depth = 0;
-      let colon = tokens.length;
-      for (let index = 1; index < tokens.length; index += 1) {
-        const token = at(tokens, index);
-        if (token.t === 'punc' && '([{'.includes(token.v)) depth += 1;
-        if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
-        if (depth === 0 && isPunc(token, ':')) { colon = index; break; }
-      }
-      this.guard(1, colon, scope);
-      this.expression(1, colon, scope, roles);
-      if (colon < tokens.length - 1) this.pyStatement({ tokens: tokens.slice(colon + 1).map((token, position) => ({ ...token, i: position })), line: line.line, indent: line.indent }, scope, roles);
-      return;
-    }
-    if (isWord(first, 'for')) {
-      const inAt = tokens.findIndex(t => isWord(t, 'in'));
-      if (inAt > 0) {
-        const value = this.expression(inAt + 1, tokens.length - 1, scope, roles);
-        for (const token of tokens.slice(1, inAt)) if (token.t === 'id') scope.declare(token.v, value && extend(value, this.ctx.path, line.line, 'taken from a list in a loop'));
-      }
+    if (isWord(first, 'if') || isWord(first, 'elif') || isWord(first, 'while') || isWord(first, 'for')) {
+      const inline = this.pyClause(line, scope, roles);
+      if (inline) this.pyStatement(inline, scope, roles);
       return;
     }
     if (isWord(first, 'with')) {
@@ -1962,6 +1929,13 @@ class PyWalker extends JsWalker {
       if (depth === 0 && token.t === 'punc' && ['=', '+=', ':='].includes(token.v)) {
         const value = this.expression(index + 1, tokens.length, scope, roles);
         const targets = tokens.slice(0, index);
+        /* d['k'] = x, d[k] = x, o.k = x: the container takes the value. */
+        const holder = targets[0];
+        if (holder && holder.t === 'id' && holder.v !== 'self' && (isPunc(targets[1], '[') || isPunc(targets[1], '.'))) {
+          const key = keyOf(targets);
+          this.store(scope, holder.v, key, token.v === '=' ? value : merge(this.held(scope, [holder.v, key ?? '[]']), value), line.line);
+          return;
+        }
         /* a: int = x -- annotation; a, b = x -- tuple */
         const colon = targets.findIndex(t => isPunc(t, ':'));
         const names = (colon >= 0 ? targets.slice(0, colon) : targets).filter((t, i, all) => t.t === 'id' && !isPunc(all[i - 1], '.') && !isPunc(all[i + 1], '.') && !isPunc(all[i + 1], '['));
@@ -1972,6 +1946,8 @@ class PyWalker extends JsWalker {
           if (token.v === '+=') next = merge(previous, next) || previous;
           scope.assign(target.v, next);
         }
+        const only = names.length === 1 ? names[0] : undefined;
+        if (only && token.v === '=') this.literalFields(only.v, index + 1, tokens.length, scope, roles, true);
         return;
       }
     }
@@ -2068,6 +2044,8 @@ class PyWalker extends JsWalker {
     const root = segments[0] ?? '';
     const objectName = segments.length > 1 ? segments[segments.length - 2] ?? '' : '';
     const args = call.args.map(arg => this.argValue(arg, scope, roles));
+    const kept = this.container(segments, call, args, scope, roles, line);
+    if (kept) return kept;
     const kw = (key: string): Token[] | null => {
       const arg = call.args.find(a => a[0]?.t === 'id' && a[0].v === key && isPunc(a[1], '='));
       return arg || null;
@@ -2117,7 +2095,7 @@ class PyWalker extends JsWalker {
       return { value: null };
     }
     /* Files. */
-    if ((segments.length === 1 && name === 'open') || /^(send_file|FileResponse)$/.test(name) || /^os\.(remove|unlink|rmdir|listdir|makedirs)$/.test(joined) || /^shutil\.(rmtree|copy|copyfile|move)$/.test(joined) || (name === 'read_text' || name === 'read_bytes' || name === 'write_text') && receiver) {
+    if ((segments.length === 1 && name === 'open') || /^(codecs|io|os)\.open$|^(pathlib\.)?Path$/.test(joined) || /^(send_file|FileResponse)$/.test(name) || /^os\.(remove|unlink|rmdir|listdir|makedirs)$/.test(joined) || /^shutil\.(rmtree|copy|copyfile|move)$/.test(joined) || (name === 'read_text' || name === 'read_bytes' || name === 'write_text') && receiver) {
       const value = first || receiver;
       if (value) return report('path', value);
     }
@@ -2142,7 +2120,7 @@ class PyWalker extends JsWalker {
       if (!loader || !loader.some(t => /Safe|CSafe|Base/.test(t.v))) return report('deserialize', first);
     }
     /* lxml with a parser that resolves entities, loads DTDs or fetches from the network; xml.sax with external entities on */
-    if (/^(fromstring|XML|parse|fromstringlist|parseString)$/.test(name) && /(^|\.)(etree|objectify|sax|lxml)(\.|$)/.test(joined) && first &&
+    if (((/^(fromstring|XML|parse|fromstringlist|parseString)$/.test(name) && /(^|\.)(etree|objectify|sax|lxml|minidom|pulldom)(\.|$)/.test(joined)) || (/^(parse|feed)$/.test(name) && segments.length === 2 && /make_parser\s*\(/.test(this.ctx.text || ''))) && first &&
       /XMLParser\s*\([^)]*(resolve_entities\s*=\s*True|load_dtd\s*=\s*True|no_network\s*=\s*False)|feature_external_ges\s*,\s*(True|1)/.test(this.ctx.text || '') &&
       !/defusedxml/.test(this.ctx.text || '')) return report('xxe', first);
     /* Regular expressions. */
@@ -2157,7 +2135,7 @@ class PyWalker extends JsWalker {
     if (summary) return { value: this.throughSummary(summary, args, null, line, scope, roles, false) };
     if (receiver) return { value: extend(receiver, this.ctx.path, line, 'transformed') };
     const any = args.find(Boolean);
-    if (any && segments.length === 1 && !/^(print|len|isinstance|type|jsonify|abort|log|logger|range|enumerate|zip|sorted)$/.test(name)) return { value: extend(any, this.ctx.path, line, 'passed through a function') };
+    if (any && segments.length === 1 && !/^(print|len|isinstance|type|jsonify|render_template|url_for|abort|log|logger|range|enumerate|zip|sorted)$/.test(name)) return { value: extend(any, this.ctx.path, line, 'passed through a function') };
     if (any && joined === 'json.loads') return { value: any };
     if (any && /^(dumps|join|format|lower|upper|strip|replace|split|encode|decode|unquote|unquote_plus)$/.test(name)) return { value: extend(any, this.ctx.path, line, 'transformed') };
     return { value: null };
@@ -2172,10 +2150,7 @@ class PyWalker extends JsWalker {
     else if (this.pyRoles && this.pyRoles.lambda && segments[0] === this.pyRoles.lambda) {
       /* event['body'] */
       value = null;
-    } else {
-      const held = scope.lookup(segments[0] ?? '');
-      if (held) value = held;
-    }
+    } else value = this.held(scope, segments);
     for (const call of chain.calls) {
       if (call.computed) {
         const key = this.tokens.slice(call.open + 1, call.close);

@@ -186,7 +186,7 @@ function report({ outcomes, totals }) {
   return { text: lines.join('\n'), problems };
 }
 
-module.exports = Object.freeze({ runBenchmark, report, markersOf, percent, MEASURED, ROOT });
+module.exports = Object.freeze({ runBenchmark, report, markersOf, percent, cases, filesOf, MEASURED, ROOT });
 
 if (require.main === module) {
   const result = runBenchmark();

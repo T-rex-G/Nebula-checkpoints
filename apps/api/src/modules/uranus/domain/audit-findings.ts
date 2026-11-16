@@ -249,7 +249,7 @@ function validationText(item: RawItem): { blocker: string; check: string } {
       };
     case 'weak-source':
       return item.rule === 'SEC-033'
-        ? { blocker: 'Express answers a plain string as HTML; whether a browser renders this response depends on how the endpoint is used.', check: 'In a local run, request the endpoint with <b>x</b> in the parameter. If the answer is text/html and echoes it unescaped, this is confirmed.' }
+        ? { blocker: 'A plain string written to a response is read as HTML unless the endpoint says otherwise; whether a browser renders this one depends on the content type it is sent with.', check: 'In a local run, request the endpoint with <b>x</b> in the parameter. If the answer is text/html and echoes it unescaped, this is confirmed.' }
         : { blocker: 'The value comes from somewhere a caller may or may not control.', check: 'Follow the value back to where it is set, and confirm whether a user can write it.' };
     case 'mass':
       return { blocker: 'Which columns the table or model lets a request set.', check: 'List the columns it accepts. If any is a role, an owner, a flag or a price, write the fields you mean to accept explicitly.' };

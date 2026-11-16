@@ -15,6 +15,9 @@ import { createModal } from '../components/modal.ts';
 import { createToasts } from '../components/toasts.ts';
 import { createStepUp } from '../features/security/step-up.ts';
 import { createSafePassage } from '../features/governance/safe-passage.ts';
+import { DESIGNS, EDITOR_FONTS, EDITOR_THEMES, FONT_SIZES } from '../features/shell/appearance.ts';
+import { createAppearance } from '../features/shell/appearance-controller.ts';
+import { watchSpotlights } from '../components/spotlight.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -698,129 +701,32 @@ async function restoreRoute() {
 }
 
 /* ---------------- theme & settings ---------------- */
-function loadSettings() {
-  try {
-    const t = localStorage.getItem('nv_theme');
-    if (t) document.documentElement.dataset.theme = t;
-    const s = JSON.parse(localStorage.getItem('nv_settings') || 'null');
-    if (s) pageStore.mutate('settings', settings => { Object.assign(settings, s); });
-    else if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) pageStore.mutate('settings', settings => { settings.motion = false; });
-  } catch {}
-  applySettings();
-}
-/*
- * Two design presets, one product: Nebula (the default -- violet glass over
- * the nebula) and Obsidian (stone: near-black or quartz). The theme toggle
- * picks dark or light within either. Both are applied from the stored
- * settings by theme-boot.js before the first paint, so a reload never
- * flashes the other one.
- */
-const DESIGNS = Object.freeze(['nebula', 'obsidian']);
-const THEME_COLOR = Object.freeze({
-  nebula: { dark: '#06030F', light: '#F5F3FB' },
-  obsidian: { dark: '#07080A', light: '#F4F2EE' }
+/* How the page looks: the theme, the design, motion and the editor (features/shell/appearance-controller.ts). */
+const look = createAppearance({
+  root: document.documentElement,
+  themeMeta: () => document.querySelector('meta[name=theme-color]'),
+  designChoices: () => $$('[data-design-choice]'),
+  themeSwitches: () => $$('.theme-toggle'),
+  logos: () => [...document.querySelectorAll('.nv-logo svg')],
+  storage: () => localStorage,
+  settings: () => state.settings,
+  mutateSettings: change => pageStore.mutate('settings', change),
+  prefersReducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  anyOverlayClosing,
+  viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+  startViewTransition: typeof document.startViewTransition === 'function' ? change => document.startViewTransition(change) : null,
+  repaintVisuals: () => Visuals.repaint(),
+  editor: () => state.cm || null
 });
-function paintThemeColor() {
-  const root = document.documentElement;
-  const meta = document.querySelector('meta[name=theme-color]');
-  const preset = THEME_COLOR[root.dataset.design === 'obsidian' ? 'obsidian' : 'nebula'];
-  if (meta) meta.content = root.dataset.theme === 'light' ? preset.light : preset.dark;
-}
-/*
- * A change of look is revealed rather than cut: the new one grows as a
- * circle from the control that asked for it, drawn by the browser's own
- * view transition on the compositor. Without the API, or with motion off,
- * the change is simply made.
- */
-function revealChange(change, origin) {
-  const reduce = !state.settings.motion || document.documentElement.dataset.motion === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce || typeof document.startViewTransition !== 'function' || anyOverlayClosing()) { change(); return; }
-  const box = origin && origin.getBoundingClientRect ? origin.getBoundingClientRect() : null;
-  const x = box ? box.left + box.width / 2 : window.innerWidth / 2;
-  const y = box ? box.top + box.height / 2 : window.innerHeight / 2;
-  const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
-  const root = document.documentElement;
-  root.classList.add('vt-reveal');
-  const transition = document.startViewTransition(change);
-  transition.ready.then(() => root.animate(
-    { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-    { duration: 560, easing: 'cubic-bezier(.16,1,.3,1)', pseudoElement: '::view-transition-new(root)' }
-  )).catch(() => {});
-  transition.finished.finally(() => root.classList.remove('vt-reveal')).catch(() => {});
-}
-function setDesign(next, origin) {
-  if (!DESIGNS.includes(next) || state.settings.design === next) return;
-  revealChange(() => {
-    pageStore.mutate('settings', settings => { settings.design = next; });
-    applySettings();
-  }, origin);
-}
-function applySettings() {
-  if (!DESIGNS.includes(state.settings.design)) pageStore.mutate('settings', settings => { settings.design = 'nebula'; });
-  const root = document.documentElement;
-  const designChanged = root.dataset.design !== state.settings.design;
-  root.dataset.design = state.settings.design;
-  paintThemeColor();
-  if (designChanged) {
-    $$('[data-design-choice]').forEach(choice => {
-      const on = choice.dataset.designChoice === state.settings.design;
-      choice.setAttribute('aria-checked', String(on));
-      choice.tabIndex = on ? 0 : -1;
-    });
-    Visuals.repaint();
-  }
-  document.documentElement.style.setProperty('--ed-font', (state.settings.fontSize / 16) + 'rem');
-  document.documentElement.style.setProperty('--ed-family', `'${state.settings.editorFont}', ui-monospace, monospace`);
-  document.documentElement.dataset.motion = state.settings.motion ? 'on' : 'off';
-  const motionOff = !state.settings.motion;
-  document.querySelectorAll('.nv-logo svg').forEach(s => {
-    try { motionOff ? s.pauseAnimations() : s.unpauseAnimations(); } catch {}
-  });
-  if (state.cm) {
-    state.cm.setOption('lineWrapping', !!state.settings.wrap);
-    state.cm.setOption('theme', state.settings.editorTheme);
-    state.cm.refresh();
-  }
-  try { localStorage.setItem('nv_settings', JSON.stringify(state.settings)); } catch {}
-}
-function toggleTheme(origin) {
-  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  revealChange(() => {
-    document.documentElement.dataset.theme = next;
-    paintThemeColor();
-    try { localStorage.setItem('nv_theme', next); } catch {}
-    $$('.theme-toggle').forEach(t => t.setAttribute('aria-checked', String(next === 'dark')));
-    /* The artwork has its own palettes; it follows the toggle like everything else. */
-    Visuals.repaint();
-  }, origin);
-}
-document.addEventListener('click', e => {
-  const t = e.target.closest('.theme-toggle');
-  if (t) toggleTheme(t);
-  const choice = e.target.closest('[data-design-choice]');
-  if (choice) setDesign(choice.dataset.designChoice, choice);
-});
-/* The Design choices are a radio group: the arrows move the choice, as they
-   do in any radio group, and the group is one tab stop. */
-document.addEventListener('keydown', e => {
-  const choice = e.target.closest && e.target.closest('[data-design-choice]');
-  if (!choice) return;
-  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-  if (!step) return;
-  e.preventDefault();
-  const all = $$('[data-design-choice]');
-  const next = all[(all.indexOf(choice) + step + all.length) % all.length];
-  next.focus();
-  setDesign(next.dataset.designChoice, next);
-});
+function loadSettings() { look.load(); }
+function applySettings() { look.apply(); }
+function toggleTheme(origin) { look.toggleTheme(origin); }
+document.addEventListener('click', e => look.onClick(e.target && typeof e.target.closest === 'function' ? e.target : null));
+/* The Design choices are a radio group: the arrows move the choice, and the group is one tab stop. */
+document.addEventListener('keydown', e => { if (look.onKey(e.target, e.key)) e.preventDefault(); });
 $('#settingsBtnRepos').addEventListener('click', openSettings);
 $('#settingsBtnOv') && $('#settingsBtnOv').addEventListener('click', openSettings);
 $('#settingsBtnWork').addEventListener('click', openSettings);
-const ED_THEMES = [
-  ['material-ocean', 'Material Ocean'], ['dracula', 'Dracula'], ['monokai', 'Monokai'],
-  ['nord', 'Nord'], ['ayu-mirage', 'Ayu Mirage'], ['base16-light', 'Base16 Light'], ['eclipse', 'Eclipse (light)']
-];
-const ED_FONTS = ['DM Mono', 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'IBM Plex Mono'];
 
 /*
  * A sign-in that did not complete comes back here rather than stopping on a
@@ -1010,11 +916,11 @@ async function openSettings() {
         </button>
       </div>
       <label class="field-label" for="setEdTheme">Editor theme</label>
-      <select id="setEdTheme">${ED_THEMES.map(([v, l]) => `<option value="${v}" ${v === s.editorTheme ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="setEdTheme">${EDITOR_THEMES.map(([v, l]) => `<option value="${v}" ${v === s.editorTheme ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <label class="field-label" for="setEdFont">Editor font</label>
-      <select id="setEdFont">${ED_FONTS.map(f => `<option ${f === s.editorFont ? 'selected' : ''}>${f}</option>`).join('')}</select>
+      <select id="setEdFont">${EDITOR_FONTS.map(f => `<option ${f === s.editorFont ? 'selected' : ''}>${f}</option>`).join('')}</select>
       <label class="field-label" for="setFs">Editor font size — <span id="setFsVal">${s.fontSize}px</span></label>
-      <input type="range" min="11" max="20" value="${s.fontSize}" id="setFs" style="min-height:32px;padding:0">
+      <input type="range" min="${FONT_SIZES.min}" max="${FONT_SIZES.max}" value="${s.fontSize}" id="setFs" style="min-height:32px;padding:0">
       <label class="check"><input type="checkbox" id="setWrap" ${s.wrap ? 'checked' : ''}> Wrap long lines in editor</label>
       <label class="check"><input type="checkbox" id="setMotion" ${s.motion ? 'checked' : ''}> Animated nebula background</label>
       ${state.work ? `<label class="check"><input type="checkbox" id="setOfflineRepo" ${isOfflineRepoEnabled() ? 'checked' : ''}> Enable offline access for this repository</label>
@@ -1165,27 +1071,8 @@ document.addEventListener('change', async e => {
   }
 });
 
-/* ---------------- cursor spotlight (desktop only) ---------------- */
-(function () {
-  if (!window.matchMedia('(hover:hover) and (pointer:fine)').matches) return;
-  function attach(card) {
-    if (card.dataset.spot) return;
-    card.dataset.spot = '1';
-    card.addEventListener('mousemove', e => {
-      const r = card.getBoundingClientRect();
-      card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
-      card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
-    });
-    card.addEventListener('mouseleave', () => { card.style.setProperty('--mx', '50%'); card.style.setProperty('--my', '0%'); });
-  }
-  $$('.card').forEach(attach);
-  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
-    if (n.nodeType === 1) {
-      if (n.matches && n.matches('.card')) attach(n);
-      if (n.querySelectorAll) n.querySelectorAll('.card').forEach(attach);
-    }
-  }))).observe(document.body, { childList: true, subtree: true });
-})();
+/* ---------------- cursor spotlight (components/spotlight.ts) ---------------- */
+watchSpotlights(document, window);
 
 /* ================= AUTH ================= */
 function githubIdentity(account) {

@@ -71,12 +71,14 @@ assert.ok(html.includes(`content="${PAGE_LIGHT}"`), 'the light theme colour is n
  */
 const OBSIDIAN_DARK = '#07080A';
 const OBSIDIAN_LIGHT = '#F4F2EE';
-const appSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const bootSource = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'public', 'theme-boot.js'), 'utf8');
-for (const [name, source] of [['app.js', appSource], ['theme-boot.js', bootSource]]) {
-  for (const colour of [PAGE_DARK, PAGE_LIGHT, OBSIDIAN_DARK, OBSIDIAN_LIGHT]) {
-    assert.ok(source.includes(`'${colour}'`), `${name} does not paint ${colour} for its preset`);
-  }
+for (const colour of [PAGE_DARK, PAGE_LIGHT, OBSIDIAN_DARK, OBSIDIAN_LIGHT]) {
+  assert.ok(bootSource.includes(`'${colour}'`), `theme-boot.js does not paint ${colour} for its preset`);
 }
+/* Once the page runs, it paints them from features/shell/appearance.ts. */
+const { themeColor } = require('../apps/web/src/features/shell/appearance.ts');
+assert.deepStrictEqual(
+  [themeColor('nebula', 'dark'), themeColor('nebula', 'light'), themeColor('obsidian', 'dark'), themeColor('obsidian', 'light')].map(colour => colour.toUpperCase()),
+  [PAGE_DARK, PAGE_LIGHT, OBSIDIAN_DARK, OBSIDIAN_LIGHT], 'the page does not paint each preset\'s colours');
 
 process.stdout.write('brand asset tests passed\n');

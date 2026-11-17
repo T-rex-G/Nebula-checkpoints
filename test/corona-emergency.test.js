@@ -4,10 +4,10 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { createAccountBoundary } = require('../apps/web/src/features/access/account-boundary.ts');
 
 const root = path.join(__dirname, '..');
 const neural = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/neural.js'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'apps/web/src/legacy/app.js'), 'utf8');
 
 function declaration(source, name, indent = '') {
   const start = source.indexOf(`${indent}async function ${name}(`);
@@ -92,9 +92,19 @@ function browser(options = {}) {
     $: () => null,
     transport: { cache: { clear() {} } }
   };
+  /* The shield purges through the workbench's own purge, the account boundary (features/access/account-boundary.ts). */
+  const boundary = createAccountBoundary({
+    state, discardHeldRepaints: sandbox.discardHeldRepaints, clearActivityFeed: sandbox.clearActivityFeed, clearPosture: sandbox.clearPosture,
+    paintUnread: sandbox.paintUnread, clearCsrfToken: sandbox.clearCsrfToken, clearGovernanceState: sandbox.clearGovernanceState,
+    clearExposureState: sandbox.clearExposureState, clearAuditState: sandbox.clearAuditState, clearSiteScanState: sandbox.clearSiteScanState,
+    forgetRepositoryWork: sandbox.forgetRepositoryWork,
+    cacheNames: async () => { await sandbox.purgePrivateCaches(); return []; }, deleteCache: async () => {},
+    sessionStorage: () => sandbox.sessionStorage, localStorage: () => sandbox.localStorage, serviceWorker: () => sandbox.navigator.serviceWorker.controller,
+    openQueue: () => sandbox.idb(), find: selector => sandbox.$(selector), forgetReads: () => sandbox.transport.cache.clear(),
+    channel: () => null, writeStorage: () => {}, onStorage: () => {}, marker: () => '', reload: () => {}
+  });
+  sandbox.purgeLocalData = full => boundary.purge(full);
   vm.createContext(sandbox);
-  /* The shield purges through the workbench's own purge, which it imports by that name. */
-  vm.runInContext(declaration(app, 'purgeLocalData'), sandbox);
   vm.runInContext(`${declaration(neural, 'emergencyShield', '  ')}\nthis.run = emergencyShield;`, sandbox);
   return { run: sandbox.run, state, effects, stored, button };
 }

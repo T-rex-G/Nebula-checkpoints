@@ -310,6 +310,8 @@ scenario('a status that never answers is unavailable, and the gate is taken as o
   assert.equal(AlphaUI.gateEnabled(), false);
 });
 
+/* A scenario that never settles would let the process end quietly: unfinished counts as failed. */
+process.exitCode = 1;
 (async () => {
   let failed = 0;
   for (const [name, run] of scenarios) {
@@ -326,4 +328,5 @@ scenario('a status that never answers is unavailable, and the gate is taken as o
     process.exit(1);
   }
   console.log(`access page: ${scenarios.length} scenarios passed`);
+  process.exitCode = 0;
 })();

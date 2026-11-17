@@ -13,9 +13,9 @@ const fs = require('fs');
 const path = require('path');
 const { githubAppBody, callbackNotice } = require('../apps/web/src/features/settings/github-app.ts');
 const { createGithubApp } = require('../apps/web/src/features/settings/github-app-controller.ts');
+const { createSession } = require('../apps/web/src/features/access/session.ts');
 
 const root = path.resolve(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
 
@@ -66,7 +66,24 @@ const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'sty
   /* The OAuth controls -- sign-in, and the wider grant from Accounts -- follow /api/config: test/e2e/github-only.spec.js. */
   assert(html.includes('GitHub Personal Access Token'), 'existing PAT login must remain present');
   assert(html.includes('id="tokenInput"') && html.includes('id="loginBtn"'), 'PAT login controls must remain present');
-  assert(app.includes("body: { token, provider: 'github' }"), 'PAT login must use GitHub without a custom authority');
-  assert(app.includes("requireGithubIdentity(await api('/api/login'"), 'PAT response must validate the supported identity');
+  {
+    /* The token sign-in names GitHub and nothing else, and takes nothing else for an answer (features/access/session.ts). */
+    const signInAnswered = async provider => {
+      const sent = []; const adopted = []; const refused = [];
+      const quiet = () => {};
+      await createSession({
+        api: async (route, options) => { sent.push([route, options && options.body]); return { provider, login: 'a' }; },
+        purge: async () => {}, broadcast: quiet, token: () => 'github_pat_x', clearToken: quiet, hideError: quiet, setBusy: quiet, backShown: () => false, showBack: quiet,
+        adopt: me => adopted.push(me), adoptCapabilities: quiet, remember: quiet, loadProviderCapabilities: async () => {}, applyCaps: quiet, setAvatar: quiet, toast: quiet,
+        presentError: error => refused.push(error.message), showRevocationGuidance: quiet, arrive: quiet, showSignIn: quiet, showWorkspace: quiet, restart: quiet
+      }).signIn();
+      return { sent, adopted, refused };
+    };
+    const github = await signInAnswered('github');
+    assert.deepStrictEqual(github.sent[0], ['/api/login', { token: 'github_pat_x', provider: 'github' }], 'PAT login must use GitHub without a custom authority');
+    assert.deepStrictEqual(github.refused, []);
+    const other = await signInAnswered('gitlab');
+    assert.deepStrictEqual([other.adopted, other.refused], [[], ['Connect a GitHub account to continue.']], 'PAT response must validate the supported identity');
+  }
   console.log('github app UI contract tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

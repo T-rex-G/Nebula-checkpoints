@@ -26,6 +26,8 @@ import { createPages, watchLean } from '../features/shell/pages-controller.ts';
 import { createRouteSync } from '../features/shell/route-sync.ts';
 import { createLoginChrome, limitsText, loginGuidanceHtml, runtimeLimitsKnown as limitsKnown } from '../features/access/login-screen.ts';
 import { createAlphaPrivacy } from '../features/access/alpha-privacy.ts';
+import { createAccountBoundary, IDENTITY_BOUNDARY_CHANNEL } from '../features/access/account-boundary.ts';
+import { createSession, githubIdentity, requireGithubIdentity } from '../features/access/session.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -94,7 +96,7 @@ async function setOfflineRepoEnabled(enabled) {
   const repoKey = workOfflineRepoKey();
   if (!storageKey || !repoKey) throw new Error('Sign in and open a repository first');
   localStorage.setItem(storageKey, JSON.stringify(withOfflineRepo(offlineRepoList(), repoKey, enabled)));
-  if (!enabled) await purgePrivateCaches();
+  if (!enabled) await accountBoundary.purgePrivateCaches();
 }
 /*
  * Every request the page makes. A write refused because its branch moved
@@ -373,7 +375,7 @@ const githubApp = createGithubApp({
   attached: node => document.contains(node),
   purgeLocalData: full => purgeLocalData(full),
   broadcastIdentityBoundary: () => broadcastIdentityBoundary(),
-  signedOut: () => { state.me = null; closeModal(false); showPage('login'); },
+  signedOut: () => { state.me = null; closeModal(false); showSignIn(); },
   identityChanged: async () => {
     state.me = requireGithubIdentity(await api('/api/me'));
     state.caps = state.me.caps || null;
@@ -434,17 +436,6 @@ document.addEventListener('change', e => { settingsPanel.onChange(e.target); });
 watchSpotlights(document, window);
 
 /* ================= AUTH ================= */
-function githubIdentity(account) {
-  return !!account && account.provider === 'github';
-}
-function requireGithubIdentity(account) {
-  if (!githubIdentity(account)) {
-    const error = new Error('Connect a GitHub account to continue.');
-    error.status = 401;
-    throw error;
-  }
-  return account;
-}
 /* The sign-in screen's alpha panels and its words (features/access/login-screen.ts). */
 const loginChrome = createLoginChrome({
   gateEnabled: () => AlphaUI.gateEnabled(),
@@ -452,8 +443,17 @@ const loginChrome = createLoginChrome({
   find: selector => $(selector),
   create: tag => document.createElement(tag)
 });
-function ensureAlphaProviderGuidance() { return loginChrome.ensureGuidance(); }
-function ensureLoginAlphaSessionControls() { return loginChrome.ensureSessionControls(); }
+/*
+ * The sign-in screen, with the controlled alpha's two panels where its gate is
+ * on. Built whichever way the reader arrives: one signed in when the page
+ * opened never saw the sign-in screen the start builds, so signing out showed
+ * it with no word on provider permissions and no way to end the alpha session.
+ */
+function showSignIn() {
+  loginChrome.ensureGuidance();
+  loginChrome.ensureSessionControls();
+  showPage('login');
+}
 function renderLoginGuidance() {
   $('#loginHint').innerHTML = loginGuidanceHtml(!!(state.runtime.githubApp && state.runtime.githubApp.enabled));
   $('#loginLimits').textContent = limitsText(state.runtime);
@@ -602,14 +602,12 @@ async function boot() {
          account or removes it; nothing acts as another account meanwhile. */
       await purgeLocalData(false);
       state.me = null;
-      showPage('login');
+      showSignIn();
       openAccounts();
     } else if (!['ALPHA_SESSION_EXPIRED', 'ALPHA_ACCESS_REVOKED'].includes(e.code)) {
       if (cached && !githubIdentity(cached)) await purgeLocalData(true);
       state.me = null;
-      ensureAlphaProviderGuidance();
-      ensureLoginAlphaSessionControls();
-      showPage('login');
+      showSignIn();
     }
   } finally {
     /* Known, or known to be nobody's: whatever waited on this start goes on, and finds out which. */
@@ -617,12 +615,9 @@ async function boot() {
     if (sessionArriving === arriving) sessionArriving = null;
   }
 }
-$('#loginBackBtn').addEventListener('click', () => {
-  $('#loginBackBtn').hidden = true;
-  showPage('repos');
-});
-$('#loginBtn').addEventListener('click', doLogin);
-$('#tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('#loginBackBtn').addEventListener('click', () => session.back());
+$('#loginBtn').addEventListener('click', () => { session.signIn(); });
+$('#tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') session.signIn(); });
 function setAvatar(url) {
   /* Both home screens carry an account control, so both carry the avatar. */
   for (const img of [$('#meAvatar'), $('#meAvatarOv')]) {
@@ -634,153 +629,67 @@ function setAvatar(url) {
     img.src = url;
   }
 }
-async function doLogin() {
-  const token = $('#tokenInput').value.trim();
-  const err = $('#loginError'); err.hidden = true;
-  if (!token) return;
-  $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Docking…';
-  try {
-    await purgeLocalData(true);
-    state.me = requireGithubIdentity(await api('/api/login', {
-      method: 'POST',
-      body: { token, provider: 'github' }
-    }));
-    try {
-      const me2 = requireGithubIdentity(await api('/api/me'));
-      state.me = { ...state.me, ...me2 };
-      state.caps = me2.caps || null;
-      sessionStorage.setItem('nv_me', JSON.stringify(state.me));
-      await loadProviderCapabilities();
-    } catch {}
-    broadcastIdentityBoundary();
-    $('#loginBackBtn').hidden = true;
-    applyCaps();
-    $('#tokenInput').value = '';
-    setAvatar(state.me.avatar);
-    toast(`Welcome aboard, ${state.me.login} ✦`, 'ok');
-    showOverview(); loadRepos(true); refreshUnread();
-  } catch (e) { err.hidden = true; presentError(e); }
-  finally { $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Enter orbit'; }
-}
-async function purgePrivateCaches() {
-  try {
-    for (const key of await caches.keys()) if (key.startsWith('nv-api-')) await caches.delete(key);
-  } catch {}
-}
-async function purgeLocalData(full) {
-  // Invalidate before the first await: an old fetch may finish during cleanup.
-  state.uiEpoch++;
-  /* A card held for a press on the overview is not drawn afterwards from the last reader's reading. */
-  discardHeldRepaints();
-  clearActivityFeed();
-  clearPosture();
-  paintUnread([]);
-  clearCsrfToken();
-  clearGovernanceState();
-  clearExposureState();
-  clearAuditState();
-  clearSiteScanState();
-  await purgePrivateCaches();
-  try { sessionStorage.clear(); } catch {}
-  try {
-    if (navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({ type: 'NV_PURGE_PRIVATE_DATA' });
-    }
-  } catch {}
-  try {
-    for (const k of Object.keys(localStorage)) {
-      if (k.startsWith('nv_snap_') || k.startsWith('nv_incident_') ||
-          k.startsWith('nv_draft:') || k.startsWith('nv_recent:') ||
-          k.startsWith('nv_offline_repos:') || k.startsWith('nv_neural_layout') ||
-          k.startsWith('nv_audit:') || k.startsWith('nv_view:')) localStorage.removeItem(k);
-    }
-  } catch {}
-  /* Offline writes are not identity-bound in v5.2. Clearing them on any account
-     boundary prevents a queued operation from being replayed with another token. */
-  try {
-    const db = await idb();
-    await new Promise(r => {
-      const tx = db.transaction('queue', 'readwrite');
-      tx.objectStore('queue').clear();
-      tx.oncomplete = r;
-      tx.onerror = r;
-      tx.onabort = r;
-    });
-  } catch {}
-  /* Remove the pre-alpha.17 shared cache during upgrades; current identity
-     fallback is tab-scoped in sessionStorage and was cleared above. */
-  try { localStorage.removeItem('nv_me'); } catch {}
-  state.file = null;
-  if (state.cm) {
-    try { state.cm.setValue(''); } catch {}
-    try { state.cm.clearHistory(); } catch {}
-  }
-  state.staged = [];
-  forgetRepositoryWork();
-  state.work = null;
-  state.repos = [];
-  state.me = null;
-  state.caps = null;
-  state.fileIndex = null;
-  /* The marker is not a value or a child list, so the sweep below cannot
-     reach it: hiding it is what clearing it means. */
-  paintUnread([]);
-  for (const selector of [
-    '#repoGrid', '#tree', '#prList', '#issueList', '#releaseList', '#commitList',
-    '#cmpResult', '#uploadQueue', '#actionsList', '#stageList', '#paletteList',
-    '#filePath', '#fileSize', '#mdPreview', '#binaryPreview', '#editDiffBody',
-    '#githubAppSettingsBody', '#tokenInput', '#codeSearch', '#findInput',
-    '#replaceInput', '#uploadMsg', '#stageMsg', '#paletteInput'
-  ]) {
-    const element = $(selector);
-    if (!element) continue;
-    if ('value' in element) element.value = '';
-    if (typeof element.replaceChildren === 'function') element.replaceChildren();
-    else element.textContent = '';
-  }
-  if (full) transport.cache.clear();
-}
-const NV_IDENTITY_BOUNDARY_STORAGE_KEY = 'nv_identity_boundary_event';
-const identityBoundaryChannel = (() => {
-  try { return typeof BroadcastChannel === 'function' ? new BroadcastChannel('nv-identity-boundary-v1') : null; }
-  catch { return null; }
-})();
-let handlingRemoteIdentityBoundary = false;
-async function receiveIdentityBoundary() {
-  if (handlingRemoteIdentityBoundary) return;
-  handlingRemoteIdentityBoundary = true;
-  await purgeLocalData(true);
-  window.location.reload();
-}
-function broadcastIdentityBoundary() {
-  const marker = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
-  try { if (identityBoundaryChannel) identityBoundaryChannel.postMessage({ type: 'NV_IDENTITY_BOUNDARY', marker }); } catch {}
-  try { localStorage.setItem(NV_IDENTITY_BOUNDARY_STORAGE_KEY, marker); } catch {}
-}
-if (identityBoundaryChannel) {
-  identityBoundaryChannel.addEventListener('message', event => {
-    if (event.data && event.data.type === 'NV_IDENTITY_BOUNDARY') receiveIdentityBoundary().catch(() => {});
-  });
-}
-window.addEventListener('storage', event => {
-  if (event.key === NV_IDENTITY_BOUNDARY_STORAGE_KEY && event.newValue) receiveIdentityBoundary().catch(() => {});
+/*
+ * The account boundary (features/access/account-boundary.ts): what this
+ * browser holds for a reader, let go of when the reader changes, and the
+ * other tabs told.
+ */
+const accountBoundary = createAccountBoundary({
+  state,
+  discardHeldRepaints: () => discardHeldRepaints(),
+  clearActivityFeed: () => clearActivityFeed(),
+  clearPosture: () => clearPosture(),
+  paintUnread: list => paintUnread(list),
+  clearCsrfToken: () => clearCsrfToken(),
+  clearGovernanceState: () => clearGovernanceState(),
+  clearExposureState: () => clearExposureState(),
+  clearAuditState: () => clearAuditState(),
+  clearSiteScanState: () => clearSiteScanState(),
+  forgetRepositoryWork: () => forgetRepositoryWork(),
+  cacheNames: () => caches.keys(),
+  deleteCache: name => caches.delete(name),
+  sessionStorage: () => sessionStorage,
+  localStorage: () => localStorage,
+  serviceWorker: () => navigator.serviceWorker.controller,
+  openQueue: () => idb(),
+  find: selector => $(selector),
+  forgetReads: () => transport.cache.clear(),
+  channel: () => (typeof BroadcastChannel === 'function' ? new BroadcastChannel(IDENTITY_BOUNDARY_CHANNEL) : null),
+  writeStorage: (key, value) => localStorage.setItem(key, value),
+  onStorage: listener => window.addEventListener('storage', listener),
+  marker: () => `${Date.now()}:${Math.random().toString(36).slice(2)}`,
+  reload: () => window.location.reload()
 });
-async function doLogout() {
-  let remoteError = null;
-  let result = null;
-  try {
-    result = await api('/api/logout', { method: 'POST' });
-  } catch (error) {
-    remoteError = error;
-  } finally {
-    await purgeLocalData(true);
-    broadcastIdentityBoundary();
-    state.me = null;
-    showPage('login');
-  }
-  if (remoteError) presentError(remoteError);
-  else if (result) showRevocationGuidance(result.revocationGuidance);
-}
+accountBoundary.listen();
+function purgeLocalData(full) { return accountBoundary.purge(full); }
+function broadcastIdentityBoundary() { accountBoundary.broadcast(); }
+
+/* Signing in with a token and signing out (features/access/session.ts). */
+const session = createSession({
+  api,
+  purge: full => purgeLocalData(full),
+  broadcast: () => broadcastIdentityBoundary(),
+  token: () => $('#tokenInput').value.trim(),
+  clearToken: () => { $('#tokenInput').value = ''; },
+  hideError: () => { $('#loginError').hidden = true; },
+  setBusy: busy => { $('#loginBtn').disabled = busy; $('#loginBtn').textContent = busy ? 'Docking…' : 'Enter orbit'; },
+  backShown: () => !$('#loginBackBtn').hidden,
+  showBack: shown => { $('#loginBackBtn').hidden = !shown; },
+  adopt: me => { state.me = me; },
+  adoptCapabilities: caps => { state.caps = caps; },
+  remember: me => sessionStorage.setItem('nv_me', JSON.stringify(me)),
+  loadProviderCapabilities: () => loadProviderCapabilities(),
+  applyCaps: () => applyCaps(),
+  setAvatar: url => setAvatar(url),
+  toast: (message, kind) => toast(message, kind),
+  presentError: error => presentError(error),
+  showRevocationGuidance: guidance => showRevocationGuidance(guidance),
+  arrive: () => { showOverview(); loadRepos(true); refreshUnread(); },
+  showSignIn: () => showSignIn(),
+  showWorkspace: () => showPage('repos'),
+  restart: () => boot()
+});
+function doLogout() { return session.signOut(); }
 $('#logoutBtn').addEventListener('click', doLogout);
 $('#logoutBtnM').addEventListener('click', doLogout);
 $('#logoutBtnOv') && $('#logoutBtnOv').addEventListener('click', doLogout);

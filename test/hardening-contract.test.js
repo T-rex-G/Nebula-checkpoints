@@ -58,11 +58,11 @@ assert(graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } }
   && !graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:clean'), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
 assert(app.includes('Dependency scan incomplete'), 'Dependency scan dialog must not report a clean result when OSV is unavailable');
 assert(app.includes('/api/security/scanner-status') && app.includes('Upload malware gate'), 'Security scan dialog must disclose built-in and optional YARA upload protection');
-assert(app.includes("k.startsWith('nv_draft:')") && app.includes("k.startsWith('nv_recent:')"), 'Sign-out/account switching must clear repository drafts and recent-file history');
-const purgeStart = app.indexOf('async function purgeLocalData');
-const purgeEnd = app.indexOf('async function doLogout', purgeStart);
-const purgeBlock = app.slice(purgeStart, purgeEnd);
-assert(purgeBlock.includes("tx.objectStore('queue').clear()") && purgeBlock.indexOf("tx.objectStore('queue').clear()") < purgeBlock.indexOf('if (full)'), 'Offline writes must be cleared on every account boundary, not only full logout');
+/* What the account boundary lets go of is features/access/account-boundary.ts's, asked in test/page-session.test.js. */
+{
+  const { isPrivateStorageKey } = require('../apps/web/src/features/access/account-boundary.ts');
+  assert(isPrivateStorageKey('nv_draft:o/r:f') && isPrivateStorageKey('nv_recent:o/r'), 'Sign-out/account switching must clear repository drafts and recent-file history');
+}
 assert(app.includes('function escAttr') && app.includes('function safeHexColor'), 'Provider-controlled avatar URLs and label colors must be constrained before HTML insertion');
 assert(app.includes('const entriesOnDisk = dv.getUint16(eocd + 8, true)') && app.includes('entriesOnDisk !== count'), 'ZIP parsing must reject inconsistent multi-disk entry counts');
 assert(app.includes('flags & 0x41') && app.includes('localFlags & 0x41'), 'ZIP parsing must reject encrypted and strong-encryption flags');

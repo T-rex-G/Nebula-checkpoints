@@ -3,11 +3,10 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const { createAlphaPrivacy, DELETE_PHRASE } = require('../apps/web/src/features/access/alpha-privacy.ts');
+const { createAccountBoundary } = require('../apps/web/src/features/access/account-boundary.ts');
 
 const root = path.join(__dirname, '..');
-const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
 const serviceWorker = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 
@@ -18,43 +17,11 @@ for (const label of [
   'Delete alpha data'
 ]) assert(html.includes(label), `missing distinct privacy action: ${label}`);
 
-const start = app.indexOf('async function purgeLocalData');
-const end = app.indexOf('async function doLogout', start);
-const block = app.slice(start, end);
-assert(start >= 0 && end > start, 'purgeLocalData must remain a discrete account-boundary function');
-assert(block.includes("tx.objectStore('queue').clear()"));
-assert(block.includes('sessionStorage.clear()'));
-assert(block.includes("localStorage.removeItem('nv_me')"));
-assert(block.includes('purgePrivateCaches'));
-assert(block.includes('state.staged = []'));
-assert(block.includes('state.file = null'));
-assert(block.includes('state.work = null'));
-assert(block.includes('state.repos = []'));
-assert(block.includes('state.me = null'));
-assert(block.includes('paintUnread([])'),
-  'the purge must clear the notification unread marker at the account boundary');
-assert(block.includes('clearCsrfToken'));
-assert(block.includes("postMessage({ type: 'NV_PURGE_PRIVATE_DATA' })"));
+/* What the purge lets go of, and in what order, is asked of features/access/account-boundary.ts below and in test/page-session.test.js. */
 assert(serviceWorker.includes("event.data.type !== 'NV_PURGE_PRIVATE_DATA'"));
 assert(serviceWorker.includes("key.startsWith('nv-api-')"));
 assert(!/NV_PURGE_PRIVATE_DATA[\s\S]{0,500}nv-static-/.test(serviceWorker),
   'identity purge must preserve the static shell cache');
-
-function functionSource(name) {
-  const marker = `async function ${name}`;
-  const start = app.indexOf(marker);
-  assert(start >= 0, `missing browser function ${name}`);
-  const end = app.indexOf('\n}\n', start);
-  assert(end > start, `browser function ${name} is not a discrete declaration`);
-  return app.slice(start, end + 2);
-}
-
-function browserFunction(name, sandbox) {
-  vm.runInNewContext(`${functionSource(name)}\nthis.target = ${name};`, sandbox, {
-    filename: 'apps/web/src/legacy/app.js'
-  });
-  return sandbox.target;
-}
 
 /* The alpha's privacy actions, asked directly (features/access/alpha-privacy.ts). */
 async function assertPendingPrivacyActionsPreserveRetryState() {
@@ -193,7 +160,17 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     Object,
     queueMicrotask
   };
-  const purge = browserFunction('purgeLocalData', sandbox);
+  /* The account boundary (features/access/account-boundary.ts), on the same stand-ins. */
+  const purge = full => createAccountBoundary({
+    state: sandbox.state, discardHeldRepaints: sandbox.discardHeldRepaints, clearActivityFeed: sandbox.clearActivityFeed, clearPosture: sandbox.clearPosture,
+    paintUnread: sandbox.paintUnread, clearCsrfToken: sandbox.clearCsrfToken, clearGovernanceState: sandbox.clearGovernanceState,
+    clearExposureState: sandbox.clearExposureState, clearAuditState: sandbox.clearAuditState, clearSiteScanState: sandbox.clearSiteScanState,
+    forgetRepositoryWork: sandbox.forgetRepositoryWork,
+    cacheNames: async () => { await sandbox.purgePrivateCaches(); return []; }, deleteCache: async () => {},
+    sessionStorage: () => sandbox.sessionStorage, localStorage: () => sandbox.localStorage, serviceWorker: () => sandbox.navigator.serviceWorker.controller,
+    openQueue: () => sandbox.idb(), find: selector => sandbox.$(selector), forgetReads: () => sandbox.transport.cache.clear(),
+    channel: () => null, writeStorage: () => {}, onStorage: () => {}, marker: () => '', reload: () => {}
+  }).purge(full);
   await purge(true);
 
   assert.strictEqual(state.file, null);
@@ -227,6 +204,12 @@ async function assertPurgeClearsRuntimeAndVisibleIdentityState() {
     'the purge must drop the repaints a press was holding before it clears anything, or one drawn afterwards brings the previous reader back');
   assert.deepStrictEqual(operations.filter(([kind]) => kind === 'memory-cache'), [['memory-cache']],
     'a full purge forgets the page\'s memory of reads, or the next session is answered from the previous one\'s');
+  for (const [kind, why] of [
+    ['cache', 'the service worker\'s API caches'], ['session-storage', 'this tab\'s storage'], ['idb-queue', 'the offline write queue'], ['csrf', 'the request token']
+  ]) assert.strictEqual(operations.filter(entry => entry[0] === kind).length, 1, `the purge must let go of ${why}`);
+  assert.deepStrictEqual(operations.find(([kind]) => kind === 'sw'), ['sw', 'NV_PURGE_PRIVATE_DATA'], 'the service worker is told to drop its private cache');
+  assert.deepStrictEqual(['nv_me', 'nv_draft:private', 'nv_theme'].map(key => key in localStorage), [false, false, true],
+    'the identity of old and the drafts go; the page\'s look stays');
 }
 
 (async () => {

@@ -339,6 +339,8 @@ check('the page starts from what it started from before the store', () => {
   assert.deepStrictEqual(Object.keys(now), Object.keys(before), 'in the same order');
 });
 
+/* A check that never settles would let the process end quietly: unfinished counts as failed. */
+process.exitCode = 1;
 (async () => {
   let failed = 0;
   for (const [name, run] of cases) {
@@ -355,4 +357,5 @@ check('the page starts from what it started from before the store', () => {
     process.exit(1);
   }
   console.log(`page store: ${cases.length} checks passed`);
+  process.exitCode = 0;
 })();

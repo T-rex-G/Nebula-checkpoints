@@ -1853,7 +1853,7 @@ check('the unread marker is asked for from the notifications the server holds', 
  * The first version of this only painted at boot, so a reader who signed in
  * during the session never saw the marker light and a reader who signed out
  * kept the previous session's count over a bell they could no longer open.
- * Both directions are read off the function bodies that own them.
+ * Both directions are driven in a browser: test/e2e/page-session.spec.js.
  */
 check('the marker follows the session in both directions', () => {
   const bodyOf = name => {
@@ -1861,15 +1861,7 @@ check('the marker follows the session in both directions', () => {
     assert.ok(at >= 0, `${name} is gone`);
     return appSource.slice(at, appSource.indexOf('\n}\n', at));
   };
-  assert.ok(/refreshUnread\(\)/.test(bodyOf('doLogin')),
-    'signing in does not ask for the unread count, so the marker stays dark until the next page load');
-  assert.ok(/paintUnread\(\[\]\)/.test(bodyOf('purgeLocalData')),
-    'the identity teardown does not clear the marker, so one session\'s count survives into the next');
-  /*
-   * The teardown sweeps a list of elements by clearing values and children.
-   * The marker is neither, so a rewrite that adds it to that list instead of
-   * calling the painter would leave it visible and empty.
-   */
+  /* A refresh for nobody clears what the last reader lit, rather than leaving it. */
   const refresh = bodyOf('refreshUnread');
   assert.ok(/if \(!state\.me\)[^\n]*paintUnread/.test(refresh),
     'refreshUnread returns early on a session with no identity without clearing what the last one lit');

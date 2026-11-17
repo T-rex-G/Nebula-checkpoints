@@ -360,7 +360,11 @@ must(/const PRECACHE = __NV_PRECACHE__;/.test(sw), 'The shell list must be the o
 /* Optional private repository caching must be explicit, scoped and bounded: its limits, lifetime and versioned names are test/offline-cache-policy.test.js's. */
 must(sw.includes("import * as POLICY from '../../../../packages/contracts/src/offline-cache-policy.ts';"), 'Service worker must load the audited offline cache policy');
 must(sw.includes('POLICY.classifyApiRequest') && sw.includes('privateNetworkFirst'), 'Service worker must use the scoped cache classifier');
-must(/startsWith\('nv-api-'\)/.test(read('apps/web/src/legacy/app.js')), 'Identity boundaries must purge scoped API caches');
+/* The purge is the account boundary's (features/access/account-boundary.ts); what it deletes is test/page-session.test.js's. */
+{
+  const boundary = read('apps/web/src/features/access/account-boundary.ts');
+  must(/export const PRIVATE_CACHE_PREFIX = 'nv-api-';/.test(boundary) && /startsWith\(PRIVATE_CACHE_PREFIX\)/.test(boundary), 'Identity boundaries must purge scoped API caches');
+}
 must(sw.includes("cache: 'no-store'"), 'Network-only API responses must not use browser HTTP caches');
 must(!sw.includes("const API = 'nv-api-perm'"), 'A shared persistent API cache must not exist');
 must(sw.includes("key === 'nv-api-perm'") && sw.includes("key === 'nv-api'"), 'Service worker upgrades must delete legacy shared API caches');

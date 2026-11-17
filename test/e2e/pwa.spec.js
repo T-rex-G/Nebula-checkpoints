@@ -106,6 +106,30 @@ test('offline repository access is opt-in and account switching purges scoped ca
   expect(privateKeys).toEqual([]);
 });
 
+test('taking a repository out of offline use deletes the private caches and says so', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await ui.enterRepositories(page);
+  await page.locator('.repo-card').first().click();
+  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
+  await (await ui.action(page, 'Settings')).click();
+  const toggle = page.locator('#setOfflineRepo');
+  await toggle.check();
+  await expect(page.locator('.toast').filter({ hasText: 'Offline access enabled for this repository' })).toBeVisible();
+  await page.evaluate(scopeValue => caches.open(`nv-api-${scopeValue}`), scope);
+  await toggle.uncheck();
+  /* The purge used to be called by a name the page no longer had: the toggle sprang back on, the reader was shown a script error, and the cache stayed. */
+  const told = page.locator('.toast').filter({ hasText: 'Offline repository cache removed' });
+  await expect(told).toBeVisible();
+  await expect(told).not.toHaveClass(/\berr\b/);
+  await expect(page.locator('.toast').filter({ hasText: /not defined/ })).toHaveCount(0);
+  await expect(toggle).not.toBeChecked();
+  const stored = await page.evaluate(scopeValue => localStorage.getItem(`nv_offline_repos:${scopeValue}`), scope);
+  expect(JSON.parse(stored)).not.toContain('github:acme/demo');
+  expect(await page.evaluate(() => caches.keys().then(keys => keys.filter(key => key.startsWith('nv-api-'))))).toEqual([]);
+});
+
 test('failed remote logout still clears local private data and returns to login', async ({ page }) => {
   await mockApi(page, {
     'POST /api/logout': route => route.fulfill({ status: 503, json: { error: 'database unavailable' } })

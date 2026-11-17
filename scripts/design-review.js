@@ -69,12 +69,10 @@ async function captureMobilePalette(context, out, mode) {
   const page = await context.newPage();
   await presentAsHardwareRenderer(page);
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  /* The theme the reader chose, stored as the page stores it, so every piece is drawn in it from the first frame. */
+  await page.addInitScript(theme => { localStorage.setItem('nv_theme', theme); }, mode.theme);
   await page.goto('/#/sandbox/demo@main/files');
   await page.locator('#page-work.active').waitFor({ timeout: 20000 });
-  await page.evaluate(theme => {
-    document.documentElement.dataset.theme = theme;
-    if (window.NebulaVisuals) window.NebulaVisuals.repaint();
-  }, mode.theme);
   await page.waitForTimeout(1400);
   await page.screenshot({ path: path.join(out, `work-${mode.name}.png`) });
   process.stdout.write(`work-${mode.name}\n`);
@@ -148,11 +146,8 @@ async function main() {
       });
       const page = await context.newPage();
       await presentAsHardwareRenderer(page);
+      await page.addInitScript(theme => { localStorage.setItem('nv_theme', theme); }, mode.theme);
       await signIn(page);
-      await page.evaluate(theme => {
-        document.documentElement.dataset.theme = theme;
-        if (window.NebulaVisuals) window.NebulaVisuals.repaint();
-      }, mode.theme);
 
       for (const screen of SCREENS) {
         /* Navigate the way a reader does, so the chrome paints as it really would. */

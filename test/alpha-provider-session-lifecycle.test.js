@@ -3,11 +3,11 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { AlphaPrivacyStore } = require('../src/alpha-privacy-store');
+const { AlphaPrivacyStore } = require('../apps/api/src/modules/identity-access/index.ts');
 const {
   disconnectProviderAccount,
   providerSessionKeyHash
-} = require('../src/provider-disconnect');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 
 const TESTER_A = '12345678-1234-4234-9234-123456789abc';
 const TESTER_B = '22345678-1234-4234-9234-123456789abc';

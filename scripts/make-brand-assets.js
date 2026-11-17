@@ -13,7 +13,7 @@ const { chromium } = require('@playwright/test');
 
 /*   node scripts/make-brand-assets.js   */
 
-const OUT = path.join(__dirname, '..', 'public', 'assets');
+const OUT = path.join(__dirname, '..', 'apps', 'web', 'public', 'assets');
 
 /* The mark, in the plate proportions each target expects. `pad` is the share
    of the tile left clear around the mark; maskable icons need a wide margin

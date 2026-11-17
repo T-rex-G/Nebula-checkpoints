@@ -1,0 +1,468 @@
+{
+ "schemaVersion": 1,
+ "baseline": "3bf017a8cdb11e8ef86af7ff857add9b61b6f242",
+ "scriptOrder": [
+  "/theme-boot.js",
+  "/vendor/codemirror/5.65.16/codemirror.min.js",
+  "/vendor/codemirror/5.65.16/mode/meta.min.js",
+  "/vendor/codemirror/5.65.16/mode/javascript/javascript.min.js",
+  "/vendor/codemirror/5.65.16/mode/xml/xml.min.js",
+  "/vendor/codemirror/5.65.16/mode/css/css.min.js",
+  "/vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js",
+  "/vendor/codemirror/5.65.16/mode/markdown/markdown.min.js",
+  "/vendor/codemirror/5.65.16/mode/python/python.min.js",
+  "/vendor/codemirror/5.65.16/mode/shell/shell.min.js",
+  "/vendor/codemirror/5.65.16/mode/yaml/yaml.min.js",
+  "/vendor/codemirror/5.65.16/addon/search/searchcursor.min.js",
+  "/vendor/marked/15.0.12/marked.min.js",
+  "/vendor/dompurify/3.4.16/purify.min.js",
+  "/archive-safety.js",
+  "/upload-planning.js",
+  "/overlay-motion.js",
+  "/export-safety.js",
+  "/governance-ui.js",
+  "/alpha-ui.js",
+  "/vortex.js",
+  "/landing-stage.js",
+  "/capability-ui.js",
+  "/repo-sigil.js",
+  "/workspace-pulse.js",
+  "/repo-inventory.js",
+  "/security-posture.js",
+  "/pull-board.js",
+  "/codeowners.js",
+  "/findings-inbox-ui.js",
+  "/code-audit-ui.js",
+  "/rendered-audit-ui.js",
+  "/nebula-visuals.js",
+  "/landing-orbit.js",
+  "/landing-map.js",
+  "/light-waves.js",
+  "/trust-ui.js",
+  "/app.js"
+ ],
+ "files": {
+  "public/alpha-ui.js": {
+   "owner": "apps/web",
+   "lines": 414,
+   "publishes": [],
+   "consumes": [
+    "NebulaAlphaUI"
+   ],
+   "htmlSinks": 0,
+   "listeners": 3,
+   "apiCalls": 3,
+   "commonJsExport": false
+  },
+  "public/app.js": {
+   "owner": "apps/web",
+   "lines": 10507,
+   "publishes": [
+    "NebulaPwa"
+   ],
+   "consumes": [
+    "NebulaAlphaUI",
+    "NebulaArchiveSafety",
+    "NebulaCapabilityUI",
+    "NebulaCodeAudit",
+    "NebulaCodeowners",
+    "NebulaExportSafety",
+    "NebulaFindingsInbox",
+    "NebulaGovernanceUI",
+    "NebulaNeural",
+    "NebulaOverlayMotion",
+    "NebulaPullBoard",
+    "NebulaRenderedAudit",
+    "NebulaRepoSigil",
+    "NebulaSecurityPosture",
+    "NebulaTrustUI",
+    "NebulaUploadPlanning",
+    "NebulaVisuals",
+    "NebulaWorkspacePulse",
+    "Nebulaverse"
+   ],
+   "htmlSinks": 123,
+   "listeners": 223,
+   "apiCalls": 143,
+   "commonJsExport": false
+  },
+  "public/archive-safety.js": {
+   "owner": "apps/web",
+   "lines": 98,
+   "publishes": [
+    "NebulaArchiveSafety"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/capability-ui.js": {
+   "owner": "apps/web",
+   "lines": 317,
+   "publishes": [],
+   "consumes": [
+    "NebulaCapabilityUI"
+   ],
+   "htmlSinks": 0,
+   "listeners": 1,
+   "apiCalls": 2,
+   "commonJsExport": false
+  },
+  "public/code-audit-ui.js": {
+   "owner": "uranus",
+   "lines": 4198,
+   "publishes": [],
+   "consumes": [
+    "NebulaCodeAudit",
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 17,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/codeowners.js": {
+   "owner": "apps/web",
+   "lines": 114,
+   "publishes": [],
+   "consumes": [
+    "NebulaCodeowners"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/export-safety.js": {
+   "owner": "apps/web",
+   "lines": 44,
+   "publishes": [
+    "NebulaExportSafety"
+   ],
+   "consumes": [],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/findings-inbox-ui.js": {
+   "owner": "posture",
+   "lines": 398,
+   "publishes": [],
+   "consumes": [
+    "NebulaFindingsInbox"
+   ],
+   "htmlSinks": 0,
+   "listeners": 8,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/governance-ui.js": {
+   "owner": "kepler",
+   "lines": 473,
+   "publishes": [
+    "NebulaGovernanceUI"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/landing-map.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 397,
+   "publishes": [],
+   "consumes": [],
+   "htmlSinks": 0,
+   "listeners": 3,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/landing-orbit.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 154,
+   "publishes": [],
+   "consumes": [
+    "NebulaVisuals"
+   ],
+   "htmlSinks": 0,
+   "listeners": 5,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/landing-stage.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 598,
+   "publishes": [],
+   "consumes": [
+    "NebulaVortex"
+   ],
+   "htmlSinks": 0,
+   "listeners": 20,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/light-waves.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 189,
+   "publishes": [],
+   "consumes": [],
+   "htmlSinks": 0,
+   "listeners": 6,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/nebula-galaxy.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 414,
+   "publishes": [],
+   "consumes": [
+    "NebulaGalaxy"
+   ],
+   "htmlSinks": 0,
+   "listeners": 1,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/nebula-singularity.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 513,
+   "publishes": [],
+   "consumes": [
+    "NebulaSingularity"
+   ],
+   "htmlSinks": 0,
+   "listeners": 2,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/nebula-visuals.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 265,
+   "publishes": [],
+   "consumes": [
+    "NebulaVisuals"
+   ],
+   "htmlSinks": 0,
+   "listeners": 1,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/neural.js": {
+   "owner": "pulsar",
+   "lines": 3839,
+   "publishes": [
+    "NebulaNeural"
+   ],
+   "consumes": [
+    "NebulaPwa",
+    "Nebulaverse"
+   ],
+   "htmlSinks": 6,
+   "listeners": 48,
+   "apiCalls": 14,
+   "commonJsExport": false
+  },
+  "public/offline-cache-policy.js": {
+   "owner": "apps/web",
+   "lines": 59,
+   "publishes": [
+    "NebulaOfflineCachePolicy"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 1,
+   "commonJsExport": true
+  },
+  "public/overlay-motion.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 175,
+   "publishes": [
+    "NebulaOverlayMotion"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 1,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/pull-board.js": {
+   "owner": "posture",
+   "lines": 382,
+   "publishes": [],
+   "consumes": [
+    "NebulaPullBoard",
+    "NebulaRepoInventory"
+   ],
+   "htmlSinks": 0,
+   "listeners": 3,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/rendered-audit-ui.js": {
+   "owner": "parallax",
+   "lines": 154,
+   "publishes": [
+    "NebulaRenderedAudit"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 1,
+   "listeners": 2,
+   "apiCalls": 3,
+   "commonJsExport": false
+  },
+  "public/repo-inventory.js": {
+   "owner": "apps/web",
+   "lines": 47,
+   "publishes": [],
+   "consumes": [
+    "NebulaRepoInventory"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/repo-sigil.js": {
+   "owner": "apps/web",
+   "lines": 193,
+   "publishes": [],
+   "consumes": [
+    "NebulaRepoSigil"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/security-posture.js": {
+   "owner": "posture",
+   "lines": 485,
+   "publishes": [],
+   "consumes": [
+    "NebulaRepoInventory",
+    "NebulaSecurityPosture"
+   ],
+   "htmlSinks": 0,
+   "listeners": 6,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/sw.js": {
+   "owner": "apps/web",
+   "lines": 181,
+   "publishes": [],
+   "consumes": [
+    "NebulaOfflineCachePolicy",
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 4,
+   "apiCalls": 1,
+   "commonJsExport": false
+  },
+  "public/theme-boot.js": {
+   "owner": "apps/web",
+   "lines": 53,
+   "publishes": [],
+   "consumes": [],
+   "htmlSinks": 0,
+   "listeners": 1,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/trust-ui.js": {
+   "owner": "apps/web",
+   "lines": 281,
+   "publishes": [],
+   "consumes": [
+    "NebulaTrustUI"
+   ],
+   "htmlSinks": 0,
+   "listeners": 6,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/upload-planning.js": {
+   "owner": "apps/web",
+   "lines": 141,
+   "publishes": [
+    "NebulaUploadPlanning"
+   ],
+   "consumes": [
+    "Nebulaverse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 0,
+   "apiCalls": 0,
+   "commonJsExport": true
+  },
+  "public/vortex.js": {
+   "owner": "apps/web/visualizations",
+   "lines": 1341,
+   "publishes": [],
+   "consumes": [
+    "NebulaVortex"
+   ],
+   "htmlSinks": 0,
+   "listeners": 9,
+   "apiCalls": 0,
+   "commonJsExport": false
+  },
+  "public/workspace-pulse.js": {
+   "owner": "pulsar",
+   "lines": 1700,
+   "publishes": [],
+   "consumes": [
+    "NebulaWorkspacePulse"
+   ],
+   "htmlSinks": 0,
+   "listeners": 7,
+   "apiCalls": 0,
+   "commonJsExport": true
+  }
+ },
+ "page": {
+  "elementIds": 379,
+  "pages": [
+   "page-alpha-access",
+   "page-login",
+   "page-findings",
+   "page-site",
+   "page-overview",
+   "page-repos",
+   "page-work"
+  ],
+  "workbenchTabs": [
+   "editor",
+   "upload",
+   "commits",
+   "pulls",
+   "issues",
+   "releases",
+   "actions",
+   "compare",
+   "neural",
+   "governance",
+   "exposure",
+   "audit",
+   "safeguards"
+  ],
+  "classicScripts": 38,
+  "inlineScripts": 0
+ }
+}

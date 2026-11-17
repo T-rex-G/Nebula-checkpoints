@@ -2,10 +2,10 @@
 
 const assert = require('assert');
 let storeModule = {};
-try { storeModule = require('../src/governance-store'); } catch {}
+try { storeModule = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 assert.strictEqual(typeof storeModule.GovernanceStore, 'function', 'GovernanceStore must be implemented');
 const { GovernanceStore } = storeModule;
-const { createGovernanceAuditRecord, GOVERNANCE_AUDIT_GENESIS, policyDocumentHash } = require('../src/governance-model');
+const { createGovernanceAuditRecord, GOVERNANCE_AUDIT_GENESIS, policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 
 class ScriptedClient {
   constructor(steps) { this.steps = [...steps]; this.calls = []; this.released = false; }

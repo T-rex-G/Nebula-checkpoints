@@ -7,7 +7,8 @@
  * literals and templates nested thousands deep, and one SQL statement that
  * never ends. Each is ~200 KB; read in linear time it takes well under a
  * second, and the readings these replace took from four seconds to well over
- * a minute. The bound leaves room for a slow runner.
+ * a minute. The bound is on the CPU time the reading spends, and leaves room
+ * for a slow runner.
  *
  * Then what the bounds keep: a bracket's partner is the one the walk would
  * have found, an argument list splits where it did, the nesting the tracer
@@ -16,8 +17,7 @@
  */
 
 const assert = require('assert');
-const { analyse } = require('../src/code-audit');
-const { lexJs, matching, splitArgs } = require('../src/uranus-lex');
+const { analyse, lexJs, matching, splitArgs } = require('../apps/api/src/modules/uranus/index.ts');
 
 const SIZE = 200 * 1024;
 const fill = unit => unit.repeat(Math.floor(SIZE / unit.length));
@@ -45,10 +45,16 @@ const route = "const app = require('express')();\napp.get('/a', (req, res) => { 
     'SQL statements by the thousand': { path: 'schema.sql', text: fill('create table a (id int); alter table a enable row level security;\n') }
   };
   for (const [name, file] of Object.entries(crafted)) {
-    const started = Date.now();
+    /*
+     * The process's own CPU time, not the wall clock: what is bounded is the
+     * work the reading does, and a runner busy with other tests must not make
+     * a linear reading look quadratic.
+     */
+    const started = process.cpuUsage();
     analyse({ files: [file], paths: [file.path] });
-    const took = Date.now() - started;
-    assert(took < 2500, `${name}: ${took} ms -- a crafted file must not make the tracer quadratic`);
+    const spent = process.cpuUsage(started);
+    const took = Math.round((spent.user + spent.system) / 1000);
+    assert(took < 2500, `${name}: ${took} ms of CPU -- a crafted file must not make the tracer quadratic`);
   }
 }
 
@@ -75,6 +81,16 @@ const route = "const app = require('express')();\napp.get('/a', (req, res) => { 
   assert.strictEqual(matching(grown, 0), 1);
   grown.push({ t: 'punc', v: ')', line: 1 });
   assert.strictEqual(matching(grown, 0), 2);
+}
+
+/* ---- Space a file carries that no one typed ------------------------------------ */
+/* A byte-order mark and a no-break space part tokens as a space does: a file saved with either lexes as the code it shows. */
+{
+  const tokens = text => lexJs(text).map(token => [token.t, token.v]);
+  const plain = tokens('const a = f(b);');
+  assert(plain.length > 5);
+  assert.deepStrictEqual(tokens('\ufeffconst a = f(b);'), plain);
+  assert.deepStrictEqual(tokens('const\u00a0a = f(\u00a0b);'), plain);
 }
 
 /* ---- What the bounds stop following is said, and the rest is still traced ------- */

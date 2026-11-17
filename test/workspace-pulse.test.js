@@ -7,7 +7,7 @@
  */
 
 const assert = require('assert');
-const pulse = require('../public/workspace-pulse.js');
+const pulse = require('../apps/web/src/features/overview/workspace-pulse.ts');
 
 const NOW = Date.parse('2026-08-23T12:00:00.000Z');
 const DAY = 86400000;

@@ -14,13 +14,13 @@
 const assert = require('assert');
 
 let planning = {};
-try { planning = require('../public/upload-planning'); } catch { /* asserted below */ }
+try { planning = require('../packages/contracts/src/upload-planning.ts'); } catch { /* asserted below */ }
 for (const name of ['MAX_BATCH_ITEMS', 'planBatchCommits']) {
   assert(planning[name], `${name} must be implemented`);
 }
 const { MAX_BATCH_ITEMS, planBatchCommits } = planning;
 
-const { ACTION_EXECUTION_CONTRACTS, normalizeFileBatch } = require('../src/mutation-coverage');
+const { ACTION_EXECUTION_CONTRACTS, normalizeFileBatch } = require('../apps/api/src/platform/mutation-gateway/mutation-coverage.ts');
 
 /* The drift guard. The browser plans against this number before it uploads
  * anything, so if the server's own limit moves and this one does not, the queue

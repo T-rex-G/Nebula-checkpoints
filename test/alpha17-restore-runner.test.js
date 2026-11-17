@@ -17,7 +17,7 @@ const {
   runRestoreValidation
 } = require('../ci/run-alpha17-restore-validation');
 const { neonConnectionIdentitySha256 } = require('../scripts/alpha-db');
-const { loadMigrations } = require('../src/migrations');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const LATEST_MIGRATION = loadMigrations(path.join(root, 'db', 'migrations')).at(-1).id;
 
 const SUBJECT = 'a'.repeat(64);

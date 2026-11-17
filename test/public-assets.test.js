@@ -11,12 +11,14 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { stripJsComments, stripCssComments, stripHtmlComments, buildPublicAssets, etagMatches, securityContact } = require('../src/public-assets');
+const { stripJsComments, stripCssComments, stripHtmlComments, securityContact } = require('../src/public-assets');
 
 let acorn;
 try { acorn = require('acorn'); } catch { acorn = require(require.resolve('acorn', { paths: [path.dirname(require.resolve('eslint'))] })); }
 
-const root = path.join(__dirname, '..', 'public');
+const root = path.join(__dirname, '..');
+const copiedAsWritten = path.join(root, 'apps', 'web', 'public');
+const built = path.join(root, 'dist', 'web');
 const tokens = (source, sourceType) => {
   const out = [];
   for (const token of acorn.tokenizer(source, { ecmaVersion: 'latest', sourceType })) out.push(`${token.type.label}:${token.value === undefined ? '' : String(token.value)}`);
@@ -29,8 +31,8 @@ const commentsIn = (source, sourceType) => {
 };
 
 /* ---- Every first-party script: same tokens, no comments ------------------------------ */
-for (const name of fs.readdirSync(root).filter(file => file.endsWith('.js'))) {
-  const source = fs.readFileSync(path.join(root, name), 'utf8');
+for (const name of fs.readdirSync(copiedAsWritten).filter(file => file.endsWith('.js'))) {
+  const source = fs.readFileSync(path.join(copiedAsWritten, name), 'utf8');
   const sourceType = /^\s*(?:import|export)\s/m.test(source) ? 'module' : 'script';
   const stripped = stripJsComments(source);
   assert.deepStrictEqual(tokens(stripped, sourceType), tokens(source, sourceType), `${name}: stripping comments changed a token`);
@@ -65,45 +67,67 @@ for (const name of fs.readdirSync(root).filter(file => file.endsWith('.js'))) {
 /* ---- CSS and HTML ------------------------------------------------------------------------- */
 {
   assert.strictEqual(stripCssComments('/* head */\na{b:c} /* tail */\ne::after{content:"/* kept */"}\n'), 'a{b:c}  \ne::after{content:"/* kept */"}\n');
-  const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
   const cssOut = stripCssComments(css);
   assert(!cssOut.includes('/*'), 'the stylesheet ships no comment');
   assert.strictEqual(cssOut.replace(/\s+/g, ''), css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ''), 'only comments and the whitespace around them were removed');
 
   assert.strictEqual(stripHtmlComments('<a>\n  <!-- one -->\n<b><!-- two --></b> <!-- three --> <i>\n'), '<a>\n<b></b>  <i>\n');
   assert.strictEqual(stripHtmlComments('<!-- a --> <p>kept</p>\n<!-- b -->\n'), ' <p>kept</p>\n', 'a comment never swallows the markup up to the next one');
-  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
   const htmlOut = stripHtmlComments(html);
   assert(!htmlOut.includes('<!--'), 'the page ships no comment');
   assert.strictEqual(htmlOut.replace(/\s+/g, ''), html.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ''), 'only comments and the whitespace around them were removed');
 }
 
 /* ---- What the server serves ---------------------------------------------------------------- */
+/*
+ * What the build ships carries no source commentary: not the page, not the
+ * classic script, not a module or the stylesheet. The one kind of comment kept
+ * is a licence notice (`/*!`, @license, @preserve), which a bundled library's
+ * licence requires to travel with its code.
+ */
 {
-  const assets = buildPublicAssets(root);
-  const scripts = fs.readdirSync(root).filter(file => /\.(js|css)$/.test(file));
-  assert.deepStrictEqual([...assets.keys()].sort(), scripts.map(file => `/${file}`).sort(), 'every first-party script and stylesheet is served stripped');
-  const app = assets.get('/app.js');
-  assert.match(app.type, /^application\/javascript/);
-  assert.match(app.etag, /^"[\w-]{27}"$/);
-  assert(app.body.length < fs.statSync(path.join(root, 'app.js')).size);
-  assert(!assets.has('/vendor/marked/15.0.12/marked.min.js'), 'vendor files are served as published');
+  const legal = text => /^!|@license|@preserve/.test(text.trim());
+  assert(!fs.readFileSync(path.join(built, 'index.html'), 'utf8').includes('<!--'), 'the built page ships no comment');
+  assert.deepStrictEqual(commentsIn(fs.readFileSync(path.join(built, 'theme-boot.js'), 'utf8'), 'script'), [],
+    'the classic script ships no comment');
+  const files = fs.readdirSync(path.join(built, 'build'));
+  for (const file of files.filter(name => name.endsWith('.js'))) {
+    const comments = commentsIn(fs.readFileSync(path.join(built, 'build', file), 'utf8'), 'module');
+    assert.deepStrictEqual(comments.filter(comment => !legal(comment.value)).map(comment => comment.value.slice(0, 60)), [],
+      `${file} ships source commentary`);
+  }
+  for (const file of files.filter(name => name.endsWith('.css'))) {
+    const css = fs.readFileSync(path.join(built, 'build', file), 'utf8');
+    const comments = [...css.matchAll(/\/\*([\s\S]*?)\*\//g)].map(match => match[1]);
+    assert.deepStrictEqual(comments.filter(comment => !legal(comment)), [], `${file} ships source commentary`);
+  }
+  const worker = fs.readFileSync(path.join(built, 'sw.js'), 'utf8');
+  assert.deepStrictEqual(commentsIn(worker, 'script').filter(comment => !legal(comment.value)), [], 'the service worker ships no comment');
 }
 
-/* ---- Revalidation through a compressing proxy ---------------------------------------------- */
+/*
+ * The stylesheet a browser receives is the one that was written: every sheet
+ * the entry imports, in import order, less its comments, and nothing
+ * rewritten. A CSS minifier once kept only the prefixed copy of
+ * `backdrop-filter:none; -webkit-backdrop-filter:none`, and the blur of an
+ * earlier rule came back on every phone. Only asset URLs differ, because the
+ * build gives fonts hashed names.
+ */
 {
-  const etag = '"abc123"';
-  assert.strictEqual(etagMatches('"abc123"', etag), true);
-  assert.strictEqual(etagMatches('W/"abc123"', etag), true, 'a proxy that compresses weakens the tag; If-None-Match compares weakly');
-  assert.strictEqual(etagMatches('"zzz", W/"abc123"', etag), true, 'any member of a list');
-  assert.strictEqual(etagMatches('*', etag), true);
-  assert.strictEqual(etagMatches('"abc1234"', etag), false);
-  assert.strictEqual(etagMatches('W/"other"', etag), false);
-  assert.strictEqual(etagMatches('', etag), false);
-  assert.strictEqual(etagMatches(undefined, etag), false);
+  const entry = path.join(root, 'apps', 'web', 'src', 'main.js');
+  const sheets = [...fs.readFileSync(entry, 'utf8').matchAll(/^import '([^']+\.css)';$/gm)]
+    .map(match => (match[1].startsWith('.') ? path.resolve(path.dirname(entry), match[1]) : require.resolve(match[1])));
+  assert(sheets.length >= 2, 'the entry imports its stylesheets');
+  const builtSheets = fs.readdirSync(path.join(built, 'build')).filter(name => name.endsWith('.css'));
+  assert.strictEqual(builtSheets.length, 1, 'the page loads one stylesheet');
+  const shape = text => text.replace(/url\([^)]*\)/g, 'url()').replace(/\s+/g, '');
+  assert.strictEqual(shape(fs.readFileSync(path.join(built, 'build', builtSheets[0]), 'utf8')),
+    sheets.map(sheet => shape(stripCssComments(fs.readFileSync(sheet, 'utf8')))).join(''),
+    'the built stylesheet is the written cascade, in order, less comments');
 }
 
-/* ---- security.txt Contact is always a URI ---------------------------------------------------- */
 {
   const fallback = 'https://github.com/T-rex-G/Nebula-checkpoints/security/advisories/new';
   const address = ['security', 'example.org'].join('@');

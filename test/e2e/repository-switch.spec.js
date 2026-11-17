@@ -31,6 +31,9 @@ async function secondRepository(page) {
 }
 
 test('another repository opens onto clean sections, never the last one’s audit', async ({ page }) => {
+  /* Each section is taken down by its own component, so nothing is torn from under it: the page throws nothing. */
+  const failures = [];
+  page.on('pageerror', error => failures.push(String(error)));
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/audit');
   const pane = page.locator('#tab-audit');
@@ -53,6 +56,7 @@ test('another repository opens onto clean sections, never the last one’s audit
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', 'Not audited');
   await expect(pane).not.toContainText('critical issue');
   await expect(pane.locator('.audit-findings')).toHaveCount(0);
+  expect(failures).toEqual([]);
 });
 
 test('an audit still being followed for the last repository never lands on the new one', async ({ page }) => {

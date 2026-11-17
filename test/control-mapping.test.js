@@ -1,12 +1,12 @@
 'use strict';
 const assert = require('assert');
 let controls = {};
-try { controls = require('../src/control-catalog'); } catch {}
+try { controls = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['CONTROL_CATALOG', 'TASK_14_CONTROL_CATALOG', 'LEGACY_CONTROL_CATALOG', 'normalizeControlRefs', 'deriveControlMapping', 'normalizeControlMapping']) {
   assert(controls[name], `${name} must be implemented`);
 }
 const { CONTROL_CATALOG, TASK_14_CONTROL_CATALOG, LEGACY_CONTROL_CATALOG, normalizeControlRefs, deriveControlMapping, normalizeControlMapping } = controls;
-const { MUTATION_ACTIONS } = require('../src/mutation-gateway');
+const { MUTATION_ACTIONS } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 assert.strictEqual(CONTROL_CATALOG.id, 'nebulaverse-control-catalog');
 assert.strictEqual(CONTROL_CATALOG.version, '1.7.0');
 assert.strictEqual(TASK_14_CONTROL_CATALOG.version, '1.1.0');
@@ -136,7 +136,7 @@ for (const action of EXPOSURE_ACTIONS) {
  * finding is in.
  */
 {
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['exposure.finding.accept-risk'].actorBinding, 'governance');
   assert.strictEqual(actions['exposure.finding.accept-risk'].risk, 'critical');
   /* Using a discovered credential is the highest-risk thing this feature
@@ -174,7 +174,7 @@ for (const action of EXPOSURE_ACTIONS) {
     'unmapped',
     'a policy approved against 1.3.0 never covered clearing a history'
   );
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['exposure.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['exposure.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['exposure.history.clear'].operations, []);
@@ -199,7 +199,7 @@ for (const action of EXPOSURE_ACTIONS) {
   const after = new Set(current.actionMappings.map(item => item.action));
   assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), LIFECYCLE, '1.5.0 adds exactly the lifecycle actions');
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   for (const action of LIFECYCLE) {
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.5.0', policyEvaluations: [] }).status, 'mapped');
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.4.0', policyEvaluations: [] }).status, 'unmapped',
@@ -231,7 +231,7 @@ for (const action of EXPOSURE_ACTIONS) {
     'unmapped',
     'a policy approved against 1.5.0 never covered clearing an audit history'
   );
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   assert.strictEqual(actions['code-audit.history.clear'].actorBinding, 'execution', 'a person clears their own record');
   assert.strictEqual(actions['code-audit.history.clear'].risk, 'medium', 'irreversible, so not low');
   assert.deepStrictEqual(actions['code-audit.history.clear'].operations, []);
@@ -251,7 +251,7 @@ for (const action of EXPOSURE_ACTIONS) {
   const TRIAGE = ['code-audit.finding.reopen', 'code-audit.finding.triage'];
   assert.deepStrictEqual([...after].filter(action => !before.has(action)).sort(), TRIAGE, '1.7.0 adds exactly the triage actions');
   assert.deepStrictEqual([...before].filter(action => !after.has(action)), [], 'a revision may only add');
-  const { MUTATION_ACTIONS: actions } = require('../src/mutation-gateway');
+  const { MUTATION_ACTIONS: actions } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
   for (const action of TRIAGE) {
     assert.strictEqual(deriveControlMapping({ action, policyEvaluations: [] }).status, 'mapped');
     assert.strictEqual(deriveControlMapping({ action, catalogVersion: '1.6.0', policyEvaluations: [] }).status, 'unmapped',
@@ -261,6 +261,42 @@ for (const action of EXPOSURE_ACTIONS) {
   }
   assert.strictEqual(actions['code-audit.finding.triage'].risk, 'high', 'it takes a finding out of the grade and the merge gate');
   assert.strictEqual(actions['code-audit.finding.reopen'].risk, 'medium', 'it only ever shows a finding again');
+}
+
+/*
+ * Inherited names are not catalogue entries. An action or catalogue version
+ * named after an Object.prototype member once crashed the derivation with a
+ * TypeError, and a stored mapping citing such an action as its source passed
+ * the source check, so only the hash stood between it and acceptance.
+ */
+{
+  for (const action of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+    const mapping = controls.deriveControlMapping({ action });
+    assert.strictEqual(mapping.status, 'unmapped', `${action} is no catalogued action`);
+    assert.deepStrictEqual([...mapping.unmappedReasons], ['ACTION_NOT_PRESENT_IN_CATALOG']);
+  }
+  for (const catalogVersion of ['toString', 'constructor', '__proto__']) {
+    assert.throws(() => controls.deriveControlMapping({ action: 'file.write', catalogVersion }),
+      error => error.code === 'POLICY_CONTROL_MAPPING_INVALID' && /catalog version is unsupported/.test(error.message),
+      `${catalogVersion} is no catalogue version`);
+  }
+  const canonical = value => {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  };
+  const forged = JSON.parse(JSON.stringify(controls.deriveControlMapping({ action: 'file.write' })));
+  forged.controls[0].sources = [...forged.controls[0].sources, { source: 'action-catalog', action: 'constructor' }]
+    .sort((a, b) => canonical(a).localeCompare(canonical(b)));
+  const { mappingHash, ...body } = forged;
+  forged.mappingHash = require('crypto').createHash('sha256').update(canonical(body), 'utf8').digest('hex');
+  assert.notStrictEqual(forged.mappingHash, mappingHash);
+  assert.throws(() => controls.normalizeControlMapping(forged), /Control action source is invalid/,
+    'a mapping whose source cites an inherited name is refused, however well it is hashed');
+  const catalog = { ...controls.CONTROL_CATALOG, version: 'constructor' };
+  const unknownCatalog = { ...JSON.parse(JSON.stringify(controls.deriveControlMapping({ action: 'file.write' }))), catalog };
+  assert.throws(() => controls.normalizeControlMapping(unknownCatalog), /catalog identity is invalid/,
+    'a mapping naming an inherited catalogue version is refused as an unknown catalogue');
 }
 
 console.log('control mapping tests passed');

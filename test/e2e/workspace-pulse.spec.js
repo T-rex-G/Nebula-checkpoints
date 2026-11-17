@@ -10,17 +10,20 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn, installClock, heldReading } = require('./press');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
-async function signIn(page) {
+async function signIn(page, answer = {}) {
   await mockPublicAlphaApi(page, {
     access: 'required',
     ready: 'ready',
     provider: 'github',
     repositoryState: 'current'
   });
+  /* Registered after the fixture's routes, so each is asked first. */
+  for (const [route, body] of Object.entries(answer)) await page.route(`**${route}`, request => request.fulfill({ json: body }));
   await page.goto('/');
   await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
   await ui.checkbox(page, /I accept/).check();
@@ -75,10 +78,7 @@ test('a signed-in session lands on the overview and reports a trust score it can
    * arrives; the disclosure used to be rebuilt closed, so a reader who had
    * just opened it lost it the moment the next signal landed.
    */
-  await page.evaluate(() => {
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
-  });
+  await page.locator('#ovHomeBtn').click();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
@@ -112,12 +112,36 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
   const open = await page.evaluate(() => {
     const host = document.querySelector('#wpTrust');
     host.querySelector('.wp-numbers summary').click();
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: host }, Pulse.model({ repos: [] }));
+    /* Returning to the overview in the same task rebuilds the card, ahead of the toggle event. */
+    document.getElementById('ovHomeBtn').click();
     return host.querySelector('.wp-numbers').open;
   });
   expect(open).toBe(true);
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+});
+
+/*
+ * A reading can land while the reader is pressing "Show the numbers". The
+ * card used to be rebuilt under the press: the pointer went down on the old
+ * summary and came up on its replacement, so the browser delivered no click
+ * and the numbers stayed shut. The repaint now waits for the press.
+ */
+test('a reading that lands during the press on the numbers does not swallow it', async ({ page }) => {
+  await installClock(page);
+  await mockPublicAlphaApi(page, { access: 'active' });
+  const reading = await heldReading(page);
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  const summary = trust.locator('.wp-numbers summary').first();
+  await expect(summary).toBeVisible();
+  await reading.start();
+  await pressOn(page, summary);
+  await reading.land();
+  await page.mouse.up();
+  await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+  /* The reading that waited is drawn once the press is over, and the numbers stay open in it. */
+  await expect(trust).toContainText('Private repositories');
+  await expect(trust.locator('.wp-numbers').first()).toHaveJSProperty('open', true);
 });
 
 test('an open critical leak caps the score and says why', async ({ page }) => {
@@ -133,7 +157,7 @@ test('an open critical leak caps the score and says why', async ({ page }) => {
 
   const trust = page.getByRole('article', { name: 'Trust score' });
   await expect(trust).toContainText('1 leaked credential still exposed (1 critical)');
-  await expect(trust).toContainText('Held below 50 while a critical leaked credential is still exposed');
+  await expect(trust.getByText('Held below 50 while a critical leaked credential is still exposed')).toBeVisible();
   const figure = Number((await trust.locator('.wp-dial .wp-gauge-figure').first().textContent()).trim());
   expect(figure).toBeLessThanOrEqual(49);
   await expect(trust.locator('.wp-grade')).toHaveAttribute('aria-label', 'Grade F');
@@ -166,6 +190,43 @@ test('the overview never invents a figure it could not measure', async ({ page }
     expect(Number(shown)).toBeGreaterThan(0);
     expect(Number(shown)).toBeLessThanOrEqual(100);
     expect(arcs).toBe(1);
+  }
+});
+
+/*
+ * A signal with nothing to report is drawn as not measured: its dial keeps
+ * its track and draws no arc, and a dash stands where its figure goes. A
+ * zero-length arc would be a reading of zero, and "not measured" is not zero.
+ */
+test('a signal with nothing to report draws its track and no arc', async ({ page }) => {
+  /* A deployment without a database scans nothing, so leaked credentials are not measured. */
+  await signIn(page, {
+    '/api/workspace/posture': {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], detail: 'Fine-grained token limited to the repositories chosen for it.' },
+      recovery: { available: false, repositories: [] },
+      exposure: { available: false, repositories: [] },
+      boundary: { state: 'online', database: 'unavailable', maintenance: false }
+    }
+  });
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust.locator('.wp-component').filter({ hasText: 'Leaked credentials' })).toContainText('needs the server database');
+  const dials = await trust.locator('.wp-components .wp-gauge').evaluateAll(gauges => gauges.map(gauge => ({
+    status: gauge.dataset.status,
+    arcs: gauge.querySelectorAll('.wp-gauge-arc').length,
+    tracks: gauge.querySelectorAll('.wp-gauge-track').length,
+    figure: gauge.querySelector('.wp-gauge-figure').textContent.trim(),
+    empty: gauge.querySelector('.wp-gauge-figure').classList.contains('wp-gauge-empty')
+  })));
+  expect(dials).toHaveLength(6);
+  expect(dials.some(dial => dial.status === 'unknown'), 'a signal is left unmeasured').toBe(true);
+  expect(dials.some(dial => dial.status !== 'unknown'), 'and another is measured').toBe(true);
+  for (const dial of dials) {
+    expect(dial.tracks).toBe(1);
+    if (dial.status === 'unknown') expect(dial).toMatchObject({ arcs: 0, figure: '\u2014', empty: true });
+    else {
+      expect(dial).toMatchObject({ arcs: 1, empty: false });
+      expect(dial.figure).toMatch(/^\d{1,3}$/);
+    }
   }
 });
 

@@ -4,10 +4,10 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { createAccountBoundary } = require('../apps/web/src/features/access/account-boundary.ts');
 
 const root = path.join(__dirname, '..');
-const neural = fs.readFileSync(path.join(root, 'public/neural.js'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
+const neural = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/neural.js'), 'utf8');
 
 function declaration(source, name, indent = '') {
   const start = source.indexOf(`${indent}async function ${name}(`);
@@ -36,7 +36,7 @@ function browser(options = {}) {
   const sandbox = {
     state,
     NVN: { data: { safety: { globalControls: options.globalControls !== false } } },
-    window: { NebulaPwa: {} },
+    window: {},
     workPath: () => `${state.work.owner}/${state.work.repo}`,
     modal: async input => {
       effects.push(['modal', input]);
@@ -73,7 +73,7 @@ function browser(options = {}) {
       effects.push(['download', ...args]);
     },
     location: { reload: () => effects.push(['reload']) },
-    clearActivityFeed() {}, clearPosture() {}, paintUnread() {}, clearCsrfToken() {},
+    discardHeldRepaints() {}, clearActivityFeed() {}, clearPosture() {}, paintUnread() {}, clearCsrfToken() {},
     clearGovernanceState() {}, clearExposureState() {}, clearAuditState() {}, clearSiteScanState() {},
     purgePrivateCaches: async () => {
       effects.push(['purge']);
@@ -90,10 +90,21 @@ function browser(options = {}) {
     }),
     forgetRepositoryWork() {},
     $: () => null,
-    _cache: { clear() {} }
+    transport: { cache: { clear() {} } }
   };
+  /* The shield purges through the workbench's own purge, the account boundary (features/access/account-boundary.ts). */
+  const boundary = createAccountBoundary({
+    state, discardHeldRepaints: sandbox.discardHeldRepaints, clearActivityFeed: sandbox.clearActivityFeed, clearPosture: sandbox.clearPosture,
+    paintUnread: sandbox.paintUnread, clearCsrfToken: sandbox.clearCsrfToken, clearGovernanceState: sandbox.clearGovernanceState,
+    clearExposureState: sandbox.clearExposureState, clearAuditState: sandbox.clearAuditState, clearSiteScanState: sandbox.clearSiteScanState,
+    forgetRepositoryWork: sandbox.forgetRepositoryWork,
+    cacheNames: async () => { await sandbox.purgePrivateCaches(); return []; }, deleteCache: async () => {},
+    sessionStorage: () => sandbox.sessionStorage, localStorage: () => sandbox.localStorage, serviceWorker: () => sandbox.navigator.serviceWorker.controller,
+    openQueue: () => sandbox.idb(), find: selector => sandbox.$(selector), forgetReads: () => sandbox.transport.cache.clear(),
+    channel: () => null, writeStorage: () => {}, onStorage: () => {}, marker: () => '', reload: () => {}
+  });
+  sandbox.purgeLocalData = full => boundary.purge(full);
   vm.createContext(sandbox);
-  vm.runInContext(`${declaration(app, 'purgeLocalData')}\nwindow.NebulaPwa.purgePrivateData = purgeLocalData;`, sandbox);
   vm.runInContext(`${declaration(neural, 'emergencyShield', '  ')}\nthis.run = emergencyShield;`, sandbox);
   return { run: sandbox.run, state, effects, stored, button };
 }

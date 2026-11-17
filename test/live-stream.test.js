@@ -10,7 +10,7 @@
 const assert = require('assert');
 const {
   MAX_LIVE_CLIENT_BUFFER_BYTES, WRITTEN, DROPPED, ENDED, writeLiveClient
-} = require('../src/live-stream');
+} = require('../apps/api/src/modules/pulsar/index.ts');
 
 /*
  * A response stream does not throw when the reader stalls: it accepts the

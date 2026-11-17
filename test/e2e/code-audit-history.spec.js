@@ -108,6 +108,15 @@ test('the last kept audit stands in until the next, and the watch says what was 
   expect(run.properties.kept).toBe(true);
   expect(run.results.length).toBeGreaterThan(0);
 
+  /* A kept audit opened by its own row is read too, and shut again by it. */
+  const middle = kept.nth(1).locator('details');
+  await expect(middle).not.toHaveAttribute('open', /.*/);
+  await middle.locator('summary').click();
+  await expect(middle).toHaveAttribute('open', '');
+  await expect(middle.locator('.audit-hist-finding').first()).toBeVisible();
+  await middle.locator('summary').click();
+  await expect(middle).not.toHaveAttribute('open', /.*/);
+
   /* Folding the watch is remembered like every other section. */
   await watch.getByRole('button', { name: 'Collapse Since the last audit' }).click();
   await expect(watch).toHaveAttribute('data-folded', 'true');

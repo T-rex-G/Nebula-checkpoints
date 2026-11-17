@@ -25,8 +25,8 @@
 const assert = require('assert');
 const crypto = require('crypto');
 
-const { EXPOSURE_RULES, PATH_RULES, detectInText, detectInPath, createLocator } = require('../src/exposure-detection');
-const { plausibleSecret, plausibleConnectionString, shannonEntropy, MIN_ENTROPY_BITS } = require('../src/exposure-rules');
+const { EXPOSURE_RULES, PATH_RULES, detectInText, detectInPath, createLocator } = require('../apps/api/src/modules/quasar/index.ts');
+const { plausibleSecret, plausibleConnectionString, shannonEntropy, MIN_ENTROPY_BITS } = require('../apps/api/src/modules/quasar/index.ts');
 
 const { ALL_FIXTURES, FIXTURES, SUPABASE_FIXTURES, jwt, random } = require('./fixtures/exposure-rule-fixtures');
 

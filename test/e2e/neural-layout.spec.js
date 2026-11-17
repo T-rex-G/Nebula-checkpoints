@@ -15,8 +15,12 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
+const { canvasInk } = require('./canvas-ink');
 
 test.use({ serviceWorkers: 'block' });
+/* The graph's state is read through the read-only probe, which the harness marker asks for (ADR-092). */
+test.beforeEach(async ({ page }) => { await ui.underHarness(page); });
 
 async function openGraph(page, routes, options = {}) {
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current', ...options });
@@ -24,17 +28,17 @@ async function openGraph(page, routes, options = {}) {
   if (routes) await routes(page);
   await page.goto('/#/sandbox/demo@main/neural');
   await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
-  await expect.poll(() => page.evaluate(() => (window.NebulaNeural ? window.NebulaNeural.state.nodes.filter(n => n.visible).length : 0))).toBeGreaterThan(2);
+  await expect.poll(() => page.evaluate(() => (window.__NV_PROBE__.read('neural') || { nodes: [] }).nodes.filter(n => n.visible).length)).toBeGreaterThan(2);
   await page.locator('#neuralStage').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
 }
 
 async function expand(page) {
   await page.locator('#neuralExpandBtn').click();
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.width > window.innerWidth * .95)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').width > window.innerWidth * .95)).toBe(true);
   /* The re-layout for the new shape runs a moment after the resize settles. */
   await page.waitForTimeout(300);
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.camTarget)).toBeNull();
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
 }
 
 test('the zoom buttons belong to the full view', async ({ page }) => {
@@ -51,7 +55,7 @@ test('on a tall stage one spine leaves the hub at its rim, and each row branches
   await openGraph(page);
   await expand(page);
   const wiring = await page.evaluate(() => {
-    const s = window.NebulaNeural.state;
+    const s = window.__NV_PROBE__.read('neural');
     const hub = s.nodes.find(n => n.type === 'repo');
     const wired = s.nodes.filter(n => n.visible && !n.folded && n.type !== 'repo' && n.path);
     const starts = new Set();
@@ -88,7 +92,7 @@ test('turned sideways, every tool is inside the stage and clear of the search', 
   await openGraph(page);
   await expand(page);
   await page.setViewportSize({ width: 851, height: 393 });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.layoutMode)).toBe('split');
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').layoutMode)).toBe('split');
   await page.waitForTimeout(400);
   const layout = await page.evaluate(() => {
     const stage = document.getElementById('neuralStage').getBoundingClientRect();
@@ -105,32 +109,48 @@ test('turned sideways, every tool is inside the stage and clear of the search', 
   expect(layout.underSearch).toEqual([]);
 });
 
+/* A graph nobody can see draws nothing: leaving the tab stops its loop, its timer and its stream. */
+test('leaving the Neural tab stops the graph', async ({ page }) => {
+  await openGraph(page);
+  const running = await ui.probe(page, 'neural');
+  expect(running.active).toBe(true);
+  await ui.openTab(page, 'editor');
+  await expect.poll(async () => {
+    const s = await ui.probe(page, 'neural');
+    return { active: s.active, raf: s.raf };
+  }).toEqual({ active: false, raf: 0 });
+  const frames = (await ui.probe(page, 'neural')).frames;
+  await page.waitForTimeout(400);
+  expect((await ui.probe(page, 'neural')).frames).toBe(frames);
+});
+
 test('turning the phone re-lays the graph and keeps it moving', async ({ page }) => {
   test.skip((page.viewportSize() || {}).width >= 720, 'turning is a phone gesture');
   await openGraph(page);
   await expand(page);
-  expect(await page.evaluate(() => window.NebulaNeural.state.layoutMode)).toBe('stack');
+  expect(await page.evaluate(() => window.__NV_PROBE__.read('neural').layoutMode)).toBe('stack');
   await page.setViewportSize({ width: 851, height: 393 });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.layoutMode)).toBe('split');
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').layoutMode)).toBe('split');
   /* While the graph re-lays itself the effects ride on the main canvas; once
    * it settles they are back on their own layer, and still being drawn. */
-  await expect.poll(() => page.evaluate(() => !window.NebulaNeural.state.interacting && !window.NebulaNeural.state.camTarget)).toBe(true);
-  const sample = () => page.evaluate(() => {
-    const fx = document.getElementById('neuralFx');
-    const data = fx.getContext('2d').getImageData(0, 0, fx.width, fx.height).data;
-    let sum = 0;
-    for (let i = 3; i < data.length; i += 4 * 13) sum += data[i];
-    return sum;
-  });
-  const first = await sample();
+  await expect.poll(() => page.evaluate(() => !window.__NV_PROBE__.read('neural').interacting && !window.__NV_PROBE__.read('neural').camTarget)).toBe(true);
+  const effects = () => page.evaluate(() => ({
+    layer: getComputedStyle(document.getElementById('neuralFx')).visibility,
+    drawn: window.__NV_PROBE__.read('neural').lastDraw
+  }));
+  const ink = () => canvasInk(page, '#neuralFx', { stride: 13 });
+  const before = await effects();
+  const first = await ink();
   await page.waitForTimeout(400);
-  const second = await sample();
+  const after = await effects();
+  expect([before.layer, after.layer], 'the effects are on their own layer, and stay there').toEqual(['visible', 'visible']);
+  expect(after.drawn, 'and are drawn on through the wait').toBeGreaterThan(before.drawn);
   expect(first).toBeGreaterThan(0);
-  expect(second).not.toBe(first);
-  expect(await page.evaluate(() => window.NebulaNeural.state.raf)).not.toBe(0);
+  await expect.poll(ink, { message: 'what they draw moves' }).not.toBe(first);
+  expect(await page.evaluate(() => window.__NV_PROBE__.read('neural').raf)).not.toBe(0);
   /* And back upright, the tall layout returns. */
   await page.setViewportSize({ width: 393, height: 727 });
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.layoutMode)).toBe('stack');
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').layoutMode)).toBe('stack');
 });
 
 test('on the page a finger scrolls the page; in the full view it moves the graph', async ({ page }) => {
@@ -145,7 +165,7 @@ test('on the page the wheel scrolls past the graph, and Ctrl with the wheel zoom
   await page.setViewportSize({ width: 1280, height: 720 });
   await openGraph(page);
   const read = () => page.evaluate(() => ({
-    zoom: window.NebulaNeural.state.zoom,
+    zoom: window.__NV_PROBE__.read('neural').zoom,
     scroll: document.getElementById('tab-neural').scrollTop
   }));
   const box = await page.locator('#neuralCanvas').boundingBox();
@@ -160,11 +180,64 @@ test('on the page the wheel scrolls past the graph, and Ctrl with the wheel zoom
   await expect(page.locator('#neuralGestureHint')).toBeVisible();
   /* The page moved under the pointer; aim at the graph again. */
   const moved = await page.locator('#neuralCanvas').boundingBox();
+  const aim = { x: moved.width / 2, y: Math.min(moved.height / 2, 120) };
+  const camera = () => page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    return { zoom: s.zoom, panX: s.panX, panY: s.panY, width: s.width, height: s.height, moving: !!s.camTarget };
+  });
+  await expect.poll(async () => (await camera()).moving).toBe(false);
+  const was = await camera();
   await page.keyboard.down('Control');
-  await page.mouse.move(moved.x + moved.width / 2, moved.y + Math.min(moved.height / 2, 120));
+  await page.mouse.move(moved.x + aim.x, moved.y + aim.y);
   await page.mouse.wheel(0, -240);
   await page.keyboard.up('Control');
   await expect.poll(async () => (await read()).zoom).toBeGreaterThan(before.zoom);
+  /* About the pointer: the part of the graph under it stays under it. */
+  const now = await camera();
+  const wx = (aim.x - was.width / 2 - was.panX) / was.zoom, wy = (aim.y - was.height / 2 - was.panY) / was.zoom;
+  expect(Math.abs(now.width / 2 + now.panX + wx * now.zoom - aim.x)).toBeLessThan(.5);
+  expect(Math.abs(now.height / 2 + now.panY + wy * now.zoom - aim.y)).toBeLessThan(.5);
+});
+
+/* Over the stage the cursor says what a press would do there. */
+test('the cursor says what a press would do: a node pressed, a header moved, the ground grabbed', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'a cursor is a mouse\'s');
+  await openGraph(page);
+  await expand(page);
+  const spots = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const canvas = document.getElementById('neuralCanvas');
+    const rect = canvas.getBoundingClientRect();
+    const at = (x, y) => ({ x: rect.left + s.width / 2 + s.panX + x * s.zoom, y: rect.top + s.height / 2 + s.panY + y * s.zoom });
+    const clear = p => document.elementFromPoint(p.x, p.y) === canvas;
+    const panel = s.panels.find(p => p.shown.length && clear(at(p.x + p.w / 2, p.y + 26)) && clear(at(p.x + p.w / 2, p.y + 56 + 22)));
+    const hub = s.nodes.find(n => n.type === 'repo');
+    return {
+      header: at(panel.x + panel.w / 2, panel.y + 26), row: at(panel.x + panel.w / 2, panel.y + 56 + 22),
+      hub: at(hub.x, hub.y), ground: at(hub.x + 180, hub.y), groundClear: clear(at(hub.x + 180, hub.y))
+    };
+  });
+  expect(spots.groundClear).toBe(true);
+  const cursorAt = async spot => {
+    await page.mouse.move(spot.x, spot.y);
+    return page.locator('#neuralCanvas').evaluate(canvas => canvas.style.cursor);
+  };
+  expect(await cursorAt(spots.header)).toBe('move');
+  expect(await cursorAt(spots.row)).toBe('pointer');
+  expect(await cursorAt(spots.hub)).toBe('pointer');
+  expect(await cursorAt(spots.ground)).toBe('grab');
+});
+
+/* A second press of Zoom in while the camera is still moving goes on from where the first was going. */
+test('two quick presses of Zoom in go twice as far', async ({ page }) => {
+  await openGraph(page);
+  await expand(page);
+  const zoom = () => page.evaluate(() => window.__NV_PROBE__.read('neural').zoom);
+  const z0 = await zoom();
+  await page.locator('#neuralZoomInBtn').click();
+  await page.locator('#neuralZoomInBtn').click();
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
+  expect(await zoom()).toBeCloseTo(Math.min(2.6, z0 * 1.25 * 1.25), 6);
 });
 
 test('a panel dragged by its header stays where it was put, and Reset layout puts it back', async ({ page }) => {
@@ -172,22 +245,22 @@ test('a panel dragged by its header stays where it was put, and Reset layout put
   await openGraph(page);
   await expand(page);
   const grip = await page.evaluate(() => {
-    const s = window.NebulaNeural.state;
+    const s = window.__NV_PROBE__.read('neural');
     const panel = s.panels[s.panels.length - 1];
-    const rect = s.canvas.getBoundingClientRect();
+    const rect = document.getElementById('neuralCanvas').getBoundingClientRect();
     return {
       type: panel.type, x0: panel.x, y0: panel.y,
       x: rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom,
       y: rect.top + s.height / 2 + s.panY + (panel.y + 26) * s.zoom
     };
   });
-  const pan = await page.evaluate(() => [window.NebulaNeural.state.panX, window.NebulaNeural.state.panY]);
+  const pan = await page.evaluate(() => [window.__NV_PROBE__.read('neural').panX, window.__NV_PROBE__.read('neural').panY]);
   await page.mouse.move(grip.x, grip.y);
   await page.mouse.down();
   await page.mouse.move(grip.x - 90, grip.y - 60, { steps: 10 });
   await page.mouse.up();
   const moved = await page.evaluate(type => {
-    const s = window.NebulaNeural.state;
+    const s = window.__NV_PROBE__.read('neural');
     const panel = s.panels.find(p => p.type === type);
     return { x: panel.x, y: panel.y, rows: panel.shown.every(n => Math.abs(n.x - n.tx) < 1 && Math.abs(n.y - n.ty) < 1), pan: [s.panX, s.panY] };
   }, grip.type);
@@ -207,8 +280,132 @@ test('a panel dragged by its header stays where it was put, and Reset layout put
     if (!(await page.locator('#neuralStage').evaluate(node => node.classList.contains('panel-open')))) await page.locator('#neuralPanelBtn').click();
   }
   await page.locator('#neuralLegend [data-neural-groups="reset-layout"]').click();
-  await expect.poll(() => page.evaluate(type => window.NebulaNeural.state.panels.find(p => p.type === type).x, grip.type)).toBe(grip.x0);
+  await expect.poll(() => page.evaluate(type => window.__NV_PROBE__.read('neural').panels.find(p => p.type === type).x, grip.type)).toBe(grip.x0);
   await expect(page.locator('#neuralLegend [data-neural-groups="reset-layout"]')).toHaveCount(0);
+});
+
+/*
+ * An arrangement names a repository, so it is the account's: when the account
+ * changes, the page purges it with the rest of what the account kept here.
+ * The map held its own copy in memory, so the next account was shown the
+ * last one's arrangement of the same repository, and the first panel it moved
+ * wrote the last account's arrangements back into storage.
+ */
+const SECOND_ACCOUNT = Object.freeze({
+  login: 'second-github', name: 'Second Account', avatar: '', provider: 'github', authMethod: 'token',
+  offlineCacheScope: 'second-account-scope-0123456789',
+  caps: { prs: true, issues: true, releases: true, actions: true, lfs: true, tm: true, batch: true, search: true, notif: true, compare: true }
+});
+
+/* Drags a panel the canvas itself can be pressed on, other than `except`, by its header. */
+async function dragPanel(page, except = null) {
+  const grip = await page.evaluate(skip => {
+    const s = window.__NV_PROBE__.read('neural');
+    const canvas = document.getElementById('neuralCanvas');
+    const rect = canvas.getBoundingClientRect();
+    for (const panel of s.panels.slice().reverse()) {
+      if (panel.type === skip) continue;
+      const x = rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom;
+      const y = rect.top + s.height / 2 + s.panY + (panel.y + 26) * s.zoom;
+      if (document.elementFromPoint(x, y) === canvas) return { type: panel.type, x0: panel.x, y0: panel.y, x, y };
+    }
+    return null;
+  }, except);
+  expect(grip).not.toBeNull();
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 90, grip.y - 60, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(type => !!window.__NV_PROBE__.read('neural').panels.find(p => p.type === type).placed, grip.type)).toBe(true);
+  return grip;
+}
+
+test('a panel arranged under one account is neither shown to the next nor written back for it', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'dragging panels is exercised with a mouse');
+  const session = { switched: false };
+  await openGraph(page, async p => {
+    await p.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+      { login: 'alpha-tester', provider: 'github' }, { login: 'second-github', provider: 'github' }
+    ] } }));
+    await p.route('**/api/accounts/switch-idx', route => { session.switched = true; return route.fulfill({ json: { ok: true, login: 'second-github' } }); });
+    await p.route('**/api/me', route => (session.switched ? route.fulfill({ json: SECOND_ACCOUNT }) : route.fallback()));
+  });
+  await expand(page);
+  const first = await dragPanel(page);
+  const view = 'sandbox/demo|security|split';
+  expect(Object.keys(await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_layout'))))).toEqual([view]);
+
+  /* The account changes, in the same page: out of the full view, to the overview's account control, and Switch. */
+  await page.locator('#neuralExpandBtn').click();
+  await expect(page.locator('body')).not.toHaveClass(/neural-stage-expanded/);
+  await ui.rail(page, 'overview');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await ui.button(page, 'Accounts').click();
+  const sheet = ui.dialog(page, 'Accounts');
+  await sheet.getByRole('button', { name: 'Switch' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.locator('#ovWho')).toHaveText('Second Account');
+  /* What the first account kept here is purged. */
+  expect(await page.evaluate(() => localStorage.getItem('nv_neural_layout'))).toBeNull();
+
+  /* The second account opens the same repository's map: the layout's own arrangement, and nothing to reset. */
+  const repos = await ui.enterRepositories(page);
+  await repos.getByRole('searchbox', { name: 'Filter repositories, or paste any public repository address' }).fill('sandbox/demo');
+  await repos.getByRole('button', { name: /sandbox\/demo/ }).click();
+  await expect(ui.screen(page, 'work')).toBeVisible();
+  await ui.openTab(page, 'neural');
+  await page.locator('#neuralCanvas').waitFor({ state: 'visible' });
+  await expect.poll(() => page.evaluate(() => (window.__NV_PROBE__.read('neural') || { nodes: [] }).nodes.filter(n => n.visible).length)).toBeGreaterThan(2);
+  await page.locator('#neuralStage').scrollIntoViewIfNeeded();
+  await expand(page);
+  expect(await page.evaluate(type => {
+    const panel = window.__NV_PROBE__.read('neural').panels.find(item => item.type === type);
+    return { x: panel.x, y: panel.y, placed: !!panel.placed };
+  }, first.type)).toEqual({ x: first.x0, y: first.y0, placed: false });
+  await expect(page.locator('#neuralLegend [data-neural-groups="reset-layout"]')).toHaveCount(0);
+
+  /* What it arranges is kept, alone. */
+  const second = await dragPanel(page, first.type);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_layout')));
+  expect(Object.keys(kept)).toEqual([view]);
+  expect(Object.keys(kept[view])).toEqual([second.type]);
+});
+
+/* Where a reader puts a panel is kept for the shape of stage they put it on:
+ * a wide stage's two columns and a tall stage's one are different pictures. */
+test('a panel moved on a wide stage stays there, and a tall stage lays out its own', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'resizing a window is a desktop gesture');
+  await openGraph(page);
+  await expand(page);
+  const grip = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const panel = s.panels[s.panels.length - 1];
+    const rect = document.getElementById('neuralCanvas').getBoundingClientRect();
+    return {
+      type: panel.type,
+      x: rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom,
+      y: rect.top + s.height / 2 + s.panY + (panel.y + 26) * s.zoom
+    };
+  });
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 90, grip.y - 60, { steps: 10 });
+  await page.mouse.up();
+  const kept = await page.evaluate(type => JSON.parse(localStorage.getItem('nv_neural_layout'))['sandbox/demo|security|split'][type], grip.type);
+  const panel = () => page.evaluate(type => {
+    const s = window.__NV_PROBE__.read('neural');
+    const p = s.panels.find(item => item.type === type);
+    return { mode: s.layoutMode, x: p.x, y: p.y, placed: !!p.placed };
+  }, grip.type);
+  expect(await panel()).toEqual({ mode: 'split', x: kept.x, y: kept.y, placed: true });
+
+  /* Turned tall, the stack is laid out afresh: the panel stands in its column. */
+  await page.setViewportSize({ width: 700, height: 1100 });
+  await expect.poll(panel).toMatchObject({ mode: 'stack', x: 64, placed: false });
+  /* Turned back, it is where the reader put it. */
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect.poll(panel).toEqual({ mode: 'split', x: kept.x, y: kept.y, placed: true });
 });
 
 test('at 1024 pixels the graph has the pane to itself, not the rail\'s column', async ({ page }) => {
@@ -255,7 +452,7 @@ test('in the full view the status, search, tools and panel keep clear of a phone
   await page.locator('#neuralPanelBtn').click();
   await page.locator('#neuralCanvas').focus();
   await page.keyboard.press('f');
-  const inset = await page.evaluate(() => window.NebulaNeural.state.insets);
+  const inset = await page.evaluate(() => window.__NV_PROBE__.read('neural').insets);
   expect(inset.top).toBeGreaterThanOrEqual(47 + 38);
   expect(inset.bottom).toBeGreaterThanOrEqual(34);
 });
@@ -264,18 +461,19 @@ test('a refresh keeps the graph on screen and the camera where the reader left i
   await openGraph(page);
   await expand(page);
   await page.locator('#neuralZoomInBtn').click();
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.camTarget)).toBeNull();
-  const before = await page.evaluate(() => ({ zoom: window.NebulaNeural.state.zoom, panX: window.NebulaNeural.state.panX }));
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
+  const before = await page.evaluate(() => ({ zoom: window.__NV_PROBE__.read('neural').zoom, panX: window.__NV_PROBE__.read('neural').panX }));
   let covered = false;
   await page.exposeFunction('__coverSeen', () => { covered = true; });
   await page.evaluate(() => {
     const cover = document.getElementById('neuralLoading');
     new MutationObserver(() => { if (!cover.hidden) window.__coverSeen(); }).observe(cover, { attributes: true });
   });
-  await page.evaluate(() => window.NebulaNeural.refresh());
+  /* The full view covers the header, so the refresh is sent to its control; it runs as the live stream's and the timer's do. */
+  await page.locator('#neuralRefreshBtn').dispatchEvent('click');
   await page.waitForTimeout(400);
   expect(covered).toBe(false);
-  const after = await page.evaluate(() => ({ zoom: window.NebulaNeural.state.zoom, panX: window.NebulaNeural.state.panX }));
+  const after = await page.evaluate(() => ({ zoom: window.__NV_PROBE__.read('neural').zoom, panX: window.__NV_PROBE__.read('neural').panX }));
   expect(after.zoom).toBeCloseTo(before.zoom, 3);
   expect(after.panX).toBeCloseTo(before.panX, 1);
 });
@@ -284,13 +482,13 @@ test('the full view re-frames itself when the screen changes size, until the rea
   test.skip((page.viewportSize() || {}).width < 900, 'resizing a window is a desktop gesture');
   await openGraph(page);
   await expand(page);
-  const zoom = () => page.evaluate(() => (window.NebulaNeural.state.camTarget || window.NebulaNeural.state).zoom);
+  const zoom = () => page.evaluate(() => (window.__NV_PROBE__.read('neural').camTarget || window.__NV_PROBE__.read('neural')).zoom);
   const wide = await zoom();
   await page.setViewportSize({ width: 960, height: 720 });
   await expect.poll(zoom).toBeLessThan(wide - .01);
   /* Once the reader zooms, a resize leaves their view alone. */
   await page.locator('#neuralZoomInBtn').click();
-  await expect.poll(() => page.evaluate(() => window.NebulaNeural.state.camTarget)).toBeNull();
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
   const chosen = await zoom();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.waitForTimeout(500);
@@ -298,7 +496,7 @@ test('the full view re-frames itself when the screen changes size, until the rea
   /* Fitting hands it back. */
   await page.locator('#neuralCanvas').focus();
   await page.keyboard.press('f');
-  expect(await page.evaluate(() => window.NebulaNeural.state.userCamera)).toBe(false);
+  expect(await page.evaluate(() => window.__NV_PROBE__.read('neural').userCamera)).toBe(false);
 });
 
 test('credentials an Exposure scan found are in the graph, masked, and lead back to Exposure', async ({ page }) => {
@@ -313,7 +511,7 @@ test('credentials an Exposure scan found are in the graph, masked, and lead back
       verifications: { 'fp-live': { state: 'verified', narration: 'The provider confirmed this credential is live.' } }
     })
   })));
-  const leaks = await page.evaluate(() => window.NebulaNeural.state.nodes.filter(n => n.type === 'leak')
+  const leaks = await page.evaluate(() => window.__NV_PROBE__.read('neural').nodes.filter(n => n.type === 'leak')
     .map(n => ({ id: n.id, label: n.label, severity: n.severity, where: n.meta.where, foundIn: n.meta.foundIn })));
   expect(leaks).toHaveLength(3);
   const byId = Object.fromEntries(leaks.map(leak => [leak.id, leak]));
@@ -352,9 +550,9 @@ test('after a drag the stage offers Reset layout itself, and it puts everything 
   const chip = page.locator('#neuralResetLayout');
   await expect(chip).toBeHidden();
   const grip = await page.evaluate(() => {
-    const s = window.NebulaNeural.state;
+    const s = window.__NV_PROBE__.read('neural');
     const panel = s.panels[s.panels.length - 1];
-    const rect = s.canvas.getBoundingClientRect();
+    const rect = document.getElementById('neuralCanvas').getBoundingClientRect();
     return {
       type: panel.type, x0: panel.x,
       x: rect.left + s.width / 2 + s.panX + (panel.x + panel.w / 2) * s.zoom,
@@ -367,7 +565,7 @@ test('after a drag the stage offers Reset layout itself, and it puts everything 
   await page.mouse.up();
   await expect(chip).toBeVisible();
   await chip.click();
-  await expect.poll(() => page.evaluate(type => window.NebulaNeural.state.panels.find(p => p.type === type).x, grip.type)).toBe(grip.x0);
+  await expect.poll(() => page.evaluate(type => window.__NV_PROBE__.read('neural').panels.find(p => p.type === type).x, grip.type)).toBe(grip.x0);
   await expect(chip).toBeHidden();
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('nv_neural_layout') || '{}'));
   expect(Object.keys(stored)).toEqual([]);
@@ -462,4 +660,106 @@ test('beside an open file tree the graph leads the stacked Neural layout', async
   expect(layout.stage, 'the graph comes before the rail').toBeLessThan(layout.rail);
   expect(layout.stage, 'and begins inside the window').toBeLessThan(layout.viewport - 200);
   expect(layout.clipped).toBe(false);
+});
+
+/* A tall stage stacks the groups in one column under the hub, read from the top down the way a list is: a fit starts at the hub, not at the column's middle. */
+test('on a tall stage a fit starts the graph at its top, with the hub in view', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width >= 720, 'the tall stage is a phone held upright');
+  await page.setViewportSize({ width: 390, height: 600 });
+  /* Sixty branches, opened: a column far longer than the stage. */
+  const refs = {
+    defaultBranch: 'main',
+    refs: [...Array.from({ length: 59 }, (_, i) => ({ name: `feature/${String(i).padStart(3, '0')}`, sha: 'a'.repeat(40) })), { name: 'main', sha: 'b'.repeat(40), protected: true }],
+    tags: []
+  };
+  await openGraph(page, async p => {
+    await p.route(url => new URL(url).pathname === '/api/repo/sandbox/demo/refs-snapshot', route =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(refs) }));
+  });
+  await expand(page);
+  /* The groups list is in the full view's panel: open it, if it is not. */
+  if (!(await page.locator('#neuralStage').evaluate(node => node.classList.contains('panel-open')))) await page.locator('#neuralPanelBtn').click();
+  /* Opening every group fits the graph again. */
+  await page.locator('#neuralLegend [data-neural-groups="open"]').click();
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').panels.some(p => p.footer === 'pager'))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
+  const view = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const hub = s.nodes.find(n => n.type === 'repo');
+    const bottom = Math.max(...s.panels.map(p => p.y + p.h));
+    return {
+      mode: s.layoutMode, height: s.height, hubTop: s.height / 2 + s.panY + (hub.y - 58) * s.zoom,
+      hubY: s.height / 2 + s.panY + hub.y * s.zoom, overflows: s.height / 2 + s.panY + bottom * s.zoom > s.height
+    };
+  });
+  expect(view.mode).toBe('stack');
+  expect(view.overflows, 'the column is longer than the stage, so where a fit starts it matters').toBe(true);
+  expect(view.hubTop).toBeGreaterThan(0);
+  expect(view.hubY).toBeLessThan(view.height * .4);
+});
+
+/* On a wide screen the modes panel docks over the full view's left side; a fit frames the graph in what it leaves. */
+test('in the full view a fit frames the graph clear of the docked modes panel', async ({ page }) => {
+  test.skip((page.viewportSize() || {}).width < 900, 'the panel docks over the stage on a wide screen');
+  await openGraph(page);
+  await expand(page);
+  if (!(await page.locator('#neuralStage').evaluate(node => node.classList.contains('panel-open')))) await page.locator('#neuralPanelBtn').click();
+  await page.locator('#neuralFitBtn').click();
+  await expect.poll(() => page.evaluate(() => window.__NV_PROBE__.read('neural').camTarget)).toBeNull();
+  const edges = await page.evaluate(() => {
+    const s = window.__NV_PROBE__.read('neural');
+    const rail = document.getElementById('neuralRail');
+    const canvas = document.getElementById('neuralCanvas').getBoundingClientRect();
+    return {
+      docked: rail.classList.contains('is-docked'), railRight: rail.getBoundingClientRect().right,
+      graphLeft: canvas.left + s.width / 2 + s.panX + Math.min(...s.panels.map(p => p.x)) * s.zoom
+    };
+  });
+  expect(edges.docked).toBe(true);
+  expect(edges.graphLeft).toBeGreaterThan(edges.railRight);
+});
+
+/*
+ * Messages over the full view. On a phone a message drops from the top of the
+ * screen, where the page has nothing else; in the full view the top is the
+ * stage's -- its status and search, and the column of tools down the right --
+ * and a message lay across the tools for as long as it showed. On a wider
+ * screen messages keep to the bottom right, where in a short window the tools
+ * run down to meet them. Whatever the shape, a message keeps clear of the
+ * stage's controls.
+ */
+test('in the full view a message keeps clear of the stage\'s status, tools and panel', async ({ page }) => {
+  const phone = (page.viewportSize() || {}).width <= 900;
+  const sizes = phone ? [null, { width: 360, height: 640 }, { width: 844, height: 390 }, { width: 568, height: 320 }]
+    : [null, { width: 1440, height: 420 }, { width: 960, height: 540 }];
+  for (const size of sizes) {
+    if (size) await page.setViewportSize(size);
+    if (!size) await openGraph(page);
+    else await page.locator('#neuralStage').scrollIntoViewIfNeeded();
+    if (!(await page.locator('body').evaluate(body => body.classList.contains('neural-stage-expanded')))) await expand(page);
+    /* One message at a time: the last size's has gone. */
+    await expect(page.locator('#toasts .toast')).toHaveCount(0, { timeout: 10000 });
+    await page.locator('#neuralDemoBtn').click();
+    const message = page.locator('#toasts .toast').filter({ hasText: 'Demonstration incident injected' }).last();
+    await expect(message).toBeVisible();
+    /* Measured once it has finished arriving. */
+    await page.waitForTimeout(400);
+    const overlap = await page.evaluate(() => {
+      const toasts = [...document.querySelectorAll('#toasts .toast')].map(t => t.getBoundingClientRect());
+      const furniture = [...document.querySelectorAll('#neuralStage .neural-stage-tools > *, #neuralStage .neural-stage-top > *, #neuralStage .neural-minimap, #neuralStage .neural-reset-chip, #neuralRail')]
+        .filter(el => el.getClientRects().length && !el.hidden && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none')
+        .map(el => ({ name: el.id || el.className, rect: el.getBoundingClientRect() }))
+        .filter(f => f.rect.width && f.rect.height && f.rect.right > 0 && f.rect.left < innerWidth);
+      const hits = [];
+      for (const t of toasts) for (const f of furniture) {
+        const r = f.rect;
+        if (t.left < r.right && t.right > r.left && t.top < r.bottom && t.bottom > r.top) hits.push(f.name);
+      }
+      const inside = toasts.every(t => t.left >= 0 && t.right <= innerWidth && t.top >= 0 && t.bottom <= innerHeight);
+      return { hits, inside, count: toasts.length };
+    });
+    expect(overlap.count).toBeGreaterThan(0);
+    expect(overlap.hits, `${JSON.stringify(size || page.viewportSize())}: a message lies across the stage's controls`).toEqual([]);
+    expect(overlap.inside, `${JSON.stringify(size || page.viewportSize())}: the message is on screen`).toBe(true);
+  }
 });

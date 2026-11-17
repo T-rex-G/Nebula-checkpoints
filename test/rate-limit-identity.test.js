@@ -1,8 +1,8 @@
 'use strict';
 
 const assert = require('assert');
-const { KEY_PURPOSES, deriveKey } = require('../src/key-derivation');
-const { IDENTITY_KINDS, MAX_IDENTITY_BYTES, rateLimitIdentity } = require('../src/rate-limit-identity');
+const { KEY_PURPOSES, deriveKey } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { IDENTITY_KINDS, MAX_IDENTITY_BYTES, rateLimitIdentity } = require('../apps/api/src/platform/rate-limit/rate-limit-identity.ts');
 
 const hmacKey = deriveKey('rate-limit-identity-test-secret-0123456789abcdef', KEY_PURPOSES.RATE_LIMIT_IDENTITY);
 const account = { provider: 'github', authMethod: 'token', login: 'fixture-user', token: 'fixture-token', baseUrl: '' };

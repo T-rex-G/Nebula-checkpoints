@@ -1,9 +1,9 @@
 'use strict';
 const assert = require('assert');
 const crypto = require('crypto');
-const { createGovernanceApiService } = require('../src/governance-api');
-const { simulatePolicyImpact } = require('../src/governance-simulation');
-const { policyDocumentHash } = require('../src/governance-model');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
+const { simulatePolicyImpact } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 const key = value => crypto.createHash('sha256').update(value).digest('hex');
 const now = Date.parse('2026-07-22T18:00:30.000Z');
 const scope = { provider: 'github', owner: 'Acme', repo: 'Demo' };

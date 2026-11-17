@@ -8,8 +8,8 @@
  */
 
 const assert = require('assert');
-const audit = require('../src/code-audit');
-const { usageIndex, riskOf, threatOf, jsPackageOf, pythonModules, TIERS, BANDS } = require('../src/uranus-reach');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { usageIndex, riskOf, threatOf, jsPackageOf, pythonModules, TIERS, BANDS } = audit;
 
 const isTest = filePath => /(^|\/)(test|tests|__tests__)\/|\.test\.[jt]s$|(^|\/)test_[^/]+\.py$/.test(filePath);
 

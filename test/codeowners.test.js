@@ -8,7 +8,7 @@
  */
 
 const assert = require('assert');
-const owners = require('../public/codeowners');
+const owners = require('../packages/contracts/src/codeowners.ts');
 
 const FILE = [
   '# Lines starting with # are comments.',

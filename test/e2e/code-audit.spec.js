@@ -94,6 +94,8 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(1);
   await severity.getByRole('button', { name: /^All/ }).click();
   await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(11);
+  /* A finding the reader opened is open again when the filter that hid it is lifted. */
+  await expect(vulnerable.locator('details')).toHaveAttribute('open', '');
 
   /* The verdict narrows it too: the leads, each with what is unknown and how to confirm it. */
   const verdicts = pane.getByRole('group', { name: 'Show by verdict' });
@@ -142,6 +144,7 @@ test('an audit grades the branch, names what it read and explains every finding'
   await search.fill('no-such-thing');
   await expect(pane.locator('.audit-findings')).toContainText('Nothing matches “no-such-thing”.');
   await search.press('Escape');
+  await expect(search).toHaveValue('');
   await expect(pane.locator('.audit-findings .audit-item')).toHaveCount(11);
 
   /* Filtering by a family shows only its findings, and can be undone. */
@@ -158,6 +161,29 @@ test('an audit grades the branch, names what it read and explains every finding'
   await exportButton.click();
   await expect(exportButton).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('menuitem')).toHaveCount(5);
+  /* The menu opens beside its button, whole on the screen and in reach: no card's frame cuts it off. It follows a scroll a frame behind. */
+  await expect.poll(() => exportButton.evaluate(button => {
+    const menu = document.querySelector('.audit-export-menu:not([hidden])');
+    const placed = menu.getBoundingClientRect();
+    const by = button.getBoundingClientRect();
+    const item = menu.querySelector('.audit-export-item:last-child').getBoundingClientRect();
+    return {
+      whole: placed.top >= 0 && placed.bottom <= innerHeight && placed.left >= 0 && placed.right <= innerWidth,
+      beside: Math.abs(placed.top - (by.bottom + 6)) < 1.5 || Math.abs(placed.bottom - (by.top - 6)) < 1.5,
+      reached: Boolean(document.elementFromPoint(item.left + item.width / 2, item.top + item.height / 2)?.closest('.audit-export-menu'))
+    };
+  })).toEqual({ whole: true, beside: true, reached: true });
+  await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeFocused();
+  /* The menu is walked with the arrows, Home and End, and wraps at its ends. */
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Export SARIF' })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('menuitem', { name: 'Export SPDX SBOM' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByRole('menuitem', { name: 'Export SPDX SBOM' })).toBeFocused();
+  await page.keyboard.press('Home');
   await expect(page.getByRole('menuitem', { name: 'Export developer brief' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(exportButton).toHaveAttribute('aria-expanded', 'false');
@@ -201,6 +227,38 @@ test('an audit grades the branch, names what it read and explains every finding'
   await expect(pane).toContainText(/0 new findings, 1 resolved since the audit of/);
   await expect(pane.locator('.audit-item', { hasText: 'A SQL statement is built' })).toHaveCount(0);
   await expect(pane.locator('.audit-grade')).not.toHaveAttribute('aria-label', /Grade F/);
+});
+
+test('a fix prompt is copied, the button says so for a moment, and a refused clipboard is said', async ({ page }) => {
+  const failures = [];
+  page.on('pageerror', error => failures.push(String(error)));
+  const pane = await openAudit(page);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await pane.getByRole('button', { name: 'Audit this branch' }).click();
+  const sql = pane.locator('.audit-item', { hasText: 'A SQL statement is built by string interpolation' });
+  await sql.locator('summary').click();
+  const copy = sql.locator('.audit-copy');
+  await copy.click();
+  await expect(copy).toHaveText('Copied');
+  await expect(copy).toHaveAttribute('data-copied', 'true');
+  const prompt = await page.evaluate(() => navigator.clipboard.readText());
+  expect(prompt).toContain('api/users.js');
+  expect(prompt).not.toContain('SELECT * FROM users');
+  await expect(copy).toHaveText('Copy fix prompt', { timeout: 4000 });
+  await expect(copy).not.toHaveAttribute('data-copied', /.*/);
+  /* A clipboard the page may not write to is said in words, and the button does not claim a copy, even for a moment. */
+  await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('refused')); });
+  const claimed = copy.evaluate(button => new Promise(resolve => {
+    let said = false;
+    const watch = new MutationObserver(() => { if (button.dataset.copied || button.textContent !== 'Copy fix prompt') said = true; });
+    watch.observe(button, { attributes: true, childList: true, subtree: true, characterData: true });
+    setTimeout(() => { watch.disconnect(); resolve(said); }, 1200);
+  }));
+  await copy.click();
+  await expect(page.locator('.toast').filter({ hasText: 'The clipboard is not available here' })).toBeVisible();
+  expect(await claimed).toBe(false);
+  await expect(copy).toHaveText('Copy fix prompt');
+  expect(failures).toEqual([]);
 });
 
 test('a finding opens its file in the editor at its line', async ({ page }) => {

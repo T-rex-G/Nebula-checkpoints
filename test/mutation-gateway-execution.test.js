@@ -4,7 +4,7 @@ const {
   createMutationGateway,
   normalizeMutationDescriptor,
   providerOperationId
-} = require('../src/mutation-gateway');
+} = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
 const authorization = {
   schemaVersion:1,
   scope:{provider:'github',authority:'github.com',owner:'Acme',repo:'Demo',scopeKey:'github:github.com:acme/demo'},

@@ -10,7 +10,7 @@ const {
   encryptBackupFile,
   decryptBackupFile,
   validateBackupManifest
-} = require('../src/backup-format');
+} = require('../apps/api/src/platform/persistence/backup-format.ts');
 
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-backup-format-'));

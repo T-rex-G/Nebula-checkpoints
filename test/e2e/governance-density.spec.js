@@ -18,6 +18,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 test.skip(({ viewport }) => !viewport || viewport.width > 900, 'the collisions are with phone chrome');
@@ -32,7 +33,7 @@ async function openGovernance(page) {
   await page.goto('/#/sandbox/demo@main/editor');
   await page.reload();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => window.switchTab('governance'));
+  await ui.openTab(page, 'governance');
   await page.locator('#tab-governance').waitFor();
   await page.waitForTimeout(900);
 }

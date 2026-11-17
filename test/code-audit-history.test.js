@@ -12,11 +12,13 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { Client, Pool } = require('pg');
 
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { CodeAuditHistory, createAuditWatch, compactAudit, LIMITS } = require('../src/code-audit-history');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { CodeAuditHistory, createAuditWatch, compactAudit, LIMITS } = require('../apps/api/src/modules/uranus/index.ts').auditHistory;
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');
 const ADMIN_URL = String(process.env.NV_TEST_DATABASE_URL || '').trim();
@@ -91,16 +93,30 @@ async function withClient(connectionString, run) {
   url.pathname = `/${databaseName}`;
   const pool = new Pool({ connectionString: url.toString(), max: 4 });
   try {
-    const migrations = loadMigrations(DIRECTORY);
+    /*
+     * The release before 032, applied for real: a directory holding every
+     * migration that precedes it. (Passing the filtered list as the options, as
+     * this test once did, applied all of them, 032 included, so the row below
+     * was written after the column existed and the upgrade was never run.)
+     */
+    const before032 = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-before-032-'));
+    for (const migration of loadMigrations(DIRECTORY).filter(item => item.id < '032_code_audit_analysis_coverage')) {
+      fs.writeFileSync(path.join(before032, migration.file), migration.sql);
+    }
     await withClient(url.toString(), async client => {
-      await runMigrations(client, migrations.filter(migration => migration.id !== '032_code_audit_analysis_coverage'));
+      await runMigrations(client, { directory: before032, logger: { info() {} } });
+      assert.strictEqual((await client.query(
+        "SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'nv_code_audits' AND column_name = 'analysis_complete'"
+      )).rows[0].n, 0, 'the database is at the release before 032');
       const legacyRow = { ...compactAudit(auditResult()).audit, audit_id: crypto.randomUUID(),
         provider: scope.provider, authority: scope.authority, owner_login: scope.owner, repo_name: 'BeforeAnalysisMigration',
         identity_key: IDENTITY, recorded_at: new Date(T0).toISOString() };
       delete legacyRow.analysis_complete;
       const columns = Object.keys(legacyRow);
       await client.query(`INSERT INTO nv_code_audits (${columns.join(',')}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(',')})`, Object.values(legacyRow));
-      await runMigrations(client, migrations);
+      fs.rmSync(before032, { recursive: true, force: true });
+      const upgrade = await runMigrations(client, { directory: DIRECTORY, logger: { info() {} } });
+      assert.strictEqual(upgrade.applied[0], '032_code_audit_analysis_coverage', 'the upgrade starts at 032');
       assert.strictEqual((await client.query('SELECT analysis_complete FROM nv_code_audits WHERE audit_id=$1', [legacyRow.audit_id])).rows[0].analysis_complete, null,
         'migration preserves an existing audit without inventing analysis proof');
     });
@@ -139,7 +155,7 @@ async function withClient(connectionString, run) {
       const refreshed = await history.latest({ scope: incompleteScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(refreshed.audit.watch.state, 'ok', 'the later dependency lookup succeeds');
       assert.strictEqual(refreshed.audit.analysisComplete, false, 'watch refresh cannot repair incomplete source evidence');
-      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      const { evaluateMergeGate } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
       assert.strictEqual(evaluateMergeGate({ headSha: result.commitSha, head: refreshed, now: T0 + 2 * HOUR }).state, 'unavailable');
     }
     {
@@ -284,7 +300,7 @@ async function withClient(connectionString, run) {
       await pool.query('UPDATE nv_code_audits SET analysis_complete=NULL WHERE repo_name=$1', [cancelledScope.repo]);
       const legacy = await history.latest({ scope: cancelledScope, identityKey: IDENTITY, ref: 'main' });
       assert.strictEqual(legacy.audit.analysisComplete, null, 'pre-migration evidence is explicitly unknown');
-      const { evaluateMergeGate } = require('../src/code-audit-triage');
+      const { evaluateMergeGate } = require('../apps/api/src/modules/uranus/index.ts').auditTriage;
       assert.strictEqual(evaluateMergeGate({ headSha: before.commitSha, head: legacy, now: T0 + HOUR }).state, 'unavailable', 'legacy unknown evidence requires a new audit');
     }
     {
@@ -337,7 +353,7 @@ async function withClient(connectionString, run) {
     assert.deepStrictEqual(read.findings.filter(finding => finding.waived).map(finding => [finding.rule, finding.waived]), [['SEC-005', 'code']], 'a waived row says how it was waived');
     assert.strictEqual(read.findings.find(finding => finding.rule === 'DEP-003').firstSeenAt, new Date(T0).toISOString(), 'its clock started with the first audit that saw it');
     const dep = read.findings.find(finding => finding.rule === 'DEP-003');
-    assert.strictEqual(dep.title, require('../src/code-audit').RULES['DEP-003'].title);
+    assert.strictEqual(dep.title, require('../apps/api/src/modules/uranus/index.ts').RULES['DEP-003'].title);
     assert.deepStrictEqual(dep.package, { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0', advisories: ['GHSA-jpcq-cgw6-v4j6'], cves: ['CVE-2020-11023'], cvss: 6.1 });
     assert.deepStrictEqual([dep.exploited, dep.reach, dep.epss, dep.risk], [true, 'imported', 0.85, { score: 92, band: 'urgent' }]);
     assert.strictEqual(await history.read({ scope, identityKey: OTHER, auditId: second.auditId }), null, 'another identity reads nothing');

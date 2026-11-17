@@ -1,14 +1,16 @@
 'use strict';
 
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const port = 29600 + Math.floor(Math.random() * 500);
+const port = freePort();
 const sessionSecret = ['github-app-disabled-test', '0123456789abcdef', '0123456789abcdef'].join('-');
 const snapKey = ['github-app-disabled-snapshot', 'fedcba9876543210', 'fedcba9876543210'].join('-');
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

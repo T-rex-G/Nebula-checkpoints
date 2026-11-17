@@ -5,7 +5,7 @@ const {
   loadHostedAlphaLimits,
   databaseReadiness,
   hostedConfigProjection
-} = require('../src/hosted-readiness');
+} = require('../apps/api/src/platform/persistence/hosted-readiness.ts');
 
 const expectedLimits = {
   eventRetentionDays: 30,

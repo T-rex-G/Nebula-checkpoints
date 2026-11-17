@@ -19,6 +19,7 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 test.skip(({ viewport }) => !viewport || viewport.width > 900, 'the dock is a phone surface');
@@ -34,7 +35,11 @@ test('the gate taking over removes the action for the screen it replaced', async
   const fab = page.locator('#paletteFab');
   await expect(fab, 'the workbench offers no floating action to leak').toBeVisible();
 
-  await page.evaluate(() => window.NebulaAlphaUI.showExpired('ALPHA_SESSION_EXPIRED'));
+  /* The session ends the way it does in use: the server says so on the next request. */
+  await page.route('**/api/repo/sandbox/demo/commits?**', route => route.fulfill({
+    status: 401, json: { error: 'The alpha session has ended.', code: 'ALPHA_SESSION_EXPIRED' }
+  }));
+  await ui.openTab(page, 'commits');
   await expect(page.locator('#page-alpha-access')).toBeVisible();
 
   await expect(fab, 'the workbench action outlived the workbench').not.toBeVisible();

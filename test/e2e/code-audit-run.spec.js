@@ -46,6 +46,8 @@ test('a running audit shows its step and count, rides out an edge failure, and l
   const progress = pane.locator('.audit-summary .audit-progress');
   await expect(progress.locator('.audit-progress-line')).toHaveText('Reading files · 3 of 7');
   await expect(progress.locator('.audit-step[aria-current="step"]')).toHaveText('Read');
+  /* The step is announced, not the count. */
+  await expect(progress.getByRole('status')).toHaveText('Reading files');
   await expect(progress.locator('.audit-step[data-step="resolve"]')).toHaveAttribute('data-state', 'done');
   const bar = progress.getByRole('progressbar', { name: 'Files read' });
   await expect(bar).toHaveAttribute('aria-valuenow', '3');
@@ -56,6 +58,7 @@ test('a running audit shows its step and count, rides out an edge failure, and l
   const loader = await pane.locator('.audit-summary .uranus-loader').elementHandle();
   await expect(progress.locator('.audit-progress-line')).toHaveText('Mapping endpoints and tracing each value to what uses it');
   await expect(progress.locator('.audit-step[aria-current="step"]')).toHaveText('Trace');
+  await expect(progress.getByRole('status')).toHaveText('Mapping endpoints and tracing each value to what uses it');
   await expect(bar).toHaveAttribute('aria-valuenow', '7');
   await expect(bar).toHaveAttribute('data-busy', 'true');
   expect(await loader.evaluate(node => node.isConnected)).toBe(true);
@@ -76,6 +79,7 @@ test('the rest of a large branch is read for the rules, and the result says how 
     if (!run) return route.fallback();
     polls += 1;
     if (polls === 1) return route.fulfill({ status: 202, json: { state: 'running', run, stage: 'rules', done: 1200, total: 4422, position: null, limit: null, elapsedMs: 2400 } });
+    if (polls === 2) return route.fulfill({ status: 202, json: { state: 'running', run, stage: 'rules', done: 2400, total: 4422, position: null, limit: null, elapsedMs: 4000 } });
     const result = riskyResult();
     result.engine.traced.rulesOnly = 4422;
     return route.fulfill({ status: 200, json: {
@@ -89,6 +93,12 @@ test('the rest of a large branch is read for the rules, and the result says how 
   await expect(progress.locator('.audit-progress-line')).toHaveText('Reading the rest of the branch against the rules · 1200 of 4422');
   await expect(progress.locator('.audit-step[aria-current="step"]')).toHaveText('Read');
   await expect(progress.getByRole('progressbar', { name: 'Files read' })).toHaveAttribute('aria-valuetext', '1200 of 4422 more files read for the rules');
+  const said = 'Reading the rest of the branch against the rules · 1200 of 4422';
+  await expect(progress.getByRole('status')).toHaveText(said);
+  /* The count moves on in the line and the bar; what is announced waits for the next step. */
+  await expect(progress.locator('.audit-progress-line')).toHaveText('Reading the rest of the branch against the rules · 2400 of 4422');
+  await expect(progress.getByRole('progressbar', { name: 'Files read' })).toHaveAttribute('aria-valuenow', '2400');
+  await expect(progress.getByRole('status')).toHaveText(said);
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', /^Grade /, { timeout: 15000 });
   await expect(pane.locator('.audit-engine-line')).toContainText('4422 more files checked against the rules');
   await expect(pane.locator('.audit-evidence')).toHaveAttribute('aria-label', /^Read 5022 of 5027 files it audits at aaaaaaa \(600 traced, 4422 against the rules alone\)/);

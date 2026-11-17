@@ -17,6 +17,7 @@
  *     the client it has told when to retry.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const net = require('net');
@@ -42,7 +43,7 @@ const providerRequests = () => (output.match(/RATE_FIXTURE_REQUEST/g) || []).len
 
 async function main() {
   const port = await freePort();
-  child = spawn(process.execPath, ['-r', './test/fixtures/provider-rate-limit-fetch.js', 'server.js'], {
+  child = spawn(process.execPath, ['-r', './test/fixtures/provider-rate-limit-fetch.js', serverEntry()], {
     cwd: root,
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test', DATABASE_URL: '', NV_ALPHA_ACCESS_MODE: 'off',
       NV_DEPLOYMENT_PROFILE: 'local', SESSION_SECRET: crypto.randomBytes(40).toString('hex') },

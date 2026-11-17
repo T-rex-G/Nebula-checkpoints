@@ -5,7 +5,9 @@ const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { createDatabasePool, DATABASE_BUDGETS } = require('../../src/database-pool');
+const { createDatabasePool, DATABASE_BUDGETS } = require('../../apps/api/src/platform/persistence/database-pool.ts');
+const { freePort } = require('../helpers/free-port');
+const { serverEntry } = require('../helpers/server-entry');
 const root = path.join(__dirname, '../..');
 const adminUrl = String(process.env.NV_TEST_DATABASE_URL || '');
 if (!adminUrl) throw new Error('NV_TEST_DATABASE_URL is required for the real database resilience gate');
@@ -13,7 +15,7 @@ const parsed = new URL(adminUrl);
 if (!['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) throw new Error('Database resilience requires a disposable loopback PostgreSQL server');
 const database = `nv_resilience_${crypto.randomBytes(6).toString('hex')}`;
 const appName = database;
-const port = 30000 + Math.floor(Math.random() * 900);
+const port = freePort();
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 let child, logs = '', scratch, workload;
 const admin = new Client({ connectionString: adminUrl });
@@ -42,7 +44,7 @@ async function main() {
     url.searchParams.set('application_name', appName);
     scratch = new Client({ connectionString: url.toString() });
     await scratch.connect();
-    child = spawn(process.execPath, ['server.js'], { cwd: root,
+    child = spawn(process.execPath, [serverEntry(root)], { cwd: root,
       env: { ...process.env, NODE_ENV: 'test', PORT: String(port), DATABASE_URL: url.toString(),
         NV_DB_INSECURE: '1', NV_ALPHA_ACCESS_MODE: 'off', NV_DEPLOYMENT_PROFILE: 'local',
         NV_DATABASE_MIGRATION_MODE: 'apply', SESSION_SECRET: crypto.randomBytes(40).toString('hex') },

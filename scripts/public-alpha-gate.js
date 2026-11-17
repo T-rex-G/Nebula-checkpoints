@@ -5,9 +5,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const registry = require('../config/public-alpha-capabilities.json');
-const { APP_VERSION, PRODUCT_NAME } = require('../src/version');
-const { loadMigrations } = require('../src/migrations');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
+const { APP_VERSION, PRODUCT_NAME } = require('../apps/api/src/platform/release/version.ts');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
 const { validateEvidenceEnvelope, PROVIDER_CAPABILITY_REQUIREMENTS } = require('../src/qualification-evidence');
 
 // Signed targets follow the current proof contract and hosted operational evidence.

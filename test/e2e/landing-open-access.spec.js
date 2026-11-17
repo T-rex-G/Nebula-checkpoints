@@ -51,6 +51,15 @@ test('the way through knows whether the session is signed in', async ({ page }) 
   await expect(landing(page)).not.toHaveClass(/active/);
 });
 
+test('a session already signed in is offered its workspace, at the door and at the close', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'off', access: 'active', ready: 'ready' });
+  await page.goto('/');
+  await expect(landing(page)).toHaveClass(/active/);
+  await expect(passThrough(page)).toHaveText(/^Open your workspace$/);
+  await expect(page.locator('#alphaOpenNote')).toHaveText('Entry is open, and this session is already signed in.');
+  await expect(page.getByLabel('Ready when your sandbox is.').getByRole('button', { name: 'Open your workspace', exact: true })).toHaveCount(1);
+});
+
 /*
  * The closing call carries the same name as the way through when entry is
  * open, so it has to do the same thing: hand over, not scroll back to a card
@@ -232,6 +241,26 @@ test('a sign-in that did not finish is explained at the door', async ({ page }) 
   await expect(landing(page)).toHaveClass(/active/);
   /* The marker is consumed, so a reload does not re-accuse the reader. */
   expect(new URL(page.url()).search).toBe('');
+});
+
+test('a signed-in reader whose sign-in did not finish is told so in the workspace', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'active', ready: 'ready', repositoryState: 'current' });
+  /*
+   * Adding an account to a session that is already signed in goes the same
+   * provider round trip. The door let them straight through, so the reason it
+   * wrote on its own page was never on screen: they came back to the
+   * workspace and were told nothing.
+   */
+  await page.goto('/?oauth=bad_verification_code');
+
+  const told = page.locator('.toast').filter({ hasText: 'Could not finish signing in with GitHub' });
+  await expect(told).toBeVisible();
+  /* Said as what it is: a failure, in words a screen reader hears too. */
+  await expect(told).toContainText('Error: Could not finish signing in with GitHub');
+  await expect(told).toContainText('already been used');
+  await expect(landing(page)).not.toHaveClass(/active/);
+  expect(new URL(page.url()).search).toBe('');
+  await expect(told).toHaveCount(1);
 });
 
 test('a reader returning from a finished sign-in is not sent back to the door', async ({ page }) => {

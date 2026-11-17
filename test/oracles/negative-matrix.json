@@ -1,0 +1,6081 @@
+{
+ "schemaVersion": 1,
+ "contexts": [
+  "anonymous",
+  "no-app-header",
+  "cross-site",
+  "foreign-origin",
+  "forged-session",
+  "reader-without-csrf",
+  "reader",
+  "administrator-without-step-up"
+ ],
+ "cells": [
+  {
+   "route": "GET /healthz",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /readyz",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /.well-known/security.txt",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /robots.txt",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon.png",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon-precomposed.png",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /vendor/*",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /index.html",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /sw.js",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/status",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/end",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/login",
+   "context": "anonymous",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "GET /api/accounts",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/remove",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/config",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/capabilities",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/account/capabilities",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "anonymous",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/oauth/callback",
+   "context": "anonymous",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/setup",
+   "context": "anonymous",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/status",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "anonymous",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/scanner-status",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/csrf",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/oauth/login",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/oauth/callback",
+   "context": "anonymous",
+   "status": 302,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/privacy",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/logout",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "anonymous",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/me",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/rate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/posture",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/security-posture",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/findings",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/codeowners",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates/:templateId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/digital-twin",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId/verify",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions/verify",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exceptions/:exceptionId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId/observations",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/activations",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/archive",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repos",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/zip",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/compare",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/tree",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/files",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/file",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/raw",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commits",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commit/:sha",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/snapshot",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/search",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls/:num",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues/:num",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/notifications",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/star",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions/:runId/jobs",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/search",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/releases",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/safety",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/refs-snapshot",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/signed-snapshots",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/activity",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/activity/recent",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/access-surface",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history/:auditId",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/watch",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/triage",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/metrics",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/gate",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-rendered/status",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-rendered",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-check",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/site-check",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/branch-protection",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/audit-deps",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/live-events/status",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/intelligence/events",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/evidence",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/sessions",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/revoke-others",
+   "context": "anonymous",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/version",
+   "context": "anonymous",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET *",
+   "context": "anonymous",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "no-app-header",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/end",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/login",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/remove",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/logout",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/revoke-others",
+   "context": "no-app-header",
+   "status": 403,
+   "code": "APP_HEADER_REQUIRED"
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "cross-site",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/end",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/login",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/remove",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/logout",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/security/revoke-others",
+   "context": "cross-site",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "foreign-origin",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/end",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/login",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/remove",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/logout",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "POST /api/security/revoke-others",
+   "context": "foreign-origin",
+   "status": 403,
+   "code": "CROSS_SITE_REQUEST"
+  },
+  {
+   "route": "GET /healthz",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /readyz",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /.well-known/security.txt",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /robots.txt",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon.png",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon-precomposed.png",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /vendor/*",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /index.html",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /sw.js",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/status",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/login",
+   "context": "forged-session",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "GET /api/accounts",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/config",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/capabilities",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/account/capabilities",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "forged-session",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/oauth/callback",
+   "context": "forged-session",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/setup",
+   "context": "forged-session",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/status",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "forged-session",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/scanner-status",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/csrf",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/oauth/login",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/oauth/callback",
+   "context": "forged-session",
+   "status": 302,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/privacy",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "forged-session",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/me",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/rate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/posture",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/security-posture",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/workspace/findings",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/codeowners",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates/:templateId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/digital-twin",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId/verify",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions/verify",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exceptions/:exceptionId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId/observations",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/activations",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/archive",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repos",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/zip",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/compare",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/tree",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/files",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/file",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/raw",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commits",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commit/:sha",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/snapshot",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/search",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls/:num",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues/:num",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/notifications",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/star",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions/:runId/jobs",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/search",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/releases",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/safety",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/refs-snapshot",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/signed-snapshots",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/activity",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/activity/recent",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/access-surface",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history/:auditId",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/watch",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/triage",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/metrics",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/gate",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-rendered/status",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-rendered",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-check",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/site-check",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/branch-protection",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/audit-deps",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/live-events/status",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/intelligence/events",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/evidence",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/security/sessions",
+   "context": "forged-session",
+   "status": 401,
+   "code": "AUTH_REQUIRED"
+  },
+  {
+   "route": "GET /api/version",
+   "context": "forged-session",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET *",
+   "context": "forged-session",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/login",
+   "context": "reader-without-csrf",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "reader-without-csrf",
+   "status": 400,
+   "code": "STEP_UP_ACTION_INVALID"
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "reader-without-csrf",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "reader-without-csrf",
+   "status": 400,
+   "code": "REPOSITORY_CREATE_INVALID"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "reader-without-csrf",
+   "status": 400,
+   "code": "REPOSITORY_DELETE_CONFIRMATION_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "reader-without-csrf",
+   "status": 403,
+   "code": "CSRF_REQUIRED"
+  },
+  {
+   "route": "GET /healthz",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /readyz",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /.well-known/security.txt",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /robots.txt",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon.png",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /apple-touch-icon-precomposed.png",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /vendor/*",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /index.html",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /sw.js",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/status",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/login",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "GET /api/accounts",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/config",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/capabilities",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/account/capabilities",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "reader",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/oauth/callback",
+   "context": "reader",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/setup",
+   "context": "reader",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "GET /api/github-app/status",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "reader",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "reader",
+   "status": 400,
+   "code": "GITHUB_APP_INSTALLATION_INVALID"
+  },
+  {
+   "route": "GET /api/security/scanner-status",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/security/csrf",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "reader",
+   "status": 400,
+   "code": "STEP_UP_ACTION_INVALID"
+  },
+  {
+   "route": "GET /api/oauth/login",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/oauth/callback",
+   "context": "reader",
+   "status": 302,
+   "code": null
+  },
+  {
+   "route": "GET /api/alpha/privacy",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "GET /api/me",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/rate",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/workspace/posture",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/workspace/security-posture",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/workspace/findings",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/codeowners",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/templates/:templateId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/digital-twin",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/notifications",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId/verify",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exports/:exportId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions/verify",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/decisions",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/exceptions/:exceptionId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/scans/:scanId/observations",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/policies/:policyId/activations",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/governance/archive",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "reader",
+   "status": 403,
+   "code": "STEP_UP_REQUIRED"
+  },
+  {
+   "route": "GET /api/repos",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "reader",
+   "status": 400,
+   "code": "REPOSITORY_CREATE_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "reader",
+   "status": 400,
+   "code": "REPOSITORY_DELETE_CONFIRMATION_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/zip",
+   "context": "reader",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/compare",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/tree",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/files",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/file",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/raw",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "reader",
+   "status": 400,
+   "code": "MUTATION_BATCH_SIZE"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commits",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/commit/:sha",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/snapshot",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "reader",
+   "status": 400,
+   "code": "STEP_UP_SCOPE_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/search",
+   "context": "reader",
+   "status": 400,
+   "code": "SEARCH_QUERY_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/pulls/:num",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "reader",
+   "status": 400,
+   "code": "STEP_UP_SCOPE_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/issues/:num",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "reader",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "reader",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "GET /api/notifications",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/star",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "reader",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions/:runId/jobs",
+   "context": "reader",
+   "status": 400,
+   "code": "WORKFLOW_RUN_INVALID"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "reader",
+   "status": 400,
+   "code": "WORKFLOW_RUN_INVALID"
+  },
+  {
+   "route": "GET /api/search",
+   "context": "reader",
+   "status": 400,
+   "code": "SEARCH_QUERY_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/actions",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/releases",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "GET /api/safety",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/refs-snapshot",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_SNAPSHOT"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "reader",
+   "status": 400,
+   "code": "INVALID_SNAPSHOT"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "reader",
+   "status": 503,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "reader",
+   "status": 403,
+   "code": "STEP_UP_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/signed-snapshots",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "reader",
+   "status": 400,
+   "code": "RESTORE_AUTHORIZATION_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/activity",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/activity/recent",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/access-surface",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit",
+   "context": "reader",
+   "status": 400,
+   "code": "AUDIT_REF_REQUIRED"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/history/:auditId",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/watch",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "reader",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/triage",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "reader",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "reader",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "reader",
+   "status": 400,
+   "code": "CODE_AUDIT_SCORE_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/metrics",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/code-audit/gate",
+   "context": "reader",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-rendered/status",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "reader",
+   "status": 400,
+   "code": "RENDERED_URL_INVALID"
+  },
+  {
+   "route": "GET /api/site-rendered",
+   "context": "reader",
+   "status": 400,
+   "code": "RENDERED_RUN_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "reader",
+   "status": 400,
+   "code": "RENDERED_RUN_REQUIRED"
+  },
+  {
+   "route": "GET /api/site-check",
+   "context": "reader",
+   "status": 400,
+   "code": "SITE_URL_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/site-check",
+   "context": "reader",
+   "status": 400,
+   "code": "SITE_URL_INVALID"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/branch-protection",
+   "context": "reader",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/audit-deps",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/live-events/status",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "reader",
+   "status": 503,
+   "code": null
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "reader",
+   "status": 503,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/intelligence/events",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/repo/:owner/:repo/evidence",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/security/sessions",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET /api/version",
+   "context": "reader",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "GET *",
+   "context": "reader",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /hooks/github/:hookId",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/redeem",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/login",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/accounts/switch-idx",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/accounts/switch",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/github-app/connect",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/refresh",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "GITHUB_APP_DISABLED"
+  },
+  {
+   "route": "POST /api/github-app/disconnect",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "GITHUB_APP_INSTALLATION_INVALID"
+  },
+  {
+   "route": "POST /api/security/step-up",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "STEP_UP_ACTION_INVALID"
+  },
+  {
+   "route": "POST /api/alpha/feedback",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/providers/disconnect-all",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/alpha/delete",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/baselines/generate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/governance/notifications/preferences",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/notifications/read",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exports",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/clear",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "GOVERNANCE_DATABASE_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/governance/reset",
+   "context": "administrator-without-step-up",
+   "status": 403,
+   "code": "STEP_UP_REQUIRED"
+  },
+  {
+   "route": "POST /api/repos",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "REPOSITORY_CREATE_INVALID"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "REPOSITORY_DELETE_CONFIRMATION_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/branches",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/branches/:name",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/file",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/file",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "INVALID_REPOSITORY_PATH"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/rename",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/batch",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "MUTATION_BATCH_SIZE"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/revert",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-paths",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/reset",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "STEP_UP_SCOPE_INVALID"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/pulls/:num/merge",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "STEP_UP_SCOPE_INVALID"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/issues/:num/comments",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "PATCH /api/repo/:owner/:repo/issues/:num",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "PUT /api/repo/:owner/:repo/star",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/star",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/pulls/:num/reviews",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "MUTATION_METADATA_INVALID"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/actions/:runId/rerun",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "WORKFLOW_RUN_INVALID"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/releases",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/blob",
+   "context": "administrator-without-step-up",
+   "status": 404,
+   "code": "PROVIDER_NOT_FOUND"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/upload",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/move-dir",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": null
+  },
+  {
+   "route": "POST /api/safety",
+   "context": "administrator-without-step-up",
+   "status": 200,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/snapshot-compare",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "INVALID_SNAPSHOT"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-preview",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "INVALID_SNAPSHOT"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/signed-snapshot",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": null
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/emergency-manifest",
+   "context": "administrator-without-step-up",
+   "status": 403,
+   "code": "STEP_UP_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/restore-refs",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "RESTORE_AUTHORIZATION_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/history/clear",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": "CODE_AUDIT_HISTORY_UNAVAILABLE"
+  },
+  {
+   "route": "POST /api/code-audit/score",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "CODE_AUDIT_SCORE_INVALID"
+  },
+  {
+   "route": "POST /api/site-rendered",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "RENDERED_URL_INVALID"
+  },
+  {
+   "route": "DELETE /api/site-rendered",
+   "context": "administrator-without-step-up",
+   "status": 400,
+   "code": "RENDERED_RUN_REQUIRED"
+  },
+  {
+   "route": "POST /api/repo/:owner/:repo/live-events/connect",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": null
+  },
+  {
+   "route": "DELETE /api/repo/:owner/:repo/live-events",
+   "context": "administrator-without-step-up",
+   "status": 503,
+   "code": null
+  }
+ ]
+}

@@ -1,7 +1,6 @@
 'use strict';
 const { test, expect } = require('@playwright/test');
 const ui = require('./semantic');
-const { assetStampFor } = require('../../src/asset-stamp');
 
 const scope = 'scopeAlice_0123456789abcdefXYZ';
 
@@ -66,13 +65,14 @@ test('PWA shell uses official release identity and installs a versioned shell ca
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const keys = await page.evaluate(() => caches.keys());
-  /* Named by the release tree rather than the version string: two builds of
-     one version must not share a shell cache, or a returning browser keeps
-     older scripts behind newer markup. */
-  const { releaseTreeSha256 } = await page.evaluate(
-    () => fetch('/api/version').then(response => response.json())
-  );
-  expect(keys).toContain(`nv-static-v${assetStampFor(releaseTreeSha256)}`);
+  /* Named by a digest of the files it holds, which the build writes into the
+     worker: two builds share a shell cache only when they share those bytes,
+     so a returning browser never keeps older scripts behind newer markup. */
+  const worker = await page.evaluate(() => fetch('/sw.js').then(response => response.text()));
+  const shell = (/["'`](nv-static-[0-9a-f]{16})["'`]/.exec(worker) || [])[1];
+  expect(shell).toBeTruthy();
+  expect(keys).toContain(shell);
+  expect(keys.filter(key => key.startsWith('nv-static-'))).toEqual([shell]);
   expect(keys).not.toContain('nv-api-perm');
 });
 
@@ -86,7 +86,7 @@ test('offline repository access is opt-in and account switching purges scoped ca
   await page.locator('.repo-card').first().click();
   await expect(page.locator('#page-work')).toHaveClass(/active/);
   await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
-  await page.evaluate(() => { void openSettings(); });
+  await (await ui.action(page, 'Settings')).click();
   const toggle = page.locator('#setOfflineRepo');
   await expect(toggle).toBeVisible();
   await toggle.check();
@@ -104,6 +104,30 @@ test('offline repository access is opt-in and account switching purges scoped ca
   await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain('nv-api-scopeAlice_0123456789abcdefXYZ');
   const privateKeys = await page.evaluate(() => caches.keys().then(keys => keys.filter(key => key.startsWith('nv-api-'))));
   expect(privateKeys).toEqual([]);
+});
+
+test('taking a repository out of offline use deletes the private caches and says so', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/');
+  await ui.enterRepositories(page);
+  await page.locator('.repo-card').first().click();
+  await expect(page.locator('#page-work')).toHaveClass(/active/);
+  await expect(page.getByRole('combobox', { name: 'Repository branch' }).locator('option')).toHaveCount(1);
+  await (await ui.action(page, 'Settings')).click();
+  const toggle = page.locator('#setOfflineRepo');
+  await toggle.check();
+  await expect(page.locator('.toast').filter({ hasText: 'Offline access enabled for this repository' })).toBeVisible();
+  await page.evaluate(scopeValue => caches.open(`nv-api-${scopeValue}`), scope);
+  await toggle.uncheck();
+  /* The purge used to be called by a name the page no longer had: the toggle sprang back on, the reader was shown a script error, and the cache stayed. */
+  const told = page.locator('.toast').filter({ hasText: 'Offline repository cache removed' });
+  await expect(told).toBeVisible();
+  await expect(told).not.toHaveClass(/\berr\b/);
+  await expect(page.locator('.toast').filter({ hasText: /not defined/ })).toHaveCount(0);
+  await expect(toggle).not.toBeChecked();
+  const stored = await page.evaluate(scopeValue => localStorage.getItem(`nv_offline_repos:${scopeValue}`), scope);
+  expect(JSON.parse(stored)).not.toContain('github:acme/demo');
+  expect(await page.evaluate(() => caches.keys().then(keys => keys.filter(key => key.startsWith('nv-api-'))))).toEqual([]);
 });
 
 test('failed remote logout still clears local private data and returns to login', async ({ page }) => {

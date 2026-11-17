@@ -9,9 +9,7 @@
  */
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const { summarizePosture, EXPOSURE_CATEGORY, TOP_REPOSITORIES } = require('../src/posture-summary');
+const { summarizePosture, EXPOSURE_CATEGORY, TOP_REPOSITORIES } = require('../apps/api/src/modules/posture/index.ts');
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 const audit = {
@@ -102,21 +100,6 @@ const merges = { allow: 4, warn: 1, block: 2 };
   assert.strictEqual(noisy.window.opened, 0, 'a malformed bucket is not counted');
 }
 
-/*
- * The route is gated by its own capability, authenticated, never cached, and
- * never reads the session's credential: everything it draws is already in
- * the database, keyed by the identity.
- */
-{
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const start = server.indexOf("app.get('/api/workspace/security-posture'");
-  assert(start > 0, 'the security posture route must exist');
-  const route = server.slice(start, server.indexOf('\n});', start));
-  assert.match(route, /providerSessionAccess, capabilityAccess\('workspace\.posture'\), auth,/);
-  assert.match(route, /Cache-Control', 'no-store'/);
-  assert.doesNotMatch(route, /\.token\b/, 'the route never touches the credential');
-  assert.doesNotMatch(route, /\bgh\(/, 'the route fetches nothing from the provider');
-  assert.match(route, /available: false, reason: 'not-configured'/, 'no database is said, not drawn as a clean workspace');
-}
+/* The route itself -- gated, uncached, credential-free, provider-free -- is held in test/posture-routes.test.js. */
 
 console.log('posture summary tests passed');

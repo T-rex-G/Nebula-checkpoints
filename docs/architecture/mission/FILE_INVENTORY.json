@@ -1,0 +1,4310 @@
+{
+ "schemaVersion": 1,
+ "baseline": "3bf017a8cdb11e8ef86af7ff857add9b61b6f242",
+ "totalFiles": 859,
+ "counts": {
+  "UNREFERENCED_VERIFIED": 1,
+  "ACTIVE": 616,
+  "GENERATED": 6,
+  "IMMUTABLE_HISTORY": 34,
+  "VENDOR": 32,
+  "FIXTURE": 170
+ },
+ "files": {
+  ".coderabbit.yaml": {
+   "class": "UNREFERENCED_VERIFIED",
+   "owner": "repository",
+   "proof": "Configuration for an external review service the owner does not use; no workflow, script or test reads it"
+  },
+  ".env.example": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: operator environment template"
+  },
+  ".github/workflows/ci.yml": {
+   "class": "ACTIVE",
+   "owner": "tooling/ci",
+   "proof": "entrypoint: GitHub Actions"
+  },
+  ".github/workflows/public-alpha-alpha17.yml": {
+   "class": "ACTIVE",
+   "owner": "tooling/ci",
+   "proof": "entrypoint: GitHub Actions"
+  },
+  ".gitignore": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: git"
+  },
+  ".npmrc": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm configuration"
+  },
+  ".nvmrc": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: Node version managers"
+  },
+  "CHANGELOG.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "entrypoint: repository entrypoint"
+  },
+  "PUBLIC_ALPHA_PROVENANCE.json": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "referenced by scripts/verify.js and 6 more"
+  },
+  "README.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "entrypoint: repository entrypoint"
+  },
+  "WORK_CONTINUITY.json": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "referenced by scripts/generate-continuity-docs.js and 17 more"
+  },
+  "ci/alpha17-fixtures.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "ci/alpha17-json.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "ci/alpha17-restore-attestation.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "ci/install-browser.sh": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/ci.yml and 2 more"
+  },
+  "ci/install-postgres-client.sh": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/ci.yml and 1 more"
+  },
+  "ci/provider-alpha17-common.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "ci/run-alpha17-hosted-drills.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/public-alpha-alpha17.yml and 4 more"
+  },
+  "ci/run-alpha17-hosted-testers.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/public-alpha-alpha17.yml and 3 more"
+  },
+  "ci/run-alpha17-restore-validation.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "ci/run-github-alpha17-validation.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "ci/run-hosted-alpha17-validation.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "ci/verify-alpha17-authorization.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "config/github-main-ruleset.json": {
+   "class": "ACTIVE",
+   "owner": "platform/config",
+   "proof": "entrypoint: the branch ruleset the owner applies in GitHub settings"
+  },
+  "config/historical-document-integrity.json": {
+   "class": "ACTIVE",
+   "owner": "platform/config",
+   "proof": "referenced by docs/DOCUMENTATION_MANIFEST.json and 4 more"
+  },
+  "config/public-alpha-capabilities.json": {
+   "class": "ACTIVE",
+   "owner": "platform/config",
+   "proof": "referenced by ci/provider-alpha17-common.js and 30 more"
+  },
+  "db/migrations/001_sessions.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/002_security.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/003_intelligence.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/004_recovery.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/005_evidence.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/006_github_app.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/007_governance.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/008_governance_drafts.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/009_governance_reviews.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/010_governance_activation_evidence.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/011_governance_policy_decisions.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/012_governance_exceptions.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/013_governance_notifications_exports.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/014_alpha_access.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/015_alpha_privacy.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/016_personal_workspaces.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/017_workspace_credentials.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/018_remove_retired_identity_tables.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/019_unbound_alpha_invites.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/020_single_use_guards.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/021_rate_limit_buckets.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/022_exposure_scans.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/023_exposure_verifications.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/024_exposure_readability_probes.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/025_exposure_identity_provenance.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/026_exposure_scan_history.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/027_exposure_history_archives.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/028_governance_lifecycle.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/029_code_audit_history.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/030_code_audit_triage.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/031_exposure_history_sightings.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "db/migrations/032_code_audit_analysis_coverage.sql": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "applied in order by src/migrations.js; checksum-verified in production"
+  },
+  "docs/DOCUMENTATION_MANIFEST.json": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "referenced by scripts/verify.js and 8 more"
+  },
+  "docs/README.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/architecture/2026-09-21-multi-instance-state.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/architecture/ALPHA17_REVIEW_DISPOSITIONS.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/architecture/ARCHITECTURE.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/architecture/ARCHITECTURE_DECISIONS.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/current/CONTINUATION_PROMPT.md": {
+   "class": "GENERATED",
+   "owner": "docs",
+   "proof": "generated by scripts/generate-continuity-docs.js from WORK_CONTINUITY.json"
+  },
+  "docs/current/PROJECT_STATE.md": {
+   "class": "GENERATED",
+   "owner": "docs",
+   "proof": "generated by scripts/generate-continuity-docs.js from WORK_CONTINUITY.json"
+  },
+  "docs/current/PROVIDER_CAPABILITIES.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/current/ROADMAP.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/current/SIX_SYSTEM_HARDENING.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/history/phase-0/PHASE_0_COVERAGE.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/ROADMAP.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_11_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_12_13_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_14_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_15_16_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_17_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_18_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_19_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_1_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_20_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_21_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_2_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_3_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_4_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_5_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_6_7_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_8_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/reports/PHASE_1_TASK_9_10_REPORT.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_11_POLICY_ACTIVATION_ROLLBACK_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_12_13_GATEWAY_POLICY_ENFORCEMENT_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_14_EXCEPTION_WAIVER_EXPIRY_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_15_16_POLICY_TEMPLATES_DIGITAL_TWIN_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_17_POLICY_DIGITAL_TWIN_INTERFACE_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_18_FULL_MUTATION_COVERAGE_BULK_GOVERNANCE_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_19_GOVERNANCE_DELIVERY_SIGNED_EXPORTS_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_20_STAGING_VALIDATION_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_6_7_GOVERNANCE_API_DRAFT_WORKFLOW_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_8_REVIEWER_ASSIGNMENT_APPROVAL_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/phase-1/specifications/TASK_9_10_POLICY_SIMULATION_SPEC.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/public-alpha/approved-plans/2026-07-29-controlled-hosted-public-alpha-design.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-03-privacy-credential-lifecycle.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/public-alpha/approved-plans/2026-07-29-public-alpha-master-sequence.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/history/upgrades/UPGRADE_FROM_V5_2_1.md": {
+   "class": "IMMUTABLE_HISTORY",
+   "owner": "docs",
+   "proof": "SHA-256 bound in config/historical-document-integrity.json"
+  },
+  "docs/operations/ALPHA17_LIVE_DISPATCH.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/AUDIT_PLATFORM.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/DEPLOY_RENDER_NEON.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/SECURITY_DEPLOYMENT.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/01-service-cold-start-outage.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/02-neon-outage-quota.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/03-provider-outage-rate-limit.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/04-credential-exposure.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/05-orphan-cleanup.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/06-failed-deploy-rollback.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/07-database-backup-restore.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/08-tester-revocation-deletion.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/09-capacity-saturation.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/10-alpha-shutdown.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/operations/runbooks/OPERATOR_CHECKLIST.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/qualification/PRODUCT_REVIEW_REMEDIATION.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/qualification/PUBLIC_ALPHA_COHORT_CHECKLIST.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/qualification/PUBLIC_ALPHA_KNOWN_LIMITATIONS.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/qualification/accessibility/PUBLIC_ALPHA_MANUAL_AUDIT.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/reference/NEURAL_COMMAND_CENTER.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/reference/exposure-findings.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/reference/governance-lifecycle.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/release/EVIDENCE_INDEX.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/release/PUBLIC_ALPHA.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/release/QUALIFICATION_BASELINE.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/release/RELEASE_SECURITY_GATES.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-21-github-app-foundation.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-21-phase-0-stabilization.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-22-central-mutation-gateway.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-22-governance-persistence-foundation.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-22-provider-authorization-resolver.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-22-reviewer-assignment-approval-workflow.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-23-policy-digital-twin-interface.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-07-23-task-20-staging-validation.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-08-09-alpha17-qualification-evidence-integrity.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-08-09-documentation-truth-architecture.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-09-21-exposure-verified-repository-scanning.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-09-21-multi-instance-foundation.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/plans/2026-10-06-beta-0-0-1-qualification.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-21-github-app-foundation-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-21-phase-0-stabilization-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-22-central-mutation-gateway-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-22-governance-persistence-foundation-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-22-provider-authorization-resolver-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-22-reviewer-assignment-approval-workflow-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-22-runtime-policy-enforcement-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-23-policy-digital-twin-interface-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-07-23-task-20-staging-validation-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-08-09-alpha17-qualification-evidence-integrity-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/superpowers/specs/2026-08-09-documentation-truth-architecture-design.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/vision/FOUNDER_VISION.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/vision/PRODUCT_VISION.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "docs/vision/UX_VISION.md": {
+   "class": "ACTIVE",
+   "owner": "docs",
+   "proof": "registered in docs/DOCUMENTATION_MANIFEST.json"
+  },
+  "eslint.config.js": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: ESLint flat configuration"
+  },
+  "jsconfig.json": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm run typecheck"
+  },
+  "package-lock.json": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm lockfile, written by npm"
+  },
+  "package.json": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm manifest"
+  },
+  "playwright.config.js": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm run test:e2e"
+  },
+  "playwright.integration.config.js": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: npm run test:integration"
+  },
+  "public/alpha-ui.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "public/app.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 65 more"
+  },
+  "public/archive-safety.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "public/assets/apple-touch-icon.png": {
+   "class": "GENERATED",
+   "owner": "apps/web",
+   "proof": "generated by scripts/make-brand-assets.js"
+  },
+  "public/assets/icon-192.png": {
+   "class": "GENERATED",
+   "owner": "apps/web",
+   "proof": "generated by scripts/make-brand-assets.js"
+  },
+  "public/assets/icon-512.png": {
+   "class": "GENERATED",
+   "owner": "apps/web",
+   "proof": "generated by scripts/make-brand-assets.js"
+  },
+  "public/assets/icon-maskable-512.png": {
+   "class": "GENERATED",
+   "owner": "apps/web",
+   "proof": "generated by scripts/make-brand-assets.js"
+  },
+  "public/assets/icon.svg": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by public/index.html and 4 more"
+  },
+  "public/capability-ui.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "public/code-audit-ui.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by eslint.config.js and 5 more"
+  },
+  "public/codeowners.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by eslint.config.js and 9 more"
+  },
+  "public/export-safety.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "public/findings-inbox-ui.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by eslint.config.js and 4 more"
+  },
+  "public/governance-ui.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 16 more"
+  },
+  "public/index.html": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by jsconfig.json and 29 more"
+  },
+  "public/landing-map.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by eslint.config.js and 4 more"
+  },
+  "public/landing-orbit.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by public/index.html and 2 more"
+  },
+  "public/landing-stage.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by public/index.html and 2 more"
+  },
+  "public/light-waves.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by eslint.config.js and 6 more"
+  },
+  "public/manifest.webmanifest": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by public/index.html and 2 more"
+  },
+  "public/nebula-galaxy.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by eslint.config.js and 2 more"
+  },
+  "public/nebula-singularity.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by eslint.config.js and 2 more"
+  },
+  "public/nebula-visuals.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by public/index.html and 3 more"
+  },
+  "public/neural.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by package.json and 20 more"
+  },
+  "public/offline-cache-policy.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "public/overlay-motion.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by eslint.config.js and 4 more"
+  },
+  "public/pull-board.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by eslint.config.js and 6 more"
+  },
+  "public/rendered-audit-ui.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "public/rendered-audit.css": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by public/index.html and 1 more"
+  },
+  "public/repo-inventory.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by eslint.config.js and 5 more"
+  },
+  "public/repo-sigil.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by eslint.config.js and 3 more"
+  },
+  "public/security-posture.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by eslint.config.js and 9 more"
+  },
+  "public/style.css": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by public/app.js and 21 more"
+  },
+  "public/sw.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by eslint.config.js and 23 more"
+  },
+  "public/theme-boot.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by public/app.js and 3 more"
+  },
+  "public/trust-ui.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "public/upload-planning.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "public/vendor/codemirror/5.65.16/addon/search/searchcursor.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/codemirror.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/codemirror.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/css/css.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/javascript/javascript.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/markdown/markdown.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/meta.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/python/python.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/shell/shell.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/xml/xml.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/mode/yaml/yaml.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/ayu-mirage.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/base16-light.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/dracula.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/eclipse.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/material-ocean.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/monokai.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/codemirror/5.65.16/theme/nord.min.css": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/dompurify/3.4.16/purify.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/archivo-variable-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/dm-mono-400-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/dm-mono-500-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/fira-code-variable-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/ibm-plex-mono-400-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/ibm-plex-mono-500-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/jetbrains-mono-variable-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/public-sans-variable-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/fonts/source-code-pro-variable-latin.woff2": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/marked/15.0.12/marked.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/three/0.185.1/three.core.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vendor/three/0.185.1/three.module.min.js": {
+   "class": "VENDOR",
+   "owner": "apps/web (bundled from node_modules)",
+   "proof": "copied from the pinned npm package by scripts/copy-vendor.js; also tracked"
+  },
+  "public/vortex.js": {
+   "class": "ACTIVE",
+   "owner": "apps/web/visualizations",
+   "proof": "referenced by public/index.html and 3 more"
+  },
+  "public/workspace-pulse.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by eslint.config.js and 5 more"
+  },
+  "render.yaml": {
+   "class": "ACTIVE",
+   "owner": "repository",
+   "proof": "entrypoint: Render blueprint"
+  },
+  "scripts/accessibility-audit.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "scripts/alpha-db.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 15 more"
+  },
+  "scripts/alpha-invites.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "scripts/alpha-load.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "scripts/alpha-privacy.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 19 more"
+  },
+  "scripts/alpha-smoke.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 14 more"
+  },
+  "scripts/alpha17-authorize.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "scripts/alpha17-operator-record.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/public-alpha-alpha17.yml and 4 more"
+  },
+  "scripts/audit-production.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by .github/workflows/ci.yml and 8 more"
+  },
+  "scripts/check-deployment-readiness.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "scripts/check-secrets.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "scripts/ci-local.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "scripts/copy-vendor.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "scripts/design-review.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "scripts/doctor.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "scripts/foundation-gate.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "scripts/generate-continuity-docs.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "scripts/make-brand-assets.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json"
+  },
+  "scripts/package-release.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "scripts/public-alpha-gate.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "scripts/qualify-candidate-archive.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "scripts/resume-work.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "scripts/sign-restore-witness.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by test/alpha17-restore-witness.test.js and 1 more"
+  },
+  "scripts/staging-gate.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "scripts/test-matrix.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "scripts/uranus-benchmark.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by test/landing-claims.test.js and 3 more"
+  },
+  "scripts/verify.js": {
+   "class": "ACTIVE",
+   "owner": "tooling",
+   "proof": "referenced by package.json and 21 more"
+  },
+  "server.js": {
+   "class": "ACTIVE",
+   "owner": "apps/api (decomposed)",
+   "proof": "entrypoint: package.json main and start script"
+  },
+  "src/activity-feed.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by jsconfig.json and 2 more"
+  },
+  "src/alpha-access-store.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by package.json and 12 more"
+  },
+  "src/alpha-access.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by package.json and 9 more"
+  },
+  "src/alpha-privacy-store.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by package.json and 17 more"
+  },
+  "src/alpha-privacy.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by package.json and 20 more"
+  },
+  "src/anonymous-readability-probe.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 9 more"
+  },
+  "src/asset-stamp.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "src/authorization-resolver.js": {
+   "class": "ACTIVE",
+   "owner": "platform/authorization",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "src/backup-format.js": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "src/branch-protection.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by server.js and 7 more"
+  },
+  "src/capability-registry.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 14 more"
+  },
+  "src/code-audit-history.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 9 more"
+  },
+  "src/code-audit-jobs.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 5 more"
+  },
+  "src/code-audit-policy.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by server.js and 6 more"
+  },
+  "src/code-audit-triage.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 9 more"
+  },
+  "src/code-audit-watch.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 4 more"
+  },
+  "src/code-audit-worker.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 3 more"
+  },
+  "src/code-audit.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by public/app.js and 33 more"
+  },
+  "src/config-registry.js": {
+   "class": "ACTIVE",
+   "owner": "platform/config",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/config.js": {
+   "class": "ACTIVE",
+   "owner": "platform/config",
+   "proof": "referenced by package.json and 63 more"
+  },
+  "src/control-catalog.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/credential-verification.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 11 more"
+  },
+  "src/database-pool.js": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/ecosystems.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit.js and 1 more"
+  },
+  "src/exploit-intel.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit-watch.js and 5 more"
+  },
+  "src/exposure-archives.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 3 more"
+  },
+  "src/exposure-detection.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 19 more"
+  },
+  "src/exposure-findings.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 11 more"
+  },
+  "src/exposure-narration.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 11 more"
+  },
+  "src/exposure-reader.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by ci/run-github-alpha17-validation.js and 10 more"
+  },
+  "src/exposure-rules.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 7 more"
+  },
+  "src/exposure-session.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 3 more"
+  },
+  "src/exposure-store.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 14 more"
+  },
+  "src/exposure-worker.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 6 more"
+  },
+  "src/file-security.js": {
+   "class": "ACTIVE",
+   "owner": "platform/files",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/findings-inbox.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by public/findings-inbox-ui.js and 4 more"
+  },
+  "src/github-account-operations.js": {
+   "class": "ACTIVE",
+   "owner": "github-provider",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/github-app.js": {
+   "class": "ACTIVE",
+   "owner": "github-provider",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "src/governance-api.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 19 more"
+  },
+  "src/governance-delivery.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 12 more"
+  },
+  "src/governance-digital-twin.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "src/governance-enforcement.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 15 more"
+  },
+  "src/governance-exceptions.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/governance-interface.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "src/governance-model.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 42 more"
+  },
+  "src/governance-simulation.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 12 more"
+  },
+  "src/governance-store.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 28 more"
+  },
+  "src/governance-templates.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/governance-webhook-worker.js": {
+   "class": "ACTIVE",
+   "owner": "kepler",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/guarded-fetch.js": {
+   "class": "ACTIVE",
+   "owner": "platform/network",
+   "proof": "referenced by jsconfig.json and 17 more"
+  },
+  "src/hosted-readiness.js": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "referenced by package.json and 9 more"
+  },
+  "src/intelligence.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by package.json and 16 more"
+  },
+  "src/key-derivation.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by jsconfig.json and 22 more"
+  },
+  "src/licences.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by public/code-audit-ui.js and 5 more"
+  },
+  "src/live-stream.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by jsconfig.json and 5 more"
+  },
+  "src/local-session-policy.js": {
+   "class": "ACTIVE",
+   "owner": "platform/authorization",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "src/migrations.js": {
+   "class": "ACTIVE",
+   "owner": "platform/persistence",
+   "proof": "referenced by package.json and 30 more"
+  },
+  "src/mutation-coverage.js": {
+   "class": "ACTIVE",
+   "owner": "platform/mutation-gateway",
+   "proof": "referenced by package.json and 12 more"
+  },
+  "src/mutation-gateway.js": {
+   "class": "ACTIVE",
+   "owner": "platform/mutation-gateway",
+   "proof": "referenced by package.json and 32 more"
+  },
+  "src/popular-packages.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit.js"
+  },
+  "src/posture-summary.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by public/index.html and 5 more"
+  },
+  "src/protected-paths.js": {
+   "class": "ACTIVE",
+   "owner": "platform/mutation-gateway",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/provider-credentials.js": {
+   "class": "ACTIVE",
+   "owner": "github-provider",
+   "proof": "referenced by package.json and 8 more"
+  },
+  "src/provider-disconnect.js": {
+   "class": "ACTIVE",
+   "owner": "identity-access",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "src/public-alpha-qualification.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 11 more"
+  },
+  "src/public-assets.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by server.js and 2 more"
+  },
+  "src/public-errors.js": {
+   "class": "ACTIVE",
+   "owner": "platform/http",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "src/pull-list.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by server.js and 1 more"
+  },
+  "src/qualification-capabilities.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by server.js and 3 more"
+  },
+  "src/qualification-evidence.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 17 more"
+  },
+  "src/rate-limit-identity.js": {
+   "class": "ACTIVE",
+   "owner": "platform/rate-limit",
+   "proof": "referenced by jsconfig.json and 4 more"
+  },
+  "src/rate-limit-store.js": {
+   "class": "ACTIVE",
+   "owner": "platform/rate-limit",
+   "proof": "referenced by jsconfig.json and 5 more"
+  },
+  "src/release-fingerprint.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 13 more"
+  },
+  "src/rendered-site-audit.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "src/rendered-site-runner.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/rendered-site-worker.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "src/routes/rendered-audit.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/safe-passage.js": {
+   "class": "ACTIVE",
+   "owner": "platform/mutation-gateway",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/secret-scanner.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by package.json and 10 more"
+  },
+  "src/security-foundation.js": {
+   "class": "ACTIVE",
+   "owner": "platform/authorization",
+   "proof": "referenced by package.json and 12 more"
+  },
+  "src/security-standards.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by src/code-audit-history.js and 6 more"
+  },
+  "src/single-use-store.js": {
+   "class": "ACTIVE",
+   "owner": "platform/rate-limit",
+   "proof": "referenced by jsconfig.json and 10 more"
+  },
+  "src/site-check.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by server.js and 11 more"
+  },
+  "src/site-url-privacy.js": {
+   "class": "ACTIVE",
+   "owner": "parallax",
+   "proof": "referenced by src/rendered-site-audit.js and 1 more"
+  },
+  "src/snapshot-signatures.js": {
+   "class": "ACTIVE",
+   "owner": "pulsar",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "src/staging-validation.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "src/supabase-key-kinds.js": {
+   "class": "ACTIVE",
+   "owner": "quasar",
+   "proof": "referenced by jsconfig.json and 3 more"
+  },
+  "src/test-matrix.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 11 more"
+  },
+  "src/uranus-cfamily.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/uranus-flow.js and 1 more"
+  },
+  "src/uranus-flow.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit.js and 3 more"
+  },
+  "src/uranus-lex.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit.js and 4 more"
+  },
+  "src/uranus-reach.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by server.js and 6 more"
+  },
+  "src/uranus-surface.js": {
+   "class": "ACTIVE",
+   "owner": "uranus",
+   "proof": "referenced by src/code-audit.js and 3 more"
+  },
+  "src/version.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 32 more"
+  },
+  "src/work-continuity.js": {
+   "class": "ACTIVE",
+   "owner": "platform/release",
+   "proof": "referenced by package.json and 9 more"
+  },
+  "src/workspace-posture.js": {
+   "class": "ACTIVE",
+   "owner": "posture",
+   "proof": "referenced by scripts/verify.js and 3 more"
+  },
+  "staging/PUBLIC_ALPHA_EVIDENCE_TEMPLATE.json": {
+   "class": "ACTIVE",
+   "owner": "tooling/qualification",
+   "proof": "referenced by scripts/verify.js and 4 more"
+  },
+  "staging/TASK_20_EVIDENCE_TEMPLATE.json": {
+   "class": "ACTIVE",
+   "owner": "tooling/qualification",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/account-boundary.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/activity-feed.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/alpha-access-outage-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/alpha-access-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-access-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-access-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-access.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-browser-purge.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/alpha-db-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha-disconnect-replay-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/alpha-invite-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha-load.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-privacy-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-privacy-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/alpha-privacy-purge-postgres.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by test/migrations-postgres.test.js"
+  },
+  "test/alpha-privacy-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-privacy-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/alpha-privacy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-provider-session-lifecycle.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha-provider-webhook-lifecycle.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha-repository-boundary.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/alpha-smoke.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha-ui-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha17-authorize-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/alpha17-hosted-drills.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/alpha17-hosted-harness.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/alpha17-provider-harness.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/alpha17-restore-runner.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/alpha17-restore-witness.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/anonymous-readability-probe.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "test/archive-safety.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/audit-production.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/authorization-resolver-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/authorization-resolver.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/backup-format.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/branch-protection.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/brand-assets.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/capability-probes.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/capability-registry-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "test/capability-registry.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "test/capability-ui-behavior.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/capability-ui-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/ci-local.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/code-audit-accuracy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-cancellation-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-coverage.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-history-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-history.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/code-audit-jobs.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-policy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-triage-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-triage-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-triage.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-ui.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-watch.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit-worker.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/code-audit.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/codeowners.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/config-registry.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/config-startup.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/continuity-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/continuity-generation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/control-mapping.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/corona-emergency.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/corona-recovery.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/corona-safety-persistence-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/credential-verification.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/deployment-readiness.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/doctor.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/documentation-architecture.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/e2e/accessible-name-uniqueness.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/batch-bar-fit.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/capability-refusal-visibility.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-fold.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-history.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-licences.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-polyglot.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-risk-fixture.js": {
+   "class": "FIXTURE",
+   "owner": "test/e2e",
+   "proof": "used by test/code-audit-ui.test.js and 3 more"
+  },
+  "test/e2e/code-audit-risk.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-run.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit-triage.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/code-audit.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/design-presets.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/elevation-shadow.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/exposure-pagination.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/exposure.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/findings-inbox.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/floating-action-boundary.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/github-account-operations.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/github-only.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/governance-density.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/governance-lifecycle.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-contrast.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-interaction.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-nav.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-open-access.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-scene.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/landing-showcase.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/language-radar.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/light-theme-charts.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/light-waves.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/medium-repo-fixtures.js": {
+   "class": "FIXTURE",
+   "owner": "test/e2e",
+   "proof": "used by test/e2e/code-audit-triage.spec.js and 1 more"
+  },
+  "test/e2e/mobile-primary-navigation.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/nebula-visuals.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/neural-card.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/neural-field.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/neural-layout.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/neural-safety.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/neural-stage.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-activity-feed.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-card-arrival.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-charts.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-pull-board.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-security-posture.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/overview-topbar-identity.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/product-review-fixes.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/public-alpha-accessibility.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/public-alpha-fixtures.js": {
+   "class": "FIXTURE",
+   "owner": "test/e2e",
+   "proof": "used by package.json and 64 more"
+  },
+  "test/e2e/public-alpha-golden-path.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/public-alpha-states.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/public-repository.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/pwa.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/rendered-audit.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/repository-picker.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/repository-switch.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/routing.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/runtime-limits.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/safeguards.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/security-foundation.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/semantic-actions.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/semantic.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "referenced by package.json and 34 more"
+  },
+  "test/e2e/shell-chrome.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/site-scan.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/supported-only.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/task20-accessibility.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/task20-fixtures.js": {
+   "class": "FIXTURE",
+   "owner": "test/e2e",
+   "proof": "used by package.json and 6 more"
+  },
+  "test/e2e/ui-lifecycle.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/upload-queue.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/workbench-bar.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/workbench-reading.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/e2e/workspace-pulse.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test/e2e",
+   "proof": "discovered by playwright.config.js (testDir test/e2e)"
+  },
+  "test/ecosystems.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exploit-intel.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/export-safety.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/exposure-accuracy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-archives.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-detection.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/exposure-findings.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/exposure-narration.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/exposure-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/exposure-reader.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-report-client.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-review.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-rules.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/exposure-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/exposure-worker.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/file-security.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/findings-inbox-client.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/findings-inbox.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/fixtures/capability-provider-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/capability-registry-server-contract.test.js"
+  },
+  "test/fixtures/corona-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/corona-safety-persistence-server.test.js"
+  },
+  "test/fixtures/exposure-review-cases.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/exposure-store.test.js"
+  },
+  "test/fixtures/exposure-rule-fixtures.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/credential-verification.test.js and 1 more"
+  },
+  "test/fixtures/exposure-store-hardening-cases.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/exposure-store.test.js"
+  },
+  "test/fixtures/github-account-operations-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/fixtures/corona-fetch.js and 2 more"
+  },
+  "test/fixtures/github-model-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/workbench-routes.test.js"
+  },
+  "test/fixtures/governance-policy-decision-v1.json": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/governance-policy-decision-v1-chain.test.js and 1 more"
+  },
+  "test/fixtures/local-session.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/capability-registry-server-contract.test.js and 8 more"
+  },
+  "test/fixtures/provider-identity-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/alpha-disconnect-replay-server.test.js"
+  },
+  "test/fixtures/provider-rate-limit-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/provider-rate-limit-server.test.js"
+  },
+  "test/fixtures/provider-stream-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/provider-stream-server.test.js and 1 more"
+  },
+  "test/fixtures/pulsar-activity-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/pulsar-activity-server.test.js"
+  },
+  "test/fixtures/session-provider-fetch.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by test/local-session-lifecycle.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/allowlist-early-exit/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/atoi/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/chi-urlparam-path/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/exec-argv/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/exec-shell/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/filepath-base/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/fprintf-html/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gin-auth-group/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gin-bind-sql/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gin-open-write/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gin-redirect/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gorm-where-concat/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/gorm-where-param/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/helper-package/api/users.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/helper-package/store/users.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/html-template/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/http-get-fixed-host/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/http-get-ssrf/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/interface-dispatch/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/nethttp-sql-concat/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/nethttp-sql-placeholder/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/readfile-path/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/go/sprintf-sql/main.go": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/helper-chain/src/main/java/com/example/AccountController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/jaxrs-sql/src/main/java/com/example/ItemResource.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/jpa-native-concat/src/main/java/com/example/ProductController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/matches-validation/src/main/java/com/example/UserController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/new-file/src/main/java/com/example/FileController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/object-input-stream/src/main/java/com/example/SessionController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/parent-class/src/main/java/com/example/UploadBase.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/parent-class/src/main/java/com/example/UploadController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/parse-int/src/main/java/com/example/OrderController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/processbuilder-argv/src/main/java/com/example/PingController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/resttemplate-ssrf/src/main/java/com/example/PreviewController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/runtime-exec/src/main/java/com/example/PingController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/send-redirect/src/main/java/com/example/LoginServlet.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/servlet-xss/src/main/java/com/example/HelloServlet.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spel-injection/src/main/java/com/example/FormulaController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-jdbc-concat/src/main/java/com/example/UserController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-jdbc-placeholder/src/main/java/com/example/UserController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-layered/src/main/java/com/example/service/UserService.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-layered/src/main/java/com/example/service/UserServiceImpl.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-layered/src/main/java/com/example/web/UserController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-open-write/src/main/java/com/example/NoteController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-preauthorize/src/main/java/com/example/NoteController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-security-chain/src/main/java/com/example/NoteController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/spring-security-chain/src/main/java/com/example/SecurityConfig.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/xxe-document-builder/src/main/java/com/example/ImportController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/java/xxe-hardened/src/main/java/com/example/ImportController.java": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/allowlist-sort/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/class-field/server/reports.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/constant-data/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/deserialize-cookie/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/dom-hash/public/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/dom-text/public/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/eval-body/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/fastify-path/server/index.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/guarded-write/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/hono-redirect/src/index.ts": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/json-reply/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/koa-sql/server/index.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/mass-assignment/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/multi-statement/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/nest-query-sql/src/users/users.controller.ts": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/next-route-sql/app/api/users/route.ts": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/next-route-sql/package.json": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/normalize-not-enough/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/nosql-object/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/open-write/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/parsed-number/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/path-basename/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/path-join/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/prototype-merge/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/redirect-local/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/redirect-open/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/regex-input/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/render-escaped/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/second-order/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/shell-argv/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/shell-template/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/sql-concat/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/sql-placeholder/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/sql-template-helper/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/sql-template-helper/server/users.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/ssrf-fetch/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/ssrf-fixed-host/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/sveltekit-ssrf/src/routes/api/fetch/+server.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/template-injection/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/weak-replace/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/xss-escaped/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/javascript/xss-reflected/server/app.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/basename/view.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/curl-ssrf/fetch.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/echo-xss/hello.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/escapeshellarg/ping.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/file-get-contents/view.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/header-location/continue.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/htmlspecialchars/hello.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/include-allowlist/index.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/include-page/index.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/intval/order.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/is-numeric/user.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/json-decode-cookie/cart.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-auth-group/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-bindings/app/Http/Controllers/SearchController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-bindings/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-mass-assignment/app/Http/Controllers/ProfileController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-mass-assignment/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-open-admin/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-select-concat/app/Http/Controllers/SearchController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-select-concat/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-service/app/Http/Controllers/ReportController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-service/app/Services/ReportService.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/laravel-service/routes/web.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/libxml-noent/import.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/mysqli-concat/search.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/pdo-prepared/search.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/shell-exec/ping.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/short-echo/profile.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/simplexml-default/import.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/symfony-dbal/src/Controller/ReportController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/symfony-is-granted/src/Controller/AdminController.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/unserialize-cookie/cart.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/php/variable-function/action.php": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/django-mark-safe/shop/views.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/django-raw/shop/views.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/fastapi-sql/main.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/fastapi-typed-int/main.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-allowlist/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-argv/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-eval/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-helper-module/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-helper-module/queries.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-int/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-login-required/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-lxml-xxe/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-open-path/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-open-write/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-pickle/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-redirect-local/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-redirect/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-render-template/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-secure-filename/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-shell/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-sql-fstring/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-sql-percent/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-sql-placeholder/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-ssrf-fixed/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-ssrf/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-ssti/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/fixtures/uranus-benchmark/python/flask-yaml-safe/app.py": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "Uranus benchmark corpus, walked by test/uranus-benchmark.test.js"
+  },
+  "test/github-account-operations-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/github-account-operations.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/github-app-configured-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/github-app-disabled-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/github-app-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/github-app-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/github-app-ui-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/github-app-user-flow.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/github-app.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-activation-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-activation-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-activation-postgres.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/governance-activation-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-activation-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-api-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-decision-pagination-client.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/governance-delivery-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-delivery-interface.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-delivery-model.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-delivery-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-delivery-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-delivery-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-digital-twin-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-digital-twin.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-draft-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-draft-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-enforcement-deployment-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-enforcement-observability.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-enforcement-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-enforcement-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-enforcement-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-enforcement.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-approval-limit.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-enforcement.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-model.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-runtime-limit.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-exception-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-idempotency.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-interface-access.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-interface-client-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-interface-renderer.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-interface-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-interface-ui-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-interface-workflow-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-lifecycle-interface.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/governance-lifecycle-postgres.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-model.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-policy-decision-v1-chain.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-policy-decision-v1-compatibility.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-review-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-review-model.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-review-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-review-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-simulation-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-simulation-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/governance-simulation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/governance-template-digital-twin-api.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-template-digital-twin-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-templates.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/governance-webhook-worker.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/guarded-fetch.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/hardening-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/helpers/public-alpha-pass-fixture.js": {
+   "class": "FIXTURE",
+   "owner": "test",
+   "proof": "used by scripts/verify.js and 6 more"
+  },
+  "test/hosted-limit-documentation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/hosted-readiness-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/hosted-readiness.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/integration/app-fixture.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by eslint.config.js"
+  },
+  "test/integration/database-resilience.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by package.json"
+  },
+  "test/integration/database-restore.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by package.json"
+  },
+  "test/integration/github-boundary.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by test/integration/app-fixture.js"
+  },
+  "test/integration/provider-preload.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by test/integration/app-fixture.js"
+  },
+  "test/integration/real-provider-journey.spec.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "run by scripts/qualify-candidate-archive.js"
+  },
+  "test/intelligence.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/key-derivation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/landing-claims.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/landing-map.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/lfs-probe-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/licences.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/light-waves.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/live-stream.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/local-session-lifecycle.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/local-session-policy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/maintenance-mode.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/migrations-postgres.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/migrations.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/multi-instance-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/mutation-coverage-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/mutation-coverage.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/mutation-gateway-execution.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/mutation-gateway-policy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/mutation-gateway-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/mutation-gateway.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/nebula-visuals-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/neural-node-marks.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/neural-tool-icons.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/offline-cache-policy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/overlay-motion.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/package-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 9 more"
+  },
+  "test/package-release.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/posture-summary.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/protected-paths-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/protected-paths.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/provider-credentials.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/provider-disconnect-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/provider-disconnect.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/provider-rate-limit-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/provider-route-inventory.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/provider-stream-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/proxy-trust.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/public-alpha-documentation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 6 more"
+  },
+  "test/public-alpha-gate-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/public-alpha-provenance.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "test/public-alpha-qualification-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/public-alpha-qualification.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/public-alpha-workflow-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "test/public-assets.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/public-errors-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/public-errors.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/pull-board-client.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/pull-list.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/pulsar-activity-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/pulsar-reliability.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/qualification-capabilities.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/qualify-candidate-archive.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/rate-limit-identity.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/rate-limit-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/rate-limit-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/rate-limit-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/release-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 7 more"
+  },
+  "test/release-fingerprint.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/render-public-alpha-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/rendered-audit.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/repo-sigil.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/route-surface.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/runbook-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/safe-passage-server-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/safe-passage.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/secret-scanner.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 5 more"
+  },
+  "test/security-foundation-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/security-foundation-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/security-foundation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/security-posture-client.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/security-standards.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/server-smoke.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/service-worker-offline.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/session-account-selection-server.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/single-use-persistence-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/single-use-store.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/site-check-accuracy.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/site-check.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/snapshot-signatures.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/staging-validation-cli.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/staging-validation-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/staging-validation.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/test-matrix.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 4 more"
+  },
+  "test/trust-ui-contract.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 2 more"
+  },
+  "test/typecheck.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 1 more"
+  },
+  "test/upload-planning.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/upload-transport-choice.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/uranus-benchmark.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/uranus-cfamily.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/uranus-linear.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/uranus-reach.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/uranus.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/work-continuity.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json and 3 more"
+  },
+  "test/workbench-routes.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/workspace-posture.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/workspace-pulse.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  },
+  "test/workspace-security-posture-postgres.test.js": {
+   "class": "ACTIVE",
+   "owner": "test",
+   "proof": "referenced by package.json"
+  }
+ }
+}

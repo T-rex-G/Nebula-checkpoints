@@ -12,7 +12,7 @@
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const { mockMediumRepo } = require('./medium-repo-fixtures');
-const { evaluateMergeGate } = require('../../src/code-audit-triage');
+const { evaluateMergeGate } = require('../../apps/api/src/modules/uranus/index.ts').auditTriage;
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });

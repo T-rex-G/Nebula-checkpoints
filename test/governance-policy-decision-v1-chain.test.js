@@ -2,9 +2,9 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const fixture = require('./fixtures/governance-policy-decision-v1.json');
-const { GovernanceStore } = require('../src/governance-store');
-const { POLICY_DECISION_GENESIS } = require('../src/governance-enforcement');
-const { stableJson } = require('../src/governance-model');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { POLICY_DECISION_GENESIS } = require('../apps/api/src/modules/kepler/index.ts');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 
 const secret = 'historical-policy-chain-secret-0123456789abcdef';
 const decisionId = '90000000-0000-4000-8000-000000000009';

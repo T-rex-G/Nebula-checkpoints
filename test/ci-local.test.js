@@ -57,7 +57,7 @@ assert(skipped.every(step => /^npm ci$|^bash ci\/install-(?:browser|postgres-cli
  */
 for (const required of [/run docs:check/, /run check:syntax/, /run lint/, /^npm test$/,
   /run test:migrations/, /run test:database-resilience/, /run test:restore-integration/, /run test:integration/, /audit-production/, /run check:secrets/, /run test:staging:gate/,
-  /run test:release/, /run test:e2e/, /run package:release/]) {
+  /run test:release/, /run test:e2e/, /run package:release/, /run build:server:check/, /run test:server-compiled/]) {
   assert(steps.some(step => required.test(step)),
     `the workflow no longer runs ${required}; the local runner would stop covering it`);
 }

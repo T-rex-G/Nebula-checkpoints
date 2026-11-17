@@ -20,16 +20,16 @@ const assert = require('assert');
 const crypto = require('crypto');
 
 let safePassage = {};
-try { safePassage = require('../src/safe-passage'); } catch { /* asserted below */ }
+try { safePassage = require('../apps/api/src/platform/mutation-gateway/safe-passage.ts'); } catch { /* asserted below */ }
 for (const name of ['SafePassageError', 'SAFE_PASSAGE_KIND', 'offerSafePassage']) {
   assert(safePassage[name], `${name} must be implemented`);
 }
 const { SAFE_PASSAGE_KIND, offerSafePassage } = safePassage;
 
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
-const { evaluateActivePolicySet } = require('../src/governance-enforcement');
-const { policyDocumentHash } = require('../src/governance-model');
-const { pathFactsForAction } = require('../src/protected-paths');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { activePolicySetStepEvaluator, evaluateActivePolicySet } = require('../apps/api/src/modules/kepler/index.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
+const { pathFactsForAction } = require('../apps/api/src/platform/mutation-gateway/protected-paths.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Demo', scopeKey: 'github:github.com:acme/demo' };
 const authorization = {
@@ -124,10 +124,9 @@ function offerFor(document, base = { branch: 'main', path: PROTECTED_FILE }) {
       descriptor,
       blockCode: decision.blockCode,
       content: CONTENT,
-      scope,
-      activePolicies: activeSet(document),
-      activeExceptions: [],
-      evaluatedAt: EVALUATED_AT
+      evaluateStep: activePolicySetStepEvaluator({
+        scope, activePolicies: activeSet(document), activeExceptions: [], evaluatedAt: EVALUATED_AT
+      })
     })
   };
 }
@@ -203,10 +202,7 @@ const unevaluated = offerSafePassage({
   descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
   blockCode: 'POLICY_APPROVAL_REQUIRED',
   content: CONTENT,
-  scope,
-  activePolicies: brokenSet,
-  activeExceptions: [],
-  evaluatedAt: EVALUATED_AT
+  evaluateStep: activePolicySetStepEvaluator({ scope, activePolicies: brokenSet, activeExceptions: [], evaluatedAt: EVALUATED_AT })
 });
 assert.strictEqual(unevaluated.available, false);
 assert.strictEqual(unevaluated.evaluated, false, 'an unevaluatable step must not be reported as evaluated');
@@ -235,7 +231,7 @@ assert(serialized.includes(CONTENT_HASH), 'the offer must carry the content hash
 /* The branch it offers must be one this server would actually accept. Offering
  * a name the branch-create route rejects would turn a helpful route into a
  * second failure. */
-const { normalizeBranchName } = require('../src/intelligence');
+const { normalizeBranchName } = require('../apps/api/src/modules/corona/index.ts');
 assert.strictEqual(normalizeBranchName(approval.offer.branch, 'branch'), approval.offer.branch);
 for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)]) {
   const branch = safePassage.branchFor(awkward.replace(/^feature\/\.hidden$/, 'main'), PROTECTED_FILE, CONTENT_HASH);
@@ -252,7 +248,7 @@ for (const awkward of ['main', 'release/1.0', 'feature/.hidden', 'a'.repeat(120)
  * asked for.
  * ------------------------------------------------------------------ */
 
-const { getPolicyTemplate, listPolicyTemplates, generateRepositoryBaseline } = require('../src/governance-templates');
+const { getPolicyTemplate, listPolicyTemplates, generateRepositoryBaseline } = require('../apps/api/src/modules/kepler/index.ts');
 
 assert(
   listPolicyTemplates().some(entry => entry.templateId === 'protected-paths-review'),
@@ -299,10 +295,7 @@ const reviewOffer = offerSafePassage({
   descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
   blockCode: heldForReview.blockCode,
   content: CONTENT,
-  scope,
-  activePolicies: reviewSet,
-  activeExceptions: [],
-  evaluatedAt: EVALUATED_AT
+  evaluateStep: activePolicySetStepEvaluator({ scope, activePolicies: reviewSet, activeExceptions: [], evaluatedAt: EVALUATED_AT })
 });
 assert.strictEqual(reviewOffer.available, true, `the review template must leave a usable route: ${reviewOffer.reason || ''}`);
 for (const step of reviewOffer.steps) {
@@ -358,8 +351,61 @@ const denyOffer = offerSafePassage({
   descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
   blockCode: 'POLICY_MUTATION_BLOCKED',
   content: CONTENT,
-  scope, activePolicies: denySet, activeExceptions: [], evaluatedAt: EVALUATED_AT
+  evaluateStep: activePolicySetStepEvaluator({ scope, activePolicies: denySet, activeExceptions: [], evaluatedAt: EVALUATED_AT })
 });
 assert.strictEqual(denyOffer.available, false);
+
+/* ---- the policy is handed in ---- */
+
+/*
+ * The platform module imports no policy engine: it judges the route only by
+ * the evaluator it is given, asks it about every step in order, and offers
+ * nothing it was not given a way to judge.
+ */
+{
+  const { execFileSync } = require('child_process');
+  const path = require('path');
+  const loaded = JSON.parse(execFileSync(process.execPath, ['-e', `
+    require(${JSON.stringify(path.join(__dirname, '..', 'apps', 'api', 'src', 'platform', 'mutation-gateway', 'safe-passage.ts'))});
+    console.log(JSON.stringify(Object.keys(require.cache).filter(file => /governance-(enforcement|model|simulation|exceptions)/.test(file))));
+  `], { encoding: 'utf8' }));
+  assert.deepStrictEqual(loaded, [], 'loading Safe Passage must load no part of the policy engine');
+
+  const asked = [];
+  const permitted = offerSafePassage({
+    descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+    blockCode: 'POLICY_APPROVAL_REQUIRED',
+    content: CONTENT,
+    evaluateStep: stepDescriptor => {
+      asked.push(stepDescriptor.action);
+      assert.strictEqual(stepDescriptor.scopeKey, scope.scopeKey, 'every step is asked about in the refused scope');
+      return { effectiveEffect: 'allow', enforcementOutcome: 'allow' };
+    }
+  });
+  assert.strictEqual(permitted.available, true);
+  assert.deepStrictEqual(asked, ['branch.create', 'file.write', 'pull.create'], 'each step is judged, in order');
+
+  for (const [answer, label] of [
+    [{ effectiveEffect: 'allow', enforcementOutcome: 'warn' }, 'a warning'],
+    [{ effectiveEffect: 'require-approval', enforcementOutcome: 'allow' }, 'an observed approval'],
+    [undefined, 'no answer']
+  ]) {
+    const offer = offerSafePassage({
+      descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+      blockCode: 'POLICY_APPROVAL_REQUIRED',
+      content: CONTENT,
+      evaluateStep: () => answer
+    });
+    assert.strictEqual(offer.available, false, `${label} is not permission for the route`);
+    assert.strictEqual(offer.refusedStep, 'branch.create');
+    assert.strictEqual(offer.evaluated, true);
+  }
+
+  assert.throws(() => offerSafePassage({
+    descriptor: descriptorFor('file.write', { branch: 'main', path: PROTECTED_FILE }),
+    blockCode: 'POLICY_APPROVAL_REQUIRED',
+    content: CONTENT
+  }), /needs evaluateStep\(descriptor\)/, 'a route with nothing to judge it by is a wiring defect, said loudly');
+}
 
 console.log('safe passage tests passed');

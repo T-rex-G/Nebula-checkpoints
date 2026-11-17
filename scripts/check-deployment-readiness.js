@@ -3,7 +3,7 @@
 
 const path = require('path');
 const { validateBaseUrl } = require('./alpha-smoke');
-const { loadMigrations } = require('../src/migrations');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 // This read-only gate is run from the frozen candidate, before admitting a
 // cohort. Process liveness alone deliberately stays green during maintenance.

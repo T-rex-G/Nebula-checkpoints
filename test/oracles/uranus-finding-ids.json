@@ -1,0 +1,2406 @@
+{
+ "javascript/allowlist-sort": [],
+ "javascript/class-field": [
+  {
+   "rule": "SEC-001",
+   "path": "server/reports.js",
+   "line": 12,
+   "id": "baf1efc12a84041e45949260",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/constant-data": [],
+ "javascript/deserialize-cookie": [
+  {
+   "rule": "SEC-024",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "b7b15cfdb15d254073506afe",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/dom-hash": [
+  {
+   "rule": "SEC-002",
+   "path": "public/app.js",
+   "line": 2,
+   "id": "b983585a9b439a4f8a1e461f",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/dom-text": [],
+ "javascript/eval-body": [
+  {
+   "rule": "SEC-010",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "00c7d7042a7608165e476354",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/fastify-path": [
+  {
+   "rule": "SEC-022",
+   "path": "server/index.js",
+   "line": 4,
+   "id": "a5b2aa8ef79e82873090acf1",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-barrel-to-a-safe-function": [
+  {
+   "rule": "SEC-001",
+   "path": "server/data/users.js",
+   "line": 3,
+   "id": "2e4f2af6c016b9e27bbdcc84",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-branch-default-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "63c285e11f53b2c1b17b4397",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-branch-every-arm-constant": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 8,
+   "id": "ebbdbf975f56c68dff625d61",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-cjs-destructured-require": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "b30197604f20925d85bd90ec",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-cjs-inter-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "61a5c5fbce2ce5742b5070f7",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-class-service-inter-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 3,
+   "id": "2080b31238f9fb70a3eb50de",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-container-object-key": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "1de3b4339413575cb5d932ce",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-container-object-other-key": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "f99e3441f7e35140ad237e58",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-controller-in-other-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/controllers/users.js",
+   "line": 2,
+   "id": "c964bad7400f6bae0bb82f9a",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-controller-injected-service": [
+  {
+   "rule": "SEC-001",
+   "path": "src/users/users.service.ts",
+   "line": 9,
+   "id": "be743d03d64fdb7118ef9f70",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-destructured-param": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "2578b3ea73599b8e75eb01e1",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-esm-barrel-re-export": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "7b192740c3be06e2153c3c67",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-esm-default": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/find.js",
+   "line": 2,
+   "id": "0c9d349c8c9ad24518fe217f",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-esm-named": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "7b192740c3be06e2153c3c67",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-export-default-class": [
+  {
+   "rule": "SEC-022",
+   "path": "server/files.js",
+   "line": 3,
+   "id": "aea278c49158c05e869adfac",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-export-star-barrel": [
+  {
+   "rule": "SEC-033",
+   "path": "server/views/page.js",
+   "line": 1,
+   "id": "e9a5842f1237a97437ecf657",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-foreach-callback": [
+  {
+   "rule": "ACC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "aa6560254e69d698172f5a79",
+   "verdict": "needs-validation"
+  },
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "575a0e758b11d0d2f1cfcb36",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-foreach-index": [],
+ "javascript/flow-helper-cmd-inter-file": [
+  {
+   "rule": "SEC-011",
+   "path": "server/lib/img.js",
+   "line": 2,
+   "id": "94efa3acb1518f21caa4ecc4",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-injected-service-placeholder": [],
+ "javascript/flow-inter-file-constant": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "61a5c5fbce2ce5742b5070f7",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-inter-file-number": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/users.js",
+   "line": 2,
+   "id": "a0e3575bd11bee78fddbc8e8",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-inter-file-placeholder": [],
+ "javascript/flow-map-callback": [
+  {
+   "rule": "ACC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "6cd268349ee3ce0522a6afe4",
+   "verdict": "needs-validation"
+  },
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "c1aac8abb59f2d53787fc9fb",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-method-of-a-class-never-instantiated-here": [
+  {
+   "rule": "SEC-001",
+   "path": "server/store.js",
+   "line": 2,
+   "id": "12f610ed14db9bc98018d719",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-object-field-into-helper": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "99a034299aa306fb95388d00",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-object-literal-method": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "2b8f0ecd8d35e3d22c884f39",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-object-literal-method-placeholder": [],
+ "javascript/flow-object-of-arrows-exported": [
+  {
+   "rule": "SEC-021",
+   "path": "server/api.js",
+   "line": 2,
+   "id": "f7355fc594726d250901618e",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-query-config-object": [],
+ "javascript/flow-redirect-helper": [
+  {
+   "rule": "SEC-020",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "94c6dce55104e974626649e6",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-renamed-re-export": [
+  {
+   "rule": "SEC-001",
+   "path": "server/data/users.js",
+   "line": 2,
+   "id": "ca4f7948cbaafce683566d3e",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-render-res-escaped": [],
+ "javascript/flow-render-res-title": [
+  {
+   "rule": "SEC-033",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "58aaae2f4f206507b368987b",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-returned-escaped-html": [],
+ "javascript/flow-returned-html-from-helper-file": [
+  {
+   "rule": "SEC-033",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "c1fa4c2e169e61fbd68c3bfd",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-returned-query-inter-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "e750ed21d78597c882cd3e34",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-returned-query-with-placeholder": [],
+ "javascript/flow-same-method-name-on-a-library-object": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "fd1110598de6bac5b3478421",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-same-name-other-module": [
+  {
+   "rule": "SEC-001",
+   "path": "server/services/unsafe.js",
+   "line": 2,
+   "id": "841260331b24520c44c10b23",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-sendjson-res-v": [],
+ "javascript/flow-service-repo-classes": [
+  {
+   "rule": "SEC-001",
+   "path": "src/orders/repo.ts",
+   "line": 5,
+   "id": "67450111ffd624a4e818a4dd",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-singleton-module-exports-new": [
+  {
+   "rule": "ACC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "735f6b091cea72ee81313222",
+   "verdict": "needs-validation"
+  },
+  {
+   "rule": "SEC-011",
+   "path": "server/lib/mailer.js",
+   "line": 3,
+   "id": "e488d31d27d11a025b78483f",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-singleton-safe-method": [
+  {
+   "rule": "ACC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "735f6b091cea72ee81313222",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-switch-every-case-constant": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 13,
+   "id": "ebbdbf975f56c68dff625d61",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-then-callback": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "e73e92d3a500a4700b150421",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-then-callback-2": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "e73e92d3a500a4700b150421",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-then-on-fetch-json": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "39d74b977e1e1f1489c848ea",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-then-rejection-handler": [],
+ "javascript/flow-then-with-constant": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "290f9c39f50dfaa3cc5f1478",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-this-method-in-one-class": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "065aa2a9f07c0ced37ce5653",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-three-file-chain": [
+  {
+   "rule": "SEC-001",
+   "path": "server/repo/users.js",
+   "line": 2,
+   "id": "0aecfff4591e7ea60ca6e2a6",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-three-file-sanitised-midway": [
+  {
+   "rule": "SEC-001",
+   "path": "server/repo/users.js",
+   "line": 2,
+   "id": "01ed7a30c7dfc5d6f3c1a1c6",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/flow-three-hop-same-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "d75ee1bcf1c132eb3f208dda",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-two-hop-same-file": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "bd60279786dbc58fe6440ce1",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-whole-req-into-helper": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 3,
+   "id": "86578ffdf9ed7971069e102b",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-wrapper-allow-listed-column": [],
+ "javascript/flow-wrapper-constant-stmt-and-tainted-params": [],
+ "javascript/flow-wrapper-stmt-built-from-a-constant": [],
+ "javascript/flow-wrapper-stmt-built-from-a-parsed-number": [],
+ "javascript/flow-wrapper-two-files-deep": [
+  {
+   "rule": "SEC-001",
+   "path": "server/users.js",
+   "line": 2,
+   "id": "30ba6117029acd3972e3f2e7",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/flow-wrapper-with-params-arg-built-stmt": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "6bd92d14fae2ff123437cfe2",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/guarded-write": [],
+ "javascript/hono-redirect": [
+  {
+   "rule": "SEC-020",
+   "path": "src/index.ts",
+   "line": 4,
+   "id": "8b5c7fe938af3a6f1f3c5910",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/json-reply": [],
+ "javascript/koa-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "server/index.js",
+   "line": 7,
+   "id": "e6a00ba7430886fd0c65f786",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/mass-assignment": [
+  {
+   "rule": "SEC-012",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "7fb54548ecb2729d1551744e",
+   "verdict": "needs-validation"
+  },
+  {
+   "rule": "SEC-028",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "37aea6474c212a19c8df8a3d",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/multi-statement": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 8,
+   "id": "419453fa354cbc5d04d75e1f",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/nest-query-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "src/users/users.controller.ts",
+   "line": 10,
+   "id": "53b79934391763b762715ab5",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/next-route-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "app/api/users/route.ts",
+   "line": 6,
+   "id": "47c870d1f00e303848b4bc31",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/normalize-not-enough": [
+  {
+   "rule": "SEC-022",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "287ee98881c58ede07456c41",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/nosql-object": [
+  {
+   "rule": "SEC-029",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "c768a34bec72313141461ebb",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/open-write": [
+  {
+   "rule": "ACC-001",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "e93e61a9c895dbbcc54e069f",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-admin-only-route": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-chained-owner-scope": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-check-after-fetch": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-destructured-id": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-knex-where-id": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-mongoose-findbyid": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-null-check-only": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-own-profile-from-token": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-owner-word-only-in-a-log": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-owner-word-only-in-audit-write": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "abd1f995220860f1d753c6e5",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-owner-word-only-in-response-field": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-patch-with-createdby-in-data": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "c0dd21e9099d22d504a883b0",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-policy-helper": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-prisma-findunique-by-id": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-raw-sql-by-id": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-raw-sql-scoped": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-req-user-only-in-catch-log": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-scoped-query": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-sequelize-findbypk": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-svc-ambiguous-service-name": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-caller-handed-to-service": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-destructured-id-into-repo": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "abd1f995220860f1d753c6e5",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-svc-lookup-in-a-service": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-svc-own-record-via-token": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-checks-owner-inside": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-checks-via-policy": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-class-method": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "171a15526f9083911dee3c7a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-svc-service-not-a-lookup": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-not-handed-the-id": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-scopes-by-owner": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-svc-service-without-lookup": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-tenant-scoped": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-ternary-owner-check": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/owner-update-sets-updatedby-only": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  },
+  {
+   "rule": "ACC-002",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "50ac2ed194823ddaf5da8a75",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/owner-where-variable-scoped": [
+  {
+   "rule": "HYG-003",
+   "path": "package.json",
+   "line": 0,
+   "id": "c86e056ca288b1a851d20e19",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/parsed-number": [],
+ "javascript/path-basename": [],
+ "javascript/path-join": [
+  {
+   "rule": "SEC-022",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "a0a03432947ed7ba376270fb",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/prototype-merge": [
+  {
+   "rule": "SEC-027",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "0daf949c4cb272e156774753",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/redirect-local": [],
+ "javascript/redirect-open": [
+  {
+   "rule": "SEC-020",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "b9ee2ae7492872694544a2d8",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/regex-input": [
+  {
+   "rule": "SEC-026",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "ab02305f6443af72325466ef",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/render-escaped": [],
+ "javascript/sanitiser-basename-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "a60b71ccd4918e60c031a100",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/sanitiser-html-escaped-page": [],
+ "javascript/sanitiser-html-escaped-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 7,
+   "id": "2ebe71b1ea7c4d0793b1e6a1",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/sanitiser-named-allow-list": [
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 9,
+   "id": "12ee0a7230a770373713c60f",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/sanitiser-named-does-nothing": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 9,
+   "id": "63c285e11f53b2c1b17b4397",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/sanitiser-url-check-allow-list": [],
+ "javascript/sanitiser-url-check-https-only": [
+  {
+   "rule": "SEC-021",
+   "path": "server/app.js",
+   "line": 9,
+   "id": "c942e1ad6cc3c0c78cc0f86f",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/sanitiser-url-encoded-link": [],
+ "javascript/sanitiser-url-encoded-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "63c285e11f53b2c1b17b4397",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/second-order": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 12,
+   "id": "f8f12fedac5cea211eb9f82b",
+   "verdict": "needs-validation"
+  }
+ ],
+ "javascript/shell-argv": [],
+ "javascript/shell-template": [
+  {
+   "rule": "SEC-011",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "ff31d8c5179313f760a5ed66",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/sql-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "98707cf7af469dab47b8ca08",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/sql-placeholder": [],
+ "javascript/sql-template-helper": [
+  {
+   "rule": "SEC-001",
+   "path": "server/users.js",
+   "line": 3,
+   "id": "2ca86803325b7a57e9a9d69c",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/ssrf-fetch": [
+  {
+   "rule": "SEC-021",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "e2aa73947a8921aed4ad8878",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/ssrf-fixed-host": [],
+ "javascript/sveltekit-ssrf": [
+  {
+   "rule": "SEC-021",
+   "path": "src/routes/api/fetch/+server.js",
+   "line": 3,
+   "id": "d40eb4fb91fb5481e2b77294",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/template-injection": [
+  {
+   "rule": "SEC-030",
+   "path": "server/app.js",
+   "line": 5,
+   "id": "6578e98ebb5cb3f930e6bfcc",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/weak-replace": [
+  {
+   "rule": "SEC-001",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "63c285e11f53b2c1b17b4397",
+   "verdict": "confirmed"
+  }
+ ],
+ "javascript/xss-escaped": [],
+ "javascript/xss-reflected": [
+  {
+   "rule": "SEC-033",
+   "path": "server/app.js",
+   "line": 4,
+   "id": "281b7056c5eba445c48c8e8b",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/django-mark-safe": [
+  {
+   "rule": "SEC-033",
+   "path": "shop/views.py",
+   "line": 5,
+   "id": "6702deb138879bed01af72f3",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/django-raw": [
+  {
+   "rule": "SEC-001",
+   "path": "shop/views.py",
+   "line": 6,
+   "id": "5467231264e756840876f681",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/fastapi-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "main.py",
+   "line": 10,
+   "id": "607baff6ecb39d788b9eb754",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/fastapi-typed-int": [],
+ "python/flask-allowlist": [],
+ "python/flask-argv": [],
+ "python/flask-eval": [
+  {
+   "rule": "SEC-010",
+   "path": "app.py",
+   "line": 6,
+   "id": "a14332320a0e4337d4d16a7a",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-helper-module": [
+  {
+   "rule": "SEC-001",
+   "path": "queries.py",
+   "line": 5,
+   "id": "b864cd4a6ec5275b21236078",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-int": [],
+ "python/flask-login-required": [],
+ "python/flask-lxml-xxe": [
+  {
+   "rule": "SEC-034",
+   "path": "app.py",
+   "line": 8,
+   "id": "ddbbbc1f3eaea2b4f0865ffb",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-open-path": [
+  {
+   "rule": "SEC-022",
+   "path": "app.py",
+   "line": 10,
+   "id": "2d87eedeb0f77e017bef1b33",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-open-write": [
+  {
+   "rule": "ACC-001",
+   "path": "app.py",
+   "line": 7,
+   "id": "a1175dee285f86ceec52f00d",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-pickle": [
+  {
+   "rule": "SEC-024",
+   "path": "app.py",
+   "line": 8,
+   "id": "ef3cabd96589765c36733561",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/flask-plain-text-echo": [
+  {
+   "rule": "SEC-033",
+   "path": "app.py",
+   "line": 7,
+   "id": "6140131e98fcab25a16a818e",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/flask-redirect": [
+  {
+   "rule": "SEC-020",
+   "path": "app.py",
+   "line": 8,
+   "id": "5489205c141799b62c53b7c7",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-redirect-local": [],
+ "python/flask-render-template": [],
+ "python/flask-secure-filename": [],
+ "python/flask-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "app.py",
+   "line": 10,
+   "id": "0f10b6005193072864ae53df",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-sql-fstring": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 9,
+   "id": "06a432ffd881dc44fea47e4e",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-sql-percent": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 10,
+   "id": "a7cd80c4bddc6be4c2e7246d",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-sql-placeholder": [],
+ "python/flask-ssrf": [
+  {
+   "rule": "SEC-021",
+   "path": "app.py",
+   "line": 9,
+   "id": "7e6ae11cb0fa9c62180a75cd",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-ssrf-fixed": [],
+ "python/flask-ssti": [
+  {
+   "rule": "SEC-030",
+   "path": "app.py",
+   "line": 6,
+   "id": "95ebc62d8b79500a3b9bc91b",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flask-yaml-safe": [],
+ "python/flow-branch-default-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 11,
+   "id": "203e38906801f902b5bad126",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-branch-every-arm-constant": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 15,
+   "id": "642c8d55cf6e7c2f5855d614",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/flow-class-method-inter-module": [
+  {
+   "rule": "SEC-001",
+   "path": "services/users.py",
+   "line": 5,
+   "id": "149b507bdc9b9c95a0253017",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-container-dict-key": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 10,
+   "id": "0a0e0b86aca51d4c33db87e4",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-container-dict-other-key": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 10,
+   "id": "0a0e0b86aca51d4c33db87e4",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/flow-from-package-import-module": [
+  {
+   "rule": "SEC-011",
+   "path": "services/shell.py",
+   "line": 4,
+   "id": "1e93b6a938e9c9698f72dd8d",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-inter-module-from-import": [
+  {
+   "rule": "SEC-001",
+   "path": "services/users.py",
+   "line": 4,
+   "id": "84c15b8c7df41b5849b01163",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-inter-module-module-import": [
+  {
+   "rule": "SEC-001",
+   "path": "services/users.py",
+   "line": 4,
+   "id": "1d3e336341b11c93ae68dd0e",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-inter-module-placeholder": [],
+ "python/flow-method-arg-order-self-shift": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 6,
+   "id": "b884d8d3207c8657ce497fdb",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/flow-method-parameterised": [],
+ "python/flow-returned-query": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 8,
+   "id": "1a04131645f8e7c9b752b9e8",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-self-method": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 6,
+   "id": "8e700a9c37619df69ab806d3",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-service-class-with-repo-field": [
+  {
+   "rule": "SEC-001",
+   "path": "repo/orders.py",
+   "line": 5,
+   "id": "5466b70650c57870f160456e",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-two-hop": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 5,
+   "id": "8e700a9c37619df69ab806d3",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/flow-wrapper-constant-stmt-and-params": [],
+ "python/flow-wrapper-run-query": [
+  {
+   "rule": "SEC-001",
+   "path": "db.py",
+   "line": 6,
+   "id": "98b273f621eab11c1cf265fc",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/minidom-default-parser": [],
+ "python/minidom-xxe": [
+  {
+   "rule": "SEC-034",
+   "path": "app.py",
+   "line": 11,
+   "id": "ddc15f517dbe8d4fd1f9e877",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/owner-check-after-fetch": [],
+ "python/owner-filter-by-id": [
+  {
+   "rule": "ACC-002",
+   "path": "app.py",
+   "line": 7,
+   "id": "82172c1728ce8978021c2325",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/owner-get-object-or-404-by-id": [
+  {
+   "rule": "ACC-002",
+   "path": "shop/views.py",
+   "line": 7,
+   "id": "613ee49112f16f433921e3d1",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/owner-owner-word-only-in-log": [
+  {
+   "rule": "ACC-002",
+   "path": "app.py",
+   "line": 7,
+   "id": "2da3570be400f9825d43bb5b",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/owner-scoped-filter": [],
+ "python/owner-scoped-to-request-user": [],
+ "python/owner-sqlalchemy-get": [
+  {
+   "rule": "ACC-002",
+   "path": "app.py",
+   "line": 7,
+   "id": "82172c1728ce8978021c2325",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/owner-svc-service-scoped-by-current-user": [],
+ "python/owner-svc-view-to-service-module": [
+  {
+   "rule": "ACC-002",
+   "path": "app.py",
+   "line": 8,
+   "id": "034975e6d41cd19d31d672f3",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/sanitiser-html-escaped-page": [],
+ "python/sanitiser-html-escaped-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 16,
+   "id": "4332b355aeb3696033417287",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/sanitiser-named-does-nothing": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 20,
+   "id": "4332b355aeb3696033417287",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/sanitiser-shell-quoted-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "app.py",
+   "line": 16,
+   "id": "2b19af63749570bc4d8943f3",
+   "verdict": "needs-validation"
+  }
+ ],
+ "python/sanitiser-shell-quoted-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "app.py",
+   "line": 16,
+   "id": "ae0a81a214a067c02ba7e04a",
+   "verdict": "confirmed"
+  }
+ ],
+ "python/sanitiser-url-quoted-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "app.py",
+   "line": 16,
+   "id": "2b19af63749570bc4d8943f3",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/allowlist-early-exit": [],
+ "go/atoi": [],
+ "go/chi-urlparam-path": [
+  {
+   "rule": "SEC-022",
+   "path": "main.go",
+   "line": 12,
+   "id": "17597ba38abfc06faee45882",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/exec-argv": [],
+ "go/exec-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "main.go",
+   "line": 10,
+   "id": "f8b3665302983a1c61b90a4c",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/filepath-base": [],
+ "go/flow-branch-default-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 15,
+   "id": "54fb8f324d98458f60449c21",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/flow-cross-file-placeholder": [],
+ "go/flow-cross-file-same-package": [
+  {
+   "rule": "SEC-001",
+   "path": "store.go",
+   "line": 8,
+   "id": "3237dfa8178de07b7d93b4d6",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/flow-method-on-struct-cross-file": [
+  {
+   "rule": "SEC-001",
+   "path": "store.go",
+   "line": 8,
+   "id": "c8845c0ec409d67ea8370146",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/flow-two-hop-cross-file": [
+  {
+   "rule": "SEC-001",
+   "path": "store.go",
+   "line": 8,
+   "id": "3237dfa8178de07b7d93b4d6",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/fprintf-html": [
+  {
+   "rule": "SEC-033",
+   "path": "main.go",
+   "line": 10,
+   "id": "a38e2384938e0234c3a2943c",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/gin-auth-group": [],
+ "go/gin-bind-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 22,
+   "id": "0d8dd36934f0ec3d5605b7ea",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/gin-open-write": [
+  {
+   "rule": "ACC-001",
+   "path": "main.go",
+   "line": 12,
+   "id": "93b0dcd530611aee6696f7b9",
+   "verdict": "needs-validation"
+  }
+ ],
+ "go/gin-redirect": [
+  {
+   "rule": "SEC-020",
+   "path": "main.go",
+   "line": 10,
+   "id": "282d771987f499b8b7bfe97a",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/gorm-where-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 16,
+   "id": "66cd21b3f0040fea8c9518cb",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/gorm-where-param": [],
+ "go/helper-package": [
+  {
+   "rule": "SEC-001",
+   "path": "store/users.go",
+   "line": 8,
+   "id": "84539bfb36585a78e4c5cbf3",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/html-template": [],
+ "go/http-get-fixed-host": [],
+ "go/http-get-ssrf": [
+  {
+   "rule": "SEC-021",
+   "path": "main.go",
+   "line": 9,
+   "id": "7da3b21f885fcd17aa66ac8a",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/interface-dispatch": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 19,
+   "id": "d4efcb1774c568f6617f2a39",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/nethttp-sql-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 12,
+   "id": "54fb8f324d98458f60449c21",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/nethttp-sql-placeholder": [],
+ "go/owner-by-id": [
+  {
+   "rule": "ACC-002",
+   "path": "main.go",
+   "line": 10,
+   "id": "843129bc52484b009437a0e7",
+   "verdict": "needs-validation"
+  }
+ ],
+ "go/owner-scoped-by-claims": [],
+ "go/readfile-path": [
+  {
+   "rule": "SEC-022",
+   "path": "main.go",
+   "line": 11,
+   "id": "248bd57491674c5e782ad12e",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/sanitiser-base-name-file": [],
+ "go/sanitiser-base-name-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 17,
+   "id": "f83b2e5e46bf4f93f18a58f7",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/sanitiser-html-escaped-page": [],
+ "go/sanitiser-html-escaped-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 17,
+   "id": "2c9943cbf18251bee88f7fbc",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/sanitiser-url-escaped-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "main.go",
+   "line": 17,
+   "id": "21ccd49515f9f419d96e1c74",
+   "verdict": "confirmed"
+  }
+ ],
+ "go/sprintf-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "main.go",
+   "line": 13,
+   "id": "c6c771afc56c5c329d87108f",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-branch-default-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 14,
+   "id": "a86d3b4335d39cbb9ee26fd1",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-branch-every-arm-constant": [],
+ "java/flow-container-map-key": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 15,
+   "id": "c445ec58654fb4f55d7b10d5",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-container-map-other-key": [],
+ "java/flow-else-if-first-arm-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 16,
+   "id": "8d989057f46398e27ff20e7f",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-enumeration-header": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 15,
+   "id": "02e3e4601a9041ed343ad792",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-helper-inner-class": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 13,
+   "id": "a86d3b4335d39cbb9ee26fd1",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-parameter-names": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 17,
+   "id": "cd273651c220dfc321c3829d",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-processbuilder-argument-list": [
+  {
+   "rule": "SEC-011",
+   "path": "src/main/java/app/Search.java",
+   "line": 17,
+   "id": "6b906332b4e0ba86f7c11fb5",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-runtime-local-exec": [
+  {
+   "rule": "SEC-011",
+   "path": "src/main/java/app/Search.java",
+   "line": 13,
+   "id": "0f9b44d489f2b0ddf25b97bf",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-service-class": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/UserService.java",
+   "line": 9,
+   "id": "49472800ae11364b38651524",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-service-placeholder": [],
+ "java/flow-service-repo": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/UserRepo.java",
+   "line": 6,
+   "id": "8730686b05cac4bf31112e52",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-switch-case-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 21,
+   "id": "8d989057f46398e27ff20e7f",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-switch-every-case-constant": [],
+ "java/flow-ternary-request-arm": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/Search.java",
+   "line": 14,
+   "id": "a86d3b4335d39cbb9ee26fd1",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/flow-var-local-service": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/app/UserFinder.java",
+   "line": 6,
+   "id": "5fb9230739bd24009124c7ad",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/helper-chain": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/AccountController.java",
+   "line": 26,
+   "id": "8947762db7f67e81f4192ef5",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/jaxrs-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/ItemResource.java",
+   "line": 16,
+   "id": "ae6654f7fec7167867c5352f",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/jpa-native-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/ProductController.java",
+   "line": 16,
+   "id": "e7d8f9a500a75f4acdef0a33",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/matches-validation": [],
+ "java/new-file": [
+  {
+   "rule": "SEC-022",
+   "path": "src/main/java/com/example/FileController.java",
+   "line": 11,
+   "id": "07af39291a4a2f00b2f325aa",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/object-input-stream": [
+  {
+   "rule": "SEC-024",
+   "path": "src/main/java/com/example/SessionController.java",
+   "line": 12,
+   "id": "3da09fcdb0fa8c4eef2185ca",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/owner-findbyid": [
+  {
+   "rule": "ACC-002",
+   "path": "src/main/java/app/InvoiceController.java",
+   "line": 11,
+   "id": "56c35f5cab2088ab113c5901",
+   "verdict": "needs-validation"
+  }
+ ],
+ "java/owner-owner-compared": [],
+ "java/owner-preauthorize": [],
+ "java/parent-class": [
+  {
+   "rule": "SEC-022",
+   "path": "src/main/java/com/example/UploadBase.java",
+   "line": 7,
+   "id": "33376c94f58a8dbce48b193f",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/parse-int": [],
+ "java/processbuilder-argv": [],
+ "java/resttemplate-ssrf": [
+  {
+   "rule": "SEC-021",
+   "path": "src/main/java/com/example/PreviewController.java",
+   "line": 12,
+   "id": "a4b3cdf7d8b515d56da94f3b",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/runtime-exec": [
+  {
+   "rule": "SEC-011",
+   "path": "src/main/java/com/example/PingController.java",
+   "line": 9,
+   "id": "174070fcec8e53f9e8a73244",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/sanitiser-html-escaped-page": [],
+ "java/sanitiser-html-escaped-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/SearchController.java",
+   "line": 19,
+   "id": "e898ee8bf441b30f316976b4",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/sanitiser-markup-cleaned-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/SearchController.java",
+   "line": 20,
+   "id": "89032fbe7a5646a014ec7606",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/sanitiser-url-encoded-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "src/main/java/com/example/SearchController.java",
+   "line": 18,
+   "id": "bed89b6e21e95134d4d80934",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/send-redirect": [
+  {
+   "rule": "SEC-020",
+   "path": "src/main/java/com/example/LoginServlet.java",
+   "line": 10,
+   "id": "c086342e540ee9ea22628fad",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/servlet-writer-html-type": [
+  {
+   "rule": "SEC-033",
+   "path": "src/main/java/app/Search.java",
+   "line": 14,
+   "id": "0272579d5b3a6a2728117f78",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/servlet-writer-json-type": [],
+ "java/servlet-xss": [
+  {
+   "rule": "SEC-033",
+   "path": "src/main/java/com/example/HelloServlet.java",
+   "line": 11,
+   "id": "1e0acebb55e2f6e7136c3330",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/spel-injection": [
+  {
+   "rule": "SEC-010",
+   "path": "src/main/java/com/example/FormulaController.java",
+   "line": 13,
+   "id": "22fb8bd25ecbd88350ce8200",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/spring-jdbc-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/UserController.java",
+   "line": 17,
+   "id": "a5ecce9727ebc2aa1f4f4d88",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/spring-jdbc-placeholder": [],
+ "java/spring-layered": [
+  {
+   "rule": "SEC-001",
+   "path": "src/main/java/com/example/service/UserServiceImpl.java",
+   "line": 16,
+   "id": "f45acdd29a7d1201e263337a",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/spring-open-write": [
+  {
+   "rule": "ACC-001",
+   "path": "src/main/java/com/example/NoteController.java",
+   "line": 17,
+   "id": "2179ca701ed9aa0756cf87dc",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/spring-preauthorize": [],
+ "java/spring-security-chain": [
+  {
+   "rule": "ACC-001",
+   "path": "src/main/java/com/example/NoteController.java",
+   "line": 16,
+   "id": "2179ca701ed9aa0756cf87dc",
+   "verdict": "needs-validation"
+  }
+ ],
+ "java/xxe-document-builder": [
+  {
+   "rule": "SEC-034",
+   "path": "src/main/java/com/example/ImportController.java",
+   "line": 14,
+   "id": "ace4e006c2cfbf9a46a5e14a",
+   "verdict": "confirmed"
+  }
+ ],
+ "java/xxe-hardened": [],
+ "php/basename": [],
+ "php/curl-ssrf": [
+  {
+   "rule": "SEC-021",
+   "path": "fetch.php",
+   "line": 2,
+   "id": "f0983dadb6210b6722ca634b",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/echo-xss": [
+  {
+   "rule": "SEC-033",
+   "path": "hello.php",
+   "line": 3,
+   "id": "f09f65172eece0c3f001e8f5",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/escapeshellarg": [],
+ "php/file-get-contents": [
+  {
+   "rule": "SEC-022",
+   "path": "view.php",
+   "line": 3,
+   "id": "4449983338db921e4586906e",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/flow-branch-default-keeps-request": [
+  {
+   "rule": "SEC-001",
+   "path": "index.php",
+   "line": 7,
+   "id": "2313f015f48b7e2d98f01100",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/flow-branch-every-arm-constant": [],
+ "php/flow-class-method-cross-file": [
+  {
+   "rule": "SEC-001",
+   "path": "app/lib/Users.php",
+   "line": 5,
+   "id": "49ba7d9c0c40580309d9bcb6",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/flow-include-function": [
+  {
+   "rule": "SEC-001",
+   "path": "app/lib/users.php",
+   "line": 4,
+   "id": "bd02bb6327247ddc3f672f79",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/flow-include-prepared": [],
+ "php/flow-method-prepared": [],
+ "php/flow-namespaced-new": [
+  {
+   "rule": "SEC-001",
+   "path": "app/lib/Reports.php",
+   "line": 7,
+   "id": "13a5d5e5c2005332cab8e3e8",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/flow-two-hop-cross-file": [
+  {
+   "rule": "SEC-001",
+   "path": "app/lib/db.php",
+   "line": 4,
+   "id": "d3a4ead1cdbb6b1b2ee13f56",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/header-location": [
+  {
+   "rule": "SEC-020",
+   "path": "continue.php",
+   "line": 2,
+   "id": "7af43fca839c81614d83e465",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/htmlspecialchars": [],
+ "php/include-allowlist": [],
+ "php/include-page": [
+  {
+   "rule": "SEC-010",
+   "path": "index.php",
+   "line": 3,
+   "id": "3b067ad148e02afb3f3836db",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/intval": [],
+ "php/is-numeric": [],
+ "php/json-decode-cookie": [],
+ "php/laravel-auth-group": [],
+ "php/laravel-bindings": [],
+ "php/laravel-mass-assignment": [
+  {
+   "rule": "SEC-028",
+   "path": "app/Http/Controllers/ProfileController.php",
+   "line": 10,
+   "id": "5d3c870a9544da54c000b876",
+   "verdict": "needs-validation"
+  }
+ ],
+ "php/laravel-open-admin": [
+  {
+   "rule": "ACC-003",
+   "path": "routes/web.php",
+   "line": 5,
+   "id": "071fb2a2209470f886ebd39a",
+   "verdict": "needs-validation"
+  }
+ ],
+ "php/laravel-select-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "app/Http/Controllers/SearchController.php",
+   "line": 12,
+   "id": "9e49fa9dfe741f746f414b01",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/laravel-service": [
+  {
+   "rule": "SEC-001",
+   "path": "app/Services/ReportService.php",
+   "line": 10,
+   "id": "89447b91b30418b4f7f6eafd",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/libxml-noent": [
+  {
+   "rule": "SEC-034",
+   "path": "import.php",
+   "line": 3,
+   "id": "5a5faf63cc77cba8a3cb01a3",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/mysqli-concat": [
+  {
+   "rule": "SEC-001",
+   "path": "search.php",
+   "line": 4,
+   "id": "60eb54e88498e98aa56d9124",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/owner-find-by-id": [
+  {
+   "rule": "ACC-002",
+   "path": "routes/api.php",
+   "line": 7,
+   "id": "602f01c39a2ff3888fd61493",
+   "verdict": "needs-validation"
+  }
+ ],
+ "php/owner-policy-authorize": [],
+ "php/owner-scoped-through-relation": [],
+ "php/owner-user-only-in-log": [
+  {
+   "rule": "ACC-002",
+   "path": "routes/api.php",
+   "line": 7,
+   "id": "57aa18eba7252582fed86920",
+   "verdict": "needs-validation"
+  }
+ ],
+ "php/pdo-prepared": [],
+ "php/sanitiser-base-name-file": [],
+ "php/sanitiser-html-escaped-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "users.php",
+   "line": 3,
+   "id": "a7fff63cebb6a656198cae2a",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/sanitiser-shell-escaped-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "users.php",
+   "line": 3,
+   "id": "e60f1ef7d60811a23d7046ac",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/sanitiser-sql-escaped-page": [
+  {
+   "rule": "SEC-033",
+   "path": "hello.php",
+   "line": 3,
+   "id": "390de23c57843d02abf27d1e",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/sanitiser-sql-escaped-sql": [],
+ "php/sanitiser-url-encoded-shell": [
+  {
+   "rule": "SEC-011",
+   "path": "convert.php",
+   "line": 3,
+   "id": "42cdbeb06305c459fc2977cd",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/sanitiser-wordpress-text-sql": [
+  {
+   "rule": "SEC-001",
+   "path": "plugin.php",
+   "line": 3,
+   "id": "0d5230c806d65ab9e942e7fa",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/shell-exec": [
+  {
+   "rule": "SEC-011",
+   "path": "ping.php",
+   "line": 3,
+   "id": "91b7110f5c1f901c5f24c1d3",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/short-echo": [
+  {
+   "rule": "SEC-033",
+   "path": "profile.php",
+   "line": 3,
+   "id": "43b5b00e15801f7f55781c44",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/simplexml-default": [],
+ "php/symfony-dbal": [
+  {
+   "rule": "SEC-001",
+   "path": "src/Controller/ReportController.php",
+   "line": 15,
+   "id": "2cc0a334df6620b4d0b383c6",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/symfony-is-granted": [],
+ "php/unserialize-cookie": [
+  {
+   "rule": "SEC-024",
+   "path": "cart.php",
+   "line": 2,
+   "id": "3909788e3ebcb06073b0004b",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/variable-function": [
+  {
+   "rule": "SEC-010",
+   "path": "action.php",
+   "line": 4,
+   "id": "1e14b3b41aca5319b433e8c7",
+   "verdict": "confirmed"
+  }
+ ],
+ "php/variable-function-fixed": []
+}

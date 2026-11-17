@@ -6,8 +6,8 @@ const ui = require('./semantic');
 const capabilityDocument = require('../../config/public-alpha-capabilities.json');
 const { projectCapabilities } = require('../../src/capability-registry');
 
-const { buildPolicyDigitalTwinReadModel } = require('../../src/governance-digital-twin');
-const { projectGovernanceInterfaceAccess } = require('../../src/governance-interface');
+const { buildPolicyDigitalTwinReadModel } = require('../../apps/api/src/modules/kepler/index.ts');
+const { projectGovernanceInterfaceAccess } = require('../../apps/api/src/modules/kepler/index.ts');
 
 const HEAD_SHA = 'a'.repeat(40);
 
@@ -218,6 +218,8 @@ function normalizedScenario(input = {}) {
     auditClock: input.auditClock || 'fresh',
     licences: input.licences || 'permissive',
     auditStack: input.auditStack || 'node',
+    /* The address the sandbox repository declares as its homepage: the site its audit offers to check. */
+    homepage: typeof input.homepage === 'string' ? input.homepage : 'https://demo.example.com',
     /* Audit results kept before the page opened, oldest first, and what the watch will find since the latest. */
     auditHistorySeed: Array.isArray(input.auditHistorySeed) ? input.auditHistorySeed : [],
     auditWatchAlerts: Array.isArray(input.auditWatchAlerts) ? input.auditWatchAlerts : []
@@ -280,7 +282,7 @@ function securityPostureFixture(kind) {
 function findingsInboxFixture(kind, decided) {
   const now = Date.now();
   const at = days => new Date(now - days * 86400000).toISOString();
-  const vocabulary = require('../../src/code-audit-triage').VOCABULARY;
+  const vocabulary = require('../../apps/api/src/modules/uranus/index.ts').auditTriage.VOCABULARY;
   if (kind === 'empty') {
     return { available: true, vocabulary, generatedAt: new Date(now).toISOString(), sources: { audit: 'measured', exposure: 'measured' }, truncated: false, total: 0, counts: {}, findings: [] };
   }
@@ -378,10 +380,10 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
   };
   /*
    * The audits the server keeps, newest first, reduced by the same function
-   * the server uses (src/code-audit-history.js) and answered in the same
+   * the server uses (Uranus's audit history) and answered in the same
    * shapes, so the page is tested against what a database would give it.
    */
-  const { compactAudit, serialize, describeKept } = require('../../src/code-audit-history');
+  const { compactAudit, serialize, describeKept } = require('../../apps/api/src/modules/uranus/index.ts').auditHistory;
   state.auditHistory = [];
   const recordAudit = result => {
     const compact = compactAudit(result);
@@ -407,9 +409,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     return { saved: true, auditId: row.audit_id, previousAt: previous ? previous.row.audited_at : null, newIds: diff ? diff.newIds : null, resolved: diff ? diff.resolved : null, firstSeen };
   };
   /* The team's decisions about the repository's findings, and every step of them, as the triage store keeps them. */
-  const triageModule = require('../../src/code-audit-triage');
-  const { clockOf } = require('../../src/code-audit-policy');
-  const { exploitedInProduction } = require('../../src/uranus-reach');
+  const triageModule = require('../../apps/api/src/modules/uranus/index.ts').auditTriage;
+  const { clockOf } = require('../../apps/api/src/modules/kepler/index.ts');
+  const { exploitedInProduction } = require('../../apps/api/src/modules/uranus/index.ts');
   state.triage = new Map();
   state.triageEvents = [];
   for (const seeded of scenario.auditHistorySeed) recordAudit(seeded);
@@ -519,10 +521,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       return fulfill({ login: 'alpha-tester', name: 'Alpha Tester', avatar: '', provider: scenario.provider, authMethod: 'token', offlineCacheScope: SCOPE });
     }
     if (pathname === '/api/me') {
-      if (!state.providerConnected) return fulfill(publicError('PROVIDER_CONNECTION_REQUIRED', 'Connect a sandbox provider account to continue.', {
-        safeState: 'Alpha access is active; no provider account is connected.',
-        nextAction: 'Review provider permissions, then connect the sandbox account.'
-      }), 401);
+      /* What the server sends a session with no GitHub account (signedOutWithoutGithub). */
+      if (!state.providerConnected) return fulfill({ error: 'Not signed in', code: 'AUTH_REQUIRED' }, 401);
       return fulfill({
         login: scenario.login || 'alpha-tester', name: 'Alpha Tester', avatar: '', provider: scenario.provider,
         authMethod: scenario.authMethod || 'token', offlineCacheScope: SCOPE,
@@ -592,7 +592,8 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * (`partial`) and a failed request (`error`).
      */
     if (pathname === '/api/workspace/security-posture') {
-      if (scenario.securityPosture === 'error') return fulfill({ error: 'Service unavailable', code: 'SERVICE_UNAVAILABLE' }, 503);
+      /* A failure the route did not name reaches the reader as the generic public error. */
+      if (scenario.securityPosture === 'error') return fulfill(publicError('OPERATION_FAILED', 'Operation could not be completed'), 500);
       if (scenario.securityPosture === 'unavailable') return fulfill({ available: false, reason: 'database-unavailable' });
       return fulfill(securityPostureFixture(scenario.securityPosture));
     }
@@ -620,7 +621,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     const pullDetail = /^\/api\/repo\/sandbox\/demo\/pulls\/(\d+)$/.exec(pathname);
     if (pullDetail && method === 'GET') {
       const listed = pullListFixture().find(pull => pull.number === Number(pullDetail[1]));
-      if (!listed) return fulfill(publicError('NOT_FOUND', 'Not found'), 404);
+      if (!listed) return fulfill(publicError('PROVIDER_NOT_FOUND', 'Not Found'), 404);
       return fulfill({
         number: listed.number, title: listed.title, body: '', state: 'open', draft: listed.draft, merged: false,
         mergeable: true, mergeable_state: 'clean', user: listed.user, head: listed.head, base: listed.base,
@@ -686,10 +687,10 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     if (pathname === '/api/search') return fulfill([{ repo: 'sandbox/demo', path: 'README.md' }]);
     if (pathname === '/api/notifications') return fulfill([{ id: 'n1', repo: 'sandbox/demo', title: 'Review requested', type: 'PullRequest', reason: 'mention', unread: true }]);
     if (pathname === '/api/repo/sandbox/demo' && method === 'GET') {
-      if (scenario.repositoryState === 'error') return fulfill(publicError('REPOSITORY_TEMPORARILY_UNAVAILABLE', 'The sandbox repository could not be opened.', {
+      if (scenario.repositoryState === 'error') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'The sandbox repository could not be opened.', {
         nextAction: 'Retry opening the allowlisted sandbox repository.'
       }), 503);
-      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: 'https://demo.example.com', branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
+      return fulfill({ full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: scenario.homepage, branches: [{ name: 'main', protected: false, sha: HEAD_SHA }] });
     }
     if (pathname === '/api/repo/sandbox/demo/tree') return fulfill([]);
     if (pathname === '/api/repo/sandbox/demo/files') {
@@ -699,7 +700,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
       const requestedPath = url.searchParams.get('path');
       const existing = scenario.files || ['README.md', '.env.example', '.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'package.json', 'package-lock.json', 'src/app.js'];
       if (!existing.includes(requestedPath) && !state.mutationRequests.some(body => body.path === requestedPath)) {
-        return fulfill(publicError('NOT_FOUND', 'File not found at the requested commit.'), 404);
+        return fulfill(publicError('PROVIDER_NOT_FOUND', 'Not Found'), 404);
       }
       return fulfill({ path: url.searchParams.get('path') || 'alpha-proof.txt', sha: 'c'.repeat(40), size: 0, content: '', binary: false });
     }
@@ -727,8 +728,9 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         if (verb === 'triage-events' && method === 'GET') {
           return fulfill({ events: state.triageEvents.filter(event => event.findingId === findingId).slice().reverse() });
         }
-        if (method !== 'POST') return fulfill(publicError('NOT_FOUND', 'Not found'), 404);
-        if (scenario.triage !== 'reviewer') return fulfill(publicError('GOV_ROLE_REQUIRED', 'A reviewer must decide about findings'), 403);
+        /* An API path with no route: the server's catch-all, which names no code. */
+        if (method !== 'POST') return fulfill({ error: 'Not found' }, 404);
+        if (scenario.triage !== 'reviewer') return fulfill(publicError('GOVERNANCE_ROLE_REQUIRED', 'The reviewer governance role is required'), 403);
         const at = new Date().toISOString();
         if (verb === 'reopen') {
           const removed = state.triage.get(findingId);
@@ -740,7 +742,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         const body = JSON.parse(request.postData() || '{}');
         let input;
         try { input = triageModule.normalizeDecision({ disposition: body.disposition, reason: body.reason, expiresInDays: body.expiresInDays }); }
-        catch (error) { return fulfill(publicError(error.code || 'CODE_AUDIT_TRIAGE_INVALID', error.message), 400); }
+        catch (error) { return fulfill(publicError(error.code || 'OPERATION_FAILED', error.message), 400); }
         const expiresAt = input.days ? new Date(Date.parse(at) + input.days * 24 * 60 * 60 * 1000).toISOString() : null;
         const decision = { findingId, rule: String(body.rule || ''), disposition: input.disposition, reason: input.reason, decidedBy: scenario.login, decidedAt: at, expiresAt };
         state.triage.set(findingId, decision);
@@ -847,7 +849,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
         return fulfill({ error: 'This audit is no longer held by the server. It may have restarted. Run the audit again.', code: 'AUDIT_RUN_GONE' }, 404);
       }
       state.audits = (state.audits || 0) + 1;
-      const { analyse } = require('../../src/code-audit');
+      const { analyse } = require('../../apps/api/src/modules/uranus/index.ts');
       /* A remote database password, built in pieces so no scanner mistakes the fixture for a leak. */
       const databaseUrl = ['postgres://app:', 'Tr0ub4dor-and-3', '@db.demo-prod.example.com:5432/app'].join('');
       /*
@@ -965,7 +967,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * summary and a ruleset, the classic details hidden.
      */
     if (pathname === '/api/repo/sandbox/demo/branch-protection' && method === 'GET') {
-      const { readBranchProtection } = require('../../src/branch-protection');
+      const { readBranchProtection } = require('../../apps/api/src/modules/posture/index.ts');
       const routes = {
         '': { default_branch: 'main' },
         '/branches/main': { protected: true, protection: { required_status_checks: { contexts: ['ci'] } } },
@@ -993,7 +995,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
      * the repository's Audit tab and the Website page.
      */
     if ((pathname === '/api/repo/sandbox/demo/site-check' || pathname === '/api/site-check') && method === 'GET') {
-      const { checkSite, siteOrigin } = require('../../src/site-check');
+      const { checkSite, siteOrigin } = require('../../apps/api/src/modules/parallax/index.ts').siteCheck;
       const run = url.searchParams.get('run');
       if (!run) {
         try { siteOrigin(url.searchParams.get('url')); }
@@ -1079,14 +1081,16 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
     if (pathname === '/api/repo/sandbox/demo/file' && method === 'PUT') {
       const body = request.postDataJSON();
       state.mutationRequests.push(body);
-      if (scenario.mutation === 'blocked') return fulfill(publicError('MUTATION_BLOCKED', 'The controlled action was blocked by policy.', {
+      /* The mutation gateway's refusal of a write a deny rule blocks. */
+      if (scenario.mutation === 'blocked') return fulfill(publicError('POLICY_MUTATION_BLOCKED', 'This mutation is blocked by the active policy', {
         nextAction: 'Review the policy decision before retrying.'
-      }), 409);
+      }), 403);
       if (scenario.mutation === 'failed-unchanged') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'The provider did not complete the action.', {
         providerChanged: 'no',
         nextAction: 'Wait for provider recovery and retry with the same expected head.'
       }), 503);
-      if (scenario.mutation === 'unknown') return fulfill(publicError('MUTATION_OUTCOME_UNKNOWN', 'The provider outcome could not be verified.', {
+      /* A provider that failed mid-write: its outcome is not confirmed either way. */
+      if (scenario.mutation === 'unknown') return fulfill(publicError('PROVIDER_UNAVAILABLE', 'The provider outcome could not be verified.', {
         providerChanged: 'unknown',
         safeState: 'Do not retry until the repository head is refreshed.',
         nextAction: 'Refresh repository metadata and compare the expected head.'

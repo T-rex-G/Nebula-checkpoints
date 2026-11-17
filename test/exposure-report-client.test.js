@@ -3,14 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { describeFinding, describeDisposition, safeDisplayPath } = require('../src/exposure-narration');
-const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
-const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
-const dto = { describeFinding, describeDisposition, safeDisplayPath, EXPOSURE_VERIFIABLE_RULES: new Set() };
-vm.runInNewContext(server.slice(server.indexOf('function exposureFindingPayload('), server.indexOf('const EXPOSURE_VERIFIABLE_RULES')), dto);
+const { exposureFindingPayload } = require('../apps/api/src/modules/quasar/index.ts');
+const app = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
 const secret = 'ghp_' + 'A'.repeat(36);
 const finding = { fingerprint: 'f'.repeat(64), rule: 'github-pat', path: `archive.zip!/${secret}.txt`, disposition: 'open' };
-const publicFinding = dto.exposureFindingPayload(finding);
+const publicFinding = exposureFindingPayload(finding);
 assert(!JSON.stringify(publicFinding).includes(secret), 'serialized DTO must never retain the raw credential-shaped filename');
 assert.equal(publicFinding.path, publicFinding.displayPath);
 assert.equal(finding.path, `archive.zip!/${secret}.txt`, 'private reread locator is unchanged');
@@ -20,6 +17,7 @@ function harness(answer) {
   let scope = 'first';
   const requests = [];
   const context = { URLSearchParams, exposureState: () => state, exposureScopeKey: () => scope,
+    pageStore: { mutate: (_slice, change) => change(state) },
     wPath: () => 'acme/demo', renderExposure() {}, api: async url => { requests.push(url); return answer(url); } };
   const start = app.indexOf('async function loadExposureReport(');
   const end = app.indexOf('\n/*', start);

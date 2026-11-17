@@ -1,4 +1,6 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 /*
@@ -19,12 +21,12 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
-const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../src/security-foundation');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { createCsrfToken, createStepUpGrant, normalizeStepUpRequest, scopeHash } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 18000 + Math.floor(Math.random() * 1000);
+const port = freePort();
 const secret = 'workbench-route-test-secret-0123456789abcdef-0123456789abcdef';
 const key = deriveKey(secret, KEY_PURPOSES.SESSION_CONTENT);
 const csrfSecret = deriveSecret(secret, KEY_PURPOSES.CSRF_TOKEN);
@@ -52,7 +54,7 @@ function mutation(method, body, extra = {}, stepUp = null) {
   };
 }
 
-const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures', 'github-model-fetch.js'), 'server.js'], {
+const child = spawn(process.execPath, ['-r', path.join(__dirname, 'fixtures', 'github-model-fetch.js'), serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

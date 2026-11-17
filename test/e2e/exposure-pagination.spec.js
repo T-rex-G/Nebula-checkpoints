@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const { mockTask20Api, openRepository } = require('./task20-fixtures');
+const ui = require('./semantic');
 test.use({ serviceWorkers: 'block' });
 
 test('Exposure pages, searches beyond loaded rows and exports the whole consistent view', async ({ page }) => {
@@ -33,7 +34,7 @@ test('Exposure pages, searches beyond loaded rows and exports the whole consiste
       nextCursor: hasMore ? String(start + items.length) : null, hasMore, verifications: {}, probes: {} } });
   });
   await openRepository(page);
-  await page.evaluate(() => window.switchTab('exposure'));
+  await ui.openTab(page, 'exposure');
   const items = page.locator('#exposureList > .exposure-item');
   await expect(items).toHaveCount(50);
   await expect(page.locator('#exposureShown')).toHaveText('50 of 235 matching findings loaded (235 total)');

@@ -3,7 +3,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 let authorization = {};
-try { authorization = require('../src/authorization-resolver'); } catch {}
+try { authorization = require('../apps/api/src/platform/authorization/authorization-resolver.ts'); } catch {}
 
 for (const name of [
   'AuthorizationResolverError', 'AUTHORIZATION_SCHEMA_VERSION', 'GOVERNANCE_ROLE_NAMES',
@@ -17,6 +17,7 @@ const {
   createAuthorizationResolver
 } = authorization;
 
+const { ContractError } = require('../packages/contracts/src/guards.ts');
 const key = value => crypto.createHash('sha256').update(value).digest('hex');
 const actorKey = key('github:alice');
 const baseAccount = { provider: 'github', authMethod: 'oauth', login: 'alice', token: 'gho_secret' };
@@ -90,6 +91,21 @@ function assertCredentialFree(value) {
       ...scope, actorIdentityKey: key(`${provider}:alice`)
     }), error => error.code === 'GOVERNANCE_SCOPE_INVALID');
     assert.strictEqual(requests, 0, 'retired account identities cannot obtain repository permissions');
+  }
+
+  /*
+   * A malformed scope is the caller's mistake. The platform's scope reader
+   * refuses it under the scope contract's code and message with a 400, the
+   * answer it gave when the platform borrowed governance's reader, and asks
+   * the provider nothing.
+   */
+  {
+    let requests = 0;
+    const resolver = createAuthorizationResolver({ request: async () => { requests++; return {}; } });
+    await assert.rejects(resolver.resolve({ account: baseAccount, owner: 'Acme', repo: '..', actorIdentityKey: actorKey }), error =>
+      error instanceof ContractError && error.code === 'GOVERNANCE_SCOPE_INVALID' && error.status === 400 &&
+      error.message === 'Policy repository scope is invalid');
+    assert.strictEqual(requests, 0, 'a malformed scope reaches no provider');
   }
 
   const authorizerIdentityKey = key('github:authorizer');

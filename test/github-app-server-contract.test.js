@@ -1,37 +1,50 @@
 'use strict';
-
+/*
+ * The GitHub App connection, as the server registers it: its routes and their
+ * guards, as the route policy reads them from the composition root and the
+ * modules' registrations, and what an installation's account may not do.
+ *
+ * What each part does is asked of it where it lives:
+ *   - the server loads the App's configuration, tells the page, builds the
+ *     broker, and resolves an App account to the installation's token
+ *     (test/github-app-configured-server.test.js, test/composition.test.js);
+ *   - the callbacks accept only a state signed for their purpose, this session
+ *     and this identity, spend it once before GitHub is asked anything, and
+ *     claim an installation only for an owner the user can see with their own
+ *     token; the account they add is an App account and holds no token; the
+ *     sign-in answer is where to go and nothing the session holds; a refresh
+ *     or a disconnect outside the alpha makes the broker forget the
+ *     installation's token (test/identity-security-routes.test.js,
+ *     test/account-lifecycle.test.js,
+ *     test/provider-disconnect-server-contract.test.js);
+ *   - an installation's record and its audit trail, kept outside the alpha
+ *     without a login (test/github-app-records.test.js), and the composed
+ *     server's, with a database (test/composition-postgres.test.js);
+ *   - an installation lists the repositories it was granted, never a
+ *     person's (test/workbench-repository-routes.test.js), cannot star or
+ *     unstar for a person, refused before GitHub is asked
+ *     (test/workbench-collaboration-routes.test.js), and is offered no
+ *     notifications (test/capability-access.test.js).
+ */
 const assert = require('assert');
-const fs = require('fs');
 const path = require('path');
-const root = path.resolve(__dirname, '..');
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+const { locations } = require('./oracles/route-policy');
+const { connectionRestriction } = require('../apps/api/src/modules/github-provider/index.ts');
 
-assert(server.includes('loadGithubAppConfig'), 'server must load optional GitHub App configuration');
-assert(server.includes('new GithubAppBroker'), 'server must construct the server-side installation credential broker');
-assert(server.includes('resolveProviderAccount'), 'authenticated provider operations must resolve credentials through one boundary');
-assert.match(server, /app\.post\('\/api\/github-app\/connect'/);
-assert.match(server, /app\.get\('\/api\/github-app\/oauth\/callback'/);
-assert.match(server, /app\.get\('\/api\/github-app\/setup'/);
-assert.match(server, /app\.get\('\/api\/github-app\/status'/);
-assert.match(server, /app\.get\('\/api\/me', accountAuth/);
-assert.match(server, /app\.post\('\/api\/github-app\/refresh'/);
-assert.match(server, /app\.post\('\/api\/github-app\/disconnect'/);
-assert(server.includes('findUserInstallation'), 'setup callback must verify installation ownership with the GitHub App user token');
-assert(server.includes('verifyGithubAppState'), 'callbacks must verify signed session and identity-bound state');
-assert(server.includes('consumeGithubAppPending'), 'callback state must be consumed once before provider side effects');
-assert.match(server, /authMethod:\s*'github-app'/);
-assert.match(server, /installationId:/);
-assert(!/accounts\.push\(\{[^}]*token[^}]*authMethod:\s*'github-app'/s.test(server), 'GitHub App session accounts must remain tokenless');
-assert(server.includes('/installation/repositories?'), 'GitHub App repository listing must use the installation endpoint');
-assert(server.includes('GITHUB_APP_CAPABILITY_UNAVAILABLE'), 'unsupported user-scoped operations must fail explicitly for GitHub App accounts');
-assert(server.includes('providerCapabilities'), 'account capabilities must distinguish installation-scoped credentials from user credentials');
-assert.match(server, /authMethod === 'github-app'[\s\S]{0,500}notif:\s*false/);
-assert(server.includes("app.get('/api/notifications', providerSessionAccess, capabilityAccess('notifications'), auth"), 'notification connection support must be checked before credential resolution');
-const { connectionRestriction } = require('../src/github-account-operations');
+const root = path.resolve(__dirname, '..');
+const policyRoutes = locations(root).filter(entry => entry.kind === 'route');
+const guardsOf = (method, routePath) => {
+  const entry = policyRoutes.find(item => item.method === method && item.path === routePath);
+  assert(entry, `missing ${method} ${routePath}`);
+  return entry.guards;
+};
+for (const [method, routePath] of [
+  ['POST', '/api/github-app/connect'], ['GET', '/api/github-app/oauth/callback'], ['GET', '/api/github-app/setup'],
+  ['GET', '/api/github-app/status'], ['POST', '/api/github-app/refresh'], ['POST', '/api/github-app/disconnect']
+]) guardsOf(method, routePath);
+assert.deepStrictEqual(guardsOf('GET', '/api/me'), ['accountAuth']);
+assert.deepStrictEqual(guardsOf('GET', '/api/notifications'), ['providerSessionAccess', "capabilityAccess('notifications')", 'auth'],
+  'notification connection support must be checked before credential resolution');
 assert.strictEqual(connectionRestriction({ authMethod: 'github-app' }, 'notifications').code, 'GITHUB_NOTIFICATIONS_CONNECTION_UNSUPPORTED');
-assert(server.includes('GitHub App installations cannot manage user stars'), 'user-scoped starring must fail without calling GitHub');
-assert(server.includes('githubAppBroker.invalidate'), 'disconnect or provider rejection must invalidate broker state');
-assert(server.includes('nv_github_app_installations'), 'server must persist non-secret installation metadata when Neon is available');
-assert(server.includes('nv_github_app_audit'), 'server must record non-secret lifecycle events when Neon is available');
-assert(!/res\.json\([^\n]*(?:clientSecret|privateKey|webhookSecret|access_token|installationToken)/.test(server), 'server JSON must not expose GitHub App secrets');
+
 console.log('github app server contract tests passed');

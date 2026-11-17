@@ -2,7 +2,7 @@
 const assert = require('assert');
 const crypto = require('crypto');
 let api = {};
-try { api = require('../src/governance-interface'); } catch {}
+try { api = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 assert(api.projectGovernanceInterfaceAccess, 'projectGovernanceInterfaceAccess must be implemented');
 const { projectGovernanceInterfaceAccess } = api;
 const key = value => crypto.createHash('sha256').update(value).digest('hex');

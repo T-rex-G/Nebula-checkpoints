@@ -5,7 +5,7 @@ const {
   validateRepositoryCreation, connectionRestriction, githubTokenKind,
   githubRepositoryScopes, scopedCodeQuery, createVerifiedRepository,
   searchAccessibleCode, listAccessibleNotifications, verifyRepositoryDeletion
-} = require('../src/github-account-operations');
+} = require('../apps/api/src/modules/github-provider/index.ts');
 
 async function main() {
   assert.deepStrictEqual(validateRepositoryCreation({ name: 'demo' }), {

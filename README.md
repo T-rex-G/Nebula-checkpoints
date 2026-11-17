@@ -470,7 +470,7 @@ Render automatically supplies `RENDER_EXTERNAL_URL`, which Nebulaverse-X uses fo
 > bound the code can honour. A value above that bound is refused at startup:
 > the process exits naming the variable rather than clamping, so the setting is
 > never quietly ignored. Raising a memory-bound limit on a small instance is the
-> operator's call; the ceilings in `src/hosted-readiness.js` are what the code
+> operator's call; the ceilings in `apps/api/src/platform/persistence/hosted-readiness.ts` are what the code
 > can honour, not what a 512 MB container will survive.
 
 | `NV_EVENT_RETENTION_DAYS` | Optional | Event retention, 7–730 days; default 90 |

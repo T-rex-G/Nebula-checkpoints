@@ -48,7 +48,7 @@ async function twoAccounts(page, { refuse = false, removal = null } = {}) {
   /* A removal leaves the first account signed in, or nobody. */
   await page.route('**/api/accounts/remove', route => {
     session.removed = true;
-    return route.fulfill({ json: removal });
+    return route.fulfill({ status: removal && removal.status === 'pending' ? 202 : 200, json: removal });
   });
   await page.route('**/api/me', async route => {
     if (!session.switched && !session.removed) return route.fallback();
@@ -127,6 +127,31 @@ test('an account change is announced once the page has started again as the new 
   await expect(ui.button(page, 'Accounts')).toBeFocused();
 });
 
+test('a switch forgets the address the page was opened at, so the account chosen does not open that repository', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let switched = false;
+  /* A retired GitLab account is the one selected: the page asks the reader to choose a GitHub one. */
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'old-gitlab', provider: 'gitlab' }, { login: 'second-github', provider: 'github' }
+  ] } }));
+  await page.route('**/api/accounts/switch-idx', route => { switched = true; return route.fulfill({ json: { ok: true, login: 'second-github' } }); });
+  await page.route('**/api/me', route => (switched ? route.fulfill({ json: SECOND })
+    : route.fulfill({ status: 409, json: { error: 'The selected account is no longer supported. Choose a GitHub account.', code: 'ACCOUNT_SELECTION_REQUIRED' } })));
+  await page.goto('/#/sandbox/demo@main/editor');
+  const sheet = ui.dialog(page, 'Accounts');
+  await expect(sheet).toContainText('Choose a GitHub account to continue.');
+  await sheet.getByRole('button', { name: 'Switch' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
+  /*
+   * The account chosen starts where a start lands, not in the repository the
+   * address named before it was chosen: the address is let go of as the sign-in
+   * is shown, and again as the switch is made.
+   */
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.locator('#ovWho')).toHaveText('Second Account');
+  expect(new URL(page.url()).hash).not.toContain('sandbox');
+});
+
 test('a reader who leaves the sheet and goes elsewhere while the page restarts is left there', async ({ page }) => {
   const session = await twoAccounts(page);
   const sheet = await pressSwitch(page);
@@ -193,6 +218,25 @@ test('an account removed is announced once the page has started again for who is
   const repos = await ui.enterRepositories(page);
   await expect(repos.locator('.repo-card')).toHaveCount(1);
   await expect(page.locator('#reposPulseGrid .gx-pulse-cell').filter({ hasText: 'Galaxies' }).locator('.gx-pulse-value')).toHaveText('1');
+});
+
+test('a removal the provider has not finished is said to be pending, and the account stays', async ({ page }) => {
+  const session = await twoAccounts(page, { removal: { ok: false, status: 'pending', results: [] } });
+  const sheet = await openSheet(page);
+  await sheet.getByRole('button', { name: 'Remove' }).last().click();
+  await expect(page.locator('.toast').filter({ hasText: 'It is still signed in' })).toBeVisible();
+  await expect.poll(() => session.asked).toBe(1);
+  session.release();
+  /*
+   * The page starts again as who is signed in -- both accounts still are -- and
+   * nothing is announced as signed out; no other tab is told to let go.
+   */
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(page.locator('#ovWho')).toHaveText('Alpha Tester');
+  await expect(sheet).toBeVisible();
+  for (const control of await sheet.getByRole('button', { name: 'Remove' }).all()) await expect(control).toBeEnabled();
+  await expect(page.locator('.toast').filter({ hasText: 'signed out' })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('nv_identity_boundary_event'))).toBeNull();
 });
 
 test('the last account removed leaves the page at sign-in, with nobody to start as', async ({ page }) => {

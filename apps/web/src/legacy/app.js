@@ -28,6 +28,7 @@ import { createLoginChrome, limitsText, loginGuidanceHtml, runtimeLimitsKnown as
 import { createAlphaPrivacy } from '../features/access/alpha-privacy.ts';
 import { createAccountBoundary, IDENTITY_BOUNDARY_CHANNEL } from '../features/access/account-boundary.ts';
 import { createSession, githubIdentity, requireGithubIdentity } from '../features/access/session.ts';
+import { createAccountsDialog } from '../features/access/accounts-dialog.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -459,9 +460,6 @@ function renderLoginGuidance() {
   $('#loginLimits').textContent = limitsText(state.runtime);
 }
 
-const PROV_ICON = {
-  github: '<svg class="prov-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .26.18.58.69.48A10 10 0 0 0 12 2z"/></svg>',
-};
 function applyCaps() {
   const caps = state.caps || { prs: 1, issues: 1, releases: 1, actions: 1, lfs: 1, tm: 1, batch: 1, search: 1, notif: 1, compare: 1 };
   if (!caps.batch && typeof uploadModeV !== 'undefined' && uploadModeV === 'batch') {
@@ -1406,119 +1404,28 @@ function drawOverviewPulse(section, grid, measures) {
   }
   section.hidden = false;
 }
-/* Both home screens open the same account sheet. */
-async function openAccounts() {
-  modal({ title: 'Accounts', okText: 'Done', bodyHTML: '<div class="skeleton" style="height:60px"></div>' });
-  const ownsModal = modalOwner();
-  const sheet = dialog.generation();
-  try {
-    const a = await api('/api/accounts');
-    if (!ownsModal()) return;
-    const accounts = a.accounts.map((account, index) => ({ account, index }));
-    const retiredCount = accounts.filter(({ account }) => !githubIdentity(account)).length;
-    const retiredActive = !githubIdentity(a.accounts[a.active]);
-    /* A retired account is listed only so it can be removed: it is never switched to and loads nothing from its old host. */
-    const lead = retiredCount ? `<p class="hint acct-lead">${retiredActive ? 'Choose a GitHub account to continue. ' : ''}GitLab and Gitea accounts are no longer supported. Remove ${retiredCount === 1 ? 'it' : 'them'}, then revoke ${retiredCount === 1 ? 'its token' : 'their tokens'} in that provider's settings.</p>` : '';
-    $('#modalBody').innerHTML = lead + accounts.map(({ account: ac, index: i }) => githubIdentity(ac) ? `
-      <div class="acct-row ${i === a.active ? 'active' : ''}">
-        ${/^https:\/\//i.test(String(ac.avatar || '')) ? `<img class="avatar" src="${escAttr(ac.avatar)}" alt="">` : '<span class="avatar acct-avatar-empty" aria-hidden="true"></span>'}
-        <div class="acct-meta">
-          <div class="acct-login">${esc(ac.login)}</div>
-          <div class="acct-host">${PROV_ICON.github}<span>github.com</span></div>
-        </div>
-        <div class="acct-actions">
-          ${i === a.active ? '<span class="br-tag">active</span>'
-            : `<button class="btn btn-ghost small" data-switch="${i}">Switch</button>`}
-          <button class="btn btn-ghost small danger" data-remove="${i}" title="Sign out this account only">Remove</button>
-        </div>
-      </div>` : `
-      <div class="acct-row retired">
-        <span class="avatar acct-retired-mark" aria-hidden="true"></span>
-        <div class="acct-meta">
-          <div class="acct-login">${esc(ac.login)}</div>
-          <div class="acct-host"><span>${ac.provider === 'gitea' ? 'Gitea' : 'GitLab'} · no longer supported</span></div>
-        </div>
-        <div class="acct-actions">
-          <button class="btn btn-ghost small danger" data-remove="${i}" title="Remove this account and its stored token">Remove</button>
-        </div>
-      </div>`).join('') + `
-      <div class="detail-actions" style="margin-top:14px">
-        <button class="btn btn-ghost small" id="accAdd">Add account</button>
-        ${githubIdentity(a.accounts[a.active]) && a.accounts[a.active].authMethod === 'oauth' && oauthOn
-          ? '<a class="btn btn-ghost small" href="/api/oauth/login?permission=repository-delete">Allow repository deletion on GitHub</a>' : ''}
-        <button class="btn btn-ghost small danger" id="accOut">Sign out (all)</button>
-      </div>`;
-    /*
-     * An account change is an identity boundary crossed in the open. What the
-     * page held is purged before the server is asked, and the page then starts
-     * again as whoever the server answers for -- whether it made the change or
-     * refused it, for a refusal used to leave the page purged and nobody's.
-     * This sheet stays up, its controls held, until that start has ended, and
-     * only then is the reader told the change is made: told at once, they
-     * were let onto a page with no identity, and sent back to the overview
-     * from wherever they had gone when the start finished.
-     */
-    const holdSheet = () => {
-      /* Only what it held is released: by then the dialog may be another's, with controls of its own to keep. */
-      const controls = [...$$('#modalBody button')].filter(control => !control.disabled);
-      for (const control of controls) control.disabled = true;
-      return () => { for (const control of controls) control.disabled = false; };
-    };
-    const leaveSheet = () => { if (dialog.generation() === sheet) closeModal(true); };
-    $$('#modalBody [data-switch]').forEach(b => b.addEventListener('click', async () => {
-      const release = holdSheet();
-      let out = null;
-      try {
-        await purgeLocalData(false);
-        out = await api('/api/accounts/switch-idx', { method: 'POST', body: { idx: +b.dataset.switch } });
-        broadcastIdentityBoundary();
-        location.hash = '';
-      } catch (e) { toast(e.message, 'err'); }
-      try {
-        await boot();
-      } finally {
-        release();
-        if (out) {
-          leaveSheet();
-          toast(`Switched to ${out.login} ✦`, 'ok');
-        }
-      }
-    }));
-    $$('#modalBody [data-remove]').forEach(b => b.addEventListener('click', async () => {
-      const release = holdSheet();
-      let out = null;
-      try {
-        await purgeLocalData(false);
-        out = await api('/api/accounts/remove', { method: 'POST', body: { idx: +b.dataset.remove } });
-        await purgeLocalData(!!out.empty);
-        broadcastIdentityBoundary();
-      } catch (e) { toast(e.message, 'err'); }
-      try {
-        /* The last account gone, there is nobody to start as: the page goes back to sign-in. */
-        if (out && out.empty) {
-          sessionStorage.removeItem('nv_me');
-          showPage('login');
-        } else {
-          if (out) location.hash = '';
-          await boot();
-        }
-      } finally {
-        release();
-        if (out) {
-          leaveSheet();
-          toast(`${out.removed || 'The account'} signed out ✦`, 'ok');
-          showRevocationGuidance(out.revocationGuidance);
-        }
-      }
-    }));
-    $('#accAdd').addEventListener('click', () => {
-      closeModal(true);
-      $('#loginBackBtn').hidden = false;
-      showPage('login');
-    });
-    $('#accOut').addEventListener('click', async () => { closeModal(true); doLogout(); });
-  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
-}
+/* Both home screens open the same account sheet (features/access/accounts-dialog.ts). */
+const accountsDialog = createAccountsDialog({
+  api,
+  modal: request => modal(request),
+  owner: () => modalOwner(),
+  generation: () => dialog.generation(),
+  closeModal: confirmed => closeModal(confirmed),
+  setBody: html => { $('#modalBody').innerHTML = html; },
+  controls: selector => [...$$(selector)],
+  oauthOn: () => oauthOn,
+  purge: full => purgeLocalData(full),
+  broadcast: () => broadcastIdentityBoundary(),
+  clearAddress: () => { location.hash = ''; },
+  restart: () => boot(),
+  forgetRemembered: () => sessionStorage.removeItem('nv_me'),
+  showSignIn: () => showSignIn(),
+  addAccount: () => { $('#loginBackBtn').hidden = false; showSignIn(); },
+  signOut: () => doLogout(),
+  toast: (message, kind) => toast(message, kind),
+  showRevocationGuidance: guidance => showRevocationGuidance(guidance)
+});
+function openAccounts() { return accountsDialog.open(); }
 $('#accountBtn').addEventListener('click', openAccounts);
 $('#accountBtnOv') && $('#accountBtnOv').addEventListener('click', openAccounts);
 /*

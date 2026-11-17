@@ -4,6 +4,25 @@ const fs = require('fs');
 const app = fs.readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const { createSession } = require('../apps/web/src/features/access/session.ts');
 const { createAccountBoundary, IDENTITY_BOUNDARY_CHANNEL } = require('../apps/web/src/features/access/account-boundary.ts');
+const { createAccountsDialog } = require('../apps/web/src/features/access/accounts-dialog.ts');
+
+/* The accounts sheet, asked of features/access/accounts-dialog.ts: a press, and what it did in order. */
+const sheetPress = async (selector, answers) => {
+  const order = [];
+  const pressed = new Map();
+  const quiet = () => {};
+  const sheet = createAccountsDialog({
+    api: async route => { order.push(route); return answers[route]; }, modal: quiet, owner: () => () => true, generation: () => 1, closeModal: quiet,
+    setBody: html => { for (const match of html.matchAll(/data-(switch|remove)="(\d+)"/g)) pressed.set(`#modalBody [data-${match[1]}]`, { disabled: false, dataset: { [match[1]]: match[2] }, addEventListener(type, listener) { this.listener = listener; } }); },
+    controls: chosen => (pressed.has(chosen) ? [pressed.get(chosen)] : []), oauthOn: () => false,
+    purge: async full => { order.push(`purge:${full}`); }, broadcast: () => order.push('broadcast'), clearAddress: quiet, restart: async () => { order.push('restart'); },
+    forgetRemembered: quiet, showSignIn: quiet, addAccount: quiet, signOut: quiet, toast: quiet, showRevocationGuidance: quiet
+  });
+  await sheet.open();
+  pressed.get(selector).listener();
+  await new Promise(resolve => setImmediate(resolve));
+  return order;
+};
 
 /* Sign-in and sign-out, asked of features/access/session.ts. */
 const sessionOn = (order, answers) => {
@@ -51,17 +70,19 @@ process.exitCode = 1;
   heard.storage({ key: 'nv_identity_boundary_event', newValue: 'x' });
   await new Promise(resolve => setImmediate(resolve));
   assert.deepStrictEqual(told.slice(2), ['purge', 'purged-fully', 'reload'], 'other tabs must purge identity-bound state before reloading');
+  const accounts = { '/api/accounts': { active: 0, accounts: [{ provider: 'github', login: 'a' }, { provider: 'github', login: 'b' }] } };
+  assert.deepStrictEqual(await sheetPress('#modalBody [data-switch]', { ...accounts, '/api/accounts/switch-idx': { ok: true, login: 'b' } }),
+    ['/api/accounts', 'purge:false', '/api/accounts/switch-idx', 'broadcast', 'restart'], 'account switch must await cache purge before switching, and successful switches must purge other tabs');
+  assert.deepStrictEqual((await sheetPress('#modalBody [data-remove]', { ...accounts, '/api/accounts/remove': { ok: true, removed: 'b' } })).slice(0, 3),
+    ['/api/accounts', 'purge:false', '/api/accounts/remove'], 'account removal must purge before mutation');
   console.log('account boundary tests passed');
   process.exitCode = 0;
 })().catch(error => { console.error(error); process.exitCode = 1; });
 
-assert(/data-switch[\s\S]{0,1200}await purgeLocalData\(false\);[\s\S]{0,500}accounts\/switch-idx/.test(app), 'account switch must await cache purge before switching');
-assert(/data-remove[\s\S]{0,1200}await purgeLocalData\(false\);[\s\S]{0,500}accounts\/remove/.test(app), 'account removal must purge before mutation');
 assert(!/localStorage\.(?:setItem|getItem)\('nv_me'/.test(app),
   'offline identity fallback must remain tab-scoped so sibling purges cannot delete the active identity');
 assert(app.includes("sessionStorage.setItem('nv_me'") && app.includes("sessionStorage.getItem('nv_me'"),
   'offline identity fallback must use sessionStorage');
-assert(/accounts\/switch-idx[\s\S]{0,200}broadcastIdentityBoundary\(\)/.test(app), 'successful account switches must purge other tabs');
 /* That a read of a repository kept for offline use carries the scoped headers, and no other read does, is test/transport.test.js's (platform/offline-repos.ts) and test/e2e/transport.spec.js's. */
 /* Settings offers offline use for the repository in hand, and only with one in hand (features/settings/settings-panel.ts). */
 {

@@ -56,6 +56,9 @@ import { pageStore, state } from '../platform/page-state.ts';
 import { offlineRepoKey, offlineRepoList as readOfflineRepos, offlineRepoStorageKey, withOfflineRepo } from '../platform/offline-repos.ts';
 import { createTransport } from '../platform/transport.ts';
 import Visuals from '../visualizations/nebula-visuals.ts';
+import { EMPTY_ICON, META_ICON } from '../components/icons.ts';
+import { REPO_PART, repositoryReference, sessionHost } from '../features/repositories/repository-reference.ts';
+import { createRepositoryList } from '../features/repositories/repository-list-controller.ts';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -693,134 +696,42 @@ $('#logoutBtnM').addEventListener('click', doLogout);
 $('#logoutBtnOv') && $('#logoutBtnOv').addEventListener('click', doLogout);
 
 /* ================= REPOS ================= */
-/*
- * Each fresh listing overtakes the one before it. Two in flight used to put
- * every repository in the list twice, and an answer that arrived after an
- * identity boundary drew the departed account's repositories into the page
- * that had just been purged of them. A further page belongs to the listing
- * it continues.
- */
-let repoListing = 0;
-async function loadRepos(reset) {
-  const grid = $('#repoGrid');
-  if (reset) { repoListing += 1; state.repoPage = 1; state.repos = []; grid.innerHTML = '<div class="skeleton"></div>'.repeat(6); }
-  const listing = repoListing;
-  const epoch = state.uiEpoch;
-  const overtaken = () => listing !== repoListing || epoch !== state.uiEpoch;
-  try {
-    const batch = await api(`/api/repos?page=${state.repoPage}&sort=${state.repoSort}`);
-    if (overtaken()) return;
-    if (reset) grid.innerHTML = '';
-    pageStore.mutate('repos', repos => { repos.push(...batch); });
-    batch.forEach(r => grid.appendChild(repoCard(r)));
-    $('#moreReposBtn').hidden = batch.length < 30;
-    if (!state.repos.length) grid.innerHTML = `<div class="card editor-empty"><div class="empty-icon">${EMPTY_ICON.repos}</div><p>No repositories yet.<br>Create one with “＋ New repo”.</p></div>`;
-    renderGalaxyPulse(state.repos);
-    renderWorkspacePulse();
-    paintRepoOpenAny();
-  } catch (e) {
-    if (overtaken()) return;
-    toast(e.message, 'err');
-    grid.innerHTML = '';
-    renderGalaxyPulse([]);
-    renderWorkspacePulse([]);
-  }
-}
-/*
- * Who can see a repository, as a sigil in the card's corner: a keyhole
- * shield for private, an open orbit for public, drawn in the preset's own
- * tones rather than a filled amber or green pill. The word travels for a
- * screen reader and in the tooltip.
- */
-const REPO_VIS_PRIVATE = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2l7 2.9v5.3c0 4.3-2.9 7.9-7 9.4-4.1-1.5-7-5.1-7-9.4V6.1z"/><circle cx="12" cy="10.6" r="1.9"/><path d="M12 12.5v3.2"/></svg>';
-const REPO_VIS_PUBLIC = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.1"/><ellipse cx="12" cy="12" rx="9" ry="4.2" transform="rotate(-28 12 12)"/><circle cx="19.2" cy="8.3" r="1.1" class="repo-vis-moon"/></svg>';
-function repoCard(r) {
-  const el = document.createElement('div');
-  el.className = 'card repo-card pressable';
-  el.tabIndex = 0;
-  el.setAttribute('role', 'button');
-  el.setAttribute('aria-label', `Open repository ${r.full_name}`);
-  el.innerHTML = `
-    <div class="repo-head">
-      <span class="repo-sigil-slot"></span>
-      <h3><span class="repo-name"></span></h3>
-      <span class="repo-vis" data-visibility="${r.private ? 'private' : 'public'}" title="${r.private ? 'Private repository' : 'Public repository'}">${r.private ? REPO_VIS_PRIVATE : REPO_VIS_PUBLIC}<span class="sr-only">${r.private ? 'Private' : 'Public'}</span></span>
-    </div>
-    <p class="desc"></p>
-    <div class="repo-meta">
-      ${r.language ? `<span><span class="lang-dot"></span>${esc(r.language)}</span>` : ''}
-      <span>${META_ICON.star} ${r.stars}</span><span>${META_ICON.fork} ${r.forks}</span><span>${timeAgo(r.pushed_at)}</span>
-    </div>
-    <span class="repo-open">Open workspace</span>`;
-  el.querySelector('h3 .repo-name').textContent = r.full_name;
-  el.querySelector('.desc').textContent = r.description || 'No description';
-  /*
-   * A mark derived from the repository's own name, so the inventory is
-   * something to recognise rather than only to read. Decoration beside the
-   * name and never instead of it: it is hidden from assistive technology, and
-   * a session that cannot draw it loses nothing but the picture.
-   */
-  {
-    const sigil = RepoSigil.render(r.full_name);
-    if (sigil) el.querySelector('.repo-sigil-slot').appendChild(sigil);
-  }
-  const open = () => openRepo(r.owner, r.name);
-  el.addEventListener('click', open);
-  el.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    open();
-  });
-  return el;
-}
-$('#moreReposBtn').addEventListener('click', () => { state.repoPage++; loadRepos(false); });
-$('#repoSort').addEventListener('change', e => { state.repoSort = e.target.value; loadRepos(true); });
+/* The repository list (features/repositories/repository-list-controller.ts). */
+const repositoryList = createRepositoryList({
+  api,
+  state,
+  appendRepos: batch => pageStore.mutate('repos', repos => { repos.push(...batch); }),
+  grid: () => $('#repoGrid'),
+  moreButton: () => $('#moreReposBtn'),
+  cards: () => [...$$('#repoGrid .repo-card')],
+  createCard: () => document.createElement('div'),
+  sigil: fullName => RepoSigil.render(fullName),
+  timeAgo: iso => timeAgo(iso),
+  open: (owner, name) => openRepo(owner, name),
+  filterText: () => String($('#repoFilter') ? $('#repoFilter').value : ''),
+  openAny: () => ({
+    input: $('#repoFilter'), card: $('#repoOpenAny'), hint: $('#repoOpenAnyHint'),
+    title: $('#repoOpenAnyName'), sub: $('#repoOpenAnySub'), button: $('#repoOpenAnyBtn')
+  }),
+  renderGalaxyPulse: repos => renderGalaxyPulse(repos),
+  renderWorkspacePulse: repos => renderWorkspacePulse(repos),
+  toast: (message, kind) => toast(message, kind)
+});
+function loadRepos(reset) { return repositoryList.load(reset); }
+function paintRepoOpenAny() { repositoryList.paintOpenAny(); }
+$('#moreReposBtn').addEventListener('click', () => { repositoryList.more(); });
+$('#repoSort').addEventListener('change', e => { repositoryList.sort(e.target.value); });
 /* One control, on the screen the action belongs to. */
 $('#newRepoBtnRepos') && $('#newRepoBtnRepos').addEventListener('click', createRepositoryFlow);
-
-/*
- * The filter box filters. Enter used to escalate it into a cross-repository
- * code search, which was only discoverable because the Search code button sat
- * beside it; with that control gone the binding was a labelled control doing
- * something its label did not say. The inventory filters, and searching inside
- * a repository stays the workbench's job.
- */
-function paintRepoOpenAny() {
-  const input = $('#repoFilter');
-  const card = $('#repoOpenAny');
-  const hint = $('#repoOpenAnyHint');
-  if (!input || !card || !hint) return;
-  const reference = repositoryReference(input.value);
-  const listed = reference && !reference.wrongHost && state.repos.some(repo =>
-    `${repo.owner}/${repo.name}`.toLowerCase() === `${reference.owner}/${reference.name}`.toLowerCase());
-  card.hidden = !reference || Boolean(reference.wrongHost) || listed;
-  hint.hidden = !(reference && reference.wrongHost);
-  hint.textContent = reference && reference.wrongHost ? `That address is on ${reference.wrongHost}; this session reads repositories on ${sessionHost()}.` : '';
-  if (card.hidden) return;
-  $('#repoOpenAnyName').textContent = `${reference.owner}/${reference.name}`;
-  $('#repoOpenAnySub').textContent = `Open from ${sessionHost()} — read-only unless you can push to it`;
-  $('#repoOpenAnyBtn').dataset.owner = reference.owner;
-  $('#repoOpenAnyBtn').dataset.name = reference.name;
-}
-$('#repoFilter').addEventListener('input', e => {
-  const reference = repositoryReference(e.target.value);
-  /* An address names one repository: the list narrows to it when it is listed, and the card above the list opens it when it is not. */
-  const q = reference && reference.kind === 'address' ? `${reference.owner}/${reference.name}`.toLowerCase() : e.target.value.toLowerCase();
-  $$('#repoGrid .repo-card').forEach(c => { c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none'; });
-  paintRepoOpenAny();
-});
+$('#repoFilter').addEventListener('input', e => repositoryList.filter(e.target.value));
 $('#repoFilter').addEventListener('keydown', event => {
-  if (event.key !== 'Enter' || $('#repoOpenAny').hidden) return;
+  if (event.key !== 'Enter' || !repositoryList.enter()) return;
   event.preventDefault();
   $('#repoOpenAnyBtn').click();
 });
-$('#repoOpenAnyBtn').addEventListener('click', async event => {
+$('#repoOpenAnyBtn').addEventListener('click', event => {
   const { owner, name } = event.currentTarget.dataset;
-  if (!owner || !name) return;
-  $('#repoFilter').value = '';
-  $$('#repoGrid .repo-card').forEach(c => { c.style.display = ''; });
-  paintRepoOpenAny();
-  await openRepo(owner, name);
+  return repositoryList.openAny(owner, name);
 });
 /*
  * The brand mark leads to the overview, which is the design's authenticated
@@ -1744,7 +1655,6 @@ const PICK_TOOLS = Object.freeze({
   safeguards: Object.freeze({ title: 'Safeguards', lede: 'Read-only mode, locked paths, branch rules and recovery.' })
 });
 const RECENT_REPOSITORIES = 'nv_recent:repositories';
-const REPO_PART = /^[\w.-]+(\/[\w.-]+)*$/;
 function recentRepositories() {
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_REPOSITORIES) || '[]');
@@ -1760,42 +1670,6 @@ function rememberRepository(owner, name, visitor = false) {
     const rest = recentRepositories().filter(item => `${item.owner}/${item.name}`.toLowerCase() !== `${owner}/${name}`.toLowerCase());
     localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([visitor ? { owner, name, visitor: true } : { owner, name }, ...rest].slice(0, 5)));
   } catch { /* private mode: no recent list, and nothing is lost */ }
-}
-/*
- * A repository named the way people paste one: owner/name, any web address
- * inside it on the signed-in provider's host (a file, a branch, an issue), or
- * a clone address. Anything else is no reference and nothing is requested for
- * it; an address on another host says so, because this session can only read
- * through the provider it is signed in to.
- */
-function sessionHost() { return 'github.com'; }
-function repositoryReference(text) {
-  const raw = String(text || '').trim();
-  if (!raw || raw.length > 400 || /\s/.test(raw)) return null;
-  const host = sessionHost();
-  let path;
-  let kind = 'address';
-  const clone = /^(?:ssh:\/\/)?git@([^:/\s]+)[:/](.+)$/i.exec(raw);
-  if (clone) {
-    if (clone[1].toLowerCase() !== host) return { wrongHost: clone[1].toLowerCase() };
-    path = clone[2];
-  } else if (/^https?:\/\//i.test(raw) || /^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+\//i.test(raw)) {
-    let url;
-    try { url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`); } catch { return null; }
-    const found = url.hostname.toLowerCase().replace(/^www\./, '');
-    if (found !== host) return { wrongHost: found };
-    path = url.pathname;
-  } else {
-    if (raw.split('/').length !== 2) return null;
-    path = raw;
-    kind = 'name';
-  }
-  const parts = decodeURIComponent(path).replace(/\.git\/?$/i, '').split('/').filter(Boolean).slice(0, 2);
-  if (parts.length < 2) return null;
-  const name = parts[parts.length - 1];
-  const owner = parts.slice(0, -1).join('/');
-  if (!REPO_PART.test(owner) || !REPO_PART.test(name) || /^\.+$/.test(name)) return null;
-  return { owner, name, kind };
 }
 /* A repository somebody else owns, open read-only: nothing here offers to change it. */
 const VISITOR_TABS = new Set(['upload', 'governance', 'safeguards']);
@@ -4563,38 +4437,7 @@ function markEmptyRepository(bare) {
  * so the open and closed states are one mark in two positions rather than two
  * marks that have to be kept in agreement.
  */
-/*
- * The marks for a screen with nothing on it.
- *
- * Six empty states shared four Unicode glyphs between them -- a sparkle stood
- * for an unopened file, an untagged release and a workflow that has never run,
- * which tells a reader nothing about which screen they are on. Each one now
- * draws the thing it is the absence of.
- */
-const EMPTY_ICON = Object.freeze({
-  file: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
-  repos: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v16H6.5A1.5 1.5 0 0 1 5 18.5z"/><path d="M8.5 4v16"/></svg>',
-  pulls: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.5" r="2.3"/><circle cx="7" cy="17.5" r="2.3"/><circle cx="17" cy="12" r="2.3"/><path d="M7 8.8v6.4M9.3 6.5H13a1.7 1.7 0 0 1 1.7 1.7v2.1"/></svg>',
-  issues: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/></svg>',
-  releases: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3.5h8.5V12l-7.9 7.9a1.6 1.6 0 0 1-2.3 0l-5.2-5.2a1.6 1.6 0 0 1 0-2.3z"/><circle cx="15.6" cy="7.9" r="1.4"/></svg>',
-  actions: '<svg class="empty-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M10.4 9.3l4.6 2.7-4.6 2.7z"/></svg>'
-});
-
-/*
- * Marks that sit beside a number or inside a small control.
- *
- * The last of the typed glyphs: a star, a fork, a speech bubble and a close
- * cross, all standing where the rest of the product draws. The fork also
- * appears in the branch <select>, and stays typed there -- a native option
- * element holds text and nothing else, so that one is a real constraint rather
- * than an oversight.
- */
-const META_ICON = Object.freeze({
-  star: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.6 5.2 5.8.9-4.2 4 1 5.7-5.2-2.7-5.2 2.7 1-5.7-4.2-4 5.8-.9z"/></svg>',
-  fork: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6.2" r="2.2"/><circle cx="17" cy="6.2" r="2.2"/><circle cx="12" cy="18" r="2.2"/><path d="M7 8.4v1.2a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.4M12 12.6v3.2"/></svg>',
-  comments: '<svg class="meta-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 12.2a6.8 6.8 0 0 1-6.8 6.8H8.9L4.6 21.4v-4.5a6.8 6.8 0 0 1 4.3-11.7h4.7a6.8 6.8 0 0 1 6.8 6.8z"/></svg>',
-  close: '<svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
-});
+/* The marks for an empty list and beside a number are components/icons.ts's. */
 
 const TREE_ICON = Object.freeze({
   dir: '<svg class="ti-mark ti-mark-dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',

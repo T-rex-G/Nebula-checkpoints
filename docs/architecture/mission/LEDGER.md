@@ -2959,11 +2959,23 @@ Two advisories published since S1 reach locked dependencies, both moderate. npm'
 - **Next:** E4c, sign-in, sign-out, the account boundary and the alpha boundary.
 - **Checks:** the unit gate, every verify-job gate and the whole browser suite on desktop and mobile, on Node 22.23.5.
 
+### E4c-1 — The sign-in screen and the alpha's privacy actions as typed modules
+
+- **What moved.** `features/access/login-screen.ts`, the sign-in screen's words: the guidance under the token field, the deployment's limits in megabytes or said to be unknown, and the controlled alpha's two panels -- the word on provider permissions and the control that ends an alpha session -- built once in their places with the gate on and removed with it off. `features/access/alpha-privacy.ts`, the alpha's privacy actions: disconnect, disconnect and see what to revoke by hand, end the alpha session, and delete the alpha's data typed out in full -- none claiming more than happened, a clean-up the server has not finished leaving everything as it was. `app.js` is 146 lines shorter (9,529 to 9,383).
+- **The same answers.** A differential ran the code taken from `app.js` before this change against the modules: the words and limits for 3,000 generated deployments, the alpha's panels through 2,000 generated sequences with the gate and the card coming and going, and 3,000 presses of every privacy control against every kind of answer, all alike call by call; and, reason by reason, the page's old words for a sign-in that did not finish against the door's, alike but for the names every object inherits, which the page printed as a function.
+- **Found and fixed.** *A signed-in reader whose sign-in did not finish was told nothing.* Adding an account goes the same provider round trip, and a failure comes back to `/?oauth=<reason>`. The alpha's door takes the marker out of the address before the page runs and writes the reason on its own page -- but a signed-in reader is let straight through, so that page was never shown, and the page's own reading of the address, which came second, never found the marker: the code was dead. The door now hands the reason to the workspace it lets the reader into, once, and the page says it; a reader kept at the door is told there, not twice. The new browser test fails on the code before.
+- **Tests.** `test/page-access.test.js` (new, 11 checks): the guidance exactly, the token page opened without a handle on this one; the limits, zero a limit; the panels built once and in place, words refreshed, removed with the gate off; what to revoke by hand -- GitHub's links over https only, addresses and words kept text, the steps with no link said; disconnect, revoke, end and delete, a pending clean-up, a declined or mistyped deletion, a busy control, the dialog closed, a failure said, a control no longer in the page left alone; the guidance after an account left. `test/alpha-ui.test.js`: the reason handed to a reader let through and not kept at the door, nothing handed when nothing failed, and the names every object inherits said as they came. `test/e2e/landing-open-access.spec.js`: a signed-in reader told in the workspace, once, with the address cleaned.
+- **Mutants.** 38: 34 of the modules and the door, and 4 of the page's wiring, all caught. Five survived at first -- the token link's words and its opener, a revocation link over plain http, and a link's address or words drawn as markup -- and are caught now.
+- **Counted.** Eight page reads converted (`test/alpha-browser-purge.test.js` asks the privacy actions for their routes and their pending answer; `test/overlay-motion.test.js` asks the deletion's field, and the door is asked for the reason by its own test): 412 remain.
+- **Next:** E4c-2, sign-in and sign-out, and the account boundary.
+- **Checks:** the unit gate, every verify-job gate and the whole browser suite on desktop and mobile, on Node 22.23.5.
+
 ### E4 — what remains, in order
 
 Each step moves one part of `legacy/app.js` into typed modules and React views, holds its behaviour with a differential against the code it replaces, converts the page reads that named it, and is committed with its mutants and the whole browser suite.
 
-- **E4c** — sign-in, sign-out, the account boundary and the alpha boundary.
+- **E4c-2** — sign-in and sign-out, and the account boundary.
+- **E4c-3** — the accounts dialog.
 - **E4d** — the repository list and the repository's header.
 - **E4e** — the workspace, the exposure view and the history.
 - **E4f** — the file tree, its context menu and the safeguards on it.

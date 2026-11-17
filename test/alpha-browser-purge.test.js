@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { createAlphaPrivacy, DELETE_PHRASE } = require('../apps/web/src/features/access/alpha-privacy.ts');
 
 const root = path.join(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
@@ -34,9 +35,6 @@ assert(block.includes('paintUnread([])'),
   'the purge must clear the notification unread marker at the account boundary');
 assert(block.includes('clearCsrfToken'));
 assert(block.includes("postMessage({ type: 'NV_PURGE_PRIVATE_DATA' })"));
-assert(app.includes('/api/alpha/providers/disconnect-all'));
-assert(app.includes('/api/alpha/delete'));
-assert(app.includes("confirm: 'DELETE ALPHA DATA'"));
 assert(serviceWorker.includes("event.data.type !== 'NV_PURGE_PRIVATE_DATA'"));
 assert(serviceWorker.includes("key.startsWith('nv-api-')"));
 assert(!/NV_PURGE_PRIVATE_DATA[\s\S]{0,500}nv-static-/.test(serviceWorker),
@@ -58,25 +56,33 @@ function browserFunction(name, sandbox) {
   return sandbox.target;
 }
 
+/* The alpha's privacy actions, asked directly (features/access/alpha-privacy.ts). */
 async function assertPendingPrivacyActionsPreserveRetryState() {
-  for (const action of ['disconnectAlphaProviders', 'deleteAlphaData']) {
+  for (const action of ['disconnect', 'delete']) {
     const effects = [];
-    const sandbox = {
-      api: async path => {
-        effects.push(['api', path]);
+    const privacy = createAlphaPrivacy({
+      api: async (path, options) => {
+        effects.push(['api', path, options && options.body]);
         return { ok: false, status: 'pending', results: [] };
       },
-      purgeLocalData: async () => effects.push(['purge']),
-      showPage: page => effects.push(['page', page]),
-      toast: (message, kind) => effects.push(['toast', message, kind]),
       modal: async () => true,
-      $: () => ({ value: 'DELETE ALPHA DATA' }),
-      alphaRevocationGuidanceBody: () => 'provider guidance'
-    };
-    const fn = browserFunction(action, sandbox);
-    await fn(false);
+      closeModal: () => {},
+      toast: (message, kind) => effects.push(['toast', message, kind]),
+      presentError: error => effects.push(['error', error]),
+      purgeLocalData: async () => effects.push(['purge']),
+      broadcastIdentityBoundary: () => effects.push(['broadcast']),
+      restoreLoginChrome: () => effects.push(['chrome']),
+      showSignIn: () => effects.push(['page', 'login']),
+      typedConfirmation: () => DELETE_PHRASE,
+      attached: () => true
+    });
+    if (action === 'disconnect') await privacy.disconnectProviders(false);
+    else await privacy.deleteData();
+    assert.deepStrictEqual(effects.filter(([kind]) => kind === 'api'),
+      [action === 'disconnect' ? ['api', '/api/alpha/providers/disconnect-all', {}] : ['api', '/api/alpha/delete', { confirm: 'DELETE ALPHA DATA' }]],
+      `${action} asks the alpha's own route, the deletion with its phrase typed out in full`);
     assert.deepStrictEqual(
-      effects.filter(([kind]) => ['purge', 'page'].includes(kind)),
+      effects.filter(([kind]) => ['purge', 'page', 'broadcast', 'chrome'].includes(kind)),
       [],
       `${action} must preserve local and visible retry state while cleanup is pending`
     );

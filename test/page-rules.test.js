@@ -470,6 +470,8 @@ const HANDOFFS = Object.freeze({
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
   'defaultGovernanceSimulation <- work': 'reads the default branch, a string, into a new request',
   'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
+  'limitsKnown <- runtime': 'reads the four limits, numbers, into a flag (features/access/login-screen.ts\'s runtimeLimitsKnown)',
+  'limitsText <- runtime': 'reads the limits, numbers, into the sign-in screen\'s words (features/access/login-screen.ts)',
   'offlineRepoKey <- me': 'reads the provider, a string, into the name the offline list keeps a repository by (platform/offline-repos.ts)',
   'offlineRepoKey <- work': 'reads the owner and repository, strings, into the name the offline list keeps a repository by',
   'offlineRepoStorageKey <- me': 'reads the offline cache scope, a string, into the storage key of the reader\'s offline list',

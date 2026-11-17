@@ -24,6 +24,8 @@ import { createRail } from '../features/shell/rail-controller.ts';
 import { createFloatingActions } from '../features/shell/floating-actions-controller.ts';
 import { createPages, watchLean } from '../features/shell/pages-controller.ts';
 import { createRouteSync } from '../features/shell/route-sync.ts';
+import { createLoginChrome, limitsText, loginGuidanceHtml, runtimeLimitsKnown as limitsKnown } from '../features/access/login-screen.ts';
+import { createAlphaPrivacy } from '../features/access/alpha-privacy.ts';
 import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { defaultSimulationRequest as defaultGovernanceSimulation, parseJsonObject as parseGovernanceJson } from '../features/governance/governance.ts';
@@ -347,29 +349,16 @@ $('#settingsBtnOv') && $('#settingsBtnOv').addEventListener('click', openSetting
 $('#settingsBtnWork').addEventListener('click', openSettings);
 
 /*
- * A sign-in that did not complete comes back here rather than stopping on a
- * bare page, and says which of the several reasons it was. The provider's own
- * words are used where it gave any -- bad_verification_code is a spent or
- * expired code, which is what a reloaded callback produces -- and the
- * parameter is dropped from the address bar so a refresh does not repeat the
- * message about an attempt that is over.
+ * A sign-in that did not finish, said once. The alpha's door takes the marker
+ * out of the address before this page runs, and says it itself to a reader
+ * it keeps; one it lets straight through is handed the words instead
+ * (features/access/alpha-ui.ts), and they are said here.
  */
-const OAUTH_FAILURES = Object.freeze({
-  state_mismatch: 'that sign-in did not match this browser session. Start it again from this page.',
-  provider_unreadable: 'GitHub did not answer in a form we could read. It may be rate-limiting; try again shortly.',
-  bad_verification_code: 'that sign-in link had already been used. Start a fresh one.',
-  exchange_failed: 'GitHub declined the sign-in.',
-  unexpected: 'something failed part-way through.'
-});
+let handedSignInNotice = '';
 function oauthCallbackNotice() {
-  const params = new URLSearchParams(location.search);
-  const reason = params.get('oauth');
-  if (!reason) return;
-  params.delete('oauth');
-  const query = params.toString();
-  history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
-  const detail = OAUTH_FAILURES[reason] || `it failed (${reason.replace(/_/g, ' ')}).`;
-  toast(`Could not finish signing in with GitHub — ${detail}`, 'err');
+  const notice = handedSignInNotice;
+  handedSignInNotice = '';
+  if (notice) toast(notice, 'err');
 }
 
 /* The GitHub App's part of Settings (features/settings/github-app-controller.ts). */
@@ -419,96 +408,24 @@ const settingsPanel = createSettingsPanel({
 });
 function openSettings() { return settingsPanel.open(); }
 
-function alphaRevocationGuidanceBody(guidance) {
-  const list = Array.isArray(guidance) ? guidance : [];
-  const items = list
-    .filter(item => item && /^https:\/\//i.test(String(item.url || '')))
-    .map(item => `<a class="btn btn-ghost small" href="${escAttr(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.label || 'Open provider settings')}</a>`)
-    .join('');
-  /* A retired provider has no link: its step is said, never built from saved configuration. */
-  const steps = list.filter(item => item && item.label && !item.url).map(item => `<li>${esc(item.label)}</li>`).join('');
-  return `<p class="hint">Nebulaverse-X removed its token-bearing provider state. Provider revocation is a separate action and is never claimed automatically.</p>
-    ${steps ? `<ul class="hint revocation-steps">${steps}</ul>` : ''}
-    <div class="about-actions">${items || (steps ? '' : '<span class="hint">No provider revocation link was returned.</span>')}</div>`;
-}
+/* The alpha's privacy actions (features/access/alpha-privacy.ts). */
+const alphaPrivacy = createAlphaPrivacy({
+  api,
+  modal: request => modal(request),
+  closeModal: confirmed => closeModal(confirmed),
+  toast: (message, kind) => toast(message, kind),
+  presentError: error => presentError(error),
+  purgeLocalData: full => purgeLocalData(full),
+  broadcastIdentityBoundary: () => broadcastIdentityBoundary(),
+  restoreLoginChrome: () => { loginChrome.ensureGuidance(); loginChrome.ensureSessionControls(); },
+  showSignIn: () => showPage('login'),
+  typedConfirmation: () => String($('#alphaDeleteConfirm') && $('#alphaDeleteConfirm').value || ''),
+  attached: node => document.contains(node)
+});
 /* What to revoke by hand, after an account left the session. */
-function showRevocationGuidance(guidance) {
-  if (!Array.isArray(guidance) || !guidance.length) return null;
-  return modal({ title: 'Revoke at provider', okText: 'Done', bodyHTML: alphaRevocationGuidanceBody(guidance) });
-}
-
-async function disconnectAlphaProviders(openGuidance) {
-  const result = await api('/api/alpha/providers/disconnect-all', { method: 'POST', body: {} });
-  if (result && result.ok === false && result.status === 'pending') {
-    toast('Provider cleanup is pending. Keep this session open and retry shortly.');
-    return;
-  }
-  await purgeLocalData(true);
-  broadcastIdentityBoundary();
-  ensureAlphaProviderGuidance();
-  ensureLoginAlphaSessionControls();
-  showPage('login');
-  if (openGuidance) {
-    await modal({
-      title: 'Revoke at provider',
-      okText: 'Done',
-      bodyHTML: alphaRevocationGuidanceBody(result.revocationGuidance)
-    });
-  } else {
-    toast('Disconnected from Nebulaverse-X. Provider credentials were not claimed as revoked.', 'ok');
-  }
-}
-
-async function deleteAlphaData() {
-  const accepted = await modal({
-    title: 'Delete alpha data',
-    okText: 'Delete alpha data',
-    danger: true,
-    bodyHTML: `<p class="hint">This fails closed until provider cleanup is verified. Type <span class="mono">DELETE ALPHA DATA</span> to continue.</p>
-      <input id="alphaDeleteConfirm" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text" aria-label="Deletion confirmation">`
-  });
-  if (!accepted) return;
-  const confirmation = String($('#alphaDeleteConfirm') && $('#alphaDeleteConfirm').value || '');
-  if (confirmation !== 'DELETE ALPHA DATA') {
-    toast('Type DELETE ALPHA DATA exactly to confirm deletion.', 'err');
-    return;
-  }
-  const result = await api('/api/alpha/delete', {
-    method: 'POST',
-    body: { confirm: 'DELETE ALPHA DATA' }
-  });
-  if (result && result.ok === false && result.status === 'pending') {
-    toast('Alpha data deletion is pending provider cleanup. Keep this session open and retry shortly.');
-    return;
-  }
-  await purgeLocalData(true);
-  broadcastIdentityBoundary();
-  showPage('login');
-  toast('Alpha data deletion completed ✦', 'ok');
-}
-
-document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-alpha-privacy-action]');
-  if (!button || button.disabled) return;
-  const action = button.dataset.alphaPrivacyAction;
-  button.disabled = true;
-  closeModal(false);
-  try {
-    if (action === 'disconnect') await disconnectAlphaProviders(false);
-    if (action === 'revoke') await disconnectAlphaProviders(true);
-    if (action === 'end') {
-      await api('/api/alpha/end', { method: 'POST', body: {} });
-      await purgeLocalData(true);
-      broadcastIdentityBoundary();
-      showPage('login');
-      toast('Alpha session ended ✦', 'ok');
-    }
-    if (action === 'delete') await deleteAlphaData();
-  } catch (error) {
-    presentError(error);
-  } finally {
-    if (document.contains(button)) button.disabled = false;
-  }
+function showRevocationGuidance(guidance) { return alphaPrivacy.showRevocationGuidance(guidance); }
+document.addEventListener('click', event => {
+  alphaPrivacy.onClick(event.target && typeof event.target.closest === 'function' ? event.target : null);
 });
 document.addEventListener('input', e => settingsPanel.onInput(e.target));
 document.addEventListener('change', e => { settingsPanel.onChange(e.target); });
@@ -528,75 +445,18 @@ function requireGithubIdentity(account) {
   }
   return account;
 }
-/*
- * These two panels belong to the controlled alpha, and say so out loud: one
- * tells an invited tester never to connect a production repository, the other
- * offers to end an alpha session. With the gate off there is no cohort, no
- * alpha session and no /api/alpha/* route that answers anything but 404 --
- * so on an open deployment they were a sign-in screen still talking about an
- * invitation the reader was never asked for and could not act on.
- *
- * Removed rather than merely not added: the gate is read per load, but a
- * panel built on an earlier one outlives the screen it was built for.
- */
-function removeAlphaLoginChrome() {
-  for (const id of ['#alphaProviderGuidance', '#loginAlphaSessionControls']) {
-    const node = $(id);
-    if (node) node.remove();
-  }
-}
-function ensureAlphaProviderGuidance() {
-  if (!AlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
-  const card = document.querySelector('.login-card');
-  if (!card) return null;
-  let panel = $('#alphaProviderGuidance');
-  if (!panel) {
-    panel = document.createElement('section');
-    panel.id = 'alphaProviderGuidance';
-    panel.className = 'set-group alpha-provider-guidance';
-    const heading = document.createElement('h2');
-    heading.textContent = 'Provider permission review';
-    const copy = document.createElement('p');
-    copy.className = 'hint';
-    panel.append(heading, copy);
-    card.insertBefore(panel, $('#loginError'));
-  }
-  const copy = panel.querySelector('p');
-  copy.textContent = 'Sign in with a short-lived fine-grained token limited to selected sandbox repositories. A configured GitHub App can then be connected from Settings; never use a production repository.';
-  return panel;
-}
-function ensureLoginAlphaSessionControls() {
-  if (!AlphaUI.gateEnabled()) { removeAlphaLoginChrome(); return null; }
-  const card = document.querySelector('.login-card');
-  if (!card) return null;
-  let controls = $('#loginAlphaSessionControls');
-  if (controls) return controls;
-  controls = document.createElement('section');
-  controls.id = 'loginAlphaSessionControls';
-  controls.className = 'set-group alpha-privacy-panel';
-  const heading = document.createElement('h2');
-  heading.textContent = 'Alpha session';
-  const copy = document.createElement('p');
-  copy.className = 'hint';
-  copy.textContent = 'Provider access is separate from the controlled alpha session.';
-  const end = document.createElement('button');
-  end.type = 'button';
-  end.className = 'btn btn-ghost btn-block';
-  end.dataset.alphaPrivacyAction = 'end';
-  end.textContent = 'End alpha session';
-  controls.append(heading, copy, end);
-  card.appendChild(controls);
-  return controls;
-}
+/* The sign-in screen's alpha panels and its words (features/access/login-screen.ts). */
+const loginChrome = createLoginChrome({
+  gateEnabled: () => AlphaUI.gateEnabled(),
+  card: () => document.querySelector('.login-card'),
+  find: selector => $(selector),
+  create: tag => document.createElement(tag)
+});
+function ensureAlphaProviderGuidance() { return loginChrome.ensureGuidance(); }
+function ensureLoginAlphaSessionControls() { return loginChrome.ensureSessionControls(); }
 function renderLoginGuidance() {
-  const github = 'Create a short-lived <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a> limited to selected repositories. Start with Contents read access; add Contents write or other permissions only for the actions you need.';
-  const app = state.runtime.githubApp && state.runtime.githubApp.enabled
-    ? ' After sign-in, open Settings → GitHub App to connect an installation limited to selected repositories.' : '';
-  $('#loginHint').innerHTML = github + app + ' Sessions use an HttpOnly session cookie stored by your browser. GitHub credentials are encrypted in that cookie or in server-side session storage.';
-  const value = key => Number.isFinite(state.runtime[key]) ? `${state.runtime[key]} MB` : 'unavailable';
-  $('#loginLimits').textContent = runtimeLimitsKnown()
-    ? `Deployment limits — Direct upload: ${value('uploadMaxMb')}; Git data: ${value('gitDataMaxMb')}; native push: ${value('nativePushMaxMb')}. Provider limits also apply. Public alpha: no production service guarantee.`
-    : 'Deployment upload limits are unavailable. Retry before uploading; provider limits also apply. Public alpha: no production service guarantee.';
+  $('#loginHint').innerHTML = loginGuidanceHtml(!!(state.runtime.githubApp && state.runtime.githubApp.enabled));
+  $('#loginLimits').textContent = limitsText(state.runtime);
 }
 
 const PROV_ICON = {
@@ -654,17 +514,8 @@ window.addEventListener('nebula:capability-refused', event => {
   const refused = (event && event.detail) || {};
   toast(CapabilityUI.explain(refused.feature), 'err');
 });
-/*
- * Unknown means no number, not a small one. Requiring a positive value here
- * also swallowed a deliberate ceiling of zero -- which the server can never
- * send, since its own floor is 1, but which is a legitimate way to say "refuse
- * everything" and is fail-closed either way. A guard that re-fetches on zero
- * turns that refusal into an upload.
- */
-function runtimeLimitsKnown() {
-  return ['uploadMaxMb', 'gitDataMaxMb', 'nativePushMaxMb', 'contentsMaxMb']
-    .every(key => Number.isFinite(state.runtime[key]));
-}
+/* Unknown means no number, not a small one (features/access/login-screen.ts). */
+function runtimeLimitsKnown() { return limitsKnown(state.runtime); }
 /* The limits as the browser suite may read them, under the test harness only. */
 probeSource('runtime', () => ({ ...state.runtime, known: runtimeLimitsKnown() }));
 /* Whether the deployment offers GitHub sign-in, as /api/config last said. */
@@ -9511,7 +9362,10 @@ window.addEventListener('nebula:alpha-access-gated', () => {
   closeNavMenu();
 });
 AlphaUI.boot().then(result => {
-  if (result.allowed) startAuthorizedApp();
+  if (result.allowed) {
+    handedSignInNotice = result.notice || '';
+    startAuthorizedApp();
+  }
 }).catch(() => {
   AlphaUI.showWaking('Temporarily unavailable');
 });

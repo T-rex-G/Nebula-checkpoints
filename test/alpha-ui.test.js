@@ -237,6 +237,42 @@ scenario('a sign-in that came back says why it did not finish, and leaves the ad
   await unknown.AlphaUI.boot();
   assert.equal(unknown.elements.alphaAccessError.textContent, 'Could not finish signing in with GitHub — it failed (rate limited).');
   assert.equal(unknown.state.url, '/#/overview');
+  /* A name every object inherits is not one of the reasons: it is said as it came, never looked up. */
+  for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    const odd = page({ search: `?oauth=${inherited}`, answers: url => (url === '/readyz' ? ready : { body: { mode: 'off' } }) });
+    await odd.AlphaUI.boot();
+    assert.equal(odd.elements.alphaAccessError.textContent, `Could not finish signing in with GitHub — it failed (${inherited.replace(/_/g, ' ')}).`, inherited);
+  }
+});
+
+scenario('a reader let straight through is handed why the sign-in did not finish, once; a reader kept at the door is told there', async () => {
+  /*
+   * A signed-in reader whose provider sign-in failed (adding an account, say)
+   * comes back with the marker and is let through without the door ever being
+   * shown, so the words the door wrote were never seen. They go with the reader.
+   */
+  const words = 'Could not finish signing in with GitHub — that sign-in link had already been used. Start a fresh one.';
+  const signedIn = page({ search: '?oauth=bad_verification_code', answers: url => (url === '/readyz' ? ready : gate({ authenticated: true })) });
+  const result = await signedIn.AlphaUI.boot();
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { allowed: true, status: gate({ authenticated: true }).body, notice: words });
+  assert.ok(Object.isFrozen(result));
+  assert.equal(signedIn.state.url, '/#/overview', 'the marker is taken out of the address all the same');
+  /* Handed on, not kept: the door shown later in the page's life is not about that attempt. */
+  signedIn.AlphaUI.showOpenAccess();
+  assert.equal(signedIn.elements.alphaAccessError.textContent, '');
+  assert.equal(signedIn.elements.alphaAccessError.hidden, true);
+
+  const quiet = page({ answers: url => (url === '/readyz' ? ready : gate({ authenticated: true })) });
+  assert.deepEqual(JSON.parse(JSON.stringify(await quiet.AlphaUI.boot())), { allowed: true, status: gate({ authenticated: true }).body }, 'nothing handed when nothing failed');
+
+  const back = page({ search: '?entered=1&oauth=state_mismatch', answers: url => (url === '/readyz' ? ready : { body: { mode: 'off' } }) });
+  const entered = await back.AlphaUI.boot();
+  assert.deepEqual([entered.allowed, entered.reason, entered.notice], [true, 'entered', 'Could not finish signing in with GitHub — that sign-in did not match this browser session. Start it again from this page.']);
+
+  const kept = page({ search: '?oauth=state_mismatch', answers: url => (url === '/readyz' ? ready : { body: { mode: 'off' } }) });
+  const atDoor = await kept.AlphaUI.boot();
+  assert.equal(atDoor.allowed, false);
+  assert.equal('notice' in atDoor, false, 'the door says it itself, so it is not said twice');
 });
 
 scenario('a reader back from a finished sign-in is handed over, not shown the door again', async () => {

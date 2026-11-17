@@ -279,7 +279,10 @@ function bindRedemption(): void {
 /*
  * The provider sign-in ends here, whichever way it went: app.js does not run
  * until the gate has handed over, so on an open deployment, where the reader
- * stays at the door, a failed sign-in would otherwise say nothing at all.
+ * stays at the door, a failed sign-in would otherwise say nothing at all. The
+ * door takes the marker out of the address before anything else runs; a
+ * reader it lets straight through never sees the door, so the words go with
+ * them (BootResult.notice) for the workspace to say.
  */
 const OAUTH_FAILURES: Readonly<Record<string, string>> = Object.freeze({
   state_mismatch: 'that sign-in did not match this browser session. Start it again from this page.',
@@ -314,6 +317,19 @@ export interface BootResult {
   readonly allowed: boolean;
   readonly reason?: BootReason;
   readonly status?: Fields;
+  /* Why a sign-in did not finish, for a reader let through without seeing the door that says it. */
+  readonly notice?: string;
+}
+
+/* Let through: with the reason a sign-in did not finish, when there is one, since the door that says it is not shown. */
+function through(result: { reason?: BootReason; status: Fields | null }): BootResult {
+  const handed: { allowed: true; reason?: BootReason; status?: Fields; notice?: string } = { allowed: true };
+  if (result.reason) handed.reason = result.reason;
+  if (result.status) handed.status = result.status;
+  /* Handed on, not kept: a door shown later in this page's life is not about that attempt. */
+  if (entryNotice) handed.notice = entryNotice;
+  entryNotice = '';
+  return Object.freeze(handed);
 }
 
 export function showExpired(code: 'ALPHA_ACCESS_REVOKED' | 'ALPHA_SESSION_EXPIRED' | string): void {
@@ -378,7 +394,7 @@ export async function boot(): Promise<BootResult> {
      * workspace they are handed to is what needs the database.
      */
     if (callback.entered && await readiness) {
-      return Object.freeze({ allowed: true, reason: 'entered', status: current });
+      return through({ reason: 'entered', status: current });
     }
     showOpenAccess(current);
     void readiness.then(ready => { if (!ready) closeOpenAccess(); });
@@ -394,7 +410,7 @@ export async function boot(): Promise<BootResult> {
     showWaking('Temporarily unavailable');
     return Object.freeze({ allowed: false, reason: 'unavailable', status: current });
   }
-  if (field(current, 'authenticated') === true) return Object.freeze({ allowed: true, status: current });
+  if (field(current, 'authenticated') === true) return through({ status: current });
   showAccessGate(current);
   return Object.freeze({ allowed: false, reason: 'access-required', status: current });
 }

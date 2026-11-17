@@ -243,6 +243,26 @@ test('a sign-in that did not finish is explained at the door', async ({ page }) 
   expect(new URL(page.url()).search).toBe('');
 });
 
+test('a signed-in reader whose sign-in did not finish is told so in the workspace', async ({ page }) => {
+  await mockPublicAlphaApi(page, { mode: 'invite', access: 'active', ready: 'ready', repositoryState: 'current' });
+  /*
+   * Adding an account to a session that is already signed in goes the same
+   * provider round trip. The door let them straight through, so the reason it
+   * wrote on its own page was never on screen: they came back to the
+   * workspace and were told nothing.
+   */
+  await page.goto('/?oauth=bad_verification_code');
+
+  const told = page.locator('.toast').filter({ hasText: 'Could not finish signing in with GitHub' });
+  await expect(told).toBeVisible();
+  /* Said as what it is: a failure, in words a screen reader hears too. */
+  await expect(told).toContainText('Error: Could not finish signing in with GitHub');
+  await expect(told).toContainText('already been used');
+  await expect(landing(page)).not.toHaveClass(/active/);
+  expect(new URL(page.url()).search).toBe('');
+  await expect(told).toHaveCount(1);
+});
+
 test('a reader returning from a finished sign-in is not sent back to the door', async ({ page }) => {
   await mockPublicAlphaApi(page, { mode: 'off', access: 'active', ready: 'ready' });
   await page.goto('/?entered=1');

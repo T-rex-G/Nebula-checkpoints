@@ -1513,16 +1513,11 @@ check('every focus taken on an opening layer declines the scroll', () => {
  * state cookie cleared so a retry starts a fresh exchange; a token answer that
  * is not JSON is reported as unreadable rather than thrown at the reader; and
  * the provider's own refusal, such as an expired code, is the reason given.
- * The route is asked all of it over HTTP by test/identity-security-routes.test.js.
+ * The route is asked all of it over HTTP by test/identity-security-routes.test.js;
+ * which failure the reader is told, and the address cleaned, by
+ * test/alpha-ui.test.js; and both kinds of reader told, in a browser, by
+ * test/e2e/landing-open-access.spec.js.
  */
-
-check('the reader is told which failure it was', () => {
-  assert.ok(/function oauthCallbackNotice/.test(appSource), 'nothing reads the failure back out of the address bar');
-  assert.ok(/bad_verification_code/.test(appSource),
-    'a spent or expired sign-in link has no plain-language explanation');
-  assert.ok(/history\.replaceState/.test(appSource.slice(appSource.indexOf('function oauthCallbackNotice'))),
-    'the parameter is left in the address bar, so refreshing repeats the message about an attempt that is over');
-});
 
 /* ---------------- two grounds on one screen ---------------- */
 
@@ -1597,15 +1592,22 @@ check('every exact-match confirmation declines the phone keyboard', () => {
    * input the user must retype exactly has to decline those features.
    */
   /* The step-up login is features/security/step-up.ts's, asked in test/page-dialogs.test.js. */
-  const ids = ['alphaDeleteConfirm', 'recConfirm'];
-  ids.forEach(id => {
-    const tag = appSource.match(new RegExp(`<input id="${id}"[^>]*>`));
+  const { createAlphaPrivacy } = require('../apps/web/src/features/access/alpha-privacy.ts');
+  let deletion = '';
+  createAlphaPrivacy({
+    api: async () => ({ ok: true }), modal: async request => { deletion = request.bodyHTML; return false; }, closeModal: () => {}, toast: () => {},
+    presentError: () => {}, purgeLocalData: async () => {}, broadcastIdentityBoundary: () => {}, restoreLoginChrome: () => {}, showSignIn: () => {},
+    typedConfirmation: () => '', attached: () => true
+  }).deleteData();
+  const declines = (id, tag) => {
     assert.ok(tag, `${id} is gone`);
     for (const attribute of ['autocorrect="off"', 'autocapitalize="off"', 'spellcheck="false"']) {
       assert.ok(tag[0].includes(attribute),
         `${id} does not set ${attribute}, so a phone keyboard can silently rewrite what is typed into it`);
     }
-  });
+  };
+  declines('alphaDeleteConfirm', deletion.match(/<input id="alphaDeleteConfirm"[^>]*>/));
+  declines('recConfirm', appSource.match(/<input id="recConfirm"[^>]*>/));
 });
 
 /* A mismatch named before a request is spent on it: features/security/step-up.ts, asked in test/page-dialogs.test.js. */

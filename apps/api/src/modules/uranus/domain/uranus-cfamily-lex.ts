@@ -272,6 +272,27 @@ export function calleeAt(tokens: Tokens, open: number): Callee {
 
 export const JAVA_NOT_METHOD: ReadonlySet<string> = new Set(['if', 'for', 'while', 'switch', 'catch', 'synchronized', 'return', 'new', 'else', 'try', 'do', 'throw', 'assert', 'super', 'this']);
 
+/* A default assigned only when this input is empty or null leaves nonempty input untouched. */
+export function absentName(tokens: Tokens, from: number, to: number): string | null {
+  if (isPunc(tokens[from], '(') && closing(tokens, from) === to - 1) { from += 1; to -= 1; }
+  const name = at(tokens, from);
+  const empty = at(tokens, from + 2);
+  if (to !== from + 3 || name.t !== 'id' || !['==', '==='].includes(at(tokens, from + 1).v)) return null;
+  return (empty.t === 'str' && empty.v === '') || isWord(empty, 'null') ? name.v : null;
+}
+
+/* Strictly contained bodies are entered by their enclosing function. At equal starts,
+ * shorter bodies sort first so an equal start can never count as containment. */
+export function nestedFunctions(functions: readonly FunctionInfo[]): Set<FunctionInfo> {
+  const nested = new Set<FunctionInfo>();
+  let lastEnd = -1;
+  for (const fn of [...functions].sort((a, b) => a.body[0] - b.body[0] || a.body[1] - b.body[1])) {
+    if (fn.body[1] < lastEnd) nested.add(fn);
+    else lastEnd = fn.body[1];
+  }
+  return nested;
+}
+
 /*
  * Every function, method and closure with its parameter range, its body
  * range and, for Java, the annotations and modifiers written before it.

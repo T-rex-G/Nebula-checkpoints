@@ -48,6 +48,7 @@ export interface KeptAudit {
   readonly ref: string;
   readonly commitSha: string;
   readonly engine: string;
+  readonly ruleset: string | null;
   readonly auditedAt: string | null;
   readonly score: number;
   readonly grade: (typeof GRADES)[number];
@@ -83,6 +84,7 @@ export function auditFromRow(row: Row): KeptAudit {
     ref: text(row.ref_name),
     commitSha: text(row.commit_sha),
     engine: text(row.engine_version),
+    ruleset: row.ruleset_digest ? text(row.ruleset_digest) : null,
     auditedAt: iso(row.audited_at),
     score: Number(row.score),
     grade: stored(GRADES, row.grade, 'grade'),

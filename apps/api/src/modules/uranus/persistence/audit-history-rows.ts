@@ -1,3 +1,4 @@
+import { count, resolutionEvidence, type ResolutionEvidence } from '../domain/audit-evidence.ts';
 /*
  * The audit history's rows: an audit result reduced to what the tables take.
  *
@@ -91,7 +92,7 @@ export const fits = (pattern: RegExp, value: unknown): value is string => typeof
 export function oneOf<T extends string>(list: readonly T[], value: unknown): T | null {
   return list.find(item => item === value) ?? null;
 }
-export const count = (value: unknown): number => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0);
+export { count, evidenceFamily } from '../domain/audit-evidence.ts';
 const bounded = (value: unknown, min: number, max: number): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null);
 const ids = (list: unknown, pattern: RegExp, max: number): string[] => [...new Set(listOf(list).filter((item): item is string => fits(pattern, item)))].slice(0, max);
 const orNull = (list: string[]): string[] | null => (list.length ? list : null);
@@ -171,6 +172,7 @@ export interface AuditRow {
   readonly ref_name: string;
   readonly commit_sha: string;
   readonly engine_version: string;
+  readonly ruleset_digest: string | null;
   readonly audited_at: string;
   readonly score: number;
   readonly grade: (typeof GRADES)[number];
@@ -204,13 +206,7 @@ export interface AuditRow {
   readonly policy_source: (typeof POLICY_SOURCES)[number] | null;
   readonly analysis_complete: boolean;
 }
-/* Which detectors could still observe what they observed before: what a missing finding proves. */
-export interface ResolutionEvidence {
-  readonly files: boolean;
-  readonly code: boolean;
-  readonly dependencies: boolean;
-  readonly licences: boolean;
-}
+
 export interface CompactAudit {
   readonly audit: AuditRow;
   readonly findings: FindingRow[];
@@ -348,6 +344,7 @@ export function reduceAudit(result: unknown): { readonly compacted: CompactAudit
     if (components.length >= LIMITS.maxComponents) break;
   }
   const auditedAt = Date.parse(String(result.auditedAt));
+  const ruleset = read(result.engine, 'ruleset');
   const engineVersion = read(result.engine, 'version');
   const engine = fits(SHAPE.engine, engineVersion) ? engineVersion : ENGINE.version;
   const at = new Date(Number.isFinite(auditedAt) ? auditedAt : Date.now()).toISOString();
@@ -380,6 +377,7 @@ export function reduceAudit(result: unknown): { readonly compacted: CompactAudit
     ref_name: requireRef(result.ref),
     commit_sha: commitSha,
     engine_version: engine,
+    ruleset_digest: fits(/^[a-f0-9]{64}$/, ruleset) ? ruleset : null,
     audited_at: at,
     score: Math.round(score),
     grade,
@@ -414,7 +412,7 @@ export function reduceAudit(result: unknown): { readonly compacted: CompactAudit
   } as const;
   /* Rows the storage caps cut off, not rows that could never be stored or an id kept once. */
   const truncated = storableFindings.length > compact.length || storableWaived.length > waivedRows.length;
-  const evidence = resolutionEvidence(result, audit, truncated);
+  const evidence = resolutionEvidence(result, truncated);
   /* Only the all-detector verdict is stored. */
   const compacted: CompactAudit = {
     audit: { ...audit, analysis_complete: Object.values(evidence).every(Boolean) },
@@ -423,37 +421,6 @@ export function reduceAudit(result: unknown): { readonly compacted: CompactAudit
     components
   };
   return { compacted, evidence: Object.freeze(evidence) };
-}
-
-/*
- * A missing observation proves a fix only when the detector that made it could
- * still observe it. Each family of findings has its own detectors: the file
- * rules, the tracer on top of them for code, the registry and advisory lookups
- * for dependencies, the licence answers for licences. The merge gate and the
- * stored `analysis_complete` still ask for every family at once.
- */
-function resolutionEvidence(result: Readonly<Record<string, unknown>>, audit: Pick<AuditRow, 'coverage_complete' | 'files_read' | 'files_eligible'>, truncated: boolean): ResolutionEvidence {
-  const coverage = fieldsOf(result.coverage);
-  const files = Boolean(audit.coverage_complete) && audit.files_read >= audit.files_eligible && !truncated;
-  const traced = fieldsOf(read(result.engine, 'traced'));
-  const code = files && !traced.limit && !['cut', 'failed', 'deep', 'rulesOnly'].some(key => count(traced[key]) > 0) && !count(coverage.rulesOnly);
-  const lookedUp = ['packages', 'advisories'].every(name => {
-    const checked = coverage[name];
-    const total = name === 'packages' ? 'declared' : 'versions';
-    return !checked || !(read(checked, 'inventoryComplete') === false || count(read(checked, 'unknown')) || count(read(checked, 'notChecked')) || count(read(checked, 'checked')) < count(read(checked, total)));
-  });
-  const dependencies = files && lookedUp;
-  const licences = coverage.licences;
-  const licenceStatus = read(result.licences, 'status');
-  const licencesAnswered = !(licences && count(read(licences, 'fromLock')) + count(read(licences, 'answered')) < count(read(licences, 'versions')))
-    && !(licenceStatus && (count(read(licenceStatus, 'unknown')) || count(read(licenceStatus, 'notAsked'))));
-  return { files, code, dependencies, licences: dependencies && licencesAnswered };
-}
-
-/* Which detectors a stored finding depends on, read from its rule. */
-export function evidenceFamily(rule: unknown): keyof ResolutionEvidence {
-  const prefix = String(rule || '').split('-')[0];
-  return prefix === 'DEP' ? 'dependencies' : prefix === 'LIC' ? 'licences' : prefix === 'SEC' ? 'code' : 'files';
 }
 
 export interface AlertRow {

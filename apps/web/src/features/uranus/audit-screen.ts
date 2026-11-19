@@ -278,8 +278,9 @@ export function summary(view: unknown, now: number, offered: { readonly export: 
   const status = statusOf(view);
   const stored = !result && status !== 'running' ? latestStored(view) : null;
   const findings = findingsOf(result);
-  const label = result ? `Grade ${text(field(result, 'grade'))}, ${text(field(result, 'score'))} out of 100`
-    : stored ? `Grade ${text(field(stored, 'grade'))}, ${text(field(stored, 'score'))} out of 100, from the last audit`
+  const gradeLabel = field(result || stored, 'analysisComplete') === false ? 'Observed grade' : 'Grade';
+  const label = result ? `${gradeLabel} ${text(field(result, 'grade'))}, ${text(field(result, 'score'))} out of 100`
+    : stored ? `${gradeLabel} ${text(field(stored, 'grade'))}, ${text(field(stored, 'score'))} out of 100, from the last audit`
       : status === 'running' ? 'Auditing' : 'Not audited';
   let body: SummaryBody;
   if (status === 'running') body = { kind: 'progress', progress: auditProgress(field(view, 'progress')) };

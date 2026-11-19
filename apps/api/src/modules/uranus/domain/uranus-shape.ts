@@ -253,14 +253,10 @@ export function skipType(tokens: Tokens, index: number, until: string, end: numb
 
 export const CONTINUES = new Set(['.', '?.', '+', '-', '*', '/', '%', '&&', '||', '??', '?', ':', '==', '===', '!=', '!==', '<', '>', '<=', '>=', '|', '&', '^', '=>', '=', '+=', '-=', '**', 'instanceof', 'in', ',']);
 
-/*
- * Where an expression starting at `index` ends: at a top-level semicolon or
- * comma, at a bracket that closes something it did not open, or at a line
- * break where the next line cannot continue it. A bracket it opens is stepped
- * over to its partner -- nothing inside one can end it -- so an arrow nested
- * in an arrow does not walk the rest of the file again at every level. One
- * that never closes before `end` runs the expression to `end`.
- */
+export function afterSemicolon(tokens: Tokens, at: number): number {
+  return isPunc(tokens[at], ';') ? at + 1 : at;
+}
+
 /*
  * Where the statement that starts at `index` ends, just past it: a block, a
  * compound statement with its body (an if with its else), or an expression
@@ -273,7 +269,6 @@ export function statementEnd(tokens: Tokens, index: number, end: number): number
     const close = isPunc(tokens[open], '(') || isPunc(tokens[open], '{') ? matching(tokens, open) : -1;
     return close < 0 || close >= end ? end : close + 1;
   };
-  const semicolon = (at: number): number => (isPunc(tokens[at], ';') ? at + 1 : at);
   if (isPunc(token, '{')) return past(index);
   if (isPunc(token, ';')) return index + 1;
   if (isWord(token, 'if')) {
@@ -284,7 +279,7 @@ export function statementEnd(tokens: Tokens, index: number, end: number): number
   if (isWord(token, 'for')) return statementEnd(tokens, past(isWord(tokens[index + 1], 'await') ? index + 2 : index + 1), end);
   if (isWord(token, 'do')) {
     const body = statementEnd(tokens, index + 1, end);
-    return isWord(tokens[body], 'while') ? semicolon(past(body + 1)) : body;
+    return isWord(tokens[body], 'while') ? afterSemicolon(tokens, past(body + 1)) : body;
   }
   if (isWord(token, 'try')) {
     let cursor = statementEnd(tokens, index + 1, end);
@@ -293,9 +288,17 @@ export function statementEnd(tokens: Tokens, index: number, end: number): number
     return cursor;
   }
   const stop = expressionEnd(tokens, index, end, false);
-  return Math.min(end, Math.max(index + 1, semicolon(stop)));
+  return Math.min(end, Math.max(index + 1, afterSemicolon(tokens, stop)));
 }
 
+/*
+ * Where an expression starting at `index` ends: at a top-level semicolon or
+ * comma, at a bracket that closes something it did not open, or at a line
+ * break where the next line cannot continue it. A bracket it opens is stepped
+ * over to its partner -- nothing inside one can end it -- so an arrow nested
+ * in an arrow does not walk the rest of the file again at every level. One
+ * that never closes before `end` runs the expression to `end`.
+ */
 export function expressionEnd(tokens: Tokens, index: number, end: number, stopAtComma = true): number {
   const pairs = partners(tokens);
   for (let cursor = index; cursor < end; cursor += 1) {

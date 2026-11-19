@@ -39,6 +39,7 @@ import type { Sla } from '../../kepler/index.ts';
 import type { AuditReader } from './audit-repository.ts';
 import { analyseOffThread, scanOffThread } from './audit-worker.ts';
 import { createAuditWatch, watchComponents } from './audit-watch.ts';
+import { ENGINE } from '../domain/audit-catalog.ts';
 import { evaluateMergeGate, previewMergePolicies, unavailableGate } from './merge-gate.ts';
 import type { Gate } from './merge-gate.ts';
 import { CodeAuditHistory } from '../persistence/audit-history-store.ts';
@@ -356,7 +357,7 @@ export function createCodeAuditService(deps: CodeAuditDeps): CodeAuditService {
         pull.base ? kept.latest({ scope, identityKey: identity, ref: pull.base }) : null,
         triageForAccount(account, owner, repo)
       ]);
-      return evaluateMergeGate({ headSha: pull.headSha, head, base, decisions: team && read(team, 'decisions'), now });
+      return evaluateMergeGate({ headSha: pull.headSha, expectedRuleset: ENGINE.ruleset, head, base, decisions: team && read(team, 'decisions'), now });
     } catch (error) {
       console.warn(`[code-audit] merge gate not evaluated (${codeOf(error)})`);
       return unavailableGate();

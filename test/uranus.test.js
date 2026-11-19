@@ -39,6 +39,56 @@ function express(body) {
   return { path: 'server/app.js', text: `const express = require('express');\nconst app = express();\n${body}\n` };
 }
 
+/* Container fields belong to the current binding, including across branch and block scopes. */
+{
+  const entry = body => express("app.get('/items', (req, res) => {\n" + body + "\n});");
+  const read = "const query = 'SELECT title FROM items WHERE title = ' + row.term; db.query(query);";
+  const cases = [
+    ["let row = {term: 'safe'}; row = req.query;", true],
+    ["let row = {term: req.query.term}; row = {term: 'safe'};", false],
+    ["let row = {term: 'safe'}; if (enabled) { row = req.query; }", true],
+    ["let row = {term: req.query.term}; if (enabled) { row = {term: 'a'}; } else { row = {term: 'b'}; }", false],
+    ["let row = {term: 'safe'}; { let row = req.query; }", false],
+    ["let row = {term: 'safe'}; row = {term: 'safe', other: req.query.q};", false],
+    ["let row = {term: 'safe', ...req.query};", true],
+    ["let row = {term: 'safe', ...defaults};", false]
+  ];
+  for (const [body, expected] of cases) {
+    const result = flows([entry(body + '\n' + read)]);
+    assert.strictEqual(result.some(flow => flow.rule === 'SEC-001'), expected, body);
+  }
+}
+
+{
+  // The next statement starts at the token after an implicit JavaScript line ending.
+  const handler = target => ({ path: 'routes/profile.ts', text: [
+    'export function profile() {', '  return async (req: Request, res: Response) => {',
+    '    const url = req.body.url', '    if (seen(url)) record()',
+    '    const member = lookup(req.cookies.key)', '    if (member) {',
+    '      try { const reply = await fetch(' + target + ') } catch (err) {}',
+    '    }', '  }', '}'
+  ].join('\n') });
+  fires('semicolon-free returned handler', [handler('url')], ['SEC-021@routes/profile.ts:7']);
+  quiet('fixed service URL', [handler('"https://service.example/items"')]);
+  const update = (receiver, selector) => express("app.patch('/item', (req, res) => { " + receiver + ".update({ id: " + selector + " }, { active: true }); });");
+  const query = flows([update('db.itemCollection', 'req.body.id')]).find(flow => flow.rule === 'SEC-029');
+  assert.strictEqual(query?.verdict, 'needs-validation');
+  quiet('typed collection selector', [update('db.itemCollection', 'Number(req.body.id)')]);
+  quiet('ordinary object update', [update('preferences', 'req.body.id')]);
+}
+
+/* Only a file that actually lost a flow is reported as truncated. */
+{
+  const source = count => express("app.get('/', (req, res) => {\n" + Array(count).fill("res.redirect(req.query.to);").join('\n') + "\n});");
+  const full = audit.analyse({ files: [source(40)] });
+  const clipped = audit.analyse({ files: [source(41)] });
+  assert.strictEqual(full.engine.traced.flows, 40);
+  assert.strictEqual(full.engine.traced.truncated, 0);
+  assert.strictEqual(clipped.engine.traced.flows, 40);
+  assert.strictEqual(clipped.engine.traced.truncated, 1);
+  assert.strictEqual(clipped.ledger.find(item => item.id === 'requests').status, 'partial');
+}
+
 /* ---- The lexers ----------------------------------------------------------------- */
 {
   const tokens = lexJs(tpl('const q = `SELECT ', I, '{req.params.id} AND ', I, '{a + `n', I, '{b}`}`;\nconst r = /ab+c/g.test(s);\nreturn <p>Don\'t {x}</p>;\n'));

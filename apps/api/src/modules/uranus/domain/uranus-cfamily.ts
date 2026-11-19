@@ -1,6 +1,7 @@
-import { SANITISERS, bothCleared, contractOf, sanitised, type Contract } from './uranus-sanitise.ts';
+import { MAX_STEPS, alternatives, extend, joinArms, merge, taint, type Guard, type Scope, type Value } from './uranus-cfamily-values.ts';
+import { SANITISERS, contractOf, sanitised } from './uranus-sanitise.ts';
 import type { Route, RouteUse } from './uranus-surface.ts';
-import { argumentsOf, at, calleeAt, closing, decorationsBefore, functionsOf, isPunc, isWord, lex, parametersOf, table } from './uranus-cfamily-lex.ts';
+import { absentName, argumentsOf, at, calleeAt, closing, decorationsBefore, functionsOf, isPunc, isWord, lex, nestedFunctions, parametersOf, table } from './uranus-cfamily-lex.ts';
 import type { CToken, Callee, FunctionInfo, Language, Parameter, Span, Tokens } from './uranus-cfamily-lex.ts';
 export type { Language, FunctionInfo, CToken } from './uranus-cfamily-lex.ts';
 export { lex, functionsOf } from './uranus-cfamily-lex.ts';
@@ -50,27 +51,6 @@ export interface Step {
   readonly role: 'entrypoint' | 'propagation' | 'sink';
   readonly note: string;
 }
-interface Guard {
-  readonly path: string;
-  readonly line: number;
-}
-/* A value the walk follows: what kind of request input it came from, the steps it took, and what it became. */
-interface Value {
-  kind: string;
-  steps: Step[];
-  built: boolean;
-  sql: boolean;
-  html: boolean;
-  lead: string | null;
-  whole: boolean;
-  guarded: Guard | null;
-  cleared?: Contract | null;
-  via?: string[] | undefined;
-  param?: number;
-  weakRoute?: boolean;
-  requires?: string | null;
-}
-type Scope = Map<string, Value | null>;
 const ROLE_KEYS = ['request', 'writer', 'gin', 'echo', 'fiber', 'response'] as const;
 type Roles = Record<(typeof ROLE_KEYS)[number], Set<string>>;
 
@@ -88,7 +68,7 @@ interface HelperSink {
   path: string;
   line: number;
   steps: Step[];
-  flags: { built: boolean; sql: boolean; html: boolean };
+  flags: { built: boolean; sql: boolean; html: boolean; conditional: boolean };
   requires: string | null;
 }
 interface Summary {
@@ -96,7 +76,7 @@ interface Summary {
   sinks: HelperSink[];
   file?: string;
 }
-type Blocker = { reason: 'guarded'; path: string; line: number } | { reason: SinkKind } | { reason: 'weak-source' };
+type Blocker = { reason: 'guarded'; path: string; line: number } | { reason: SinkKind } | { reason: 'weak-source' | 'conditional' };
 /* A flow from a request to a sink, as the walk reports it. */
 export interface Flow {
   readonly rule: string;
@@ -125,7 +105,6 @@ export interface CRoute extends Route {
   controllerPath?: string | null;
 }
 
-const MAX_STEPS = 6;
 const MAX_FLOWS_PER_FILE = 40;
 const SQL_WORDS = /\b(SELECT|INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE\s+INTO|CREATE|DROP|ALTER|TRUNCATE|WHERE|VALUES|FROM\s+\w|ORDER\s+BY)/i;
 const HTML_TEXT = /<\s*[a-zA-Z!/]/;
@@ -149,42 +128,6 @@ export const SINKS: Readonly<Record<SinkKind, SinkSpec>> = Object.freeze(Object.
 const JUDGEMENT_SINKS: ReadonlySet<string> = new Set(['mass']);
 
 /* ---- Values ------------------------------------------------------------------------ */
-
-function taint(kind: string, path: string, line: number, note?: string): Value {
-  return { kind, steps: [{ path, line, role: 'entrypoint', note: note || `${kind} enters here` }], built: false, sql: false, html: false, lead: null, whole: false, guarded: null };
-}
-function extend(value: Value, path: string, line: number, note: string, patch?: Partial<Value>): Value;
-function extend(value: Value | null, path: string, line: number, note: string, patch?: Partial<Value>): Value | null;
-function extend(value: Value | null, path: string, line: number, note: string, patch: Partial<Value> = {}): Value | null {
-  if (!value) return null;
-  const last = value.steps[value.steps.length - 1];
-  const step: Step = { path, line, role: 'propagation', note };
-  const steps = last && last.path === path && last.line === line ? value.steps : [...value.steps, step];
-  return { ...value, ...patch, steps: steps.slice(0, MAX_STEPS) };
-}
-function merge(a: Value | null, b: Value | null): Value | null {
-  if (!a) return b;
-  if (!b) return a;
-  /* a check on a name settles the merged value only if every tainted part came through that name */
-  const bVia = b.via;
-  const via = a.via && bVia ? a.via.filter(name => bVia.includes(name)) : undefined;
-  return { ...a, built: a.built || b.built, sql: a.sql || b.sql, html: a.html || b.html, whole: a.whole || b.whole, guarded: a.guarded || b.guarded, via, cleared: bothCleared(a.cleared || null, b.cleared || null) };
-}
-
-/*
- * What the arms of a branch leave behind. Each arm is read with its own copy
- * of the scope; a name any arm wrote holds, after the branch, what any arm
- * left in it -- or what it held before, when no arm need run.
- */
-function joinArms(scope: Scope, arms: readonly Scope[], covered: boolean): void {
-  const names = new Set<string>();
-  for (const arm of arms) for (const [name, value] of arm) if (!scope.has(name) || scope.get(name) !== value) names.add(name);
-  for (const name of names) {
-    const before = scope.get(name) ?? null;
-    const left = arms.map(arm => (arm.has(name) ? arm.get(name) ?? null : before));
-    scope.set(name, [...left, ...(covered ? [] : [before])].reduce<Value | null>((joined, value) => merge(joined, value), null));
-  }
-}
 
 /* ---- Sources ------------------------------------------------------------------------- */
 
@@ -357,6 +300,7 @@ class Walker {
   readonly tokens: Tokens;
   readonly program: Program | null;
   readonly flows: Flow[];
+  flowsTruncated = false;
   summary: Summary | null;
   readonly validated: Map<string, [number, number][]>;
   readonly settled: Settled[];
@@ -618,7 +562,13 @@ class Walker {
     if (choice) {
       const [question, colon] = choice;
       const left = colon === question + 1 ? this.evaluate(from, question, scope, roles) : this.evaluate(question + 1, colon, scope, roles);
-      return merge(left, this.evaluate(colon + 1, to, scope, roles));
+      const right = this.evaluate(colon + 1, to, scope, roles);
+      const fallback = absentName(tokens, from, question);
+      if (!left && right && fallback && at(tokens, colon + 1).v === fallback) {
+        const tail = tokens.slice(colon + 2, to).map(t => t.v).join('');
+        if (!tail || tail === '.trim()') return right;
+      }
+      return alternatives([left, right]);
     }
     let value: Value | null = null;
     let literal = '';
@@ -933,9 +883,11 @@ class Walker {
     const keyword = at(tokens, k).v;
     const arms: Scope[] = [];
     let covered = false;
+    let fallback: string | null = null;
     let head = k;
     for (;;) {
       const start = this.header(head, to, scope, roles, guards, fn);
+      if (head === k && keyword === 'if') fallback = absentName(tokens, k + 1, start);
       const end = this.bodyEnd(start, to);
       if (end === -1) { joinArms(scope, arms, false); return start; }
       if (keyword === 'switch' || keyword === 'select') {
@@ -957,7 +909,9 @@ class Walker {
       }
       break;
     }
+    const before = fallback ? scope.get(fallback) : null;
     joinArms(scope, arms, covered);
+    if (fallback && before && !covered && arms.length === 1 && arms[0]?.get(fallback) === null) scope.set(fallback, before);
     return head;
   }
 
@@ -1257,7 +1211,7 @@ class Walker {
           const value = this.evaluate(arg[0], arg[1], scope, roles);
           if (!value || (value.cleared && value.cleared.has(sink.kind))) continue;
           const through = extend(value, this.path, at(tokens, k).line, `passed to ${helperName}`);
-          const flags = { built: Boolean(through.built || sink.flags.built), sql: Boolean(through.sql || sink.flags.sql), html: Boolean(through.html || sink.flags.html) };
+          const flags = { conditional: Boolean(through.conditional || sink.flags.conditional), built: Boolean(through.built || sink.flags.built), sql: Boolean(through.sql || sink.flags.sql), html: Boolean(through.html || sink.flags.html) };
           /* a sink that needs a built string: the caller's value must be one, or carry the need on */
           const unmet = sink.requires === 'built' && !(through.built || through.sql || through.whole);
           if (unmet && !(this.summary && through.kind === 'parameter')) continue;
@@ -1505,7 +1459,7 @@ class Walker {
   report(kind: SinkKind, value: Value | null, line: number, guards: Guards, from: number, to: number): void {
     if (!value || (value.cleared && value.cleared.has(kind))) return;
     if (this.summary && value.param !== undefined && value.param !== null && value.kind === 'parameter') {
-      if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html }, requires: value.requires || null });
+      if (this.summary.sinks.length < 8) this.summary.sinks.push({ kind, param: value.param, path: this.path, line, steps: [{ path: this.path, line, role: 'sink', note: `used in ${SINKS[kind].label}` }], flags: { built: value.built, sql: value.sql, html: value.html, conditional: Boolean(value.conditional) }, requires: value.requires || null });
       return;
     }
     if (value.kind === 'parameter') return;
@@ -1517,14 +1471,14 @@ class Walker {
   }
 
   pushFlow(kind: SinkKind, value: Value, path: string, line: number, guard: Guard | null, viaHelper: Flow['viaHelper']): void {
-    if (this.flows.length >= MAX_FLOWS_PER_FILE) return;
+    if (this.flows.length >= MAX_FLOWS_PER_FILE) { this.flowsTruncated = true; return; }
     const spec = SINKS[kind];
     const steps = value.steps.slice(0, MAX_STEPS);
     if (!steps.some(step => step.role === 'sink')) steps.push({ path, line, role: 'sink', note: `used in ${spec.label}` });
     const judgement = JUDGEMENT_SINKS.has(kind);
     const weak = Boolean(value.weakRoute);
-    const verdict = guard || judgement || weak ? 'needs-validation' : 'confirmed';
-    const blocker: Blocker | null = guard ? { reason: 'guarded', path: guard.path, line: guard.line } : judgement ? { reason: kind } : weak ? { reason: 'weak-source' } : null;
+    const verdict = guard || judgement || weak || value.conditional ? 'needs-validation' : 'confirmed';
+    const blocker: Blocker | null = guard ? { reason: 'guarded', path: guard.path, line: guard.line } : judgement ? { reason: kind } : weak ? { reason: 'weak-source' } : value.conditional ? { reason: 'conditional' } : null;
     this.flows.push({ rule: spec.rule, kind, severity: spec.severity, path, line, source: value.kind, verdict, blocker, trace: steps, viaHelper });
   }
 }
@@ -2012,12 +1966,12 @@ export interface CFamilyReading {
   readonly flows: Flow[];
   readonly routes: CRoute[];
   readonly settled: Settled[];
-  readonly stats: { go: number; java: number; php: number; functions: number; routes: number; flows: number; helpers: number; cut: number; failed: number };
+  readonly stats: { go: number; java: number; php: number; functions: number; routes: number; flows: number; helpers: number; cut: number; failed: number; truncated: number };
 }
 
 export function analyseCFamily(files: readonly AuditFile[], options: { late?: (() => boolean) | null; maxBytes?: number } = {}): CFamilyReading {
   const late = typeof options.late === 'function' ? options.late : () => false;
-  const stats = { go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0, failed: 0 };
+  const stats = { go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0, failed: 0, truncated: 0 };
   const readable: CFile[] = [];
   for (const file of files) if (typeof file.text === 'string' && file.text.length <= (options.maxBytes || 512 * 1024)) readable.push({ path: file.path, text: file.text });
   const program = new Program(readable);
@@ -2031,9 +1985,11 @@ export function analyseCFamily(files: readonly AuditFile[], options: { late?: ((
       routes.push(...fileRoutes);
       const walker = new Walker(entry.file, entry.language, entry.tokens, program);
       /* top-level functions only; nested ones are walked from inside their parents */
-      const outer = entry.functions.filter(fn => !entry.functions.some(other => other !== fn && other.body[0] < fn.body[0] && other.body[1] > fn.body[1]));
-      const nested = new Map(entry.functions.filter(fn => !outer.includes(fn)).map(fn => [program.headerStart(entry.tokens, fn), fn]));
-      for (const fn of outer) {
+      const contained = nestedFunctions(entry.functions);
+      const nested: Nested = new Map();
+      for (const fn of entry.functions) if (contained.has(fn)) nested.set(program.headerStart(entry.tokens, fn), fn);
+      for (const fn of entry.functions) {
+        if (contained.has(fn)) continue;
         const scope: Scope = new Map();
         const { roles } = walker.enter(fn, scope, null);
         walker.walk(fn, scope, roles, nested);
@@ -2049,6 +2005,7 @@ export function analyseCFamily(files: readonly AuditFile[], options: { late?: ((
       }
       stats[entry.language] += 1;
       stats.functions += entry.functions.length;
+      if (walker.flowsTruncated) stats.truncated += 1;
       flows.push(...walker.flows);
       settled.push(...walker.settled);
     } catch {

@@ -39,11 +39,12 @@
 import { getHeapStatistics } from 'node:v8';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
-import { RE_EXPORT, at, bindingNames, lastOf, statementEnd, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, skipType } from './uranus-shape.ts';
+import { RE_EXPORT, afterSemicolon, at, bindingNames, lastOf, statementEnd, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, skipType } from './uranus-shape.ts';
 import type { Binding, FnInfo, FunctionEntry as ShapeEntry, ImportEntry, Tokens } from './uranus-shape.ts';
 import { fileRoutes, jsRoutes, safeRoute } from './uranus-routes.ts';
 import { analyseCFamily, CFAMILY_FILE } from './uranus-cfamily.ts';
-import { CONTRACTS, SAFE, bothCleared, isAllowListReplace, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
+import { Scope, merge, type Value, type FlowValue, type Guard } from './uranus-scope.ts';
+import { CONTRACTS, SAFE, isAllowListReplace, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
 import type { CFamilyReading, Flow, Step } from './uranus-cfamily.ts';
 import type { Route, RouteUse } from './uranus-surface.ts';
 
@@ -56,27 +57,6 @@ interface SinkSpec {
   readonly severity: Severity;
   readonly label: string;
 }
-interface Guard {
-  readonly path: string;
-  readonly line: number;
-}
-/* A tainted value, as the walk carries it; `param` is the position of the parameter it stands for while a helper is summarised. */
-interface FlowValue {
-  kind: string;
-  weak: boolean;
-  whole: boolean;
-  param: number | null;
-  sql: boolean;
-  html: boolean;
-  built: boolean;
-  guarded: Guard | null;
-  cleared: ReadonlySet<FlowSinkKind> | null; /* The sinks a sanitiser has made this value safe for; every other sink still counts. */
-  steps: Step[];
-  object?: boolean;
-  wholeInside?: FlowValue | null;
-  spreadKw?: boolean;
-}
-type Value = FlowValue | null;
 interface TaintExtra {
   readonly weak?: boolean | undefined;
   readonly whole?: boolean | undefined;
@@ -221,6 +201,7 @@ interface ContextBase {
   settled?: SettledName[];
   nesting?: number;
   tooDeep?: boolean;
+  flowsTruncated?: boolean;
 }
 interface JsContext extends ContextBase {
   readonly language: 'javascript';
@@ -311,44 +292,6 @@ function extend(value: Value | undefined, path: string, line: number, note: stri
   const steps: Step[] = last && last.path === path && last.line === line ? value.steps : [...value.steps, { path, line, role: 'propagation', note }];
   return { ...value, steps: steps.slice(0, MAX_STEPS) };
 }
-function merge(a: Value | undefined, b: Value | undefined): Value {
-  if (!a) return b ?? null;
-  if (!b) return a;
-  /* A strong source outranks a weak one, and a real source a parameter placeholder. */
-  const rank = (value: FlowValue): number => (value.param !== null ? 0 : value.weak ? 1 : 2);
-  const first = rank(b) > rank(a) ? b : a;
-  return { ...first, sql: a.sql || b.sql, html: a.html || b.html, built: a.built || b.built, guarded: first.guarded, cleared: bothCleared(a.cleared, b.cleared) };
-}
-
-/* ---- Scope -------------------------------------------------------------- */
-
-class Scope {
-  readonly parent: Scope | null;
-  readonly vars: Map<string, Value>;
-  /* An arm of a branch: what it writes to names declared outside it, held here until the arms are joined. */
-  readonly writes: Map<string, Value> | null;
-  constructor(parent?: Scope | null, arm = false) {
-    this.parent = parent || null;
-    this.vars = new Map();
-    this.writes = arm ? new Map() : null;
-  }
-  lookup(name: string): Value | undefined {
-    for (let scope: Scope | null = this; scope; scope = scope.parent) {
-      if (scope.vars.has(name)) return scope.vars.get(name);
-      if (scope.writes && scope.writes.has(name)) return scope.writes.get(name);
-    }
-    return undefined;
-  }
-  declare(name: string, value: Value | undefined): void { this.vars.set(name, value || null); }
-  assign(name: string, value: Value | undefined): void {
-    for (let scope: Scope | null = this; scope; scope = scope.parent) {
-      if (scope.vars.has(name)) { scope.vars.set(name, value || null); return; }
-      if (scope.writes) { scope.writes.set(name, value || null); return; }
-    }
-    this.vars.set(name, value || null);
-  }
-}
-
 /*
  * Containers. A value stored in an object, a dict, a list, a Map or a Set
  * goes on in it: `o.k = v`, `o['k'] = v`, `list.push(v)`, `d.append(v)`,
@@ -358,28 +301,11 @@ class Scope {
  * an element popped -- reads everything it holds.
  */
 const ADDS_TO_CONTAINER = /^(push|unshift|append|appendleft|insert|extend|add|update|setdefault|set|put)$/;
-const fieldName = (container: string, key: string): string => `${container}\u0000${key}`;
 /* The key of `o.k`, `o['k']`, `o["k"]` read off a chain or a target, or null where it is computed. */
 function keyOf(target: Tokens): string | null {
   if (target.length === 3 && isPunc(target[1], '.') && target[2]?.t === 'id') return target[2].v;
   if (target.length === 4 && isPunc(target[1], '[') && isStr(target[2]) && isPunc(target[3], ']')) return target[2].v;
   return null;
-}
-
-/*
- * The arms of a branch, walked each on its own, joined: a name an arm wrote
- * holds whatever any arm left in it, and what it held before where no arm
- * need run -- an if with no else, a loop's body, a catch. An assignment under
- * a condition is not certain, so `if (!p) p = ''` leaves `p` the caller's.
- */
-function joinArms(scope: Scope, arms: readonly Scope[], covered: boolean): void {
-  const names = new Set<string>();
-  for (const arm of arms) for (const name of arm.writes?.keys() ?? []) names.add(name);
-  for (const name of names) {
-    const before = scope.lookup(name) ?? null;
-    const left = arms.map(arm => (arm.writes && arm.writes.has(name) ? arm.writes.get(name) ?? null : before));
-    scope.assign(name, [...left, ...(covered ? [] : [before])].reduce<Value>((joined, value) => merge(joined, value), null));
-  }
 }
 
 /* ---- Sources ------------------------------------------------------------- */
@@ -667,7 +593,7 @@ class JsWalker {
       const token = tokens[index];
       if (!token) break;
       if (isWord(token, 'import') && !isPunc(tokens[index + 1], '(') && !isPunc(tokens[index + 1], '.')) {
-        index = expressionEnd(tokens, index, end, false) + 1;
+        index = statementEnd(tokens, index, end);
         continue;
       }
       if (isWord(token, 'const') || isWord(token, 'let') || isWord(token, 'var')) {
@@ -678,7 +604,7 @@ class JsWalker {
         const stop = expressionEnd(tokens, index + 1, end, false);
         const value = stop > index + 1 ? this.expression(index + 1, stop, scope, roles) : null;
         if (isWord(token, 'return')) noteReturn(this.summaryOf, value);
-        index = stop + 1;
+        index = afterSemicolon(tokens, stop);
         continue;
       }
       if ((isWord(token, 'if') || isWord(token, 'while') || isWord(token, 'switch')) && isPunc(tokens[index + 1], '(')) {
@@ -748,7 +674,7 @@ class JsWalker {
       const stop = expressionEnd(tokens, index, end, false);
       if (stop <= index) { index += 1; continue; }
       this.statement(index, stop, scope, roles);
-      index = stop + 1;
+      index = afterSemicolon(tokens, stop);
     }
   }
 
@@ -756,7 +682,7 @@ class JsWalker {
   held(scope: Scope, segments: readonly string[]): Value {
     const [name, key] = segments;
     if (name === undefined) return null;
-    const field = key !== undefined && key !== '[]' ? scope.lookup(fieldName(name, key)) : undefined;
+    const field = key !== undefined && key !== '[]' ? scope.field(name, key) : undefined;
     return field !== undefined ? field : scope.lookup(name) ?? null;
   }
 
@@ -764,8 +690,7 @@ class JsWalker {
   store(scope: Scope, name: string, key: string | null, value: Value, line: number): void {
     if (scope.lookup(name) === undefined) return;
     const kept = value && extend({ ...value, whole: false, wholeInside: null }, this.ctx.path, line, 'stored in a container');
-    if (key !== null) scope.assign(fieldName(name, key), kept);
-    if (kept) scope.assign(name, merge(scope.lookup(name), kept));
+    scope.setField(name, key, kept, true);
   }
 
   /*
@@ -777,6 +702,7 @@ class JsWalker {
   literalFields(name: string, start: number, stop: number, scope: Scope, roles: Roles | null, stringKeys: boolean): void {
     const tokens = this.tokens;
     if (!isPunc(tokens[start], '{') || matching(tokens, start) !== stop - 1) return;
+    const fields = new Map<string, Value>();
     let index = start + 1;
     while (index < stop - 1) {
       const key = tokens[index];
@@ -788,12 +714,12 @@ class JsWalker {
         else if (token.t === 'punc' && ')]}'.includes(token.v)) depth -= 1;
         else if (depth === 0 && isPunc(token, ',')) break;
       }
-      const field = fieldName(name, String(key.v));
-      if (isPunc(tokens[index + 1], ':')) scope.assign(field, this.expression(index + 2, end, scope, roles));
-      else if (end === index + 1 && key.t === 'id') scope.assign(field, scope.lookup(key.v) ?? null);
+      if (isPunc(tokens[index + 1], ':')) fields.set(String(key.v), this.expression(index + 2, end, scope, roles));
+      else if (end === index + 1 && key.t === 'id') fields.set(key.v, scope.lookup(key.v) ?? null);
       else return;
       index = end + 1;
     }
+    for (const [key, value] of fields) scope.setField(name, key, value, false);
   }
 
   /* `list.push(v)`, `d.append(v)`, `m.set(k, v)`: what the call puts in its receiver; `m.get('k')`: what was put under that key. */
@@ -805,7 +731,7 @@ class JsWalker {
     const literals = (from: readonly Token[][]): string | null => (from.length && from.every(arg => arg.length === 1 && isStr(arg[0])) ? from.map(arg => String(arg[0]?.v)).join('\u0000') : null);
     if (method === 'get') {
       for (const key of [literals(call.args), literals(call.args.slice(0, 1))]) {
-        const field = key === null ? undefined : scope.lookup(fieldName(name, key));
+        const field = key === null ? undefined : scope.field(name, key);
         if (field !== undefined) return { value: field };
       }
       return null;
@@ -823,7 +749,7 @@ class JsWalker {
     const arm = new Scope(scope, true);
     for (const name of declared ?? []) arm.declare(name, null);
     this.walk(start, stop, arm, roles);
-    joinArms(scope, [arm], false);
+    scope.join([arm], false);
     return stop;
   }
 
@@ -833,11 +759,11 @@ class JsWalker {
     const then = new Scope(scope, true);
     const thenEnd = statementEnd(tokens, start, end);
     this.walk(start, thenEnd, then, roles);
-    if (!isWord(tokens[thenEnd], 'else')) { joinArms(scope, [then], false); return thenEnd; }
+    if (!isWord(tokens[thenEnd], 'else')) { scope.join([then], false); return thenEnd; }
     const other = new Scope(scope, true);
     const elseEnd = statementEnd(tokens, thenEnd + 1, end);
     this.walk(thenEnd + 1, elseEnd, other, roles);
-    joinArms(scope, [then, other], true);
+    scope.join([then, other], true);
     return elseEnd;
   }
 
@@ -865,7 +791,7 @@ class JsWalker {
       this.walk(colon + 1, next, arm, roles);
       arms.push(arm);
     });
-    joinArms(scope, arms, labels.some(label => isWord(tokens[label], 'default')));
+    scope.join(arms, labels.some(label => isWord(tokens[label], 'default')));
     return close + 1;
   }
 
@@ -903,9 +829,9 @@ class JsWalker {
       if (fn && only) {
         scope.declare(only.name, null);
         this.enterFunction(fn, scope, roles, only.name);
-        const stop = expressionEnd(tokens, fn.next, end, true);
+        const stop = expressionEnd(tokens, valueStart, end, true);
         if (stop > fn.next) this.expression(fn.next, stop, scope, roles);
-        if (!isPunc(tokens[stop], ',')) return stop + 1;
+        if (!isPunc(tokens[stop], ',')) return afterSemicolon(tokens, stop);
         index = stop + 1;
         continue;
       }
@@ -918,7 +844,7 @@ class JsWalker {
         scope.declare(binding.name, bound && extend(bound, this.ctx.path, at(tokens, patternStart).line, bound.built ? 'built into a string' : destructured ? 'taken out of an object' : 'assigned to a variable'));
       }
       if (only && !destructured) this.literalFields(only.name, valueStart, stop, scope, roles, false);
-      if (!isPunc(tokens[stop], ',')) return stop + 1;
+      if (!isPunc(tokens[stop], ',')) return afterSemicolon(tokens, stop);
       index = stop + 1;
     }
     return index;
@@ -936,6 +862,7 @@ class JsWalker {
       if (['=', '+=', '||=', '??=', '&&='].includes(token.v)) {
         const value = this.expression(index + 1, stop, scope, roles);
         this.assignTarget(start, index, value, scope, roles, token);
+        if (index === start + 1 && at(tokens, start).t === 'id' && token.v === '=') this.literalFields(at(tokens, start).v, index + 1, stop, scope, roles, false);
         return;
       }
     }
@@ -1571,7 +1498,8 @@ class JsWalker {
     /* Regular expressions from input. */
     if (segments.length === 1 && name === 'RegExp' && first) { this.sink('regex', first, line); return true; }
     /* Document databases: a request's own object as the query. */
-    if (MONGO_METHODS.has(name) && segments.length > 1 && first && first.param === null && (first.whole || (first.object && first.kind !== 'parameter'))) {
+    const collectionUpdate = name === 'update' && /collection/i.test(objectName);
+    if ((MONGO_METHODS.has(name) || collectionUpdate) && segments.length > 1 && first && first.param === null && (first.whole || (first.object && first.kind !== 'parameter'))) {
       const mongo = /^[A-Z]/.test(root) || /collection|model|coll|users|posts|db/i.test(objectName) || /mongoose|mongodb/.test(module);
       if (mongo && (first.whole || argTokens(0).some(t => t.t === 'id' && (t.v === 'body' || t.v === 'query')))) { this.sink('nosql', first, line); return true; }
     }
@@ -1657,7 +1585,6 @@ class JsWalker {
   }
 
   report(kind: FlowSinkKind, value: FlowValue, path: string, line: number, viaHelper: 'function' | 'file' | null): void {
-    if (this.ctx.flows.length >= MAX_FLOWS_PER_FILE) return;
     const spec = SINKS[kind];
     const model = value.kind === 'model reply';
     let rule = spec.rule;
@@ -1669,6 +1596,7 @@ class JsWalker {
       severity = modelSeverity;
     }
     if (kind === 'prompt' && model) return;
+    if (this.ctx.flows.length >= MAX_FLOWS_PER_FILE) { this.ctx.flowsTruncated = true; return; }
     const steps = value.steps.slice(0, MAX_STEPS);
     steps.push({ path, line, role: 'sink', note: `used in ${spec.label}` });
     const judgement = JUDGEMENT_SINKS.has(kind);
@@ -1790,7 +1718,7 @@ class PyWalker extends JsWalker {
       arms.push(arm);
       cursor = bodyEnd;
     }
-    joinArms(scope, arms, covered);
+    scope.join(arms, covered);
     return cursor;
   }
 
@@ -2373,6 +2301,7 @@ export interface FlowStats {
   cut: number;
   failed?: number;
   deep?: number;
+  truncated?: number;
   limit?: 'time' | 'memory' | null;
 }
 export type TracedFlowRecord = FlowRecord | Flow;
@@ -2434,6 +2363,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
       const reading = analyseCFamily(cfamily, { late, maxBytes });
       other = reading;
       for (const key of ['go', 'java', 'php', 'functions', 'cut'] as const) stats[key] += reading.stats[key] || 0;
+      if (reading.stats.truncated) stats.truncated = reading.stats.truncated;
       if (reading.stats.failed) stats.failed = (stats.failed || 0) + reading.stats.failed;
     } catch {
       stats.failed = (stats.failed || 0) + cfamily.length;
@@ -2468,6 +2398,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
       continue;
     }
     /* Followed, but with expressions nested past what the walker reads: said, not hidden. */
+    if (flowCtx.flowsTruncated) stats.truncated = (stats.truncated || 0) + 1;
     if (flowCtx.tooDeep) stats.deep = (stats.deep || 0) + 1;
     for (const route of flowCtx.routes) {
       const { bodyStart, bodyEnd, bodyStartLine, bodyEndLine } = route;

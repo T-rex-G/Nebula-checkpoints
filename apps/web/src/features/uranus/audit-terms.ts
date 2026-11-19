@@ -458,11 +458,11 @@ export function coverageCaveat(result: unknown): string {
   count(at(coverage, 'skipped', 'budget'), 'file', 'files', 'beyond the audit budget were not read');
   count(at(coverage, 'skipped', 'oversize'), 'file', 'files', 'over 512 KB were not read');
   count(field(coverage, 'unreadable'), 'file', 'files', 'could not be read');
-  count(at(coverage, 'packages', 'notChecked'), 'package', 'packages', 'beyond the lookup limit were not checked');
+  count(at(coverage, 'packages', 'notChecked'), 'package', 'packages', 'were not checked against their registry');
   count(at(coverage, 'packages', 'unknown'), 'registry lookup', 'registry lookups', 'went unanswered');
   const advisories = field(coverage, 'advisories') || {};
   count(field(advisories, 'unknown'), 'advisory lookup', 'advisory lookups', 'went unanswered');
-  count(field(advisories, 'notChecked'), 'package version', 'package versions', 'beyond the advisory limit were not checked');
+  count(field(advisories, 'notChecked'), 'package version', 'package versions', 'were not checked against OSV');
   if (Number(field(advisories, 'lockfiles')) > Number(field(advisories, 'lockfilesRead'))) notes.push('a lockfile was not read (over 512 KB or past the budget), so declared ranges stood in for installed versions');
   count(at(result, 'licences', 'status', 'notAsked'), 'package version', 'package versions', 'beyond the licence lookup limit were not checked');
   const exploit = field(coverage, 'exploit');
@@ -476,7 +476,10 @@ export function coverageCaveat(result: unknown): string {
   }
   const traced = at(result, 'engine', 'traced');
   const cut = field(traced, 'cut');
+  count(field(traced, 'truncated'), 'file', 'files', 'reached the per-file flow limit');
+  count(field(traced, 'patternOnly'), 'source file', 'source files', 'had pattern checks only');
   if (traced && cut) notes.push(`tracing reached the server's ${field(traced, 'limit') === 'memory' ? 'memory' : 'time'} limit, so ${plural(cut, 'file was', 'files were')} checked against the rules without being traced`);
+  if (field(result, 'analysisComplete') === false && !notes.length) return 'Analysis was incomplete. The grade reflects the checks that finished.';
   return notes.length ? `Not a complete read: ${notes.join('; ')}. A finding-free section here is not a finding-free repository.` : '';
 }
 
@@ -522,7 +525,7 @@ export function headline(result: unknown, status: unknown): string {
   const leads = findings.length - confirmed.length;
   if (counts.critical) return `${plural(counts.critical, 'critical issue', 'critical issues')} to fix`;
   if (counts.serious) return `${plural(counts.serious, 'serious issue', 'serious issues')} to fix`;
-  if (counts.warning) return `${plural(counts.warning, 'warning', 'warnings')}, nothing serious`;
+  if (counts.warning) return field(result, 'analysisComplete') === false ? `${plural(counts.warning, 'warning', 'warnings')} in the checks completed` : `${plural(counts.warning, 'warning', 'warnings')}, nothing serious`;
   if (leads) return `${plural(leads, 'lead', 'leads')} to confirm, nothing confirmed`;
   return 'Nothing found in what was read';
 }

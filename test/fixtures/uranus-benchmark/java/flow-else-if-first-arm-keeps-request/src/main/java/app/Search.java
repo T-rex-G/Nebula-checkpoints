@@ -13,6 +13,6 @@ public class Search extends HttpServlet {
         else if (request.getParameter("recent") != null) order = "created_at";
         else order = "name";
         java.sql.Statement statement = Db.statement();
-        statement.executeQuery("SELECT * FROM items ORDER BY " + order); // expect: SEC-001 confirmed
+        statement.executeQuery("SELECT * FROM items ORDER BY " + order); // expect: SEC-001 to-confirm
     }
 }

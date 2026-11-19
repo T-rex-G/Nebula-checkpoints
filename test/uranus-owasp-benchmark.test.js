@@ -63,6 +63,14 @@ const MINI = path.join(__dirname, 'fixtures', 'owasp-mini');
   assert.strictEqual(java.total.tp + java.total.fn + java.total.fp + java.total.tn, 3);
   assert.strictEqual(java.total.tp, 0, 'only the claimed rule, in the case\'s own file, flags a case');
   assert.deepStrictEqual(Object.keys(java.halves), ['odd', 'even']);
+  const mixed = score(path.join(MINI, 'java'), { analyse: ({ files }) => ({
+    findings: [{ path: files[0].path, rule: 'SEC-001', verdict: 'needs-validation' },
+      { path: files[1].path, rule: 'SEC-001', verdict: 'confirmed' },
+      { path: files[0].path, rule: 'SEC-033', verdict: 'confirmed' }]
+  }) });
+  assert.deepStrictEqual(mixed.total, { tp: 2, fp: 1, fn: 0, tn: 0 });
+  assert.deepStrictEqual(mixed.confirmed.total, { tp: 1, fp: 0, fn: 1, tn: 1 });
+  assert.match(report(mixed), /confirmed only\s+TP 1\s+FP 0\s+FN 1\s+TN 1/);
   assert.strictEqual(java.halves.odd.total.fn + java.halves.odd.total.tp, 2, 'cases 1 and 3 are the odd half');
   assert.strictEqual(java.halves.even.total.tn + java.halves.even.total.fp, 1, 'case 2 is the even half');
   assert.throws(() => score(path.join(MINI)), /no expectedresults/);

@@ -140,6 +140,18 @@ const HEAD = 'a'.repeat(40);
   assert.strictEqual(unavailableGate().evidence, null, 'a gate that could not read the kept audits claims nothing about their evidence');
   assert.deepStrictEqual([...GATE_STATES].sort(), ['current', 'missing', 'stale', 'unavailable']);
 
+  const ruleset = 'd'.repeat(64);
+  for (const previous of [null, 'e'.repeat(64), undefined]) {
+    const stale = evaluateMergeGate({ headSha: HEAD, expectedRuleset: ruleset, head: kept(HEAD, [], { ruleset: previous }) });
+    assert.strictEqual(stale.state, 'stale');
+  }
+  const head = kept(HEAD, [row('c-new', { severity: 'critical' })], { ruleset });
+  for (const base of [{ ruleset: 'e'.repeat(64) }, { ruleset, analysisComplete: false }, { ruleset, findings: { total: 2, stored: 1 } }]) {
+    const gate = evaluateMergeGate({ headSha: HEAD, expectedRuleset: ruleset, head, base: kept('b'.repeat(40), [], base), now: T0 });
+    assert.strictEqual(gate.introduced, null);
+    assert(gate.blocking.includes('critical'));
+  }
+
   const clean = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('w1', { severity: 'warning' })]), base: kept('c'.repeat(40), []), now: T0 + DAY });
   assert.deepStrictEqual([clean.state, [...clean.blocking], clean.open.warning, clean.base, clean.introduced], ['current', [], 1, 'audited', 0]);
 

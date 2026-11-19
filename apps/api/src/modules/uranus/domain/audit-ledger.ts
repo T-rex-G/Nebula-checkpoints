@@ -5,7 +5,7 @@ import type { Finding } from './audit-findings.ts';
 import type { RuleFile } from './line-rules.ts';
 import type { Scan } from './code-audit.ts';
 import {
-  CF_EXT, EXCLUDED_DIR, FIREBASE_RULES, JS_EXT, LOCKFILES, OTHER_LOCKFILES, PY_EXT, READ_LOCKS, SOURCE_EXT,
+  CF_EXT, EXCLUDED_DIR, FIREBASE_RULES, JS_TRACE_EXT, LOCKFILES, OTHER_LOCKFILES, PY_EXT, READ_LOCKS, SOURCE_EXT,
   baseName, extensionOf, isDockerfile, isFixturePath, isTestPath
 } from './audit-files.ts';
 
@@ -76,19 +76,21 @@ export const LEDGER: readonly LedgerClass[] = Object.freeze([
   { id: 'licences', label: 'Licences', rules: Object.keys(licences.RULES), needs: 'licences' },
   { id: 'logic', label: 'Business logic', rules: [], needs: 'never' }
 ]);
-const TRACED_LANGUAGES: ReadonlySet<string> = new Set([...JS_EXT, ...PY_EXT, ...CF_EXT]);
+const TRACED_LANGUAGES: ReadonlySet<string> = new Set([...JS_TRACE_EXT, ...PY_EXT, ...CF_EXT]);
 export interface LedgerInput {
+  readonly incompleteFiles?: boolean;
   readonly findings: readonly Finding[];
   readonly prepared: readonly RuleFile[];
   readonly allPaths: readonly string[];
   readonly surface: SurfaceReading;
   readonly flowResult: FlowReading;
   readonly beyond?: Beyond;
+  readonly advisories: { readonly versions: number; readonly checked: number; readonly unknown: number };
   readonly licences?: LicenceSummary | null;
 }
-export function ledger({ findings, prepared, allPaths, surface, flowResult, beyond = null, licences: licenceSummary = null }: LedgerInput): LedgerLine[] {
-  const sourceFiles = prepared.filter(file => SOURCE_EXT.has(file.ext) && !isTestPath(file.path));
-  const traced = sourceFiles.filter(file => TRACED_LANGUAGES.has(file.ext) && !['vue', 'svelte', 'astro', 'html', 'htm'].includes(file.ext)).length;
+export function ledger({ findings, prepared, allPaths, surface, flowResult, advisories, beyond = null, incompleteFiles = false, licences: licenceSummary = null }: LedgerInput): LedgerLine[] {
+  const sourceFiles = prepared.filter(file => SOURCE_EXT.has(file.ext) && !isTestPath(file.path) && !/\.d\.[cm]?ts$/i.test(file.path));
+  const traced = sourceFiles.filter(file => TRACED_LANGUAGES.has(file.ext)).length;
   const extensionsBeyond = (beyond && beyond.extensions) || {};
   const beyondExtensions = Object.keys(extensionsBeyond);
   const untraced = [...new Set([...sourceFiles.map(file => file.ext), ...beyondExtensions].filter(ext => !TRACED_LANGUAGES.has(ext)))];
@@ -104,7 +106,8 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, beyo
   const failed = flowResult.stats && flowResult.stats.failed;
   const deep = (flowResult.stats && flowResult.stats.deep) || 0;
   const cut = (flowResult.stats && flowResult.stats.cut) || 0;
-  const limit = flowResult.stats && flowResult.stats.limit;
+  const truncated = flowResult.stats.truncated || 0;
+  const limit = flowResult.stats.limit;
   const followed = (['javascript', 'python', 'go', 'java', 'php'] as const).reduce((sum, language) => sum + ((flowResult.stats && flowResult.stats[language]) || 0), 0);
   /* Why tracing stopped, in the words the ledger uses for it. */
   const stopped = limit === 'memory' ? 'needed more memory than this server gives one audit' : 'ran past the time this server gives one audit';
@@ -116,29 +119,33 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, beyo
     if (entry.needs === 'never') {
       status = 'not-assessed';
       detail = 'Rules cannot know what the product should allow. Prices, quotas, state machines and workflows need a person or an agent to read them.';
-    } else if (entry.needs === 'code') {
-      if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
+    } else if (entry.needs === 'code' || (entry.needs === 'ai' && aiUsed)) {
+      if (!traced && !untraced.length && (rulesOnly || entry.needs === 'ai')) { status = 'patterns'; detail = 'Files were pattern-checked. No application source was traced.'; }
+      else if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
       else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript, Python, Go, Java and PHP, and this code is ${untraced.join(', ')}.`; }
       else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
-      else if (untraced.length || failed || deep || cut || rulesOnly) {
+      else if (untraced.length || failed || deep || cut || truncated || rulesOnly) {
         status = 'partial';
         const gaps = [];
         if (untraced.length) gaps.push(`${untraced.join(', ')} files were only pattern-checked`);
         if (failed) gaps.push(`${failed} files could not be followed`);
+        if (truncated) gaps.push(`${truncated} ${truncated === 1 ? 'file exceeded' : 'files exceeded'} the per-file flow reporting limit`);
         if (deep) gaps.push(`${deep} ${deep === 1 ? 'file nests' : 'files nest'} expressions deeper than values are followed`);
         if (cut) gaps.push(`${cut} ${cut === 1 ? 'file was' : 'files were'} left to the rules when tracing ${stopped} (server code is traced first)`);
         if (rulesOnly) gaps.push(`${rulesOnly} more ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set ${rulesOnly === 1 ? 'was' : 'were'} checked against the rules`);
-        detail = `Traced across ${cut ? followed : traced} files; ${gaps.join('; ')}.`;
+        detail = `Traced across ${followed} files; ${gaps.join('; ')}.`;
       }
-      else detail = `Values followed from what a caller sends to what uses them, across ${traced} files.`;
+      else if (entry.needs === 'ai') detail = 'Checked model replies and prompt inputs for the supported unsafe uses.';
+      else detail = `Values followed from what a caller sends to what uses them, across ${followed} files.`;
     } else if (entry.needs === 'surface') {
       const endpoints = surface.counts.endpoints + surface.counts.actions;
       if (limit && !followed) {
         status = 'patterns';
         detail = `Endpoints not mapped: tracing ${stopped}.${rulesDb ? ' The database rules were read.' : ''}`;
-      } else if (!endpoints && !rulesDb && !cut) { status = 'not-applicable'; detail = 'No endpoints, server actions or database rules were found.'; }
+      } else if (!endpoints && !rulesDb && !cut && !rulesOnly && !untraced.length && !failed && !deep) { status = 'not-applicable'; detail = 'No endpoints, server actions or database rules were found.'; }
       else {
         detail = `${endpoints} ${endpoints === 1 ? 'endpoint' : 'endpoints'} mapped (${surface.counts.guarded} guarded, ${surface.counts.open} open${surface.counts.unknown ? `, ${surface.counts.unknown} behind a guard to confirm` : ''})${rulesDb ? ', and the database rules read' : ''}.`;
+        if (failed || deep) { status = 'partial'; detail += ' Some application code could not be fully traced.'; }
         if (untraced.length) { status = 'partial'; detail += ` Endpoints in ${untraced.join(', ')} are not mapped.`; }
         if (cut) { status = 'partial'; detail += ` Endpoints in the ${cut} ${cut === 1 ? 'file' : 'files'} tracing did not reach are not mapped.`; }
         if (rulesOnly) { status = 'partial'; detail += ` Endpoints in the ${rulesOnly} ${rulesOnly === 1 ? 'file' : 'files'} beyond the traced set are not mapped.`; }
@@ -148,14 +155,19 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, beyo
         detail = `${endpoints} endpoints mapped; ${databasePaths.length - databaseMissing} of ${databasePaths.length} database rule files checked. ${databaseMissing} could not be checked.`;
       }
     } else if (entry.needs === 'ai') {
-      if (!aiUsed) { status = 'not-applicable'; detail = 'No language-model SDK is used.'; }
-      else detail = 'Model replies followed to code, queries and markup; prompts checked for user text in the instructions.';
+      status = 'not-applicable';
+      detail = 'No supported language-model SDK was identified in the files read.';
     } else if (entry.needs === 'infra') {
       if (!infra) { status = 'not-applicable'; detail = 'No containers, Terraform, Kubernetes or workflows were found.'; }
       else detail = 'Containers, Terraform, Kubernetes manifests and workflows read.';
     } else if (entry.needs === 'manifest') {
       if (!manifest) { status = 'not-applicable'; detail = 'No package manifest or workflow was found.'; }
-      else detail = 'Manifests, lockfiles, install scripts and workflows read; versions checked against OSV.';
+      else {
+        const answered = advisories.checked - advisories.unknown;
+        if (answered < advisories.versions) status = 'partial';
+        detail = advisories.versions ? `Repository files checked. OSV supplied complete answers for ${answered} of ${advisories.versions} dependency versions.`
+          : 'Repository files checked. No exact dependency versions were identified for an OSV lookup.';
+      }
     } else if (entry.needs === 'licences') {
       const counted = licenceSummary && licenceSummary.status;
       if (!licenceSummary || !counted) { status = 'not-assessed'; detail = 'Licences were not looked up for this audit.'; }
@@ -169,6 +181,11 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, beyo
       }
     } else {
       detail = 'Every file read was checked.';
+    }
+    if (incompleteFiles && status !== 'not-assessed') {
+      if (status === 'not-applicable') detail = 'No applicable input was identified in the files read.';
+      if (status === 'covered' || status === 'not-applicable') status = 'partial';
+      detail += ' Repository file coverage was incomplete.';
     }
     return { id: entry.id, label: entry.label, status, detail, ...counts };
   });

@@ -113,6 +113,7 @@ interface WorkerData {
   readonly licences: AnalyseInput['licences'];
   readonly intel: AnalyseInput['intel'];
   readonly extra: AnalyseInput['extra'];
+  readonly incompleteFiles?: boolean;
   readonly trace: TraceBound;
 }
 type WorkerInput = Partial<AnalyseInput> & { readonly files: readonly AuditFile[]; readonly mode?: 'analyse' | 'rules' };
@@ -125,7 +126,7 @@ export type WorkerResult = unknown;
 
 /* Run once in a worker: analyse what the main thread read, post the result, exit. */
 function runInWorker(data: WorkerData): void {
-  const { files, paths, registry, advisories, licences, intel, trace, extra, mode } = data;
+  const { files, paths, registry, advisories, licences, intel, trace, extra, incompleteFiles, mode } = data;
   /* The rules alone, for a batch beyond the traced set: findings and flags out, no text. */
   if (mode === 'rules') {
     parentPort?.postMessage({ result: scanRules(files) });
@@ -135,7 +136,7 @@ function runInWorker(data: WorkerData): void {
   const bounded = 'skip' in trace
     ? { skip: trace.skip === 'rules' ? null : trace.skip }
     : { deadline: Date.now() + Math.max(0, Number(trace.traceMs) || 0), heapCeiling: Number(trace.heapCeiling) || Infinity };
-  const result = analyse({ files, paths, registry, advisories, licences: licences || null, intel, trace: bounded, extra: extra || null });
+  const result = analyse({ files, paths, registry, advisories, licences: licences || null, intel, incompleteFiles, trace: bounded, extra: extra || null });
   parentPort?.postMessage({ result });
 }
 
@@ -187,7 +188,7 @@ function runWorker(input: WorkerInput, trace: TraceBound, hardMs: number, budget
         .catch(() => {});
     }, budget.watchMs);
     const resourceLimits: ResourceLimits = { maxOldGenerationSizeMb: Math.max(HEAP_FLOOR_MB, budget.heapMb), maxYoungGenerationSizeMb: budget.youngMb, stackSizeMb: 8 };
-    const data: WorkerData = { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, licences: input.licences || null, intel: input.intel || null, extra: input.extra || null, trace };
+    const data: WorkerData = { kind: KIND, mode: input.mode || 'analyse', files: input.files, paths: input.paths, registry: input.registry, advisories: input.advisories, licences: input.licences || null, intel: input.intel || null, extra: input.extra || null, incompleteFiles: input.incompleteFiles, trace };
     try {
       worker = new spawn(entryFile('code-audit-worker'), { workerData: data, resourceLimits });
     } catch {

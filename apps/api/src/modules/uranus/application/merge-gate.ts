@@ -28,6 +28,7 @@ const production = (row: KeptRow): boolean => productionTier(row.reach);
 export interface GateAudit {
   readonly audit: {
     readonly commitSha: string;
+    readonly ruleset?: string | null;
     readonly grade: string | null;
     readonly auditedAt: string | null;
     readonly analysisComplete?: boolean | null;
@@ -82,6 +83,7 @@ export interface Gate {
 const DENY_ON_KNOWN: ReadonlySet<GateReason> = new Set(['critical', 'secret', 'exploited', 'overdue']);
 
 export interface GateInput {
+  readonly expectedRuleset?: string;
   readonly headSha?: string | null;
   readonly head?: GateAudit | null;
   readonly base?: GateAudit | null;
@@ -89,18 +91,22 @@ export interface GateInput {
   readonly now?: number;
 }
 
-export function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() }: GateInput = {}): Gate {
-  const baseState = base && base.audit ? 'audited' : 'missing';
-  if (!head || !head.audit) return gateResult('missing', { base: baseState });
-  const audit = head.audit;
-  if (!headSha || audit.commitSha !== headSha) {
-    return gateResult('stale', { grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, base: baseState });
-  }
-  /* A matching commit proves freshness, not that the evidence needed to judge it was available. */
-  const evidenceComplete = audit.analysisComplete === true
+function completeAudit(audit: NonNullable<GateAudit['audit']>): boolean {
+  return audit.analysisComplete === true
     && !(audit.files && audit.files.complete !== true)
     && !(audit.findings && audit.findings.total > audit.findings.stored)
     && !(audit.watch && ['partial', 'unavailable'].includes(audit.watch.state));
+}
+
+export function evaluateMergeGate({ headSha, head, base, expectedRuleset, decisions, now = Date.now() }: GateInput = {}): Gate {
+  const baseState = base && base.audit ? 'audited' : 'missing';
+  if (!head || !head.audit) return gateResult('missing', { base: baseState });
+  const audit = head.audit;
+  if (!headSha || audit.commitSha !== headSha || (expectedRuleset && audit.ruleset !== expectedRuleset)) {
+    return gateResult('stale', { grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, base: baseState });
+  }
+  /* A matching commit proves freshness, not that the evidence needed to judge it was available. */
+  const evidenceComplete = completeAudit(audit);
   const sla = (base && base.audit && base.audit.sla) || DEFAULT_SLA;
   const open = openRows(head.findings, decisions, now);
   const counts: Counts = { critical: 0, serious: 0, warning: 0 };
@@ -111,7 +117,7 @@ export function evaluateMergeGate({ headSha, head, base, decisions, now = Date.n
     return clock && clock.state === 'overdue';
   });
   let introduced: number | null = null;
-  if (base && base.audit) {
+  if (base && base.audit && completeAudit(base.audit) && (!expectedRuleset || base.audit.ruleset === expectedRuleset)) {
     const before = new Set(listOf(base.findings).map(row => read(row, 'id')));
     introduced = open.filter(row => confirmed(row) && (row.severity === 'critical' || row.severity === 'serious') && !before.has(row.id)).length;
   }

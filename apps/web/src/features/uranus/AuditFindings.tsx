@@ -335,10 +335,11 @@ export function FindingsCard({ findings, handlers, opened }: {
       {findings.showAll ? <button type="button" className="btn btn-ghost small" data-key="show-all" onClick={() => handlers.onFilter?.(null)}>Show all</button> : null}
     </>
   );
-  const groups: readonly (readonly [string, string, 'data-severity' | 'data-verdict' | 'data-exploit', typeof findings.severities, ((value: string | null) => void) | undefined])[] = [
+  const groups: readonly (readonly [string, string, 'data-severity' | 'data-verdict' | 'data-exploit' | 'data-path-group', typeof findings.severities, ((value: string | null) => void) | undefined])[] = [
     ['audit-segments', 'Show by severity', 'data-severity', findings.severities, handlers.onSeverity],
     ['audit-segments audit-verdicts', 'Show by verdict', 'data-verdict', findings.verdicts, handlers.onVerdict],
-    ['audit-segments audit-exploits', 'Show by exploitation', 'data-exploit', findings.exploits, handlers.onExploit]
+    ['audit-segments audit-exploits', 'Show by exploitation', 'data-exploit', findings.exploits, handlers.onExploit],
+    ['audit-segments', 'Show by file path', 'data-path-group', findings.paths, handlers.onPathGroup]
   ];
   return (
     <Foldable className="card exposure-findings audit-findings" id="findings" name="Findings" labelledBy="auditFindingsHeading" head={head} headClassName="exposure-section-head audit-findings-head">

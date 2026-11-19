@@ -32,6 +32,7 @@ const IDENTITY = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
 const T0 = Date.parse('2026-09-20T10:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
+const RULESET = 'a'.repeat(64);
 
 const id = seed => crypto.createHash('sha256').update(String(seed)).digest('hex').slice(0, 24);
 const sha = seed => crypto.createHash('sha1').update(String(seed)).digest('hex');
@@ -60,10 +61,10 @@ function packageFinding(seed, { name = 'jquery', version = '3.4.1', exploited = 
     }
   };
 }
-function auditResult({ commit = 'one', ref = 'main', findings, auditedAt = T0, components, suppressed, coverage, engine = '2.0.0', policy } = {}) {
+function auditResult({ commit = 'one', ref = 'main', findings, auditedAt = T0, components, suppressed, coverage, engine = '2.0.0', ruleset = RULESET, policy } = {}) {
   return {
     commitSha: sha(commit), ref, auditedAt: new Date(auditedAt).toISOString(),
-    score: 62, grade: 'D', capped: false, capReason: null, engine: { name: 'Uranus', version: engine },
+    score: 62, grade: 'D', capped: false, capReason: null, engine: { name: 'Uranus', version: engine, ruleset },
     categories: [{ id: 'code', score: 70 }, { id: 'dependencies', score: 55 }],
     findings: findings || [codeFinding('a'), packageFinding('dep')],
     /* A waiver in the code: kept for its clock, never with the reason the code wrote. */
@@ -112,10 +113,12 @@ async function withClient(connectionString, run) {
         provider: scope.provider, authority: scope.authority, owner_login: scope.owner, repo_name: 'BeforeAnalysisMigration',
         identity_key: IDENTITY, recorded_at: new Date(T0).toISOString() };
       delete legacyRow.analysis_complete;
+      delete legacyRow.ruleset_digest;
       const columns = Object.keys(legacyRow);
       await client.query(`INSERT INTO nv_code_audits (${columns.join(',')}) VALUES (${columns.map((_, index) => `$${index + 1}`).join(',')})`, Object.values(legacyRow));
       fs.rmSync(before032, { recursive: true, force: true });
       const upgrade = await runMigrations(client, { directory: DIRECTORY, logger: { info() {} } });
+      assert.strictEqual((await client.query('SELECT ruleset_digest FROM nv_code_audits WHERE audit_id=$1', [legacyRow.audit_id])).rows[0].ruleset_digest, null);
       assert.strictEqual(upgrade.applied[0], '032_code_audit_analysis_coverage', 'the upgrade starts at 032');
       assert.strictEqual((await client.query('SELECT analysis_complete FROM nv_code_audits WHERE audit_id=$1', [legacyRow.audit_id])).rows[0].analysis_complete, null,
         'migration preserves an existing audit without inventing analysis proof');
@@ -134,10 +137,10 @@ async function withClient(connectionString, run) {
       ['FileGap', { coverage: { read: 1, eligible: 2, complete: false } }, null],
       ['RegistryOutage', { coverage: { read: 2, eligible: 2, complete: true, packages: { declared: 1, checked: 1, unknown: 1, notChecked: 0 } } }, ['SEC-011']],
       ['LicenceOutage', { coverage: { read: 2, eligible: 2, complete: true, licences: { versions: 1, fromLock: 0, asked: 1, answered: 0 } } }, ['DEP-003', 'SEC-011']],
-      ['TraceCut', { engine: { name: 'Uranus', version: '2.0.0', traced: { cut: 1, limit: 'time' } } }, ['DEP-003']],
-      ['TraceFailed', { engine: { name: 'Uranus', version: '2.0.0', traced: { failed: 1 } } }, ['DEP-003']],
-      ['TraceDeep', { engine: { name: 'Uranus', version: '2.0.0', traced: { deep: 1 } } }, ['DEP-003']],
-      ['RulesOnly', { engine: { name: 'Uranus', version: '2.0.0', traced: { rulesOnly: 1 } } }, ['DEP-003']]
+      ['TraceCut', { engine: { name: 'Uranus', version: '2.0.0', ruleset: RULESET, traced: { cut: 1, limit: 'time' } } }, ['DEP-003']],
+      ['TraceFailed', { engine: { name: 'Uranus', version: '2.0.0', ruleset: RULESET, traced: { failed: 1 } } }, ['DEP-003']],
+      ['TraceDeep', { engine: { name: 'Uranus', version: '2.0.0', ruleset: RULESET, traced: { deep: 1 } } }, ['DEP-003']],
+      ['RulesOnly', { engine: { name: 'Uranus', version: '2.0.0', ruleset: RULESET, traced: { rulesOnly: 1 } } }, ['DEP-003']]
     ]) {
       const incompleteScope = { ...scope, repo: `NoFalseFix${name}` };
       const complete = { read: 2, eligible: 2, complete: true };
@@ -199,7 +202,7 @@ async function withClient(connectionString, run) {
             const sql = args[0];
             if (ordinal === 2 && /pg_advisory_xact_lock/.test(sql)) signalSecondAttempt();
             const answer = await client.query(...args);
-            if (/SELECT audit_id, audited_at, engine_version FROM nv_code_audits/.test(sql)) {
+            if (/SELECT audit_id, audited_at, engine_version, ruleset_digest FROM nv_code_audits/.test(sql)) {
               if (ordinal === 1) { signalFirstRead(); await firstMayContinue; }
               else signalSecondAttempt();
             }
@@ -317,6 +320,37 @@ async function withClient(connectionString, run) {
       assert(kept.findings.every(finding => finding.firstSeenAt === new Date(T0).toISOString()), 'an engine upgrade does not reset SLA clocks');
       const resolutions = await pool.query(`SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name='EngineUpgrade'`);
       assert.strictEqual(resolutions.rows[0].n, 0, 'nor does it record fixes');
+    }
+
+    for (const [label, firstDigest, nextDigest] of [
+      ['Changed', RULESET, 'b'.repeat(64)], ['Unrecorded', RULESET, null],
+      ['Legacy', null, RULESET], ['BothUnknown', null, null]
+    ]) {
+      const repoScope = { ...scope, repo: 'Ruleset' + label };
+      const complete = { read: 1, eligible: 1, complete: true };
+      await history.record({ scope: repoScope, identityKey: IDENTITY, now: T0,
+        result: auditResult({ findings: [codeFinding('prior')], suppressed: [], coverage: complete, ruleset: firstDigest }) });
+      const next = await history.record({ scope: repoScope, identityKey: IDENTITY, now: T0 + HOUR,
+        result: auditResult({ commit: 'next', findings: [], suppressed: [], coverage: complete, ruleset: nextDigest, auditedAt: T0 + HOUR }) });
+      assert.deepStrictEqual([next.previous, next.newIds, next.resolved, next.resolutions], [null, null, null, 0], label);
+      const latest = await history.latest({ scope: repoScope, identityKey: IDENTITY, ref: 'main' });
+      assert.strictEqual(latest.audit.ruleset, nextDigest);
+      assert.strictEqual((await pool.query('SELECT count(*)::int AS n FROM nv_code_audit_resolutions WHERE repo_name=$1', [repoScope.repo])).rows[0].n, 0);
+    }
+
+    for (const [label, traced] of [
+      ['Timeout', { cut: 1, limit: 'time' }], ['FlowLimit', { truncated: 1 }], ['Component', { patternOnly: 1 }]
+    ]) {
+      const repoScope = { ...scope, repo: 'TraceEvidence' + label };
+      const common = { coverage: { read: 1, eligible: 1, complete: true }, suppressed: [] };
+      const findings = ['ACC-002', 'AI-001', 'AI-002', 'AI-003'].map(rule => ({ ...codeFinding(rule), rule, category: rule.startsWith('AI') ? 'ai' : 'access' }));
+      await history.record({ scope: repoScope, identityKey: IDENTITY, now: T0, result: auditResult({ ...common, findings }) });
+      const result = auditResult({ ...common, findings: [], auditedAt: T0 + HOUR });
+      result.engine.traced = traced;
+      const next = await history.record({ scope: repoScope, identityKey: IDENTITY, now: T0 + HOUR, result });
+      assert.strictEqual(next.resolutions, 1, label);
+      const stored = await pool.query('SELECT rule FROM nv_code_audit_resolutions WHERE repo_name=$1', [repoScope.repo]);
+      assert.deepStrictEqual(stored.rows, [{ rule: 'AI-003' }], 'only the per-file detector finished');
     }
 
     /* ---- Recording: the first audit of a branch has nothing to compare with -- */

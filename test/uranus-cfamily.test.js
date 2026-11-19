@@ -12,6 +12,16 @@
  */
 
 const assert = require('assert');
+
+/* A method inside a closure is nested only when both token boundaries lie strictly inside. */
+{
+  const { nestedFunctions } = require('../apps/api/src/modules/uranus/domain/uranus-cfamily-lex.ts');
+  const spans = [[40, 50], [2, 20], [2, 15], [8, 20], [10, 12], [8, 17], [40, 50], [49, 55], [1, 3]];
+  const functions = spans.map(body => ({ body }));
+  const expected = functions.filter(fn => functions.some(other => other.body[0] < fn.body[0] && other.body[1] > fn.body[1]));
+  const nested = nestedFunctions(functions);
+  assert.deepStrictEqual(functions.filter(fn => nested.has(fn)), expected);
+}
 const audit = require('../apps/api/src/modules/uranus/index.ts');
 const { analyseCFamily, lex, functionsOf } = audit.cfamily;
 const { analyseFlows, analyseSurface, reachOf } = audit;
@@ -267,6 +277,24 @@ function controller(body, imports = '') {
   }`);
   const result = fires('java: a request parameter into SQL', one('UserController.java', sql), [`SEC-001@UserController.java:${at(sql, 'jdbcTemplate.query')}`]);
   assert.strictEqual(result.flows[0].source, 'query string');
+  const conditional = arms => controller(`  @GetMapping("/users")
+  public List<User> find(@RequestParam String name) {
+    String value = enabled() ? ${arms};
+    return jdbcTemplate.query("SELECT title FROM users WHERE name = " + value, mapper);
+  }`);
+  for (const [arms, verdict] of [['name : "public"', 'needs-validation'], ['name : name', 'confirmed']]) {
+    const code = conditional(arms);
+    const read = fires('java conditional', one('UserController.java', code), [`SEC-001@UserController.java:${at(code, 'jdbcTemplate.query')}`]);
+    assert.strictEqual(read.flows[0].verdict, verdict);
+    if (verdict === 'needs-validation') assert.strictEqual(read.flows[0].blocker.reason, 'conditional');
+  }
+  for (const count of [40, 41]) {
+    const query = '    jdbcTemplate.query("SELECT title FROM users WHERE name = " + name, mapper);';
+    const source = controller('  @GetMapping("/users")\n  public void find(@RequestParam String name) {\n' + Array(count).fill(query).join('\n') + '\n  }');
+    const result = audit.analyse({ files: one('UserController.java', source) });
+    assert.strictEqual(result.engine.traced.flows, 40);
+    assert.strictEqual(result.engine.traced.truncated, count - 40);
+  }
   quiet('java: a placeholder', one('UserController.java', controller(`  @GetMapping("/users")
   public List<User> find(@RequestParam String name) {
     return jdbcTemplate.query("SELECT * FROM users WHERE name = ?", mapper, name);
@@ -666,7 +694,7 @@ func user(w http.ResponseWriter, r *http.Request) {
     { path: 'go.mod', text: 'module example.com/app\n\ngo 1.22\n' }
   ];
   const result = audit.analyse({ files, paths: files.map(file => file.path) });
-  assert.strictEqual(result.engine.version, '2.4.0');
+  assert.strictEqual(result.engine.version, '2.5.0');
   assert.strictEqual(result.engine.traced.go, 1);
   assert.strictEqual(result.engine.traced.java, 1);
   assert.strictEqual(result.engine.traced.php, 1);

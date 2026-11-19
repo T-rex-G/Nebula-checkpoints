@@ -14,6 +14,6 @@ public class Search extends HttpServlet {
             column = names.nextElement();
         }
         java.sql.Statement statement = Db.statement();
-        statement.executeQuery("SELECT * FROM items ORDER BY " + column); // expect: SEC-001 confirmed
+        statement.executeQuery("SELECT * FROM items ORDER BY " + column); // expect: SEC-001 to-confirm
     }
 }

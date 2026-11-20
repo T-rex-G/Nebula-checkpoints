@@ -1,3 +1,5 @@
+export const AUDIT_PATHS_CONTRACT_VERSION = 1;
+
 /* Directory conventions describe where a finding lives, not whether the code runs. */
 export function isTestPath(filePath: string): boolean {
   return /(^|\/)(tests?|__tests__|spec|specs|e2e|cypress|playwright)\//i.test(filePath) ||

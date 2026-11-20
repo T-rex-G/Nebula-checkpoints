@@ -7,6 +7,10 @@
     "version": 2,
     "shape": "99421f31bd1972ee2ea17f7f50c1b17ce33ce87caf976828673c0372b9449125"
   },
+  "audit-paths.ts": {
+    "version": 1,
+    "shape": "f7f1c4bde855300d97ef8d7e9db0d935b7903e5dd0d4d461d3628a74f6085d0b"
+  },
   "canonical-json.ts": {
     "version": 1,
     "shape": "9e5af47845f405e38a6e777796634e4d16d4ea1eedf26d8fe1bce00cb42e2c2e"

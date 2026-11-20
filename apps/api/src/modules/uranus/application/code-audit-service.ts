@@ -101,6 +101,7 @@ export interface PullFacts {
   readonly head: string;
   readonly base: string;
   readonly headSha: string;
+  readonly baseSha: string | null;
   readonly fork: boolean;
   readonly open: boolean;
 }
@@ -340,6 +341,7 @@ export function createCodeAuditService(deps: CodeAuditDeps): CodeAuditService {
     const baseRepo = base && member(base, 'repo') && member(member(base, 'repo'), 'full_name');
     return {
       number, head: String(head && member(head, 'ref') || ''), base: String(base && member(base, 'ref') || ''), headSha: String(head && member(head, 'sha') || '').toLowerCase(),
+      baseSha: String(base && member(base, 'sha') || '').toLowerCase() || null,
       fork: Boolean(headRepo && baseRepo && lowerCase(headRepo) !== lowerCase(baseRepo)),
       open: member(pull, 'state') === 'open'
     };
@@ -357,7 +359,7 @@ export function createCodeAuditService(deps: CodeAuditDeps): CodeAuditService {
         pull.base ? kept.latest({ scope, identityKey: identity, ref: pull.base }) : null,
         triageForAccount(account, owner, repo)
       ]);
-      return evaluateMergeGate({ headSha: pull.headSha, expectedRuleset: ENGINE.ruleset, head, base, decisions: team && read(team, 'decisions'), now });
+      return evaluateMergeGate({ headSha: pull.headSha, baseSha: pull.baseSha, expectedRuleset: ENGINE.ruleset, head, base, decisions: team && read(team, 'decisions'), now });
     } catch (error) {
       console.warn(`[code-audit] merge gate not evaluated (${codeOf(error)})`);
       return unavailableGate();

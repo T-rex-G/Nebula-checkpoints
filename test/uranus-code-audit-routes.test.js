@@ -260,11 +260,11 @@ async function harness({ database = true } = {}) {
     /* The gate: a pull request is required; a fork's head is never described by this repository's audits; a policy store that fails leaves enforcement unavailable. */
     {
       for (const pull of ['', '0', 'x', '2147483648']) assert.equal((await h.call('GET', `${repo}/gate?pull=${pull}`)).body.code, 'AUDIT_GATE_PULL_REQUIRED');
-      h.state.pull = { number: 7, state: 'open', head: { ref: 'feature', sha: 'ABC', repo: { full_name: 'Fork/Demo' } }, base: { ref: 'main', repo: { full_name: 'Acme/Demo' } } };
+      h.state.pull = { number: 7, state: 'open', head: { ref: 'feature', sha: 'ABC', repo: { full_name: 'Fork/Demo' } }, base: { ref: 'main', sha: 'DEF', repo: { full_name: 'Acme/Demo' } } };
       h.state.policiesFail = true;
       const gate = await h.call('GET', `${repo}/gate?pull=7`);
       assert.equal(gate.status, 200);
-      assert.deepEqual(gate.body.pull, { number: 7, head: 'feature', base: 'main', headSha: 'abc', fork: true, open: true });
+      assert.deepEqual(gate.body.pull, { number: 7, head: 'feature', base: 'main', headSha: 'abc', baseSha: 'def', fork: true, open: true });
       assert.deepEqual(gate.body.enforcement, { available: false, policies: [] });
       assert.deepEqual(h.calls.filter(([name]) => name === 'history.latest').map(([, input]) => input.ref), ['main'], 'only the base branch is read for a fork');
       assert.deepEqual(h.calls.find(([name]) => name === 'gh'), ['gh', '/repos/acme/demo/pulls/7']);

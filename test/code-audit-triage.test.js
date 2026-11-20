@@ -152,6 +152,13 @@ const HEAD = 'a'.repeat(40);
     assert(gate.blocking.includes('critical'));
   }
 
+  const branch = kept('b'.repeat(40), [], { ruleset, sla: { critical: 90, serious: 90, warning: 90 } });
+  for (const baseSha of [null, 'c'.repeat(40), branch.audit.commitSha]) {
+    const gate = evaluateMergeGate({ headSha: HEAD, baseSha, expectedRuleset: ruleset, head, base: branch, now: T0 });
+    const matched = baseSha === branch.audit.commitSha;
+    assert.deepStrictEqual([gate.introduced, gate.base, gate.sla.source], matched ? [1, 'audited', 'base'] : [null, 'missing', 'default']);
+  }
+
   const clean = evaluateMergeGate({ headSha: HEAD, head: kept(HEAD, [row('w1', { severity: 'warning' })]), base: kept('c'.repeat(40), []), now: T0 + DAY });
   assert.deepStrictEqual([clean.state, [...clean.blocking], clean.open.warning, clean.base, clean.introduced], ['current', [], 1, 'audited', 0]);
 

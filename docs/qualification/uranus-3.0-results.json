@@ -1,0 +1,3399 @@
+{
+  "schemaVersion": 1,
+  "scorerCommit": "7814ccf1a5b21a1df971dbcb99afa4c2abc5f111",
+  "frozenBaseline": "61654dfc588a972ed4e88fcf9652aabcf7cb2586",
+  "frozenCandidate": "96ba4641da016190a7957e2dffa68906bf118d86",
+  "methodDigest": "f5daa477ed790fe02517654ede21e5e81f248c7222bd457fe7082c2f823304ed",
+  "engine": {
+    "before": {"version": "2.5.0", "ruleset": "33580e1f5f6b8dbd2f56d3d8a5ae8c4d385c57bd78f4f94f68f828f028c93171"},
+    "after": {"version": "3.0.0", "ruleset": "07fa4da9fc33ce964763a62eacbd76a3790b0464d23b67877bd17a3f1128673c"}
+  },
+  "machine": {"node": "v22.23.5", "platform": "linux", "arch": "x64", "cgroupCpuMax": "200000 100000"},
+  "execution": "Local pinned sources treated as inert input. Java and Python use the original case-file rule mapping. Framework and DOM policy agreement use the frozen evaluation protocol. The maintainer held the DOM cohort blind to the detector developer until the candidate commit was fixed.",
+  "resources": "Each variant ran serially on a shared host. Per-CWE wall/CPU samples surround each direct domain call and sampled RSS is a process-wide point reading after the call. Process peak RSS covers the whole command. Timings cannot establish a production performance or latency change. Java/Python and file-scoped framework assays use direct in-process analysis with no worker deadline. Trace-gap counters report what the engine recorded. An unknown dynamic path may remain even when no resource gap was reported.",
+  "reproduce": [
+    "node scripts/uranus-owasp-benchmark.js <pinned-public-checkout> --json",
+    "node scripts/uranus-framework-benchmark.js juice-shop <pinned-checkout> --trusted-engine <engine-checkout>",
+    "node scripts/uranus-framework-benchmark.js dom-policy <pinned-checkout> --trusted-engine <engine-checkout>",
+    "node scripts/uranus-benchmark.js --json",
+    "node test/uranus-finding-ids.test.js"
+  ],
+  "evaluations": {
+    "java": {
+      "revision": "a452b3aafd232245d0753e54eb243d6651f8ef96",
+      "licenseText": "GPL-2.0",
+      "publicLabelsPreviouslyExamined": true,
+      "totalLabels": 2740,
+      "scoredCases": 2038,
+      "excludedCounts": {"crypto": 246, "hash": 236, "ldapi": 59, "trustbound": 126, "xpathi": 35},
+      "caseComparison": {
+        "sameLabels": 2038,
+        "changedCases": 0,
+        "unchangedCases": 2038,
+        "beforeOutcomesSha256": "9bb40f23f4b709251e6db5263ad0bf4ec2208655d4ac33b65ff2a00eb5962350",
+        "afterOutcomesSha256": "9bb40f23f4b709251e6db5263ad0bf4ec2208655d4ac33b65ff2a00eb5962350",
+        "changedDetails": [],
+        "additionalChangedDetails": 0
+      },
+      "before": {
+        "all": {
+          "tp": 527,
+          "fp": 309,
+          "fn": 504,
+          "tn": 698,
+          "precision": 0.630383,
+          "recall": 0.511154,
+          "falsePositiveRate": 0.306852,
+          "falseNegativeRate": 0.488846
+        },
+        "confirmed": {
+          "tp": 165,
+          "fp": 67,
+          "fn": 866,
+          "tn": 940,
+          "precision": 0.711207,
+          "recall": 0.160039,
+          "falsePositiveRate": 0.066534,
+          "falseNegativeRate": 0.839961
+        },
+        "byCwe": {
+          "CWE-22": {
+            "cases": 268,
+            "rule": "SEC-022",
+            "all": {
+              "tp": 73,
+              "fp": 62,
+              "fn": 60,
+              "tn": 73,
+              "precision": 0.540741,
+              "recall": 0.548872,
+              "falsePositiveRate": 0.459259,
+              "falseNegativeRate": 0.451128
+            },
+            "confirmed": {
+              "tp": 18,
+              "fp": 13,
+              "fn": 115,
+              "tn": 122,
+              "precision": 0.580645,
+              "recall": 0.135338,
+              "falsePositiveRate": 0.096296,
+              "falseNegativeRate": 0.864662
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 268,
+              "wallMs": 17108.183007,
+              "cpuMs": 12627.326,
+              "sampledProcessRssMaxKiB": 192164,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-330": {
+            "cases": 493,
+            "rule": "SEC-005",
+            "all": {"tp": 0, "fp": 0, "fn": 218, "tn": 275, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "confirmed": {"tp": 0, "fp": 0, "fn": 218, "tn": 275, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 493,
+              "wallMs": 30993.722012,
+              "cpuMs": 22821.882,
+              "sampledProcessRssMaxKiB": 196260,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-614": {
+            "cases": 67,
+            "rule": "SEC-004",
+            "all": {"tp": 36, "fp": 0, "fn": 0, "tn": 31, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "confirmed": {"tp": 36, "fp": 0, "fn": 0, "tn": 31, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "resourcesAndTraceGaps": {
+              "calls": 67,
+              "wallMs": 4391.332572,
+              "cpuMs": 2970.873,
+              "sampledProcessRssMaxKiB": 192164,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-78": {
+            "cases": 251,
+            "rule": "SEC-011",
+            "all": {
+              "tp": 58,
+              "fp": 49,
+              "fn": 68,
+              "tn": 76,
+              "precision": 0.542056,
+              "recall": 0.460317,
+              "falsePositiveRate": 0.392,
+              "falseNegativeRate": 0.539683
+            },
+            "confirmed": {
+              "tp": 15,
+              "fp": 8,
+              "fn": 111,
+              "tn": 117,
+              "precision": 0.652174,
+              "recall": 0.119048,
+              "falsePositiveRate": 0.064,
+              "falseNegativeRate": 0.880952
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 251,
+              "wallMs": 16519.476638,
+              "cpuMs": 11521.867,
+              "sampledProcessRssMaxKiB": 192164,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-79": {
+            "cases": 455,
+            "rule": "SEC-033",
+            "all": {
+              "tp": 158,
+              "fp": 78,
+              "fn": 88,
+              "tn": 131,
+              "precision": 0.669492,
+              "recall": 0.642276,
+              "falsePositiveRate": 0.373206,
+              "falseNegativeRate": 0.357724
+            },
+            "confirmed": {
+              "tp": 48,
+              "fp": 21,
+              "fn": 198,
+              "tn": 188,
+              "precision": 0.695652,
+              "recall": 0.195122,
+              "falsePositiveRate": 0.100478,
+              "falseNegativeRate": 0.804878
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 455,
+              "wallMs": 26283.443993,
+              "cpuMs": 19884.806,
+              "sampledProcessRssMaxKiB": 192164,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-89": {
+            "cases": 504,
+            "rule": "SEC-001",
+            "all": {
+              "tp": 202,
+              "fp": 120,
+              "fn": 70,
+              "tn": 112,
+              "precision": 0.627329,
+              "recall": 0.742647,
+              "falsePositiveRate": 0.517241,
+              "falseNegativeRate": 0.257353
+            },
+            "confirmed": {
+              "tp": 48,
+              "fp": 25,
+              "fn": 224,
+              "tn": 207,
+              "precision": 0.657534,
+              "recall": 0.176471,
+              "falsePositiveRate": 0.107759,
+              "falseNegativeRate": 0.823529
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 504,
+              "wallMs": 29934.479606,
+              "cpuMs": 22134.949,
+              "sampledProcessRssMaxKiB": 192164,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"wallMs": 125837.630001, "cpuMs": 92449.902, "processPeakRssKiB": 196260}
+      },
+      "after": {
+        "all": {
+          "tp": 527,
+          "fp": 309,
+          "fn": 504,
+          "tn": 698,
+          "precision": 0.630383,
+          "recall": 0.511154,
+          "falsePositiveRate": 0.306852,
+          "falseNegativeRate": 0.488846
+        },
+        "confirmed": {
+          "tp": 165,
+          "fp": 67,
+          "fn": 866,
+          "tn": 940,
+          "precision": 0.711207,
+          "recall": 0.160039,
+          "falsePositiveRate": 0.066534,
+          "falseNegativeRate": 0.839961
+        },
+        "byCwe": {
+          "CWE-22": {
+            "cases": 268,
+            "rule": "SEC-022",
+            "all": {
+              "tp": 73,
+              "fp": 62,
+              "fn": 60,
+              "tn": 73,
+              "precision": 0.540741,
+              "recall": 0.548872,
+              "falsePositiveRate": 0.459259,
+              "falseNegativeRate": 0.451128
+            },
+            "confirmed": {
+              "tp": 18,
+              "fp": 13,
+              "fn": 115,
+              "tn": 122,
+              "precision": 0.580645,
+              "recall": 0.135338,
+              "falsePositiveRate": 0.096296,
+              "falseNegativeRate": 0.864662
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 268,
+              "wallMs": 14433.634305,
+              "cpuMs": 12112.718,
+              "sampledProcessRssMaxKiB": 181788,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-330": {
+            "cases": 493,
+            "rule": "SEC-005",
+            "all": {"tp": 0, "fp": 0, "fn": 218, "tn": 275, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "confirmed": {"tp": 0, "fp": 0, "fn": 218, "tn": 275, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 493,
+              "wallMs": 30414.032641,
+              "cpuMs": 22252.714,
+              "sampledProcessRssMaxKiB": 181788,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-614": {
+            "cases": 67,
+            "rule": "SEC-004",
+            "all": {"tp": 36, "fp": 0, "fn": 0, "tn": 31, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "confirmed": {"tp": 36, "fp": 0, "fn": 0, "tn": 31, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "resourcesAndTraceGaps": {
+              "calls": 67,
+              "wallMs": 4117.539056,
+              "cpuMs": 2962.358,
+              "sampledProcessRssMaxKiB": 181788,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-78": {
+            "cases": 251,
+            "rule": "SEC-011",
+            "all": {
+              "tp": 58,
+              "fp": 49,
+              "fn": 68,
+              "tn": 76,
+              "precision": 0.542056,
+              "recall": 0.460317,
+              "falsePositiveRate": 0.392,
+              "falseNegativeRate": 0.539683
+            },
+            "confirmed": {
+              "tp": 15,
+              "fp": 8,
+              "fn": 111,
+              "tn": 117,
+              "precision": 0.652174,
+              "recall": 0.119048,
+              "falsePositiveRate": 0.064,
+              "falseNegativeRate": 0.880952
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 251,
+              "wallMs": 15990.463218,
+              "cpuMs": 11184.798,
+              "sampledProcessRssMaxKiB": 181788,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-79": {
+            "cases": 455,
+            "rule": "SEC-033",
+            "all": {
+              "tp": 158,
+              "fp": 78,
+              "fn": 88,
+              "tn": 131,
+              "precision": 0.669492,
+              "recall": 0.642276,
+              "falsePositiveRate": 0.373206,
+              "falseNegativeRate": 0.357724
+            },
+            "confirmed": {
+              "tp": 48,
+              "fp": 21,
+              "fn": 198,
+              "tn": 188,
+              "precision": 0.695652,
+              "recall": 0.195122,
+              "falsePositiveRate": 0.100478,
+              "falseNegativeRate": 0.804878
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 455,
+              "wallMs": 23283.656519,
+              "cpuMs": 20081.695,
+              "sampledProcessRssMaxKiB": 184048,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-89": {
+            "cases": 504,
+            "rule": "SEC-001",
+            "all": {
+              "tp": 202,
+              "fp": 120,
+              "fn": 70,
+              "tn": 112,
+              "precision": 0.627329,
+              "recall": 0.742647,
+              "falsePositiveRate": 0.517241,
+              "falseNegativeRate": 0.257353
+            },
+            "confirmed": {
+              "tp": 48,
+              "fp": 25,
+              "fn": 224,
+              "tn": 207,
+              "precision": 0.657534,
+              "recall": 0.176471,
+              "falsePositiveRate": 0.107759,
+              "falseNegativeRate": 0.823529
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 504,
+              "wallMs": 29600.487583,
+              "cpuMs": 22365.709,
+              "sampledProcessRssMaxKiB": 181788,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"wallMs": 118323.912146, "cpuMs": 91424.405, "processPeakRssKiB": 184176}
+      }
+    },
+    "python": {
+      "revision": "f1291485808b66e20ddb6b01b10dc71b3df8c8ba",
+      "licenseText": "GPL-3.0",
+      "publicLabelsPreviouslyExamined": true,
+      "totalLabels": 1230,
+      "scoredCases": 827,
+      "excludedCounts": {"hash": 151, "ldapi": 29, "trustbound": 37, "xpathi": 186},
+      "caseComparison": {
+        "sameLabels": 827,
+        "changedCases": 0,
+        "unchangedCases": 827,
+        "beforeOutcomesSha256": "35f3c7c22b1bbffaef4f64dddf86eaf89c5f7aef90c65b968406f8b0709c071d",
+        "afterOutcomesSha256": "35f3c7c22b1bbffaef4f64dddf86eaf89c5f7aef90c65b968406f8b0709c071d",
+        "changedDetails": [],
+        "additionalChangedDetails": 0
+      },
+      "before": {
+        "all": {
+          "tp": 115,
+          "fp": 56,
+          "fn": 181,
+          "tn": 475,
+          "precision": 0.672515,
+          "recall": 0.388514,
+          "falsePositiveRate": 0.105461,
+          "falseNegativeRate": 0.611486
+        },
+        "confirmed": {
+          "tp": 83,
+          "fp": 36,
+          "fn": 213,
+          "tn": 495,
+          "precision": 0.697479,
+          "recall": 0.280405,
+          "falsePositiveRate": 0.067797,
+          "falseNegativeRate": 0.719595
+        },
+        "byCwe": {
+          "CWE-22": {
+            "cases": 168,
+            "rule": "SEC-022",
+            "all": {
+              "tp": 31,
+              "fp": 21,
+              "fn": 34,
+              "tn": 82,
+              "precision": 0.596154,
+              "recall": 0.476923,
+              "falsePositiveRate": 0.203883,
+              "falseNegativeRate": 0.523077
+            },
+            "confirmed": {
+              "tp": 31,
+              "fp": 21,
+              "fn": 34,
+              "tn": 82,
+              "precision": 0.596154,
+              "recall": 0.476923,
+              "falsePositiveRate": 0.203883,
+              "falseNegativeRate": 0.523077
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 168,
+              "wallMs": 815.608779,
+              "cpuMs": 1085.855,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-330": {
+            "cases": 326,
+            "rule": "SEC-005",
+            "all": {"tp": 0, "fp": 0, "fn": 99, "tn": 227, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "confirmed": {"tp": 0, "fp": 0, "fn": 99, "tn": 227, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 326,
+              "wallMs": 1443.98764,
+              "cpuMs": 1769.881,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-502": {
+            "cases": 54,
+            "rule": "SEC-024",
+            "all": {"tp": 18, "fp": 12, "fn": 0, "tn": 24, "precision": 0.6, "recall": 1.0, "falsePositiveRate": 0.333333, "falseNegativeRate": 0.0},
+            "confirmed": {
+              "tp": 3,
+              "fp": 2,
+              "fn": 15,
+              "tn": 34,
+              "precision": 0.6,
+              "recall": 0.166667,
+              "falsePositiveRate": 0.055556,
+              "falseNegativeRate": 0.833333
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 54,
+              "wallMs": 219.112028,
+              "cpuMs": 245.105,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-601": {
+            "cases": 34,
+            "rule": "SEC-020",
+            "all": {
+              "tp": 8,
+              "fp": 7,
+              "fn": 5,
+              "tn": 14,
+              "precision": 0.533333,
+              "recall": 0.615385,
+              "falsePositiveRate": 0.333333,
+              "falseNegativeRate": 0.384615
+            },
+            "confirmed": {
+              "tp": 8,
+              "fp": 7,
+              "fn": 5,
+              "tn": 14,
+              "precision": 0.533333,
+              "recall": 0.615385,
+              "falsePositiveRate": 0.333333,
+              "falseNegativeRate": 0.384615
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 34,
+              "wallMs": 139.911025,
+              "cpuMs": 156.841,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-611": {
+            "cases": 28,
+            "rule": "SEC-034",
+            "all": {"tp": 3, "fp": 2, "fn": 5, "tn": 18, "precision": 0.6, "recall": 0.375, "falsePositiveRate": 0.1, "falseNegativeRate": 0.625},
+            "confirmed": {"tp": 3, "fp": 2, "fn": 5, "tn": 18, "precision": 0.6, "recall": 0.375, "falsePositiveRate": 0.1, "falseNegativeRate": 0.625},
+            "resourcesAndTraceGaps": {
+              "calls": 28,
+              "wallMs": 171.340268,
+              "cpuMs": 199.874,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-614": {
+            "cases": 39,
+            "rule": "SEC-004",
+            "all": {"tp": 24, "fp": 0, "fn": 0, "tn": 15, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "confirmed": {"tp": 24, "fp": 0, "fn": 0, "tn": 15, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "resourcesAndTraceGaps": {
+              "calls": 39,
+              "wallMs": 162.667981,
+              "cpuMs": 184.396,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-78": {
+            "cases": 20,
+            "rule": "SEC-011",
+            "all": {
+              "tp": 4,
+              "fp": 2,
+              "fn": 9,
+              "tn": 5,
+              "precision": 0.666667,
+              "recall": 0.307692,
+              "falsePositiveRate": 0.285714,
+              "falseNegativeRate": 0.692308
+            },
+            "confirmed": {
+              "tp": 4,
+              "fp": 2,
+              "fn": 9,
+              "tn": 5,
+              "precision": 0.666667,
+              "recall": 0.307692,
+              "falsePositiveRate": 0.285714,
+              "falseNegativeRate": 0.692308
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 20,
+              "wallMs": 85.540639,
+              "cpuMs": 101.443,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-79": {
+            "cases": 89,
+            "rule": "SEC-033",
+            "all": {
+              "tp": 17,
+              "fp": 10,
+              "fn": 14,
+              "tn": 48,
+              "precision": 0.62963,
+              "recall": 0.548387,
+              "falsePositiveRate": 0.172414,
+              "falseNegativeRate": 0.451613
+            },
+            "confirmed": {"tp": 0, "fp": 0, "fn": 31, "tn": 58, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 89,
+              "wallMs": 356.085955,
+              "cpuMs": 437.248,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-89": {
+            "cases": 16,
+            "rule": "SEC-001",
+            "all": {"tp": 2, "fp": 0, "fn": 3, "tn": 11, "precision": 1.0, "recall": 0.4, "falsePositiveRate": 0.0, "falseNegativeRate": 0.6},
+            "confirmed": {"tp": 2, "fp": 0, "fn": 3, "tn": 11, "precision": 1.0, "recall": 0.4, "falsePositiveRate": 0.0, "falseNegativeRate": 0.6},
+            "resourcesAndTraceGaps": {
+              "calls": 16,
+              "wallMs": 74.551132,
+              "cpuMs": 151.623,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-94": {
+            "cases": 53,
+            "rule": "SEC-010",
+            "all": {"tp": 8, "fp": 2, "fn": 12, "tn": 31, "precision": 0.8, "recall": 0.4, "falsePositiveRate": 0.060606, "falseNegativeRate": 0.6},
+            "confirmed": {"tp": 8, "fp": 2, "fn": 12, "tn": 31, "precision": 0.8, "recall": 0.4, "falsePositiveRate": 0.060606, "falseNegativeRate": 0.6},
+            "resourcesAndTraceGaps": {
+              "calls": 53,
+              "wallMs": 225.898056,
+              "cpuMs": 271.646,
+              "sampledProcessRssMaxKiB": 156580,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"wallMs": 3778.873677, "cpuMs": 4719.041, "processPeakRssKiB": 156580}
+      },
+      "after": {
+        "all": {
+          "tp": 115,
+          "fp": 56,
+          "fn": 181,
+          "tn": 475,
+          "precision": 0.672515,
+          "recall": 0.388514,
+          "falsePositiveRate": 0.105461,
+          "falseNegativeRate": 0.611486
+        },
+        "confirmed": {
+          "tp": 83,
+          "fp": 36,
+          "fn": 213,
+          "tn": 495,
+          "precision": 0.697479,
+          "recall": 0.280405,
+          "falsePositiveRate": 0.067797,
+          "falseNegativeRate": 0.719595
+        },
+        "byCwe": {
+          "CWE-22": {
+            "cases": 168,
+            "rule": "SEC-022",
+            "all": {
+              "tp": 31,
+              "fp": 21,
+              "fn": 34,
+              "tn": 82,
+              "precision": 0.596154,
+              "recall": 0.476923,
+              "falsePositiveRate": 0.203883,
+              "falseNegativeRate": 0.523077
+            },
+            "confirmed": {
+              "tp": 31,
+              "fp": 21,
+              "fn": 34,
+              "tn": 82,
+              "precision": 0.596154,
+              "recall": 0.476923,
+              "falsePositiveRate": 0.203883,
+              "falseNegativeRate": 0.523077
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 168,
+              "wallMs": 784.875342,
+              "cpuMs": 1047.536,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-330": {
+            "cases": 326,
+            "rule": "SEC-005",
+            "all": {"tp": 0, "fp": 0, "fn": 99, "tn": 227, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "confirmed": {"tp": 0, "fp": 0, "fn": 99, "tn": 227, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 326,
+              "wallMs": 1384.978421,
+              "cpuMs": 1704.347,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-502": {
+            "cases": 54,
+            "rule": "SEC-024",
+            "all": {"tp": 18, "fp": 12, "fn": 0, "tn": 24, "precision": 0.6, "recall": 1.0, "falsePositiveRate": 0.333333, "falseNegativeRate": 0.0},
+            "confirmed": {
+              "tp": 3,
+              "fp": 2,
+              "fn": 15,
+              "tn": 34,
+              "precision": 0.6,
+              "recall": 0.166667,
+              "falsePositiveRate": 0.055556,
+              "falseNegativeRate": 0.833333
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 54,
+              "wallMs": 256.643466,
+              "cpuMs": 310.142,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-601": {
+            "cases": 34,
+            "rule": "SEC-020",
+            "all": {
+              "tp": 8,
+              "fp": 7,
+              "fn": 5,
+              "tn": 14,
+              "precision": 0.533333,
+              "recall": 0.615385,
+              "falsePositiveRate": 0.333333,
+              "falseNegativeRate": 0.384615
+            },
+            "confirmed": {
+              "tp": 8,
+              "fp": 7,
+              "fn": 5,
+              "tn": 14,
+              "precision": 0.533333,
+              "recall": 0.615385,
+              "falsePositiveRate": 0.333333,
+              "falseNegativeRate": 0.384615
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 34,
+              "wallMs": 137.560859,
+              "cpuMs": 150.792,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-611": {
+            "cases": 28,
+            "rule": "SEC-034",
+            "all": {"tp": 3, "fp": 2, "fn": 5, "tn": 18, "precision": 0.6, "recall": 0.375, "falsePositiveRate": 0.1, "falseNegativeRate": 0.625},
+            "confirmed": {"tp": 3, "fp": 2, "fn": 5, "tn": 18, "precision": 0.6, "recall": 0.375, "falsePositiveRate": 0.1, "falseNegativeRate": 0.625},
+            "resourcesAndTraceGaps": {
+              "calls": 28,
+              "wallMs": 126.352541,
+              "cpuMs": 171.145,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-614": {
+            "cases": 39,
+            "rule": "SEC-004",
+            "all": {"tp": 24, "fp": 0, "fn": 0, "tn": 15, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "confirmed": {"tp": 24, "fp": 0, "fn": 0, "tn": 15, "precision": 1.0, "recall": 1.0, "falsePositiveRate": 0.0, "falseNegativeRate": 0.0},
+            "resourcesAndTraceGaps": {
+              "calls": 39,
+              "wallMs": 169.069971,
+              "cpuMs": 192.828,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-78": {
+            "cases": 20,
+            "rule": "SEC-011",
+            "all": {
+              "tp": 4,
+              "fp": 2,
+              "fn": 9,
+              "tn": 5,
+              "precision": 0.666667,
+              "recall": 0.307692,
+              "falsePositiveRate": 0.285714,
+              "falseNegativeRate": 0.692308
+            },
+            "confirmed": {
+              "tp": 4,
+              "fp": 2,
+              "fn": 9,
+              "tn": 5,
+              "precision": 0.666667,
+              "recall": 0.307692,
+              "falsePositiveRate": 0.285714,
+              "falseNegativeRate": 0.692308
+            },
+            "resourcesAndTraceGaps": {
+              "calls": 20,
+              "wallMs": 89.223187,
+              "cpuMs": 103.075,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-79": {
+            "cases": 89,
+            "rule": "SEC-033",
+            "all": {
+              "tp": 17,
+              "fp": 10,
+              "fn": 14,
+              "tn": 48,
+              "precision": 0.62963,
+              "recall": 0.548387,
+              "falsePositiveRate": 0.172414,
+              "falseNegativeRate": 0.451613
+            },
+            "confirmed": {"tp": 0, "fp": 0, "fn": 31, "tn": 58, "precision": null, "recall": 0.0, "falsePositiveRate": 0.0, "falseNegativeRate": 1.0},
+            "resourcesAndTraceGaps": {
+              "calls": 89,
+              "wallMs": 344.612016,
+              "cpuMs": 436.922,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-89": {
+            "cases": 16,
+            "rule": "SEC-001",
+            "all": {"tp": 2, "fp": 0, "fn": 3, "tn": 11, "precision": 1.0, "recall": 0.4, "falsePositiveRate": 0.0, "falseNegativeRate": 0.6},
+            "confirmed": {"tp": 2, "fp": 0, "fn": 3, "tn": 11, "precision": 1.0, "recall": 0.4, "falsePositiveRate": 0.0, "falseNegativeRate": 0.6},
+            "resourcesAndTraceGaps": {
+              "calls": 16,
+              "wallMs": 72.257394,
+              "cpuMs": 119.949,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "CWE-94": {
+            "cases": 53,
+            "rule": "SEC-010",
+            "all": {"tp": 8, "fp": 2, "fn": 12, "tn": 31, "precision": 0.8, "recall": 0.4, "falsePositiveRate": 0.060606, "falseNegativeRate": 0.6},
+            "confirmed": {"tp": 8, "fp": 2, "fn": 12, "tn": 31, "precision": 0.8, "recall": 0.4, "falsePositiveRate": 0.060606, "falseNegativeRate": 0.6},
+            "resourcesAndTraceGaps": {
+              "calls": 53,
+              "wallMs": 270.754551,
+              "cpuMs": 324.23,
+              "sampledProcessRssMaxKiB": 156756,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"wallMs": 3745.520324, "cpuMs": 4670.503, "processPeakRssKiB": 156756}
+      }
+    },
+    "juice-shop": {
+      "origin": "https://github.com/juice-shop/juice-shop",
+      "revision": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+      "license": "MIT",
+      "protocolSha256": "f5daa477ed790fe02517654ede21e5e81f248c7222bd457fe7082c2f823304ed",
+      "interpretation": "Six preselected original/accepted repair intervals; public and previously examined.",
+      "excludedByReason": {"outside the six preregistered file/rule intervals": 31},
+      "excludedIds": [
+        "accessLogDisclosureChallenge.info.yml",
+        "adminSectionChallenge.info.yml",
+        "changeProductChallenge.info.yml",
+        "chatbotGreedyInjectionChallenge.info.yml",
+        "chatbotPromptInjectionChallenge.info.yml",
+        "dbSchemaChallenge.info.yml",
+        "directoryListingChallenge.info.yml",
+        "exposedMetricsChallenge.info.yml",
+        "forgedReviewChallenge.info.yml",
+        "iacLeakedKeyChallenge.info.yml",
+        "loginBenderChallenge.info.yml",
+        "loginJimChallenge.info.yml",
+        "nftMintChallenge.info.yml",
+        "nftUnlockChallenge.info.yml",
+        "passkeyCredentialOverwriteChallenge.info.yml",
+        "passkeySignatureChallenge.info.yml",
+        "redirectCryptoCurrencyChallenge.info.yml",
+        "registerAdminChallenge.info.yml",
+        "resetPasswordBenderChallenge.info.yml",
+        "resetPasswordBjoernChallenge.info.yml",
+        "resetPasswordBjoernOwaspChallenge.info.yml",
+        "resetPasswordJimChallenge.info.yml",
+        "resetPasswordMortyChallenge.info.yml",
+        "resetPasswordUvoginChallenge.info.yml",
+        "scoreBoardChallenge.info.yml",
+        "tokenSaleChallenge.info.yml",
+        "vulnerableDockerImageChallenge.info.yml",
+        "weakPasswordChallenge.info.yml",
+        "web3SandboxChallenge.info.yml",
+        "web3WalletChallenge.info.yml",
+        "xssBonusChallenge.info.yml"
+      ],
+      "caseComparison": {
+        "sameLabels": 12,
+        "changedCases": 0,
+        "unchangedCases": 12,
+        "beforeOutcomesSha256": "7fdecacd03e95991f64990f4777c1ed6ec3c55db561239a1887b07f6d1b41645",
+        "afterOutcomesSha256": "7fdecacd03e95991f64990f4777c1ed6ec3c55db561239a1887b07f6d1b41645",
+        "changedDetails": [],
+        "additionalChangedDetails": 0
+      },
+      "before": {
+        "overall": {
+          "all": {
+            "tp": 3,
+            "fp": 1,
+            "fn": 3,
+            "tn": 5,
+            "precision": 0.75,
+            "recall": 0.5,
+            "falsePositiveRate": 0.166667,
+            "falseNegativeRate": 0.5,
+            "matchedPositiveLines": 2,
+            "labelledPositiveLines": 7,
+            "positivesWithoutLineLabels": 0
+          },
+          "confirmed": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 4,
+            "tn": 6,
+            "precision": 1,
+            "recall": 0.333333,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 0.666667,
+            "matchedPositiveLines": 2,
+            "labelledPositiveLines": 7,
+            "positivesWithoutLineLabels": 0
+          }
+        },
+        "byLanguageAndCwe": {
+          "typescript/CWE-89": {
+            "all": {
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "tn": 2,
+              "precision": 1,
+              "recall": 1,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 2,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "tn": 2,
+              "precision": 1,
+              "recall": 1,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 2,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 4,
+            "positive": 2,
+            "negative": 2,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 4,
+              "wallMs": 65.661914,
+              "cpuMs": 102.116,
+              "sampledProcessRssMaxKiB": 168884,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-943": {
+            "all": {
+              "tp": 1,
+              "fp": 1,
+              "fn": 0,
+              "tn": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "falsePositiveRate": 1,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 2,
+            "positive": 1,
+            "negative": 1,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 2,
+              "wallMs": 6.138462,
+              "cpuMs": 10.665,
+              "sampledProcessRssMaxKiB": 169012,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-79": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 2,
+              "tn": 2,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 2,
+              "tn": 2,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 4,
+            "positive": 2,
+            "negative": 2,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 4,
+              "wallMs": 29.405156,
+              "cpuMs": 75.664,
+              "sampledProcessRssMaxKiB": 177844,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-601": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 1,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 1,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 2,
+            "positive": 1,
+            "negative": 1,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 2,
+              "wallMs": 26.287643,
+              "cpuMs": 82.268,
+              "sampledProcessRssMaxKiB": 182196,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"platform": "linux", "arch": "x64", "elapsedMs": 272.511688, "cpuMs": 524.669, "processPeakRssKiB": 169336}
+      },
+      "after": {
+        "overall": {
+          "all": {
+            "tp": 3,
+            "fp": 1,
+            "fn": 3,
+            "tn": 5,
+            "precision": 0.75,
+            "recall": 0.5,
+            "falsePositiveRate": 0.166667,
+            "falseNegativeRate": 0.5,
+            "matchedPositiveLines": 2,
+            "labelledPositiveLines": 7,
+            "positivesWithoutLineLabels": 0
+          },
+          "confirmed": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 4,
+            "tn": 6,
+            "precision": 1,
+            "recall": 0.333333,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 0.666667,
+            "matchedPositiveLines": 2,
+            "labelledPositiveLines": 7,
+            "positivesWithoutLineLabels": 0
+          }
+        },
+        "byLanguageAndCwe": {
+          "typescript/CWE-89": {
+            "all": {
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "tn": 2,
+              "precision": 1,
+              "recall": 1,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 2,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "tn": 2,
+              "precision": 1,
+              "recall": 1,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 2,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 4,
+            "positive": 2,
+            "negative": 2,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 4,
+              "wallMs": 63.578455,
+              "cpuMs": 100.76,
+              "sampledProcessRssMaxKiB": 169632,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-943": {
+            "all": {
+              "tp": 1,
+              "fp": 1,
+              "fn": 0,
+              "tn": 0,
+              "precision": 0.5,
+              "recall": 1,
+              "falsePositiveRate": 1,
+              "falseNegativeRate": 0,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 2,
+            "positive": 1,
+            "negative": 1,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 2,
+              "wallMs": 6.423853,
+              "cpuMs": 20.036,
+              "sampledProcessRssMaxKiB": 170656,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-79": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 2,
+              "tn": 2,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 2,
+              "tn": 2,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 2,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 4,
+            "positive": 2,
+            "negative": 2,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 4,
+              "wallMs": 46.416544,
+              "cpuMs": 129.296,
+              "sampledProcessRssMaxKiB": 179744,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-601": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 1,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 1,
+              "tn": 1,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 1,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 2,
+            "positive": 1,
+            "negative": 1,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 2,
+              "wallMs": 73.607947,
+              "cpuMs": 129.788,
+              "sampledProcessRssMaxKiB": 185248,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"platform": "linux", "arch": "x64", "elapsedMs": 187.851935, "cpuMs": 403.539, "processPeakRssKiB": 174860}
+      },
+      "labelledCases": [
+        {
+          "id": "loginAdminChallenge/original",
+          "path": "routes/login.ts",
+          "language": "typescript",
+          "cwe": 89,
+          "rule": "SEC-001",
+          "positive": true,
+          "start": 18,
+          "end": 55,
+          "locations": [34],
+          "inputSha256": "b7013453ee1af0fecf64c1e1e8c594b0b1f431defa1f757d8982ad255a5fc7e1",
+          "findings": [{"line": 34, "verdict": "confirmed", "evidence": "traced"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "loginAdminChallenge/accepted",
+          "path": "routes/login.ts",
+          "language": "typescript",
+          "cwe": 89,
+          "rule": "SEC-001",
+          "positive": false,
+          "start": 18,
+          "end": 54,
+          "locations": [],
+          "inputSha256": "8160e1ff16401ff40359642d50dcf3d88158ade31147f79c876c93ab48bbb75c",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "unionSqlInjectionChallenge/original",
+          "path": "routes/search.ts",
+          "language": "typescript",
+          "cwe": 89,
+          "rule": "SEC-001",
+          "positive": true,
+          "start": 19,
+          "end": 76,
+          "locations": [23],
+          "inputSha256": "5dbbf426ca72aab93838c9f0c34dc6f7f4b88487cb23649e365fdbe676463da5",
+          "findings": [{"line": 23, "verdict": "confirmed", "evidence": "traced"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "unionSqlInjectionChallenge/accepted",
+          "path": "routes/search.ts",
+          "language": "typescript",
+          "cwe": 89,
+          "rule": "SEC-001",
+          "positive": false,
+          "start": 19,
+          "end": 40,
+          "locations": [],
+          "inputSha256": "b442a8fd7e0db70fc4a5c3f8dbe5461e57d376b89a9bc6eb4d3789634207ae32",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "noSqlReviewsChallenge/original",
+          "path": "routes/updateProductReviews.ts",
+          "language": "typescript",
+          "cwe": 943,
+          "rule": "SEC-029",
+          "positive": true,
+          "start": 14,
+          "end": 30,
+          "locations": [18, 20],
+          "inputSha256": "60b6bdf359b3eb0c44ed7c5a04cfe260f2839e190a52c402be3b645786476a4f",
+          "findings": [{"line": 17, "verdict": "needs-validation", "evidence": "traced"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "noSqlReviewsChallenge/accepted",
+          "path": "routes/updateProductReviews.ts",
+          "language": "typescript",
+          "cwe": 943,
+          "rule": "SEC-029",
+          "positive": false,
+          "start": 14,
+          "end": 33,
+          "locations": [],
+          "inputSha256": "b7223ca4884de1c273696a2ad45089a2a87369083880d114c2c1463f6bca4d04",
+          "findings": [{"line": 23, "verdict": "needs-validation", "evidence": "traced"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "localXssChallenge/original",
+          "path": "frontend/src/app/search-result/search-result.component.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 138,
+          "end": 162,
+          "locations": [146],
+          "inputSha256": "ef93171e2a5ddde2659186283c79a04d5403f3342a54658a3b3d1a1a1396f5f3",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "localXssChallenge/accepted",
+          "path": "frontend/src/app/search-result/search-result.component.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 138,
+          "end": 159,
+          "locations": [],
+          "inputSha256": "a92fcc82b822dbb957a79bae6aab74dea779220d18b65becf489a0647395ba6a",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "restfulXssChallenge/original",
+          "path": "frontend/src/app/search-result/search-result.component.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 62,
+          "end": 116,
+          "locations": [113],
+          "inputSha256": "ef93171e2a5ddde2659186283c79a04d5403f3342a54658a3b3d1a1a1396f5f3",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "restfulXssChallenge/accepted",
+          "path": "frontend/src/app/search-result/search-result.component.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 62,
+          "end": 104,
+          "locations": [],
+          "inputSha256": "963b9e19208d1a251d07e4c0766f7b0d5fbaa6b57f3cef2a59947e5c60942569",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "redirectChallenge/original",
+          "path": "lib/insecurity.ts",
+          "language": "typescript",
+          "cwe": 601,
+          "rule": "SEC-020",
+          "positive": true,
+          "start": 122,
+          "end": 139,
+          "locations": [136],
+          "inputSha256": "6c72f906b73c0643890aed5ab98ae2cac5e47c5973bf2188ae13b233eef77eac",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "redirectChallenge/accepted",
+          "path": "lib/insecurity.ts",
+          "language": "typescript",
+          "cwe": 601,
+          "rule": "SEC-020",
+          "positive": false,
+          "start": 122,
+          "end": 139,
+          "locations": [],
+          "inputSha256": "3706f4e2b4e2159d563068566d646c6b6021e12f02126f56167655379ae6aa54",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        }
+      ]
+    },
+    "dom-policy": {
+      "origin": "https://github.com/mozilla/eslint-plugin-no-unsanitized",
+      "revision": "7eb1c8ae4179da3bc3916ece1818cc493f026764",
+      "license": "MPL-2.0",
+      "protocolSha256": "f5daa477ed790fe02517654ede21e5e81f248c7222bd457fe7082c2f823304ed",
+      "interpretation": "Previously unused upstream dangerous-DOM-assignment rule-policy agreement. Sealed baseline opened after candidate commit. Generic origins may be unknown.",
+      "excludedByReason": {"outside the property target": 2, "custom configuration or parser": 15},
+      "excludedIds": [
+        "invalid/21",
+        "invalid/22",
+        "invalid/23",
+        "invalid/24",
+        "invalid/25",
+        "invalid/26",
+        "invalid/34",
+        "invalid/35",
+        "valid/19",
+        "valid/24",
+        "valid/25",
+        "valid/26",
+        "valid/30",
+        "valid/31",
+        "valid/32",
+        "valid/33",
+        "valid/34"
+      ],
+      "caseComparison": {
+        "sameLabels": 61,
+        "changedCases": 0,
+        "unchangedCases": 61,
+        "beforeOutcomesSha256": "8f15dfc9162046467a3ff00c85106deb72e540512408329e9fbfc9bade3fa4f7",
+        "afterOutcomesSha256": "8f15dfc9162046467a3ff00c85106deb72e540512408329e9fbfc9bade3fa4f7",
+        "changedDetails": [],
+        "additionalChangedDetails": 0
+      },
+      "before": {
+        "overall": {
+          "all": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 27,
+            "tn": 31,
+            "precision": 1,
+            "recall": 0.1,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 0.9,
+            "matchedPositiveLines": 3,
+            "labelledPositiveLines": 27,
+            "positivesWithoutLineLabels": 3
+          },
+          "confirmed": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 30,
+            "tn": 31,
+            "precision": null,
+            "recall": 0,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 1,
+            "matchedPositiveLines": 0,
+            "labelledPositiveLines": 27,
+            "positivesWithoutLineLabels": 3
+          }
+        },
+        "byLanguageAndCwe": {
+          "javascript/CWE-79": {
+            "all": {
+              "tp": 3,
+              "fp": 0,
+              "fn": 24,
+              "tn": 28,
+              "precision": 1,
+              "recall": 0.111111,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0.888889,
+              "matchedPositiveLines": 3,
+              "labelledPositiveLines": 24,
+              "positivesWithoutLineLabels": 3
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 27,
+              "tn": 28,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 24,
+              "positivesWithoutLineLabels": 3
+            },
+            "scored": 55,
+            "positive": 27,
+            "negative": 28,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 55,
+              "wallMs": 59.175382,
+              "cpuMs": 72.996,
+              "sampledProcessRssMaxKiB": 172396,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-79": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 3,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 3,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 3,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 3,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 6,
+            "positive": 3,
+            "negative": 3,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 6,
+              "wallMs": 2.373295,
+              "cpuMs": 2.909,
+              "sampledProcessRssMaxKiB": 169836,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"platform": "linux", "arch": "x64", "elapsedMs": 79.362282, "cpuMs": 101.271, "processPeakRssKiB": 163480}
+      },
+      "after": {
+        "overall": {
+          "all": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 27,
+            "tn": 31,
+            "precision": 1,
+            "recall": 0.1,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 0.9,
+            "matchedPositiveLines": 3,
+            "labelledPositiveLines": 27,
+            "positivesWithoutLineLabels": 3
+          },
+          "confirmed": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 30,
+            "tn": 31,
+            "precision": null,
+            "recall": 0,
+            "falsePositiveRate": 0,
+            "falseNegativeRate": 1,
+            "matchedPositiveLines": 0,
+            "labelledPositiveLines": 27,
+            "positivesWithoutLineLabels": 3
+          }
+        },
+        "byLanguageAndCwe": {
+          "javascript/CWE-79": {
+            "all": {
+              "tp": 3,
+              "fp": 0,
+              "fn": 24,
+              "tn": 28,
+              "precision": 1,
+              "recall": 0.111111,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 0.888889,
+              "matchedPositiveLines": 3,
+              "labelledPositiveLines": 24,
+              "positivesWithoutLineLabels": 3
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 27,
+              "tn": 28,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 24,
+              "positivesWithoutLineLabels": 3
+            },
+            "scored": 55,
+            "positive": 27,
+            "negative": 28,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 55,
+              "wallMs": 69.828467,
+              "cpuMs": 83.214,
+              "sampledProcessRssMaxKiB": 172736,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "typescript/CWE-79": {
+            "all": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 3,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 3,
+              "positivesWithoutLineLabels": 0
+            },
+            "confirmed": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 3,
+              "precision": null,
+              "recall": 0,
+              "falsePositiveRate": 0,
+              "falseNegativeRate": 1,
+              "matchedPositiveLines": 0,
+              "labelledPositiveLines": 3,
+              "positivesWithoutLineLabels": 0
+            },
+            "scored": 6,
+            "positive": 3,
+            "negative": 3,
+            "casesWithParserDiagnostics": 0,
+            "diagnosticCodes": {},
+            "resourcesAndTraceGaps": {
+              "calls": 6,
+              "wallMs": 3.296464,
+              "cpuMs": 4.071,
+              "sampledProcessRssMaxKiB": 170304,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        },
+        "runtime": {"platform": "linux", "arch": "x64", "elapsedMs": 79.083711, "cpuMs": 108.082, "processPeakRssKiB": 160324}
+      },
+      "labelledCases": [
+        {
+          "id": "valid/1",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "22da44088ac23c73c7d501b1480b3ef1eb9eb44dd06a1615434d86d420f78aa2",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/2",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "109dc84280bd921eff7763d7a56ad1f3e6215fa08b0b56be45c45ffcc145788d",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/3",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "8c111fbf320e34569e7e9db742c95a96146b6339fe879d02ed1dbf6e85b41be1",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/4",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "66943f93a6d46cc11e69d24decaa4115a7333c15ea12ad91244785f2103edaf0",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/5",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "37ad6cb9b561ec14574341bd389abe128993dfef36e397afac8073c26bfcfa32",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/6",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "5d642cd7040342e66b8c85ef0a9228cb0fd633b2f5e86b7ee22b8881d0d036c3",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/7",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "f478d7e07c6bab4a300ad695e3459efd437b3a9f6988ff2e4c5621161dc26269",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/8",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "10c1735a683d96cf36bcf25a54e20544acc45f30953d3084e8221aaa8e9589d4",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/9",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "41ebc850cf1216d52a22e23d52087ff33825001d5b1407a15aee65aed51ca10d",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/10",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "59c65b4bdfbcedde301167f2af5a39acafdfe7a62ca906a85897ad55fcf1b611",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/11",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "93b6c453e890eb3b66bbb10d738623d59f92b32994f5cc082d890f52c2c96cc2",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/12",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "26e9fd7be00bc4ce85cd2447b648da6f8fcb4125984058a1b91769d62570393f",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/13",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "49e5863603aa7f24a8a4adb701edca2c32f8b99cdfb75ecc676ff2b6d24d30c4",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/14",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "0d6be82dcba2a7c77f15ea20e0c8113db486cf3e5c3bbe30787dff4780d71982",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/15",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "4b5c4599e47e5b2325ea0094b56f834a7eccf6ee227f34581c9a305c50b6fe9c",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/16",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "64c948dababb791f27fc00c81eee62769071d57b50c70dac9f8262c786bcd850",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/17",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "ddebad522561a40e7810111bde8a67c182c1050d3d6be0915117e161e120b2e2",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/18",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "3a46fe07801d6c4268c472dd2a9742332dc947ac134c27d241b315f81fc2a161",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/20",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "5c017fe653e29fbada2dd5b2f84766367f82e45b25754ed0ae583d55590bd56a",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/21",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "713f18b515a52b6e32b9cccba9c4ad45f6b25e20d5a7156ae07a5b150c03e032",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/22",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "389bdc53663b16484b5f8dfd125ae79ddda12f6ada88946e8a56c91d2fda84df",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/23",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "bfb3802d93b2fa1130e08afc68879c185d250b358e3ff8a7fece279c65765a5c",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/27",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "81c1848f709740ef5e6d858a581f337e822c74286aa2857266138d04440573e2",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/28",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "b275c003fa997cfeda263f7d8486f2227f8a61948e83a650d10407f5d5e37d0b",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/29",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "b4512df717f823cc9a03f6c7e185a73738223400a8d9b58f3a8bc12d81721f66",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/35",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "db0addc80501fdd63e23c1309ae3dfd3e124fa85fc8fa1b41a8bbd9f9f736c13",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/36",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "0291e05df55aeb3942e04aefcba98c48d0cec73bcd8bb36229dbaaa583f17c03",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/37",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "36505bacd249a3063fc7348f19a9b7dcbf875213f386d531631336979ad65186",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/38",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "34637cccd6e635ce8349426fb37f4324b5461211b43c4ff5d61e0444f12725b4",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/39",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "e06c5e458445d2515622fa1cb6295222917b25123b61de832483968253bba3a5",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "valid/40",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": false,
+          "start": 1,
+          "end": 1,
+          "locations": [],
+          "inputSha256": "188f1f9a5f38f72c7ab953b73850fb2abacd1f8203877c9fdeea9b83766f7d42",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/1",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "f8bd44e29a5784012407a1e962a3ead9676c39150cc3a75616249a3503d3a5c1",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/2",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "631184ddd99729eb621145e6d80340e8beace60656407af48d703eb3fa69f4a7",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/3",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "d22b347782ef0190b094edc0dad225fd185e3838bba8ea8ea663505dce6a2f23",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/4",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "c5d0c1256c223bcf5e03d45f1541ae40778371fa6be1aae954eaab15146a1316",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/5",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "a63b72e34f465547e1d5ef5aa9c54e4fc4ac4013771c030bc1c502656d5bfb04",
+          "findings": [{"line": 1, "verdict": "needs-validation", "evidence": "pattern"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/6",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "bc5cca43d383c1a083561bfc39085ca445d3151ba5f057d846c40308faec0e2e",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/7",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "9d463d382560993185c24bbf25d4ef0e5b5f27f243979adca17845f58b30b38f",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/8",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "0f91861dc5cccd0bbe97a44de2c369013298db79e94a8f9af67857a994ffbc86",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/9",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "fe5469d4ba9469d5c1feab3c367bdbab8ed6ce57f39244689f46ea6907588a2d",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/10",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "593b68dc0eb315d139d7a3b9c921ba55db04abc4e4d9b18adb96fc699d438037",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/11",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "3efca60799ed1465efc6eeda29dcc847dabc95b7d7187fd85303f606e9b46741",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/12",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "94a71ed4290bb3b2664eb10a74a4b1dae0496e87f7919295d37d94e78d65d25a",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/13",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "b82c46c1f8802ee617a2b7f91d2ce6d689579a92b98e02577aa5f8526e6210d2",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/14",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "73ca79a165ac45d46856203036ee3e17241df1dcf7c9edbcb55cda279ae7cb70",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/15",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "2d817a83bb5741f263cc36464dd97c0e0f58fd53c5accbc0353e3ffd9f0f6909",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/16",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "302313576f71175d4632be5245110cdfdd664618010c4a039c9410a8b9d028fd",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/17",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "1a5a1749f010eda6406b2159aefe17b1417ca1afcc95041ad8ae74788c6b5db2",
+          "findings": [{"line": 1, "verdict": "needs-validation", "evidence": "pattern"}],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/18",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "993f45a303b64fcc0555f0c3ce396ea7ca1526a0097cbadbdc514775ed45fd55",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/19",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "9bbfd94caaf3478f713c7c303dc098110cb280dae68c2c1df3f5b93e7a8c0f8b",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/20",
+          "path": "src/sample.ts",
+          "language": "typescript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "1b1757e54f366bf9c218efe702bfd3286aecb1a411ab644247c4a1902b041a80",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/27",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "9279039a9af6c77b0c8f8e71ffa511234967c2e9b57a8a4a1632b44d67115120",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/28",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "99340ddbb48c17359055fef31b92f19cb6d7cc1e40b9d3a24b48223cf27beaa0",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/29",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "c36555e0a5f6c4dd1f4247d893b5ea62ea420d8745d4f7d3b00b7d4ea1b47fad",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/30",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "8d682e8aeb17a7da21d710d6f0313fad6f49acc299598ad149693de83ac2f060",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/31",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "7332d267c9641de713701cb365d4812d39b97f70ef979653e279d282492f52bf",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/32",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 6,
+          "locations": [],
+          "inputSha256": "cb78e10c9e6e3e9d85fab9774872f90423c1ff5eee4f0dd6e7e963839b26c983",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/33",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 5,
+          "locations": [],
+          "inputSha256": "d7b7a7ae38503ee47a7c8f69d220697a3d2abbbca9b718c3c331dde03227d353",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/36",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 9,
+          "locations": [],
+          "inputSha256": "6f78d41018380a7fe7a1a28e0d4120fc6bcf5c3cc658e48e3d3b80b7aa2b825f",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/37",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "a7e4e6c6557c93afdff933750363fd4bba3e8cf115cd7441d0a8b1c076e9e237",
+          "findings": [],
+          "sameRuleOutsideInterval": 0
+        },
+        {
+          "id": "invalid/38",
+          "path": "src/sample.js",
+          "language": "javascript",
+          "cwe": 79,
+          "rule": "SEC-002",
+          "positive": true,
+          "start": 1,
+          "end": 1,
+          "locations": [1],
+          "inputSha256": "94b8932a3d5ebb7a2012b1e5befbaf37ced52affd6f302905b66a8d4febf7b9e",
+          "findings": [{"line": 1, "verdict": "needs-validation", "evidence": "pattern"}],
+          "sameRuleOutsideInterval": 0
+        }
+      ]
+    },
+    "wholeRepository": {
+      "corpus": "OWASP Juice Shop",
+      "revision": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+      "license": "MIT",
+      "defaultEngineAndWorkerLimits": true,
+      "liveLookups": false,
+      "locationDenominator": "Four published preselected sites. Source matching includes same-file detections and separately reports exact labelled lines.",
+      "before": {
+        "selected": 600,
+        "eligible": 1000,
+        "read": 999,
+        "overflowRulesOnly": 399,
+        "patternOnlyWithinSelection": 82,
+        "analysisComplete": false,
+        "verdicts": {"confirmed": 28, "needs-validation": 103},
+        "findings": 131,
+        "spotCount": 4,
+        "sameFileMatches": 4,
+        "exactLabelledLines": 3,
+        "spotOutcomes": [
+          {
+            "name": "Login SQL",
+            "rule": "SEC-001",
+            "labelledLine": 34,
+            "sameFileMatches": [{"line": 34, "evidence": "traced", "verdict": "confirmed"}]
+          },
+          {
+            "name": "Search SQL",
+            "rule": "SEC-001",
+            "labelledLine": 23,
+            "sameFileMatches": [{"line": 23, "evidence": "traced", "verdict": "confirmed"}]
+          },
+          {
+            "name": "Profile-image server-side request",
+            "rule": "SEC-021",
+            "labelledLine": 24,
+            "sameFileMatches": [{"line": 24, "evidence": "traced", "verdict": "needs-validation"}]
+          },
+          {
+            "name": "Review NoSQL query-object manipulation",
+            "rule": "SEC-029",
+            "labelledLine": 18,
+            "sameFileMatches": [{"line": 17, "evidence": "traced", "verdict": "needs-validation"}]
+          }
+        ],
+        "coverage": {
+          "treeTruncated": false,
+          "filesInTree": 1498,
+          "eligible": 1000,
+          "read": 999,
+          "rulesOnly": 399,
+          "unreadable": 0,
+          "skipped": {"excluded": 2, "oversize": 1, "budget": 0},
+          "complete": false,
+          "packages": {"declared": 152, "checked": 0, "unknown": 0, "notChecked": 152},
+          "advisories": {
+            "inventoryComplete": true,
+            "versions": 154,
+            "checked": 0,
+            "unknown": 0,
+            "notChecked": 154,
+            "vulnerable": 0,
+            "malicious": 0,
+            "lockfiles": 0,
+            "lockfilesRead": 0,
+            "setAside": 0
+          },
+          "exploit": null,
+          "licences": null
+        },
+        "trace": {
+          "javascript": 410,
+          "python": 0,
+          "go": 0,
+          "java": 0,
+          "php": 0,
+          "functions": 918,
+          "endpoints": 263,
+          "actions": 0,
+          "flows": 34,
+          "crossFile": 1,
+          "failed": 0,
+          "patternOnly": 82,
+          "truncated": 0,
+          "deep": 0,
+          "cut": 0,
+          "limit": null,
+          "rulesOnly": 399
+        },
+        "inScopeAuditMs": 3284.15217
+      },
+      "after": {
+        "selected": 600,
+        "eligible": 1000,
+        "read": 999,
+        "overflowRulesOnly": 399,
+        "patternOnlyWithinSelection": 82,
+        "analysisComplete": false,
+        "verdicts": {"confirmed": 28, "needs-validation": 103},
+        "findings": 131,
+        "spotCount": 4,
+        "sameFileMatches": 4,
+        "exactLabelledLines": 3,
+        "spotOutcomes": [
+          {
+            "name": "Login SQL",
+            "rule": "SEC-001",
+            "labelledLine": 34,
+            "sameFileMatches": [{"line": 34, "evidence": "traced", "verdict": "confirmed"}]
+          },
+          {
+            "name": "Search SQL",
+            "rule": "SEC-001",
+            "labelledLine": 23,
+            "sameFileMatches": [{"line": 23, "evidence": "traced", "verdict": "confirmed"}]
+          },
+          {
+            "name": "Profile-image server-side request",
+            "rule": "SEC-021",
+            "labelledLine": 24,
+            "sameFileMatches": [{"line": 24, "evidence": "traced", "verdict": "needs-validation"}]
+          },
+          {
+            "name": "Review NoSQL query-object manipulation",
+            "rule": "SEC-029",
+            "labelledLine": 18,
+            "sameFileMatches": [{"line": 17, "evidence": "traced", "verdict": "needs-validation"}]
+          }
+        ],
+        "coverage": {
+          "treeTruncated": false,
+          "filesInTree": 1498,
+          "eligible": 1000,
+          "read": 999,
+          "rulesOnly": 399,
+          "unreadable": 0,
+          "skipped": {"excluded": 2, "oversize": 1, "budget": 0},
+          "complete": false,
+          "packages": {"declared": 152, "checked": 0, "unknown": 0, "notChecked": 152},
+          "advisories": {
+            "inventoryComplete": true,
+            "versions": 154,
+            "checked": 0,
+            "unknown": 0,
+            "notChecked": 154,
+            "vulnerable": 0,
+            "malicious": 0,
+            "lockfiles": 0,
+            "lockfilesRead": 0,
+            "setAside": 0
+          },
+          "exploit": null,
+          "licences": null
+        },
+        "trace": {
+          "javascript": 410,
+          "python": 0,
+          "go": 0,
+          "java": 0,
+          "php": 0,
+          "functions": 918,
+          "endpoints": 263,
+          "actions": 0,
+          "flows": 36,
+          "crossFile": 1,
+          "failed": 0,
+          "patternOnly": 82,
+          "truncated": 0,
+          "deep": 0,
+          "cut": 0,
+          "limit": null,
+          "rulesOnly": 399
+        },
+        "inScopeAuditMs": 3427.719402
+      },
+      "resourceUse": {
+        "before": {"wallSeconds": 3.752, "userCpuSeconds": 4.817, "systemCpuSeconds": 0.475, "processTreeMaxRssKiB": 260004},
+        "after": {"wallSeconds": 3.924, "userCpuSeconds": 5.086, "systemCpuSeconds": 0.405, "processTreeMaxRssKiB": 272068}
+      }
+    },
+    "legacyInternal": {
+      "scope": "Internal authored fixtures; original and candidate independently checked against own identity oracles.",
+      "originalFixtures": {
+        "cases": 337,
+        "beforeCount": 261,
+        "afterCount": 262,
+        "sameIdentities": 261,
+        "verdictTransitions": [],
+        "added": [{"case": "javascript/path-basename", "rule": "SEC-022", "line": 6, "id": "edc75175ddf78881556c5d74"}],
+        "removed": [],
+        "before": {
+          "cases": 337,
+          "safeCases": 132,
+          "tp": 208,
+          "fn": 0,
+          "fp": 16,
+          "precision": 0.928571,
+          "recall": 1,
+          "byLanguage": {
+            "javascript": {"cases": 146, "tp": 88, "fn": 0, "fp": 12, "precision": 0.88, "recall": 1},
+            "python": {"cases": 61, "tp": 37, "fn": 0, "fp": 4, "precision": 0.902439, "recall": 1},
+            "go": {"cases": 34, "tp": 21, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "java": {"cases": 48, "tp": 34, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "php": {"cases": 48, "tp": 28, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          },
+          "byRule": {
+            "SEC-001": {"tp": 97, "fn": 0, "fp": 14, "precision": 0.873874, "recall": 1},
+            "SEC-024": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-002": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-010": {"tp": 5, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-022": {"tp": 10, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-033": {"tp": 12, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-011": {"tp": 18, "fn": 0, "fp": 2, "precision": 0.9, "recall": 1},
+            "ACC-001": {"tp": 9, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-021": {"tp": 8, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-020": {"tp": 7, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-028": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-029": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-002": {"tp": 25, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-027": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-026": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-030": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-034": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-003": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          }
+        },
+        "after": {
+          "cases": 337,
+          "safeCases": 132,
+          "tp": 208,
+          "fn": 0,
+          "fp": 17,
+          "precision": 0.924444,
+          "recall": 1,
+          "byLanguage": {
+            "javascript": {"cases": 146, "tp": 88, "fn": 0, "fp": 13, "precision": 0.871287, "recall": 1},
+            "python": {"cases": 61, "tp": 37, "fn": 0, "fp": 4, "precision": 0.902439, "recall": 1},
+            "go": {"cases": 34, "tp": 21, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "java": {"cases": 48, "tp": 34, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "php": {"cases": 48, "tp": 28, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          },
+          "byRule": {
+            "SEC-001": {"tp": 97, "fn": 0, "fp": 14, "precision": 0.873874, "recall": 1},
+            "SEC-024": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-002": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-010": {"tp": 5, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-022": {"tp": 10, "fn": 0, "fp": 1, "precision": 0.909091, "recall": 1},
+            "SEC-033": {"tp": 12, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-011": {"tp": 18, "fn": 0, "fp": 2, "precision": 0.9, "recall": 1},
+            "ACC-001": {"tp": 9, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-021": {"tp": 8, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-020": {"tp": 7, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-028": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-029": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-002": {"tp": 25, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-027": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-026": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-030": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-034": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-003": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          }
+        },
+        "byLanguageResourceAndTraceGaps": {
+          "before": {
+            "javascript": {
+              "calls": 146,
+              "wallMs": 572.012299,
+              "cpuMs": 436.827,
+              "sampledProcessRssMaxKiB": 135432,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "python": {
+              "calls": 61,
+              "wallMs": 121.295034,
+              "cpuMs": 89.415,
+              "sampledProcessRssMaxKiB": 136072,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "go": {
+              "calls": 34,
+              "wallMs": 95.328031,
+              "cpuMs": 64.35,
+              "sampledProcessRssMaxKiB": 136968,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "java": {
+              "calls": 48,
+              "wallMs": 86.560889,
+              "cpuMs": 115.732,
+              "sampledProcessRssMaxKiB": 137864,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "php": {
+              "calls": 48,
+              "wallMs": 88.421916,
+              "cpuMs": 82.484,
+              "sampledProcessRssMaxKiB": 138888,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          },
+          "after": {
+            "javascript": {
+              "calls": 146,
+              "wallMs": 357.743157,
+              "cpuMs": 459.064,
+              "sampledProcessRssMaxKiB": 130612,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "python": {
+              "calls": 61,
+              "wallMs": 162.667007,
+              "cpuMs": 130.641,
+              "sampledProcessRssMaxKiB": 132404,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "go": {
+              "calls": 34,
+              "wallMs": 98.216387,
+              "cpuMs": 82.384,
+              "sampledProcessRssMaxKiB": 133428,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "java": {
+              "calls": 48,
+              "wallMs": 120.137033,
+              "cpuMs": 88.717,
+              "sampledProcessRssMaxKiB": 134196,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            },
+            "php": {
+              "calls": 48,
+              "wallMs": 90.563684,
+              "cpuMs": 67.963,
+              "sampledProcessRssMaxKiB": 134964,
+              "casesWithReportedTraceGaps": 0,
+              "reportedGapCounts": {"cut": 0, "deep": 0, "failed": 0, "truncated": 0, "rulesOnly": 0, "patternOnly": 0},
+              "limitReasons": {}
+            }
+          }
+        }
+      },
+      "ownCorpusTotals": {
+        "before": {
+          "cases": 337,
+          "safeCases": 132,
+          "tp": 208,
+          "fn": 0,
+          "fp": 16,
+          "precision": 0.928571,
+          "recall": 1,
+          "byLanguage": {
+            "javascript": {"cases": 146, "tp": 88, "fn": 0, "fp": 12, "precision": 0.88, "recall": 1},
+            "python": {"cases": 61, "tp": 37, "fn": 0, "fp": 4, "precision": 0.902439, "recall": 1},
+            "go": {"cases": 34, "tp": 21, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "java": {"cases": 48, "tp": 34, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "php": {"cases": 48, "tp": 28, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          },
+          "byRule": {
+            "SEC-001": {"tp": 97, "fn": 0, "fp": 14, "precision": 0.873874, "recall": 1},
+            "SEC-024": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-002": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-010": {"tp": 5, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-022": {"tp": 10, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-033": {"tp": 12, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-011": {"tp": 18, "fn": 0, "fp": 2, "precision": 0.9, "recall": 1},
+            "ACC-001": {"tp": 9, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-021": {"tp": 8, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-020": {"tp": 7, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-028": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-029": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-002": {"tp": 25, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-027": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-026": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-030": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-034": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-003": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          }
+        },
+        "after": {
+          "cases": 337,
+          "safeCases": 132,
+          "tp": 208,
+          "fn": 0,
+          "fp": 17,
+          "precision": 0.924444,
+          "recall": 1,
+          "byLanguage": {
+            "javascript": {"cases": 146, "tp": 88, "fn": 0, "fp": 13, "precision": 0.871287, "recall": 1},
+            "python": {"cases": 61, "tp": 37, "fn": 0, "fp": 4, "precision": 0.902439, "recall": 1},
+            "go": {"cases": 34, "tp": 21, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "java": {"cases": 48, "tp": 34, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "php": {"cases": 48, "tp": 28, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          },
+          "byRule": {
+            "SEC-001": {"tp": 97, "fn": 0, "fp": 14, "precision": 0.873874, "recall": 1},
+            "SEC-024": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-002": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-010": {"tp": 5, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-022": {"tp": 10, "fn": 0, "fp": 1, "precision": 0.909091, "recall": 1},
+            "SEC-033": {"tp": 12, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-011": {"tp": 18, "fn": 0, "fp": 2, "precision": 0.9, "recall": 1},
+            "ACC-001": {"tp": 9, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-021": {"tp": 8, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-020": {"tp": 7, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-028": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-029": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-002": {"tp": 25, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-027": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-026": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-030": {"tp": 2, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "SEC-034": {"tp": 4, "fn": 0, "fp": 0, "precision": 1, "recall": 1},
+            "ACC-003": {"tp": 1, "fn": 0, "fp": 0, "precision": 1, "recall": 1}
+          }
+        }
+      },
+      "originalFixtureFileChanges": ["test/fixtures/uranus-benchmark/javascript/path-basename/server/app.js"],
+      "oracleReceipts": {
+        "before": "uranus finding id tests passed (261 findings in 337 cases held to the record)",
+        "after": "uranus finding id tests passed (262 findings in 337 cases held to the record)"
+      }
+    }
+  },
+  "initialBlindFreeze": {
+    "engineCommit": "b761f86a8917e6b9144be6e09ac6fb8799a67914",
+    "ruleset": "9b1c4c42263f1d28d8fda3531c6789d45ffe91ec4b76617b3922aa133885d789",
+    "rawRecordSha256": "cf279428e731c45bb41dfe957f3b3f8e4d431b34f366c59f52fe661d9af0556e",
+    "caseOutcomesEqualToFinal": true,
+    "reasonForRepeat": "A source-size check required relocating the unchanged member-chain reader. The new source fingerprint required a new full run. The first freeze preceded release of the held-back labels."
+  },
+  "mutations": [
+    {"change": "name-alone-erases-value", "exit": 1, "observed": "AssertionError from semantic regression suite"},
+    {
+      "change": "use call-site spelling instead of resolved exported member",
+      "exit": 1,
+      "observed": "AssertionError from semantic regression suite"
+    },
+    {"change": "unmutated frozen candidate", "exit": 0, "observed": "uranus tests passed"}
+  ],
+  "finalReplayResources": {
+    "before": {
+      "finding-ids": {"wallSeconds": 3.609, "userCpuSeconds": 3.821, "systemCpuSeconds": 0.397, "processTreeMaxRssKiB": 266920},
+      "internal-own": {"wallSeconds": 1.38, "userCpuSeconds": 1.492, "systemCpuSeconds": 0.088, "processTreeMaxRssKiB": 134384},
+      "internal-old-fixtures": {"wallSeconds": 1.612, "userCpuSeconds": 1.553, "systemCpuSeconds": 0.112, "processTreeMaxRssKiB": 138888},
+      "java": {"wallSeconds": 126.553, "userCpuSeconds": 92.372, "systemCpuSeconds": 0.756, "processTreeMaxRssKiB": 196260},
+      "python": {"wallSeconds": 4.268, "userCpuSeconds": 5.279, "systemCpuSeconds": 0.162, "processTreeMaxRssKiB": 156708},
+      "repository": {"wallSeconds": 3.752, "userCpuSeconds": 4.817, "systemCpuSeconds": 0.475, "processTreeMaxRssKiB": 260004},
+      "juice-shop": {"wallSeconds": 0.865, "userCpuSeconds": 1.242, "systemCpuSeconds": 0.137, "processTreeMaxRssKiB": 169464},
+      "juice-shop-measured": {"wallSeconds": 0.777, "userCpuSeconds": 1.069, "systemCpuSeconds": 0.122, "processTreeMaxRssKiB": 182580},
+      "dom-policy": {"wallSeconds": 0.701, "userCpuSeconds": 0.885, "systemCpuSeconds": 0.076, "processTreeMaxRssKiB": 163752},
+      "dom-policy-measured": {"wallSeconds": 0.602, "userCpuSeconds": 0.739, "systemCpuSeconds": 0.09, "processTreeMaxRssKiB": 172652}
+    },
+    "after": {
+      "finding-ids": {"wallSeconds": 3.141, "userCpuSeconds": 3.45, "systemCpuSeconds": 0.191, "processTreeMaxRssKiB": 271804},
+      "internal-own": {"wallSeconds": 1.425, "userCpuSeconds": 1.553, "systemCpuSeconds": 0.115, "processTreeMaxRssKiB": 136088},
+      "internal-old-fixtures": {"wallSeconds": 1.606, "userCpuSeconds": 1.642, "systemCpuSeconds": 0.101, "processTreeMaxRssKiB": 135092},
+      "java": {"wallSeconds": 118.73, "userCpuSeconds": 91.314, "systemCpuSeconds": 0.741, "processTreeMaxRssKiB": 184176},
+      "python": {"wallSeconds": 4.21, "userCpuSeconds": 5.264, "systemCpuSeconds": 0.151, "processTreeMaxRssKiB": 156884},
+      "repository": {"wallSeconds": 3.924, "userCpuSeconds": 5.086, "systemCpuSeconds": 0.405, "processTreeMaxRssKiB": 272068},
+      "juice-shop": {"wallSeconds": 0.849, "userCpuSeconds": 1.17, "systemCpuSeconds": 0.134, "processTreeMaxRssKiB": 175116},
+      "juice-shop-measured": {"wallSeconds": 0.903, "userCpuSeconds": 1.305, "systemCpuSeconds": 0.13, "processTreeMaxRssKiB": 187552},
+      "dom-policy": {"wallSeconds": 0.652, "userCpuSeconds": 0.834, "systemCpuSeconds": 0.072, "processTreeMaxRssKiB": 160468},
+      "dom-policy-measured": {"wallSeconds": 0.655, "userCpuSeconds": 0.868, "systemCpuSeconds": 0.054, "processTreeMaxRssKiB": 173120}
+    }
+  },
+  "sourceFreeCoverageProofVector": {
+    "node": "v22.23.5",
+    "proofBytes": 598,
+    "iterations": 10000,
+    "wallMs": 551.580709,
+    "cpuUse": {"user": 334131, "system": 3200},
+    "sha256OfKnownVector": "6f28d4ac39ecfd39777668b129e97d5c686257e0cdeaf2fc87c5ba5ddb87b3e3",
+    "scopeDigest": "f0138ae4371bf06a22ccc4b368ef612c039934861f3778a6dbeef84247c17d80",
+    "schema": "uranus.kept-audit-coverage v1"
+  },
+  "frontendSamples": {
+    "samples": [
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 4.170509999999979,
+        "wallMs": 34.39736099999999,
+        "cpuMs": 78.117,
+        "processPeakRssKiB": 87312,
+        "syntaxDiagnostics": null,
+        "pair": 1
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 234.21527999999998,
+        "wallMs": 113.22021300000006,
+        "cpuMs": 248.868,
+        "processPeakRssKiB": 132560,
+        "syntaxDiagnostics": 0,
+        "pair": 1
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 184.566622,
+        "wallMs": 104.57257500000003,
+        "cpuMs": 241.201,
+        "processPeakRssKiB": 132612,
+        "syntaxDiagnostics": 0,
+        "pair": 2
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 3.2479919999999822,
+        "wallMs": 23.070202000000023,
+        "cpuMs": 59.103,
+        "processPeakRssKiB": 88596,
+        "syntaxDiagnostics": null,
+        "pair": 2
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 4.275829999999985,
+        "wallMs": 43.123221,
+        "cpuMs": 98.54,
+        "processPeakRssKiB": 87568,
+        "syntaxDiagnostics": null,
+        "pair": 3
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 268.64703999999995,
+        "wallMs": 116.38079800000003,
+        "cpuMs": 277.618,
+        "processPeakRssKiB": 130044,
+        "syntaxDiagnostics": 0,
+        "pair": 3
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 171.860204,
+        "wallMs": 113.40179199999994,
+        "cpuMs": 238.387,
+        "processPeakRssKiB": 131396,
+        "syntaxDiagnostics": 0,
+        "pair": 4
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 3.8355270000000132,
+        "wallMs": 36.544512,
+        "cpuMs": 77.092,
+        "processPeakRssKiB": 86804,
+        "syntaxDiagnostics": null,
+        "pair": 4
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 4.165984000000009,
+        "wallMs": 46.19448799999998,
+        "cpuMs": 90.91,
+        "processPeakRssKiB": 88196,
+        "syntaxDiagnostics": null,
+        "pair": 5
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 191.26840599999997,
+        "wallMs": 82.45817599999998,
+        "cpuMs": 192.405,
+        "processPeakRssKiB": 131876,
+        "syntaxDiagnostics": 0,
+        "pair": 5
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 229.243312,
+        "wallMs": 92.62907899999993,
+        "cpuMs": 194.543,
+        "processPeakRssKiB": 128468,
+        "syntaxDiagnostics": 0,
+        "pair": 6
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 4.726959999999991,
+        "wallMs": 29.04816199999999,
+        "cpuMs": 64.021,
+        "processPeakRssKiB": 87312,
+        "syntaxDiagnostics": null,
+        "pair": 6
+      },
+      {
+        "mode": "tokens",
+        "node": "v22.23.5",
+        "compilerVersion": null,
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 5.318210999999991,
+        "wallMs": 38.82650800000002,
+        "cpuMs": 94.025,
+        "processPeakRssKiB": 86676,
+        "syntaxDiagnostics": null,
+        "pair": 7
+      },
+      {
+        "mode": "syntax",
+        "node": "v22.23.5",
+        "compilerVersion": "5.9.3",
+        "commit": "266448aba68cd8ba5915f526a128da4fa7bc3f9f",
+        "directory": "routes",
+        "files": 63,
+        "bytes": 173703,
+        "excluded": 0,
+        "loadMs": 220.250072,
+        "wallMs": 89.524629,
+        "cpuMs": 223.43,
+        "processPeakRssKiB": 128012,
+        "syntaxDiagnostics": 0,
+        "pair": 7
+      }
+    ],
+    "medians": {
+      "tokens": {"loadMs": 4.171, "wallMs": 36.545, "cpuMs": 78.117, "processPeakRssKiB": 87312},
+      "syntax": {"loadMs": 220.25, "wallMs": 104.573, "cpuMs": 238.387, "processPeakRssKiB": 131396}
+    },
+    "host": "Linux x86_64",
+    "cpuQuota": "200000 100000",
+    "design": "Seven alternating pairs of fresh Node processes. One file warm-up per process. Time for Git blob reads excluded. Peak RSS includes dependencies, fixture read and parsing. No type checker, config, transforms or package scripts."
+  }
+}

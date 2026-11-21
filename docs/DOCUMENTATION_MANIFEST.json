@@ -480,6 +480,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/qualification/URANUS_3_0.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/qualification/URANUS_QUALIFICATION.md",
       "lifecycle": "qualification",
       "authority": "release-qualification-record",

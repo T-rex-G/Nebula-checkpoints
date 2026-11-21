@@ -5,10 +5,46 @@
  * engine (uranus-flow.ts) walks what this finds.
  */
 
-import { matching, partners } from './uranus-lex.ts';
-import type { LogicalLine, PlainToken, Token } from './uranus-lex.ts';
+import { matching, partners, splitArgs } from './uranus-lex.ts';
+import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
 
 export type Tokens = readonly Token[];
+
+/* One link of a member chain after its root: a computed index, a call, or a tagged template. */
+interface IndexStep {
+  readonly index: number;
+  readonly computed: true;
+  readonly open: number;
+  readonly close: number;
+  readonly args?: undefined;
+  readonly tagged?: undefined;
+}
+export interface CallStep {
+  readonly index: number;
+  readonly computed?: undefined;
+  readonly args: Token[][];
+  readonly open: number;
+  readonly close: number;
+  readonly line: number;
+  readonly tagged?: undefined;
+}
+export interface TaggedStep {
+  readonly index: number;
+  readonly computed?: undefined;
+  readonly args?: undefined;
+  readonly tagged: TemplateToken;
+  readonly open: number;
+  readonly close: number;
+  readonly line: number;
+}
+type ChainStep = IndexStep | CallStep | TaggedStep;
+export interface Chain {
+  readonly segments: string[];
+  readonly calls: ChainStep[];
+  readonly end: number;
+  readonly start: number;
+}
+
 /* A name a declaration or parameter binds, and the key it was destructured from. */
 export interface Binding {
   name: string;
@@ -656,4 +692,55 @@ export function pyFunctions<S>(lines: readonly LogicalLine[], ctx: FileShape<S>)
   });
   const [only] = classes;
   if (only !== undefined && classes.size === 1) ctx.aliases.set('self', only);
+}
+
+/*
+ * A member chain starting at index: `a.b?.c[d]("x").e`. Returns its segments
+ * (property names; a computed index is "[]"), the calls along it, and where
+ * it ends. The analysis reads a chain as one expression.
+ */
+export function readChain(tokens: Tokens, index: number, end: number): Chain | null {
+  const segments: string[] = [];
+  const calls: ChainStep[] = [];
+  let cursor = index;
+  const first = tokens[cursor];
+  if (!first || (first.t !== 'id' && !(first.t === 'kw' && ['this', 'super', 'import'].includes(first.v)))) return null;
+  segments.push(first.v);
+  cursor += 1;
+  const start = index;
+  while (cursor < end) {
+    const token = at(tokens, cursor);
+    const next = tokens[cursor + 1];
+    if ((isPunc(token, '.') || isPunc(token, '?.')) && next) {
+      if (next.t === 'id' || next.t === 'kw') { segments.push(next.v); cursor += 2; continue; }
+      if (isPunc(next, '(')) { cursor += 1; continue; }
+      if (isPunc(next, '[')) { cursor += 1; continue; }
+      break;
+    }
+    if (isPunc(token, '!') && (isPunc(tokens[cursor + 1], '.') || isPunc(tokens[cursor + 1], '['))) { cursor += 1; continue; }
+    if (isPunc(token, '[')) {
+      const close = matching(tokens, cursor);
+      const inside = tokens.slice(cursor + 1, close);
+      const only = inside[0];
+      if (inside.length === 1 && isStr(only)) segments.push(only.v);
+      else segments.push('[]');
+      calls.push({ index: segments.length - 1, computed: true, open: cursor, close });
+      cursor = close + 1;
+      continue;
+    }
+    if (isPunc(token, '(')) {
+      const { args, close } = splitArgs(tokens, cursor);
+      calls.push({ index: segments.length - 1, args, open: cursor, close, line: token.line });
+      cursor = close + 1;
+      continue;
+    }
+    if (token.t === 'tpl' && segments.length) {
+      /* A tagged template: sql`...`, $`...` */
+      calls.push({ index: segments.length - 1, tagged: token, open: cursor, close: cursor, line: token.line });
+      cursor += 1;
+      continue;
+    }
+    break;
+  }
+  return { segments, calls, end: cursor, start };
 }

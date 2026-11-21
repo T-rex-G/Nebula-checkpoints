@@ -33,10 +33,17 @@ export interface FnInfo {
 export interface ImportEntry {
   readonly module: string;
   readonly name: string;
+  /* Only a value import or a constant bound to an exact literal require has this identity. */
+  readonly declaration?: Token;
+}
+export interface JsBindings {
+  readonly moduleScope: Map<string, Token | null>;
+  readonly written: Set<string>;
+  readonly writtenMembers: Set<string>;
 }
 /* A function a file defines, and what its parameters reach once that has been read. */
 export type FunctionEntry<S> =
-  | { readonly fn: FnInfo; summary: S | null }
+  | { readonly fn: FnInfo; readonly declaration?: Token; summary: S | null }
   | { readonly py: true; readonly lineIndex: number; readonly line: number; readonly name: string; readonly indent: number; readonly shift?: number; summary: S | null };
 /* What a file says of itself: its imports, its exports by the local name behind each, and its functions. */
 export interface FileShape<S> {
@@ -325,14 +332,46 @@ export function expressionEnd(tokens: Tokens, index: number, end: number, stopAt
 
 /* ---- JavaScript: imports and exports ------------------------------------------- */
 
-export function jsImports<S>(tokens: Tokens, ctx: FileShape<S>): void {
+export function jsImports<S>(tokens: Tokens, ctx: FileShape<S>): JsBindings {
+  const moduleScope = new Map<string, Token | null>();
+  const written = new Set<string>();
+  const writtenMembers = new Set<string>();
+  let braces = 0;
+  const record = (name: string, token: Token): void => {
+    if (braces === 0) moduleScope.set(name, moduleScope.has(name) ? null : token);
+  };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = at(tokens, index);
+    if (isPunc(token, '{')) braces += 1;
+    if (isPunc(token, '}')) braces = Math.max(0, braces - 1);
+    if (isWord(token, 'function') || isWord(token, 'class')) {
+      const name = tokens[index + 1];
+      if (name?.t === 'id') record(name.v, name);
+    }
+    /* A replaced binding or member cannot keep the original contract, including in a
+     * summary evaluated independently of the top-level walk. A write anywhere in
+     * the file conservatively invalidates that root. */
+    if (token.t === 'punc' && /^(?:=|\+=|-=|\|\|=|&&=|\?\?=)$/.test(token.v)) {
+      let left = index - 1;
+      if (isPunc(tokens[left - 1], '.') && tokens[left]?.t === 'id') writtenMembers.add(at(tokens, left).v);
+      if (isPunc(tokens[left], ']')) {
+        const open = partners(tokens)[left] ?? -1;
+        writtenMembers.add(left === open + 2 && isStr(tokens[open + 1]) ? at(tokens, open + 1).v : '[]');
+      }
+      while (left > 0) {
+        if (isPunc(tokens[left], ']')) left = (partners(tokens)[left] ?? -1) - 1;
+        else if (isPunc(tokens[left - 1], '.')) left -= 2;
+        else break;
+      }
+      const root = tokens[left];
+      if (root?.t === 'id' && !/^(?:const|let|var)$/.test(at(tokens, left - 1).v)) written.add(root.v);
+    }
     if (isWord(token, 'import') && !isPunc(tokens[index + 1], '(') && !isPunc(tokens[index + 1], '.')) {
       /* import a, { b as c }, * as d from 'm' */
       let cursor = index + 1;
-      if (isWord(tokens[cursor], 'type')) cursor += 1;
-      const bindings: { local: string; imported: string }[] = [];
+      const typeOnly = isWord(tokens[cursor], 'type');
+      if (typeOnly) cursor += 1;
+      const bindings: { local: string; imported: string; typeOnly?: boolean }[] = [];
       while (cursor < tokens.length && !isWord(tokens[cursor], 'from') && !isStr(tokens[cursor])) {
         const item = at(tokens, cursor);
         if (item.t === 'id' && !isPunc(tokens[cursor - 1], 'as')) bindings.push({ local: item.v, imported: 'default' });
@@ -345,8 +384,8 @@ export function jsImports<S>(tokens: Tokens, ctx: FileShape<S>): void {
             if (name.t !== 'id' && name.t !== 'kw') continue;
             if (isWord(name, 'type')) continue;
             const renamed = tokens[inner + 2];
-            if (isWord(tokens[inner + 1], 'as') && renamed) { bindings.push({ local: renamed.v, imported: name.v }); inner += 2; continue; }
-            if (isPunc(tokens[inner + 1], ',') || isPunc(tokens[inner + 1], '}')) bindings.push({ local: name.v, imported: name.v });
+            if (isWord(tokens[inner + 1], 'as') && renamed) { bindings.push({ local: renamed.v, imported: name.v, typeOnly: isWord(tokens[inner - 1], 'type') }); inner += 2; continue; }
+            if (isPunc(tokens[inner + 1], ',') || isPunc(tokens[inner + 1], '}')) bindings.push({ local: name.v, imported: name.v, typeOnly: isWord(tokens[inner - 1], 'type') });
           }
           cursor = close + 1;
           continue;
@@ -355,12 +394,19 @@ export function jsImports<S>(tokens: Tokens, ctx: FileShape<S>): void {
         if (cursor - index > 80) break;
       }
       const from = isWord(tokens[cursor], 'from') ? tokens[cursor + 1] : tokens[cursor];
-      if (isStr(from)) for (const binding of bindings) ctx.imports.set(binding.local, { module: from.v, name: binding.imported });
+      if (isStr(from)) for (const binding of bindings) {
+        record(binding.local, token);
+        const declaration = !braces && !typeOnly && !binding.typeOnly ? token : undefined;
+        ctx.imports.set(binding.local, { module: from.v, name: binding.imported, declaration });
+      }
       continue;
     }
     /* const x = require('m'), const { a, b: c } = require('m'), const x = require('m').y */
     if ((isWord(token, 'const') || isWord(token, 'let') || isWord(token, 'var')) && tokens[index + 1]) {
       const patternEnd = isPunc(tokens[index + 1], '{') || isPunc(tokens[index + 1], '[') ? matching(tokens, index + 1) : index + 1;
+      const pattern = at(tokens, index + 1);
+      const names = braces === 0 ? bindingNames(tokens.slice(index + 1, patternEnd + 1)) : null;
+      for (const binding of names ?? []) record(binding.name, pattern);
       if (!isPunc(tokens[patternEnd + 1], '=')) continue;
       let cursor = patternEnd + 2;
       if (isWord(tokens[cursor], 'await')) cursor += 1;
@@ -368,13 +414,19 @@ export function jsImports<S>(tokens: Tokens, ctx: FileShape<S>): void {
       if (isWord(tokens[cursor], 'require') && isPunc(tokens[cursor + 1], '(') && isStr(specifier)) {
         const module = specifier.v;
         const property = isPunc(tokens[cursor + 4], '.') ? tokens[cursor + 5]?.v ?? null : null;
-        const names = bindingNames(tokens.slice(index + 1, patternEnd + 1));
-        for (const binding of names) {
-          ctx.imports.set(binding.name, { module, name: property || (binding.key || (names.length === 1 && !isPunc(tokens[index + 1], '{') ? '*' : binding.name)) });
+        const stop = cursor + (property ? 6 : 4);
+        const direct = isWord(token, 'const') && cursor === patternEnd + 2 && isPunc(tokens[cursor + 3], ')')
+          && expressionEnd(tokens, cursor, tokens.length, true) === stop;
+        for (const binding of names ?? bindingNames(tokens.slice(index + 1, patternEnd + 1))) {
+          const simple = pattern.t === 'id' || (isPunc(pattern, '{') && binding.key && !binding.rest && !property
+            && !tokens.slice(index + 1, patternEnd + 1).some(t => isPunc(t, '=') || isPunc(t, '[')));
+          ctx.imports.set(binding.name, { module, name: property || (binding.key || (pattern.t === 'id' ? '*' : binding.name)),
+            declaration: direct && simple ? pattern : undefined });
         }
       }
     }
   }
+  return { moduleScope, written, writtenMembers };
 }
 
 /* The key a re-export is kept under: no name in the code can be it. */
@@ -483,13 +535,13 @@ function instanceOf(tokens: Tokens, index: number): string | null {
 }
 
 export function jsFunctions<S>(tokens: Tokens, ctx: FileShape<S>): void {
-  const define = (name: string, fn: FnInfo): void => { if (!ctx.functions.has(name)) ctx.functions.set(name, { fn, summary: null }); };
+  const define = (name: string, fn: FnInfo, declaration?: Token): void => { if (!ctx.functions.has(name)) ctx.functions.set(name, { fn, declaration, summary: null }); };
   const classes: string[] = [];
   for (let index = 0; index < tokens.length; index += 1) {
     const token = at(tokens, index);
     if (isWord(token, 'function') || (isWord(token, 'async') && isWord(tokens[index + 1], 'function'))) {
       const fn = functionAt(tokens, index, tokens.length);
-      if (fn && fn.name) ctx.functions.set(fn.name, { fn, summary: null });
+      if (fn && fn.name) ctx.functions.set(fn.name, { fn, declaration: tokens[index + (isWord(token, 'async') ? 2 : 1)], summary: null });
       continue;
     }
     const declared = tokens[index + 1];
@@ -497,13 +549,13 @@ export function jsFunctions<S>(tokens: Tokens, ctx: FileShape<S>): void {
       const fn = functionAt(tokens, index + 3, tokens.length);
       if (fn) {
         fn.name = declared.v;
-        ctx.functions.set(fn.name, { fn, summary: null });
+        ctx.functions.set(fn.name, { fn, declaration: declared, summary: null });
         continue;
       }
       /* const users = new Users(), and const users = { find(name) { ... } } */
       const made = instanceOf(tokens, index + 3);
       if (made) ctx.aliases.set(declared.v, made);
-      else if (isPunc(tokens[index + 3], '{')) for (const member of members(tokens, index + 3)) define(`${declared.v}.${member.name}`, member.fn);
+      else if (isPunc(tokens[index + 3], '{')) for (const member of members(tokens, index + 3)) define(`${declared.v}.${member.name}`, member.fn, declared);
       continue;
     }
     /* class Users { find(name) { ... } }: each method under the class's name, and each field the constructor is handed or makes. */
@@ -513,7 +565,7 @@ export function jsFunctions<S>(tokens: Tokens, ctx: FileShape<S>): void {
       if (!isPunc(tokens[open], '{')) continue;
       classes.push(declared.v);
       for (const member of members(tokens, open)) {
-        define(`${declared.v}.${member.name}`, member.fn);
+        define(`${declared.v}.${member.name}`, member.fn, declared);
         if (member.name !== 'constructor') continue;
         /* constructor(private readonly users: UsersService) */
         for (let inner = member.fn.start; inner < member.fn.bodyStart; inner += 1) {

@@ -242,6 +242,11 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'unverified-transform':
+      return {
+        blocker: `The analysis could not verify the transform used at ${where(blocker.path, blocker.line)} for this use.`,
+        check: 'Inspect the implementation, import and options. Confirm which values it can return in this context.'
+      };
     case 'guarded':
       return {
         blocker: `A test on the value runs first (${where(blocker.path, blocker.line)}); whether it rejects every unsafe value decides this.`,

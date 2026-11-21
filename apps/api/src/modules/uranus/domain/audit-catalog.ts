@@ -23,7 +23,7 @@ export interface RuleDefinition {
 }
 
 /* The engine's name and version, carried in every result and export. */
-export const ENGINE = Object.freeze({ name: 'Uranus', version: '2.5.0', ruleset: RULESET_DIGEST });
+export const ENGINE = Object.freeze({ name: 'Uranus', version: '3.0.0', ruleset: RULESET_DIGEST });
 
 export const CATEGORIES: readonly Category[] = Object.freeze([
   Object.freeze({ id: 'supply-chain', label: 'Supply chain', weight: 0.15 }),

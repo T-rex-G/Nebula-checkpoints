@@ -1039,7 +1039,15 @@
   }
  ],
  "javascript/parsed-number": [],
- "javascript/path-basename": [],
+ "javascript/path-basename": [
+  {
+   "rule": "SEC-022",
+   "path": "server/app.js",
+   "line": 6,
+   "id": "edc75175ddf78881556c5d74",
+   "verdict": "needs-validation"
+  }
+ ],
  "javascript/path-join": [
   {
    "rule": "SEC-022",

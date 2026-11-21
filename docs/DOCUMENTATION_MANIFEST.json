@@ -487,6 +487,13 @@
       "immutableHistory": false
     },
     {
+      "path": "docs/qualification/URANUS_INTEGRATION_HANDOFF.md",
+      "lifecycle": "qualification",
+      "authority": "release-qualification-record",
+      "releaseIncluded": true,
+      "immutableHistory": false
+    },
+    {
       "path": "docs/qualification/URANUS_QUALIFICATION.md",
       "lifecycle": "qualification",
       "authority": "release-qualification-record",

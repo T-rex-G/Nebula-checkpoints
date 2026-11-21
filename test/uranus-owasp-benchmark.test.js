@@ -94,3 +94,6 @@ const MINI = path.join(__dirname, 'fixtures', 'owasp-mini');
 assert.strictEqual(CLAIMED.sqli.rule, 'SEC-001');
 assert(!CLAIMED.hash && !CLAIMED.crypto && !CLAIMED.ldapi && !CLAIMED.xpathi && !CLAIMED.trustbound, 'no rule claims these categories, so they are not scored');
 console.log('uranus OWASP Benchmark scorer tests passed');
+
+/* Exercise the application and DOM-policy scorers in the same offline benchmark gate. */
+require('./uranus-framework-benchmark.test.js');

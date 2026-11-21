@@ -20,7 +20,8 @@ The review vehicle is draft PR #84 on `codex/uranus-enterprise-evidence`. It tar
 | 12 | `ad9a3bdf4ec94edb669469f5704b7ceca7da514d` | Record independent accuracy, coverage limits and verification results |
 | 13 | `b15889808db4299f32a8c7b4d758394ccd8f1e30` | Hand off the qualified Uranus stack for migration review |
 | 14 | `9442215ba3fd6c27453d7d0a105cdc62f2ee0949` | Exercise the framework scorer in the existing offline benchmark gate |
-| 15 | Enclosing handoff commit | Records the integration instructions. Resolve its immutable SHA with the command below. |
+| 15 | `09f2777799104a137a49ef8f54242d696cb635d0` | Pin the integration handoff to the verified product fingerprint |
+| 16 | Enclosing handoff commit | Consolidates independent scorer tests in the registered gate and records these instructions. |
 
 ```sh
 git log -1 --format=%H -- docs/qualification/URANUS_INTEGRATION_HANDOFF.md
@@ -41,7 +42,7 @@ git diff --name-status 3475d70e452165d7f69f72d7ad18c535640200e2..HEAD
 
 Use the `git diff --name-status` command above for the full file list including 2.5. For just the mission's code and evidence, substitute `61654dfc588a972ed4e88fcf9652aabcf7cb2586` as the starting revision. The existing 2.5 commits also touch the React audit screen, legacy adapter, advisory client and database migration. The 3.0 production change is confined to the API and contracts.
 
-**Database order.** Apply the inherited additive `033_code_audit_ruleset_digest.sql` before running the stack against an existing database. It adds nullable provenance. Preserve nulls on old rows. The previous application can read the extended schema. The runtime version module imports the root package manifest. Even a change to its npm scripts participates in the detector fingerprint. The framework scorer runs under the existing benchmark test entry point, which preserves the qualified manifest and digest. 3.0 requires no further migration, backfill, dependency installation beyond the existing lockfile, service credentials, signing key, new GitHub App permission or feature flag. The existing history capability must be available for an export. The comparison tools use the existing TypeScript 5.9.3 Apache-2.0 development dependency. Corpus licenses and pins are in qualification. [Migration 033](../../db/migrations/033_code_audit_ruleset_digest.sql) · [Qualification](URANUS_3_0.md)
+**Database order.** Apply the inherited additive `033_code_audit_ruleset_digest.sql` before running the stack against an existing database. It adds nullable provenance. Preserve nulls on old rows. The previous application can read the extended schema. The runtime version module imports the root package manifest. Even a change to its npm scripts participates in the detector fingerprint. The existing registered offline benchmark test program contains both scoring suites. The package inventory gate checks that every top-level test program is registered. This arrangement preserves the qualified manifest and digest. 3.0 requires no further migration, backfill, dependency installation beyond the existing lockfile, service credentials, signing key, new GitHub App permission or feature flag. The existing history capability must be available for an export. The comparison tools use the existing TypeScript 5.9.3 Apache-2.0 development dependency. Corpus licenses and pins are in qualification. [Migration 033](../../db/migrations/033_code_audit_ruleset_digest.sql) · [Qualification](URANUS_3_0.md)
 
 **Retained proof contract.** `GET /api/repo/:owner/:repo/code-audit/history/:auditId?proof=coverage` returns canonical JSON and the `X-Uranus-Coverage-Digest` header. Existing session, repository access, capability and governance reader checks precede the scoped summary query. A different identity or repository cannot read the row. Responses use `no-store`. The history detail representation without the query retains its shape. Unknown proof kinds return HTTP 400. The verifier bounds input to 8 KiB and checks the expected repository, commit, ruleset, decision and separately trusted digest. Exit 0 denotes complete recorded coverage, 2 incomplete or unrecorded, and 1 invalid. A missing historical ruleset cannot earn a complete decision. No source, raw paths, findings or user identity enter the receipt. Treat the scope digest as a correlatable identifier. [Wire contract](../../packages/contracts/src/audit-coverage-proof.ts) · [Verification and trust assumptions](URANUS_3_0.md)
 
@@ -66,7 +67,7 @@ npm test
 node test/architecture-oracles.test.js
 node scripts/uranus-ruleset.js
 node test/uranus-finding-ids.test.js
-node test/uranus-framework-benchmark.test.js
+node test/uranus-owasp-benchmark.test.js
 node test/uranus-code-audit-routes.test.js
 npm run test:migrations
 npm run test:code-audit-history

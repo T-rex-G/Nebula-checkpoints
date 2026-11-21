@@ -1,7 +1,7 @@
 import { POLICY_PATH, readAuditPolicy } from '../../kepler/index.ts';
 import { detectInText, RULE_NARRATION } from '../../quasar/index.ts';
 import { ownEntry } from '../../../platform/values/fields.ts';
-import { LIMITS, selectFiles as selectWith, type AuditLimits, type Selection, type TreeEntry } from '../domain/audit-files.ts';
+import { LIMITS, selectFiles as selectWith, type AuditLimits, type Selection, type ReaderSkip, type TreeEntry } from '../domain/audit-files.ts';
 import { analyse as analyseWith, scanRules as scanWith, type AnalyseInput, type AuditFile, type AuditPorts, type Scan } from '../domain/code-audit.ts';
 
 /*
@@ -18,8 +18,8 @@ export const AUDIT_PORTS: AuditPorts = Object.freeze({
 });
 
 /* Which files an audit reads, the repository's own audit policy among the first. */
-export function selectFiles<E extends TreeEntry>(entries: readonly E[], limits: AuditLimits = LIMITS): Selection<E> {
-  return selectWith(entries, limits, POLICY_PATH);
+export function selectFiles<E extends TreeEntry>(entries: readonly E[], limits: AuditLimits = LIMITS, providerSkips: readonly ReaderSkip[] = []): Selection<E> {
+  return selectWith(entries, limits, POLICY_PATH, providerSkips);
 }
 
 export function analyse(input: AnalyseInput) {

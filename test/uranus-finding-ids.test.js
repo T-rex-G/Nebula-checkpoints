@@ -29,6 +29,10 @@ const path = require('path');
 const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
 const { cases, filesOf } = require('../scripts/uranus-benchmark');
 
+const { ENGINE } = require('../apps/api/src/modules/uranus/domain/audit-catalog.ts');
+const { rulesetDigest } = require('../scripts/uranus-ruleset');
+assert.strictEqual(ENGINE.ruleset, rulesetDigest(), 'refresh detector provenance with node scripts/uranus-ruleset.js --write');
+
 const RECORD = path.join(__dirname, 'oracles', 'uranus-finding-ids.json');
 
 function read() {

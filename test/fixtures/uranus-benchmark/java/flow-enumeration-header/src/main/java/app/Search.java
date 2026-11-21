@@ -12,6 +12,6 @@ public class Search extends HttpServlet {
         java.util.Enumeration<String> tags = request.getHeaders("X-Tag");
         if (tags.hasMoreElements()) tag = tags.nextElement();
         java.sql.Statement statement = Db.statement();
-        statement.executeQuery("SELECT * FROM items WHERE tag = '" + tag + "'"); // expect: SEC-001 confirmed
+        statement.executeQuery("SELECT * FROM items WHERE tag = '" + tag + "'"); // expect: SEC-001 to-confirm
     }
 }

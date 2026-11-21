@@ -54,6 +54,7 @@ export interface AuditHandlers {
   readonly onOwasp?: (category: string | null) => void;
   readonly onSeverity?: (severity: string | null) => void;
   readonly onVerdict?: (verdict: string | null) => void;
+  readonly onPathGroup?: (group: string | null) => void;
   readonly onExploit?: (exploit: string | null) => void;
   /* A finding the list is not showing, asked for from a card above it: the page clears what hides it. */
   readonly onReveal?: (id: string) => void;

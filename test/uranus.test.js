@@ -39,6 +39,56 @@ function express(body) {
   return { path: 'server/app.js', text: `const express = require('express');\nconst app = express();\n${body}\n` };
 }
 
+/* Container fields belong to the current binding, including across branch and block scopes. */
+{
+  const entry = body => express("app.get('/items', (req, res) => {\n" + body + "\n});");
+  const read = "const query = 'SELECT title FROM items WHERE title = ' + row.term; db.query(query);";
+  const cases = [
+    ["let row = {term: 'safe'}; row = req.query;", true],
+    ["let row = {term: req.query.term}; row = {term: 'safe'};", false],
+    ["let row = {term: 'safe'}; if (enabled) { row = req.query; }", true],
+    ["let row = {term: req.query.term}; if (enabled) { row = {term: 'a'}; } else { row = {term: 'b'}; }", false],
+    ["let row = {term: 'safe'}; { let row = req.query; }", false],
+    ["let row = {term: 'safe'}; row = {term: 'safe', other: req.query.q};", false],
+    ["let row = {term: 'safe', ...req.query};", true],
+    ["let row = {term: 'safe', ...defaults};", false]
+  ];
+  for (const [body, expected] of cases) {
+    const result = flows([entry(body + '\n' + read)]);
+    assert.strictEqual(result.some(flow => flow.rule === 'SEC-001'), expected, body);
+  }
+}
+
+{
+  // The next statement starts at the token after an implicit JavaScript line ending.
+  const handler = target => ({ path: 'routes/profile.ts', text: [
+    'export function profile() {', '  return async (req: Request, res: Response) => {',
+    '    const url = req.body.url', '    if (seen(url)) record()',
+    '    const member = lookup(req.cookies.key)', '    if (member) {',
+    '      try { const reply = await fetch(' + target + ') } catch (err) {}',
+    '    }', '  }', '}'
+  ].join('\n') });
+  fires('semicolon-free returned handler', [handler('url')], ['SEC-021@routes/profile.ts:7']);
+  quiet('fixed service URL', [handler('"https://service.example/items"')]);
+  const update = (receiver, selector) => express("app.patch('/item', (req, res) => { " + receiver + ".update({ id: " + selector + " }, { active: true }); });");
+  const query = flows([update('db.itemCollection', 'req.body.id')]).find(flow => flow.rule === 'SEC-029');
+  assert.strictEqual(query?.verdict, 'needs-validation');
+  quiet('typed collection selector', [update('db.itemCollection', 'Number(req.body.id)')]);
+  quiet('ordinary object update', [update('preferences', 'req.body.id')]);
+}
+
+/* Only a file that actually lost a flow is reported as truncated. */
+{
+  const source = count => express("app.get('/', (req, res) => {\n" + Array(count).fill("res.redirect(req.query.to);").join('\n') + "\n});");
+  const full = audit.analyse({ files: [source(40)] });
+  const clipped = audit.analyse({ files: [source(41)] });
+  assert.strictEqual(full.engine.traced.flows, 40);
+  assert.strictEqual(full.engine.traced.truncated, 0);
+  assert.strictEqual(clipped.engine.traced.flows, 40);
+  assert.strictEqual(clipped.engine.traced.truncated, 1);
+  assert.strictEqual(clipped.ledger.find(item => item.id === 'requests').status, 'partial');
+}
+
 /* ---- The lexers ----------------------------------------------------------------- */
 {
   const tokens = lexJs(tpl('const q = `SELECT ', I, '{req.params.id} AND ', I, '{a + `n', I, '{b}`}`;\nconst r = /ab+c/g.test(s);\nreturn <p>Don\'t {x}</p>;\n'));
@@ -88,7 +138,7 @@ function express(body) {
   assert.deepStrictEqual(guarded[0].blocker, { reason: 'guarded', path: 'server/app.js', line: 5 });
 
   fires('path traversal', [express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', req.query.name), () => {}); });")], ['SEC-022@server/app.js:5']);
-  quiet('a bare name', [express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', path.basename(req.query.name)), () => {}); });")]);
+  assert.equal(flows([express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', path.basename(req.query.name)), () => {}); });")])[0]?.verdict, 'needs-validation', 'a basename can still be a dot segment');
   quiet('sendFile under a root', [express("app.get('/f', (req, res) => { res.sendFile(req.query.f, { root: 'public' }); });")]);
   fires('an open redirect', [express("app.get('/go', (req, res) => { res.redirect(req.query.next); });")], ['SEC-020@server/app.js:3']);
   quiet('a local redirect', [express("app.get('/go', (req, res) => { res.redirect('/profile/' + req.query.tab); });")]);
@@ -282,7 +332,7 @@ function surfaceOf(files) {
 
 /* ---- A sanitiser clears a value for its own context, and for no other ------------- */
 {
-  const js = body => ({ path: 'server/app.js', text: `const express = require('express');\nconst { exec } = require('child_process');\nconst fs = require('fs');\nconst path = require('path');\nconst app = express();\n${body}\n` });
+  const js = body => ({ path: 'server/app.js', text: `const express = require('express');\nconst { exec } = require('child_process');\nconst fs = require('fs');\nconst path = require('path');\nconst app = express(); const escapeHtml = require('escape-html'); const DOMPurify = require('dompurify'); const mysql = require('mysql2');\n${body}\n` });
   const py = body => ({ path: 'app.py', text: `from flask import Flask, request\nimport os, html, shlex, requests\nfrom urllib.parse import quote_plus\napp = Flask(__name__)\n${body}\n` });
   const sql = call => `app.get('/u', async (req, res) => {\n  const n = ${call};\n  res.json(await db.query("SELECT * FROM users WHERE name = '" + n + "'"));\n});`;
   const shell = call => `app.get('/u', (req, res) => {\n  const n = ${call};\n  exec('convert ' + n, () => res.end());\n});`;
@@ -301,12 +351,12 @@ function surfaceOf(files) {
   fires('SQL escaping in a page', [js(page('mysql.escape(req.query.name)'))], ['SEC-033@server/app.js:8']);
   fires('cleaned markup in a shell command', [js(shell('DOMPurify.sanitize(req.query.name)'))], ['SEC-011@server/app.js:8']);
   fires('a markup sanitiser, by its name, in SQL', [js(`const sanitizeHtml = require('sanitize-html');\n${sql('sanitizeHtml(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
-  /* The right context: quiet, as before. */
+  /* Verified encoding is quiet. Stateful and environment-dependent transformations retain review evidence. */
   quiet('a URL component in a link', [js(page('encodeURIComponent(req.query.name)'))]);
   quiet('escaped HTML in a page', [js(page('escapeHtml(req.query.name)'))]);
-  quiet('cleaned markup in a page', [js(page('DOMPurify.sanitize(req.query.name)'))]);
-  quiet('SQL escaping in SQL', [js(sql('mysql.escape(req.query.name)'))]);
-  quiet('a bare file name in a path', [js("app.get('/u', (req, res) => {\n  const n = path.basename(req.query.name);\n  res.send(fs.readFileSync(path.join('/srv/uploads', n)));\n});")]);
+  assert.equal(fires('cleaned markup in a page', [js(page('DOMPurify.sanitize(req.query.name)'))], ['SEC-033@server/app.js:8'])[0].verdict, 'needs-validation');
+  assert.equal(fires('SQL escaping in SQL', [js(sql('mysql.escape(req.query.name)'))], ['SEC-001@server/app.js:8'])[0].verdict, 'needs-validation');
+  assert.equal(fires('a bare file name in a path', [js("app.get('/u', (req, res) => {\n  const n = path.basename(req.query.name);\n  res.send(fs.readFileSync(path.join('/srv/uploads', n)));\n});")], ['SEC-022@server/app.js:8'])[0].verdict, 'needs-validation');
   quiet('a number anywhere', [js(sql('parseInt(req.query.id, 10)'))]);
   /* Joined with a value that was not sanitised, the whole is not. */
   fires('a sanitised value beside a raw one', [js("app.get('/u', (req, res) => {\n  res.send('<h1>' + encodeURIComponent(req.query.a) + req.query.b + '</h1>');\n});")], ['SEC-033@server/app.js:7']);
@@ -322,8 +372,8 @@ function surfaceOf(files) {
   fires('an allow-list replace of the first match only', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_-]/, ''); }\n${shell('sanitizeName(req.query.name)')}`)], ['SEC-011@server/app.js:9']);
   quiet('a sanitiser that wraps an HTML escape, in a page', [js(`function sanitize(v) { return escapeHtml(v); }\n${page('sanitize(req.query.name)')}`)]);
   fires('a sanitiser that wraps an HTML escape, in SQL', [js(`function sanitize(v) { return escapeHtml(v); }\n${sql('sanitize(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
-  /* One whose body cannot be read is taken at its word, as before. */
-  quiet('an imported sanitiser of no stated context', [js(`const { sanitize } = require('some-lib');\n${sql('sanitize(req.query.name)')}`)]);
+  const opaque = fires('an unmodelled package keeps a review lead', [js(`const { sanitize } = require('some-lib');\n${sql('sanitize(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  assert.deepStrictEqual(opaque[0].blocker, { reason: 'unverified-transform', path: 'server/app.js', line: 8 });
 
   /* A destination check is read, not believed. */
   const fetches = check => `${check}\napp.get('/p', async (req, res) => {\n  const u = validateUrl(req.query.url);\n  const r = await fetch(u);\n  res.send(await r.text());\n});`;
@@ -345,6 +395,53 @@ function surfaceOf(files) {
   const strip = fires('a sanitiser that only strips', [py(`def sanitize_input(v):\n    return v.strip()\n\n${pySql("sanitize_input(request.args.get('name'))")}`)], ['SEC-001@app.py:11']);
   assert.strictEqual(strip[0].verdict, 'needs-validation');
   fires('a URL check that only asks for https', [py("def validate_url(u):\n    if not u.startswith('https://'):\n        raise ValueError('https')\n    return u\n\n@app.route('/p')\ndef p():\n    u = validate_url(request.args.get('url'))\n    return requests.get(u).text")], ['SEC-021@app.py:13']);
+}
+
+/* Same input and sink, changing only the binding, package, member, options or embedding context. */
+{
+  const route = (declarations, expression, use = "res.send('<p>' + output + '</p>');") => ({
+    path: 'server/preview.ts',
+    text: [declarations, "app.get('/preview', (req, res) => {", '  const output = ' + expression + ';', '  ' + use, '});'].join('\n')
+  });
+  const label = 'req.query.label';
+  const real = 'import encode from "escape-html";';
+  function review(file, additional = []) {
+    const findings = flows([file, ...additional]).filter(row => row.rule === 'SEC-033');
+    assert.equal(findings.length, 1, file.text);
+    assert.equal(findings[0].verdict, 'needs-validation', file.text);
+    return findings[0];
+  }
+
+  quiet('aliased default encoder', [route(real, `encode(${label})`)]);
+  quiet('CommonJS alias', [route('const e = require("escape-html");', `e(${label})`)]);
+  quiet('named import alias', [route('import { escape as e } from "lodash";', `e(${label})`)]);
+  quiet('constant implementation overrides a promising name', [route('function escapeHtml(v) { return "fixed"; }', `escapeHtml(${label})`)]);
+  quiet('unshadowed built-in', [route('', `Number.parseInt(${label}, 10)`)]);
+  const data = review(route('function escapeHtml(v) { return v; }', `escapeHtml(${label})`));
+  assert.equal(data.blocker.reason, 'guarded');
+  review(route('function parseInt(v) { return v; }', `parseInt(${label})`));
+  review(route('const adapter = getAdapter();', `adapter.isValidLabel(${label})`));
+  review(route('import { sanitize as e } from "tenant-adapter";', `e(${label})`));
+  review(route('const escapeHtml = require("escape-html").unmodelled;', `escapeHtml(${label})`));
+  review(route('import type { escape as escapeHtml } from "lodash";', `escapeHtml(${label})`));
+  review(route('import clean from "sanitize-html";', `clean(${label}, policy)`));
+  review(route('function require(id) { return other; } const escapeHtml = require("escape-html");', `escapeHtml(${label})`));
+  review(route('const tools = Number; tools.parseInt = adapter;', `Number.parseInt(${label})`));
+  review(route('const tools = Number; tools[key] = adapter;', `Number.parseInt(${label})`));
+  review(route('import { escape as escapeHtml } from "lodash";',
+    `escapeHtml(${label})`, 'let escapeHtml = adapter; res.send("<p>" + output);'));
+  review(route('let escapeHtml = require("escape-html"); escapeHtml = other;', `escapeHtml(${label})`));
+  review(route('const wrappers = require("./format");', `wrappers.sanitizeLabel(${label})`),
+    [{ path: 'server/format.ts', text: 'exports.sanitizeLabel = function(v) { return v; };' }]);
+  quiet('imported helper with a constant return', [route('const wrappers = require("./format");', `wrappers.sanitizeLabel(${label})`),
+    { path: 'server/format.ts', text: 'exports.sanitizeLabel = function(v) { return "fixed"; };' }]);
+  review(route('function sanitizeLabel(v) { return external.transform(v); }', `sanitizeLabel(${label})`));
+  review(route(real, `encode(${label})`, "res.send('<script>' + output + '</script>');"));
+  review(route(real, `encode(${label})`, `res.send('<a href="' + output + '">go</a>');`));
+  quiet('character encoding in fixed text tags', [route(real, `encode(${label})`, "res.send('<section><b>' + output + '</b></section>');")]);
+  const blocked = audit.analyse({ files: [route('import { sanitize } from "unmodelled";', `sanitize(${label})`)] }).findings.find(f => f.rule === 'SEC-033');
+  assert.equal(blocked?.verdict, 'needs-validation');
+  assert.match(blocked.blocker, /could not verify the transform/);
 }
 
 console.log('uranus tests passed');

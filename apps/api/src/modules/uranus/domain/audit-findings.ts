@@ -242,11 +242,18 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'unverified-transform':
+      return {
+        blocker: `The analysis could not verify the transform used at ${where(blocker.path, blocker.line)} for this use.`,
+        check: 'Inspect the implementation, import and options. Confirm which values it can return in this context.'
+      };
     case 'guarded':
       return {
         blocker: `A test on the value runs first (${where(blocker.path, blocker.line)}); whether it rejects every unsafe value decides this.`,
         check: `Read the test at ${where(blocker.path, blocker.line)}. It should accept only a fixed set of values, or refuse anything outside one.`
       };
+    case 'conditional':
+      return { blocker: 'Only some branches carry caller input to this use.', check: 'Check whether a caller can reach a branch that supplies the input.' };
     case 'weak-source':
       return item.rule === 'SEC-033'
         ? { blocker: 'A plain string written to a response is read as HTML unless the endpoint says otherwise; whether a browser renders this one depends on the content type it is sent with.', check: 'In a local run, request the endpoint with <b>x</b> in the parameter. If the answer is text/html and echoes it unescaped, this is confirmed.' }

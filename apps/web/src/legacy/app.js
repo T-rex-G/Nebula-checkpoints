@@ -4637,7 +4637,7 @@ async function toggleProtect(p) {
  */
 function blankAuditView(key = '') {
   return {
-    key, status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0,
+    key, status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, pathGroup: null, owasp: null, query: '', limit: 0,
     history: { status: 'idle' }, watch: { status: 'idle' }, historyOpen: new Set(), historyDetail: new Map(), historyArmed: false,
     triage: { status: 'idle' }, metrics: { status: 'idle' }
   };
@@ -4765,10 +4765,11 @@ function paintAudit() {
     onTriage: finding => triageAuditFinding(finding),
     onReopen: finding => reopenAuditFinding(finding),
     onTriageHistory: finding => showTriageHistory(finding),
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
+    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.pathGroup = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
     onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.limit = 0; paintAudit(); },
     onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
     onVerdict: verdict => { auditView.verdict = verdict; auditView.limit = 0; paintAudit(); },
+    onPathGroup: group => { auditView.pathGroup = group === 'supporting' || group === 'other' ? group : null; auditView.limit = 0; paintAudit(); },
     onExploit: exploit => { auditView.exploit = exploit === 'kev' ? 'kev' : null; auditView.limit = 0; paintAudit(); },
     /* A finding opened from Fix first or Dependency risk that the list is not showing: clear what hides it, and page to it. */
     onReveal: id => {
@@ -4782,6 +4783,7 @@ function paintAudit() {
       auditView.verdict = null;
       auditView.exploit = null;
       auditView.query = '';
+      auditView.pathGroup = null;
       auditView.limit = Math.max(auditView.limit || 0, findings.filter(inScope).findIndex(finding => finding.id === id) + 1);
       paintAudit();
     },

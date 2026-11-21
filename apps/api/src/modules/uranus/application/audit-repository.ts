@@ -1,8 +1,9 @@
+import { resolutionEvidence } from '../domain/audit-evidence.ts';
 import { boundedMap } from '../../../platform/concurrency/bounded-map.ts';
 import type { GuardedFetchInput } from '../../../platform/network/guarded-fetch.ts';
 import * as ecosystems from '../domain/ecosystems.ts';
-import { EXCLUDED_DIR, LIMITS, READ_LOCKS, baseName, isFixturePath, isRequirements, type AuditLimits, type SelectedEntry } from '../domain/audit-files.ts';
-import { LOCK_PARSERS, advisoryKey, dependencyInventory, packageJsonFindings, requirementsPackages } from '../domain/dependencies.ts';
+import { EXCLUDED_DIR, LIMITS, READ_LOCKS, baseName, isFixturePath, isRequirements, type AuditLimits, type ReaderSkip, type SelectedEntry } from '../domain/audit-files.ts';
+import { LOCK_PARSERS, advisoryKey, dedupePackages, dependencyInventory, packageJsonFindings, requirementsPackages } from '../domain/dependencies.ts';
 import { mergeScans, type AnalyseInput, type AuditFile, type Component, type Scan } from '../domain/code-audit.ts';
 import { analyse, scanRules, selectFiles } from './audit-engine.ts';
 import { lookupAdvisories, lookupPackages, type AdvisoryLookup, type AuditTransport } from '../client/advisory-lookup.ts';
@@ -36,7 +37,7 @@ interface ReaderTreeEntry {
 /* The guarded repository reader, as the audit uses it: Exposure's reader, or a test's own. */
 export interface AuditReader {
   resolveCommit(input: ReaderCall & { readonly ref: unknown }): Promise<{ readonly ref: string; readonly commitSha: string }>;
-  readTree(input: ReaderCall & { readonly commitSha: string }): Promise<{ readonly entries: readonly ReaderTreeEntry[]; readonly skipped: readonly { readonly path?: string | null }[]; readonly truncated?: boolean }>;
+  readTree(input: ReaderCall & { readonly commitSha: string }): Promise<{ readonly entries: readonly ReaderTreeEntry[]; readonly skipped: readonly ReaderSkip[]; readonly truncated?: boolean }>;
   readBlob(input: ReaderCall & { readonly sha: unknown }): Promise<ReaderBlob>;
   readBlobTexts?(input: ReaderCall & { readonly commitSha: string; readonly paths: string[] }): Promise<ReaderTexts>;
   readonly MAX_TEXTS_PER_QUERY?: unknown;
@@ -219,8 +220,8 @@ export async function auditRepository(input: AuditRepositoryInput) {
   const tree = await reader.readTree({ scope, commitSha: resolved.commitSha, token, transport });
   assertAuditActive(signal);
   const paths = [...tree.entries.map(entry => entry.path), ...tree.skipped.flatMap(entry => (entry.path ? [entry.path] : []))];
-  const selection = selectFiles(tree.entries, limits);
-  let unreadable = 0;
+  const selection = selectFiles(tree.entries, limits, tree.skipped);
+  let unreadable = selection.unreadable;
   let done = 0;
   const total = selection.selected.length;
   progress('reading', { done, total });
@@ -236,6 +237,7 @@ export async function auditRepository(input: AuditRepositoryInput) {
 
   const beyond = await readBeyond({ reader, scope, commitSha: resolved.commitSha, token, queryTransport, overflow: selection.overflow, limits, scanner, progress, signal });
   unreadable += beyond.unreadable;
+  const filesComplete = !tree.truncated && selection.skipped.oversize + selection.skipped.budget + beyond.notRead === 0 && unreadable === 0;
 
   const packages = [];
   for (const file of files) {
@@ -247,8 +249,8 @@ export async function auditRepository(input: AuditRepositoryInput) {
   progress('advisories');
   /* The registries, the advisory database and deps.dev are asked at the same time: none needs another's answer. */
   const [registry, advisories, licenceLookup] = await Promise.all([
-    registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
-    advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: 0 },
+    registryTransport ? lookupPackages(packages, registryTransport, limits) : { answers: new Map(), asked: 0, total: dedupePackages(packages).length },
+    advisoryTransport ? lookupAdvisories(inventory, advisoryTransport, limits) : { answers: new Map(), asked: 0, total: new Set(inventory.map(advisoryKey)).size },
     licenceTransport ? lookupLicences(inventory, licenceTransport) : null
   ]);
   /*
@@ -265,7 +267,7 @@ export async function auditRepository(input: AuditRepositoryInput) {
     intel = await lookupExploitIntel(cves, intelTransport, intelCache ? { cache: intelCache } : {});
   }
   progress('analysing', { files: files.length });
-  const result = await analyser({ files, paths, registry: registry.answers, advisories: advisories.answers, licences: licenceLookup ? licenceLookup.answers : null, intel: intel ? intel.answers : null, extra: beyond.scan });
+  const result = await analyser({ files, paths, incompleteFiles: !filesComplete, registry: registry.answers, advisories: advisories.answers, licences: licenceLookup ? licenceLookup.answers : null, intel: intel ? intel.answers : null, extra: beyond.scan });
   assertAuditActive(signal);
   baselineComponents(result.components, advisories, intel);
   const lockfiles = paths.filter(filePath => READ_LOCKS.has(baseName(filePath)) && !EXCLUDED_DIR.test(filePath) && !isFixturePath(filePath));
@@ -275,7 +277,7 @@ export async function auditRepository(input: AuditRepositoryInput) {
     const base = baseName(filePath);
     return base === 'package.json' || isRequirements(base) || ecosystems.manifestParserFor(filePath) || LOCK_PARSERS[base];
   }).every(filePath => inventoried.has(filePath));
-  return {
+  const audit = {
     commitSha: resolved.commitSha,
     ref: resolved.ref,
     coverage: {
@@ -287,7 +289,7 @@ export async function auditRepository(input: AuditRepositoryInput) {
       rulesOnly: beyond.read,
       unreadable,
       skipped: { ...selection.skipped, budget: selection.skipped.budget + beyond.notRead },
-      complete: !tree.truncated && selection.skipped.oversize + selection.skipped.budget + beyond.notRead === 0 && unreadable === 0,
+      complete: filesComplete,
       packages: { declared: registry.total, checked: result.dependencyStatus.checked, unknown: result.dependencyStatus.unknown, notChecked: Math.max(0, registry.total - registry.asked) },
       /*
        * Versions asked about, and where they came from. A lockfile too large
@@ -313,4 +315,5 @@ export async function auditRepository(input: AuditRepositoryInput) {
     },
     ...result
   };
+  return { ...audit, analysisComplete: Object.values(resolutionEvidence(audit)).every(Boolean) };
 }

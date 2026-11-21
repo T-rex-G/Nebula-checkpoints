@@ -172,7 +172,8 @@ export function registryUrl(entry: { readonly ecosystem: string; readonly name: 
 
 export async function lookupPackages(packages: readonly DeclaredPackage[], transport: AuditTransport, limits: AuditLimits = LIMITS): Promise<RegistryLookup> {
   const answers = new Map<string, RegistryAnswer>();
-  const unique = dedupePackages(packages).slice(0, limits.maxPackages);
+  const declared = dedupePackages(packages);
+  const unique = declared.slice(0, limits.maxPackages);
   await boundedMap(unique, limits.lookupConcurrency, async entry => {
     let answer: RegistryAnswer = 'unknown';
     try {
@@ -186,5 +187,5 @@ export async function lookupPackages(packages: readonly DeclaredPackage[], trans
     } catch { answer = 'unknown'; }
     answers.set(packageKey(entry), answer);
   });
-  return { answers, asked: unique.length, total: dedupePackages(packages).length };
+  return { answers, asked: unique.length, total: declared.length };
 }

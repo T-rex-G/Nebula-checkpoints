@@ -102,6 +102,51 @@ export function sanitising(name: string, objectName: string, module: string, joi
   if (told) return { contract: told };
   return { claims: true };
 }
+/* JavaScript contracts are positive lists. An import proves the declared API
+ * under its default configuration; optional policies and dynamic dispatch do
+ * not establish the same transformation. These models never load a package. */
+const JS_HTML: Contract = new Set(['html', 'dom']);
+const JS_PATH: Contract = new Set(['path']);
+const JS_SQL: Contract = new Set(['sql']);
+const JS_REGEX: Contract = new Set(['regex']);
+const JS_INTRINSIC_NUMBER = /^(?:parseInt|parseFloat|Number|Boolean|BigInt|isNaN|isFinite|Number\.(?:parseInt|parseFloat|isFinite|isInteger|isNaN|isSafeInteger)|Math\.(?:abs|round|floor|ceil|min|max|trunc))$/;
+
+export function jsIntrinsic(callee: string): Sanitising | null {
+  if (JS_INTRINSIC_NUMBER.test(callee)) return SAFE;
+  return callee === 'encodeURIComponent' ? { contract: JS_HTML } : null;
+}
+
+export function jsExportTransform(module: string, member: string): { contract: Contract } | { conditional: Contract } | null {
+  if ((module === 'escape-html' || module === 'lodash/escape') && member === '') return { contract: JS_HTML };
+  if (module === 'lodash' && member === 'escape') return { contract: JS_HTML };
+  /* The active policy, argument type, quoting mode or filesystem root would be additional evidence. */
+  if ((module === 'sanitize-html' && member === '') || (module === 'dompurify' && member === 'sanitize')) return { conditional: JS_HTML };
+  if (/^(?:node:)?path(?:\/(?:posix|win32))?$/.test(module) && /^(?:(?:posix|win32)\.)?(?:basename|extname)$/.test(member)) return { conditional: JS_PATH };
+  if (/^(?:mysql|mysql2|sqlstring)$/.test(module) && member === 'escape') return { conditional: JS_SQL };
+  if ((module === 'escape-string-regexp' && member === '') || (module === 'lodash' && member === 'escapeRegExp')) return { conditional: JS_REGEX };
+  return null;
+}
+
+/* A character encoder can protect a text node. Markup around an insertion
+ * must itself establish a text context. The bounded grammar also admits a
+ * double-quoted query value following a fixed relative path. */
+const TEXT_TAGS = /<\/?(?:a|article|b|br|dd|div|dl|dt|em|h[1-6]|i|li|ol|p|section|small|span|strong|td|th|tr|ul)(?: (?:class|id)="[A-Za-z0-9 _-]+")*\s*\/?>/gi;
+export function htmlTextPieces(parts: readonly string[]): boolean {
+  if (!parts.length || parts.some(part => part.length > 4096)) return false;
+  const stripsTags = (part: string) => !/[<>]/.test(part.replace(TEXT_TAGS, ''));
+  if (parts.every(stripsTags)) return true;
+  const [prefix, suffix] = parts;
+  if (parts.length !== 2 || !prefix || !suffix) return false;
+  const open = prefix.lastIndexOf('<');
+  const close = suffix.indexOf('>');
+  if (open < 0 || close < 0 || !stripsTags(prefix.slice(0, open)) || !stripsTags(suffix.slice(close + 1))) return false;
+  const inLocalUrl = /^<(?:a|area|img|form|button|input) (?:href|src|action|formaction)="\/(?![\/\\])[A-Za-z0-9/_.~-]*[?#][A-Za-z0-9&;=_.%~-]*$/i;
+  return inLocalUrl.test(prefix.slice(open)) && /^[A-Za-z0-9&;=_.%#~-]*"\s*\/?$/.test(suffix.slice(0, close));
+}
+export function jsTransformName(name: string): boolean {
+  return SAFE_RESULT.test(name) || CLAIMS_SAFE.test(name);
+}
+
 /* What both engines' values share, as far as sanitising goes. */
 interface Sanitisable {
   steps: Step[];
@@ -119,21 +164,21 @@ export function sanitised<V extends Sanitisable>(value: V, contract: Contract, p
   return { ...value, steps: steps.slice(0, limit), cleared: value.cleared ? new Set([...value.cleared, ...contract]) : contract, whole: false };
 }
 /* How safe a summarised function left a parameter it returns. */
-export interface Returned<G> { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean }
+export interface Returned<G> { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean; uncertainHtml?: boolean }
 /* A summarised function returns one of its parameters: remember how safe every return left it. */
-export function noteReturn<G>(summary: { readonly returns: Set<number>; readonly returned: Map<number, Returned<G>> } | null | undefined, value: { param: number | null; cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean } | null): void {
+export function noteReturn<G>(summary: { readonly returns: Set<number>; readonly returned: Map<number, Returned<G>> } | null | undefined, value: { param: number | null; cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean; uncertainHtml?: boolean } | null): void {
   if (!summary || !value || value.param === null) return;
   const before = summary.returned.get(value.param);
   summary.returns.add(value.param);
   summary.returned.set(value.param, before
-    ? { cleared: bothCleared(before.cleared, value.cleared), guarded: before.guarded && value.guarded, built: before.built || value.built, sql: before.sql || value.sql, html: before.html || value.html }
-    : { cleared: value.cleared, guarded: value.guarded, built: value.built, sql: value.sql, html: value.html });
+    ? { cleared: bothCleared(before.cleared, value.cleared), guarded: before.guarded && value.guarded, built: before.built || value.built, sql: before.sql || value.sql, html: before.html || value.html, uncertainHtml: before.uncertainHtml || value.uncertainHtml }
+    : { cleared: value.cleared, guarded: value.guarded, built: value.built, sql: value.sql, html: value.html, uncertainHtml: value.uncertainHtml });
 }
 /* What a call to a summarised function returns to its caller: the argument, as safe as the function's body left it; one that only claims to sanitise leaves a check to be confirmed. */
-export function returnedThrough<G, V extends { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean }>(value: V, left: Returned<G> | undefined, claimed: G | null): V {
+export function returnedThrough<G, V extends { cleared: Contract | null; guarded: G | null; built: boolean; sql: boolean; html: boolean; uncertainHtml?: boolean }>(value: V, left: Returned<G> | undefined, claimed: G | null): V {
   const cleared = left && left.cleared ? new Set([...(value.cleared || []), ...left.cleared]) : value.cleared;
   /* A statement or a page the function built around the argument is still built when it comes back. */
-  const shape = left ? { built: value.built || left.built, sql: value.sql || left.sql, html: value.html || left.html } : null;
+  const shape = left ? { built: value.built || left.built, sql: value.sql || left.sql, html: value.html || left.html, uncertainHtml: value.uncertainHtml || left.uncertainHtml } : null;
   return { ...value, ...shape, cleared, guarded: value.guarded || (left && left.guarded) || claimed };
 }
 /*

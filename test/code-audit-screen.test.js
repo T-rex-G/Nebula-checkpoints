@@ -95,7 +95,7 @@ function wired(html, label) {
     assert.equal(idle.exports, null);
     const stored = screen.summary({ ...blank(), history }, NOW);
     assert.equal(stored.body.kind, 'stored');
-    assert.equal(stored.ring.label, `Grade ${rows[0].grade}, ${rows[0].score} out of 100, from the last audit`);
+    assert.equal(stored.ring.label, `Observed grade ${rows[0].grade}, ${rows[0].score} out of 100, from the last audit`);
     assert.equal(stored.ringId, null, 'a kept grade is not a reading the ring grows for');
     assert.match(stored.verdict, /^Last audited /);
     assert.match(stored.body.note, /at 1111111\. Audit again for the full report/);
@@ -179,6 +179,12 @@ function wired(html, label) {
     const listed = listing.findings(base, NOW, { open: true, triage: false, history: false, reopen: false });
     assert.equal(listed.rows.length, code.findings.length);
     assert.equal(listed.waived.length, code.suppressed.length);
+    const examples = { ...base, result: { ...code, findings: ['src/order.ts', 'data/static/codefixes/sample.ts', 'test/order.spec.ts'].map(path => ({ ...code.findings[0], id: path, path })) } };
+    const pathRows = pathGroup => listing.findings({ ...examples, pathGroup }, NOW, { open: true, triage: false, history: false, reopen: false });
+    assert.deepStrictEqual(pathRows(null).rows.map(row => row.id), examples.result.findings.map(finding => finding.id));
+    assert.deepStrictEqual(pathRows('other').rows.map(row => row.id), ['src/order.ts']);
+    assert.deepStrictEqual(pathRows('supporting').rows.map(row => row.id), ['data/static/codefixes/sample.ts', 'test/order.spec.ts']);
+    assert.deepStrictEqual(pathRows('supporting').paths.map(segment => segment.count), [3, 1, 2]);
     const nothing = listing.findings({ ...base, query: 'zzzz-not-a-word' }, NOW, { open: true, triage: false, history: false, reopen: false });
     assert.equal(nothing.empty, 'Nothing matches “zzzz-not-a-word”.');
     const paged = listing.findings({ ...base, result: { ...code, findings: Array.from({ length: 95 }, (_, index) => ({ ...code.findings[0], id: `f${index}` })) } }, NOW, { open: false, triage: false, history: false, reopen: false });

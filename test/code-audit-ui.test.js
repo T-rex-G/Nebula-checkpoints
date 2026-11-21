@@ -21,7 +21,7 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
   ];
   const result = {
     ...analyse({ files, paths: files.map(file => file.path) }),
-    commitSha: 'c'.repeat(40),
+    commitSha: 'c'.repeat(40), ref: 'main',
     auditedAt: '2026-09-26T12:00:00.000Z',
     coverage: { read: 2, eligible: 2, packages: { declared: 1, checked: 1, unknown: 0, notChecked: 0 }, skipped: {} }
   };
@@ -129,7 +129,7 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
   assert.match(waivedBrief, /\*\*What is unknown\.\*\* .+\n\n\*\*How to confirm\.\*\* /);
   assert.match(waivedBrief, /## Coverage\n\n\| Class \| Status \| What was read \|/);
   assert.match(waivedBrief, /\| Business logic \| Not assessed \|/);
-  assert.match(waivedBrief, /by Uranus 2\.4\.0\.\n\d+ confirmed, \d+ to confirm\./);
+  assert.match(waivedBrief, /by Uranus 3\.0\.0\.\n\d+ confirmed, \d+ to confirm\./);
   assert.match(waivedBrief, /\| SEC-005 \| .+ \| `src\/nonce\.js:1` \| display nonce \\\| not a secret \|/, 'a pipe in the reason cannot break the table');
 
   /* SARIF 2.1.0: rules once each, tagged with their CWE; results at file and line; a waiver as an in-source suppression. */
@@ -138,6 +138,13 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
   assert.strictEqual(report.runs.length, 2, 'one run for the repository, one for the site');
   const [repoRun, siteRun] = report.runs;
   assert.strictEqual(repoRun.tool.driver.name, 'Nebulaverse-X Uranus');
+  assert.strictEqual(repoRun.properties.ruleset, result.engine.ruleset);
+  const withRole = { ...result.findings[0], path: 'data/static/codefixes/example.ts' };
+  const scoped = JSON.parse(reports.sarif({ ...result, analysisComplete: false, findings: [withRole] }, null)).runs[0];
+  assert.strictEqual(scoped.properties.analysisComplete, false);
+  assert.strictEqual(scoped.results[0].properties.pathRole, 'asset');
+  assert.match(reports.brief({ ...result, analysisComplete: false }, 'demo (main)', null), /Observed grade/);
+  assert.match(terms.coverageCaveat({ analysisComplete: false, engine: { traced: { truncated: 1 } } }), /per-file flow limit/);
   const ruleIds = repoRun.tool.driver.rules.map(rule => rule.id);
   assert.strictEqual(new Set(ruleIds).size, ruleIds.length, 'each rule is described once');
   const sqlRule = repoRun.tool.driver.rules.find(rule => rule.id === 'SEC-001');
@@ -163,7 +170,7 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
   assert.strictEqual(lead.properties.verdict, 'needs-validation');
   assert(lead.properties.howToConfirm.length > 20);
   assert(!lead.codeFlows);
-  assert.strictEqual(repoRun.properties.engine, 'Uranus 2.4.0');
+  assert.strictEqual(repoRun.properties.engine, 'Uranus 3.0.0');
   assert(repoRun.properties.coverage.some(entry => entry.class === 'logic' && entry.status === 'not-assessed'));
   assert.strictEqual(repoRun.tool.driver.rules[sqlResult.ruleIndex].id, 'SEC-001', 'ruleIndex points at its rule');
   assert(sqlResult.partialFingerprints['nebulaverseFinding/v1']);
@@ -291,7 +298,14 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
 
   /* The comparison: identities only, new and resolved. */
   assert.strictEqual(memory.diff(result, null), null);
-  const changed = memory.diff(result, { engine: `repository:${result.engine.version}`, at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] });
+  const prior = { engine: memory.engineIdentity(result), ref: 'main', at: '2026-09-25T00:00:00.000Z', ids: [result.findings[0].id, 'f'.repeat(24)] };
+  const complete = { ...result, ref: 'main', analysisComplete: true };
+  const changed = memory.diff(complete, prior);
+  assert.strictEqual(memory.diff({ ...complete, ref: 'feature' }, prior), null);
+  assert.strictEqual(memory.diff(complete, { ...prior, engine: 'repository:' + result.engine.version }), null);
+  assert.strictEqual(memory.diff(complete, { ...prior, truncated: true }), null);
+  assert.strictEqual(memory.diff({ ...complete, analysisComplete: false }, prior).resolved, null);
+  assert.strictEqual(memory.diff({ ...complete, suppressed: [{ id: 'f'.repeat(24) }] }, prior).resolved, 0);
   assert.equal(memory.diff(result, { engine: 'repository:2.0.0', ids: ['legacy'] }), null, 'engine changes start a fresh comparison');
   assert.equal(memory.diff(result, { ids: ['legacy'] }), null, 'unversioned browser history is not compared with new identities');
   assert.strictEqual(changed.resolved, 1);
@@ -325,6 +339,10 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
     assert(keptRows[3].includes('triaged by the team'));
     assert(keptRows[4].includes('3 of 6 findings were kept'));
     const keptRun = JSON.parse(reports.keptSarif(audit, findings, { repositoryUri: 'https://github.com/sandbox/demo' })).runs[0];
+    assert.strictEqual(keptRun.properties.ruleset, null, 'legacy exports retain unknown provenance');
+    const identifiable = JSON.parse(reports.keptSarif({ ...audit, ruleset: result.engine.ruleset, analysisComplete: false }, findings)).runs[0];
+    assert.strictEqual(identifiable.properties.ruleset, result.engine.ruleset);
+    assert.strictEqual(identifiable.properties.analysisComplete, false);
     assert.strictEqual(keptRun.properties.findingsKept, 3);
     assert.strictEqual(keptRun.properties.findingsTotal, 6);
     assert.strictEqual(keptRun.results[1].properties.dependencyReach, 'bundled');
@@ -376,9 +394,9 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
       memory.remember('Sandbox/Demo', result);
       assert.deepStrictEqual([...store.keys()], ['nv_audit:sandbox/demo']);
       const kept = memory.readPrevious('sandbox/DEMO');
-      assert.deepStrictEqual(Object.keys(kept), ['at', 'engine', 'ids']);
+      assert.deepStrictEqual(Object.keys(kept), result.ref ? ['at', 'engine', 'ref', 'ids'] : ['at', 'engine', 'ids']);
       assert.deepStrictEqual(kept.ids, result.findings.map(finding => finding.id));
-      assert.strictEqual(kept.engine, `repository:${result.engine.version}`);
+      assert.strictEqual(kept.engine, `repository:${result.engine.version}/${result.engine.ruleset}`);
       assert.strictEqual(memory.diff(result, kept).newIds.size, 0);
       assert.strictEqual(memory.diff(result, kept).resolved, 0);
       memory.remember('other/repo', { auditedAt: 'x' });
@@ -536,7 +554,7 @@ const terms = require('../apps/web/src/features/uranus/audit-terms.ts');
   /* A site check is compared with the site check before it, by the engine that made it. */
   {
     assert.strictEqual(memory.engineIdentity({ engine: 3 }), 'site:3');
-    assert.strictEqual(memory.engineIdentity({ engine: { version: '2.4.0' } }), 'repository:2.4.0');
+    assert.strictEqual(memory.engineIdentity({ engine: { version: '2.4.0' } }), null, 'an unidentified ruleset cannot establish continuity');
     assert.strictEqual(memory.engineIdentity({ engine: {} }), null);
     const changes = memory.diff({ engine: 3, findings: [{ id: 'a' }, { id: 'c' }] }, { engine: 'site:3', at: '2026-09-25T00:00:00.000Z', ids: ['a', 'b'] });
     assert.deepStrictEqual([[...changes.newIds], changes.resolved, changes.previousAt], [['c'], 1, '2026-09-25T00:00:00.000Z']);

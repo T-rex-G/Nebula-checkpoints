@@ -1,5 +1,9 @@
 # Uranus — qualification record
 
+The 3.0 qualification measures binding-aware JavaScript and TypeScript transformations, independent coverage and offline verification of retained audits. [Uranus 3.0 qualification](URANUS_3_0.md)
+
+The 2.5 follow-up measures confirmed findings separately and documents the repository gate, history and efficiency changes. [Uranus 2.5 qualification](URANUS_2_5.md)
+
 Uranus is the code audit's engine: the rules, the tracer that follows a
 caller's value to the call that misuses it (JavaScript, TypeScript, Python,
 Go, Java, PHP), the endpoint and ownership reading, and the dependency

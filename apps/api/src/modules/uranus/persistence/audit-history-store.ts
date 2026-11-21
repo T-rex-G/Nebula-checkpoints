@@ -151,7 +151,7 @@ export class CodeAuditHistory {
         .digest().readBigInt64BE(0).toString();
       await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [lockKey]);
       const latest = rowsOf(await client.query(
-        `SELECT audit_id, audited_at, engine_version FROM nv_code_audits
+        `SELECT audit_id, audited_at, engine_version, ruleset_digest FROM nv_code_audits
           WHERE ${SCOPE_SQL} AND ref_name=$6
           ORDER BY audited_at DESC, recorded_at DESC, audit_id DESC LIMIT 1`,
         [...base, compact.audit.ref_name]
@@ -165,6 +165,7 @@ export class CodeAuditHistory {
        */
       // A delayed observation cannot prove that a finding seen later was fixed.
       const previous = latest && latest.engine_version === compact.audit.engine_version
+        && compact.audit.ruleset_digest !== null && latest.ruleset_digest === compact.audit.ruleset_digest
         && ms(latest.audited_at) <= Date.parse(compact.audit.audited_at) ? latest : null;
       const audit = compact.audit;
       const rows = [...compact.findings, ...compact.waived];
@@ -222,9 +223,9 @@ export class CodeAuditHistory {
            risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
            components_total, findings_total, findings_stored, new_count, resolved_count,
            watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
-           sla_critical, sla_serious, sla_warning, policy_source, analysis_complete)
+           sla_critical, sla_serious, sla_warning, policy_source, analysis_complete, ruleset_digest)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text[],$16::smallint[],
-           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44)`,
+           $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45)`,
         [auditId, where.provider, where.authority, where.owner, where.repo, identity, audit.ref_name, audit.commit_sha,
           audit.engine_version, audit.audited_at, new Date(now).toISOString(), audit.score, audit.grade, audit.cap_reason,
           audit.category_ids, audit.category_scores, audit.critical_count, audit.serious_count, audit.warning_count,
@@ -233,7 +234,7 @@ export class CodeAuditHistory {
           audit.components_total, audit.findings_total, audit.findings_stored,
           diff && diff.resolved !== null ? diff.newIds.length : null, diff ? diff.resolved : null,
           audit.watch_checked_at, audit.watch_state, audit.watch_checked, audit.watch_total, audit.watch_kev,
-          audit.sla_critical, audit.sla_serious, audit.sla_warning, audit.policy_source, audit.analysis_complete]
+          audit.sla_critical, audit.sla_serious, audit.sla_warning, audit.policy_source, audit.analysis_complete, audit.ruleset_digest]
       );
       for (let start = 0; start < rows.length; start += limits.insertBatch) {
         await client.query(
@@ -344,8 +345,8 @@ export class CodeAuditHistory {
     };
   }
 
-  /* One audit and what it found. Null when it is not this identity's, or no longer kept. */
-  async read({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAuditRead | null> {
+  /* One scoped record. A coverage export needs only this row. */
+  async readSummary({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAudit | null> {
     const where = requireScope(scope);
     const identity = requireIdentity(identityKey);
     if (!fits(SHAPE.uuid, auditId)) return null;
@@ -354,6 +355,12 @@ export class CodeAuditHistory {
       `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits WHERE ${SCOPE_SQL} AND audit_id=$6`,
       [...base, auditId]
     ))[0];
+    return audit ? auditFromRow(audit) : null;
+  }
+
+  /* One audit and what it found. Null when it is not this identity's, or no longer kept. */
+  async read({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAuditRead | null> {
+    const audit = await this.readSummary({ scope, identityKey, auditId });
     if (!audit) return null;
     const findings = await this.pool.query(
       `SELECT ${FINDING_COLUMNS.split(',').map(column => `f.${column.trim()}`).join(', ')}
@@ -361,9 +368,9 @@ export class CodeAuditHistory {
          JOIN nv_code_audits a ON a.audit_id=f.audit_id
         WHERE f.audit_id=$1 AND a.identity_key=$2
         ORDER BY ${SEVERITY_ORDER_SQL}, f.risk_score DESC NULLS LAST, f.file_path NULLS LAST, f.line_number NULLS LAST, f.finding_id`,
-      [auditId, identity]
+      [audit.id, identityKey]
     );
-    return { audit: auditFromRow(audit), findings: rowsOf(findings).map(findingFromRow) };
+    return { audit, findings: rowsOf(findings).map(findingFromRow) };
   }
 
   /* The latest audit of a branch, with the components the watch checks and the alerts it has found. */

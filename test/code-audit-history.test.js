@@ -391,6 +391,9 @@ async function withClient(connectionString, run) {
     assert.deepStrictEqual(dep.package, { ecosystem: 'npm', name: 'jquery', version: '3.4.1', fixed: '3.5.0', advisories: ['GHSA-jpcq-cgw6-v4j6'], cves: ['CVE-2020-11023'], cvss: 6.1 });
     assert.deepStrictEqual([dep.exploited, dep.reach, dep.epss, dep.risk], [true, 'imported', 0.85, { score: 92, band: 'urgent' }]);
     assert.strictEqual(await history.read({ scope, identityKey: OTHER, auditId: second.auditId }), null, 'another identity reads nothing');
+    assert.deepStrictEqual(await history.readSummary({ scope, identityKey: IDENTITY, auditId: second.auditId }), read.audit);
+    assert.strictEqual(await history.readSummary({ scope, identityKey: OTHER, auditId: second.auditId }), null);
+    assert.strictEqual(await history.readSummary({ scope: { ...scope, repo: 'Other' }, identityKey: IDENTITY, auditId: second.auditId }), null);
     assert.strictEqual(await history.read({ scope: { ...scope, repo: 'Other' }, identityKey: IDENTITY, auditId: second.auditId }), null, 'nor through another repository');
     assert.strictEqual(await history.read({ scope, identityKey: IDENTITY, auditId: 'not-a-uuid' }), null);
     assert.deepStrictEqual((await history.list({ scope, identityKey: OTHER, ref: 'main' })).audits, []);

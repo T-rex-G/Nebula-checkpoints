@@ -15,6 +15,7 @@ import { listOf, read } from '../../../platform/values/fields.ts';
 import { DEFAULT_SLA, clockOf, evaluatePolicyDocument, type Sla } from '../../kepler/index.ts';
 import { confirmed, openRows, type KeptRow } from '../domain/audit-triage.ts';
 import { productionTier } from '../domain/uranus-reach.ts';
+import { completeAudit } from './kept-coverage.ts';
 
 /* The reasons a merge gate can give; a policy names the ones it acts on. */
 export const GATE_REASONS = Object.freeze(['critical', 'serious', 'exploited', 'secret', 'overdue', 'introduced'] as const);
@@ -90,13 +91,6 @@ export interface GateInput {
   readonly base?: GateAudit | null;
   readonly decisions?: unknown;
   readonly now?: number;
-}
-
-function completeAudit(audit: GateAudit['audit']): boolean {
-  return audit.analysisComplete === true
-    && !(audit.files && audit.files.complete !== true)
-    && !(audit.findings && audit.findings.total > audit.findings.stored)
-    && !(audit.watch && ['partial', 'unavailable'].includes(audit.watch.state));
 }
 
 export function evaluateMergeGate({ headSha, baseSha, head, base, expectedRuleset, decisions, now = Date.now() }: GateInput = {}): Gate {

@@ -19,7 +19,6 @@
     "evidence.ts PROBE_COVERAGE",
     "evidence.ts SOURCE_STATES",
     "ids.ts ID_FORMATS",
-    "ids.ts SHA256_HEX",
     "jobs.ts JOB_FAILURES",
     "jobs.ts JOB_KINDS",
     "mutation.ts ACTOR_BINDINGS",

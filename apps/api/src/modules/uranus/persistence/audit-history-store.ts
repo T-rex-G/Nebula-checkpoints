@@ -345,8 +345,8 @@ export class CodeAuditHistory {
     };
   }
 
-  /* One audit and what it found. Null when it is not this identity's, or no longer kept. */
-  async read({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAuditRead | null> {
+  /* One scoped record. A coverage export needs only this row. */
+  async readSummary({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAudit | null> {
     const where = requireScope(scope);
     const identity = requireIdentity(identityKey);
     if (!fits(SHAPE.uuid, auditId)) return null;
@@ -355,6 +355,12 @@ export class CodeAuditHistory {
       `SELECT ${AUDIT_COLUMNS} FROM nv_code_audits WHERE ${SCOPE_SQL} AND audit_id=$6`,
       [...base, auditId]
     ))[0];
+    return audit ? auditFromRow(audit) : null;
+  }
+
+  /* One audit and what it found. Null when it is not this identity's, or no longer kept. */
+  async read({ scope, identityKey, auditId }: ScopedRead & { readonly auditId: unknown }): Promise<KeptAuditRead | null> {
+    const audit = await this.readSummary({ scope, identityKey, auditId });
     if (!audit) return null;
     const findings = await this.pool.query(
       `SELECT ${FINDING_COLUMNS.split(',').map(column => `f.${column.trim()}`).join(', ')}
@@ -362,9 +368,9 @@ export class CodeAuditHistory {
          JOIN nv_code_audits a ON a.audit_id=f.audit_id
         WHERE f.audit_id=$1 AND a.identity_key=$2
         ORDER BY ${SEVERITY_ORDER_SQL}, f.risk_score DESC NULLS LAST, f.file_path NULLS LAST, f.line_number NULLS LAST, f.finding_id`,
-      [auditId, identity]
+      [audit.id, identityKey]
     );
-    return { audit: auditFromRow(audit), findings: rowsOf(findings).map(findingFromRow) };
+    return { audit, findings: rowsOf(findings).map(findingFromRow) };
   }
 
   /* The latest audit of a branch, with the components the watch checks and the alerts it has found. */

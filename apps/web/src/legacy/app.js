@@ -62,6 +62,8 @@ import { EMPTY_ICON, META_ICON } from '../components/icons.ts';
 import { repositoryReference, sessionHost } from '../features/repositories/repository-reference.ts';
 import { createRepositoryList } from '../features/repositories/repository-list-controller.ts';
 import { createRepositoryOpener } from '../features/repositories/repository-opener.ts';
+import { createRepositoryPicker } from '../features/repositories/repository-picker-controller.ts';
+import { pickTool } from '../features/repositories/repository-picker.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1072,195 +1074,36 @@ function openRepo(owner, repo) { return repositoryOpener.open(owner, repo); }
 
 /*
  * A security tool chosen before a repository is: rather than refusing, it
- * asks which one, and lands in the tool. Recent repositories first, then the
- * rest, filtered as the reader types; the keyboard moves through the list
- * and Enter opens. The recent list is names only, under the nv_recent:
- * prefix the account-boundary purge removes.
+ * asks which one, and lands in the tool (features/repositories/repository-picker.ts
+ * and repository-picker-controller.ts). The recent list is names only, under
+ * the nv_recent: prefix the account-boundary purge removes.
  */
-const PICK_TOOLS = Object.freeze({
-  neural: Object.freeze({ title: 'Neural', lede: 'The repository as a live graph of its files, people, access and risks.' }),
-  governance: Object.freeze({ title: 'Governance', lede: 'Policies, simulations and reviews, rehearsed on a digital twin before they apply.' }),
-  exposure: Object.freeze({ title: 'Exposure', lede: 'Credentials committed to a branch and its history, checked live on request.' }),
-  audit: Object.freeze({ title: 'Audit', lede: 'Uranus maps every endpoint and follows what a caller sends to what uses it.' }),
-  safeguards: Object.freeze({ title: 'Safeguards', lede: 'Read-only mode, locked paths, branch rules and recovery.' })
-});
 /* The recent list and who is visiting (features/repositories/recent-repositories.ts). */
 function recentRepositories() { return readRecentRepositories(() => localStorage); }
 function visitingRepository() { return Boolean(state.work && state.work.visitor); }
-const PICK_GLOBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>';
-const PICK_LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6"/></svg>';
-let pickPage = 0;
-let pickMore = false;
-async function pickRepository(target, pickOptions = {}) {
-  const tool = PICK_TOOLS[target];
-  if (!tool) return;
-  const railMark = document.querySelector(`.nv-rail-item[data-rail="${target}"] .nv-rail-i`);
-  let highlighted = null;
-  let chosen = null;
-  const ok = await modal({
-    title: 'Choose a repository',
-    okText: `Open ${tool.title}`,
-    autofocus: !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches),
-    bodyHTML: `<div class="rp-pick" data-tool="${esc(target)}">
-        <div class="rp-pick-tool"><span class="rp-pick-mark">${railMark ? railMark.outerHTML : ''}</span>
-          <span class="rp-pick-tool-text"><span class="rp-pick-tool-name">${esc(tool.title)}</span><span class="rp-pick-tool-lede">${esc(tool.lede)}</span></span></div>
-        <label class="rp-pick-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.3 15.3L20 20"/></svg>
-          <input id="rpPickQuery" type="search" role="combobox" aria-expanded="true" aria-controls="rpPickList" aria-autocomplete="list" placeholder="${pickOptions.own ? 'Search your repositories' : 'Search, or paste any public repository'}" autocomplete="off" spellcheck="false" aria-label="${pickOptions.own ? 'Search your repositories' : 'Search repositories, or paste any public repository address'}"></label>
-        <div class="rp-pick-list" id="rpPickList" role="listbox" aria-label="Repositories"></div>
-        <div class="rp-pick-foot" id="rpPickFoot"></div>
-      </div>`,
-    onOpen: body => {
-      const input = body.querySelector('#rpPickQuery');
-      const listEl = body.querySelector('#rpPickList');
-      const foot = body.querySelector('#rpPickFoot');
-      const ownsPicker = modalOwner();
-      let options = [];
-      let loading = false;
-      let failed = '';
-      const choose = option => { if (!option) return; chosen = option.repo; closeModal(true); };
-      const light = index => {
-        options.forEach((option, at) => option.el.setAttribute('aria-selected', at === index ? 'true' : 'false'));
-        highlighted = options[index] ? options[index].repo : null;
-        if (options[index]) {
-          input.setAttribute('aria-activedescendant', options[index].el.id);
-          options[index].el.scrollIntoView({ block: 'nearest' });
-        } else input.removeAttribute('aria-activedescendant');
-        $('#modalOk').disabled = !highlighted;
-      };
-      const row = (repo, id) => {
-        const el = document.createElement('div');
-        el.className = 'rp-pick-item';
-        el.id = id;
-        el.setAttribute('role', 'option');
-        const sigil = document.createElement('span');
-        sigil.className = 'rp-pick-sigil';
-        { const mark = RepoSigil.render(`${repo.owner}/${repo.name}`); if (mark) sigil.appendChild(mark); }
-        const text = document.createElement('span');
-        text.className = 'rp-pick-text';
-        const name = document.createElement('span');
-        name.className = 'rp-pick-name';
-        const owner = document.createElement('span');
-        owner.className = 'rp-pick-owner';
-        owner.textContent = `${repo.owner}/`;
-        name.append(owner, document.createTextNode(repo.name));
-        const meta = document.createElement('span');
-        meta.className = 'rp-pick-meta';
-        meta.textContent = repo.any ? `${sessionHost()} · read-only unless you can push to it`
-          : [repo.description, repo.pushed_at ? `updated ${timeAgo(repo.pushed_at)}` : ''].filter(Boolean).join(' · ') || 'Recently opened';
-        if (repo.any) el.classList.add('rp-pick-any');
-        text.append(name, meta);
-        const vis = document.createElement('span');
-        vis.className = 'rp-pick-vis';
-        vis.dataset.visibility = repo.private === true ? 'private' : repo.private === false ? 'public' : 'unknown';
-        if (repo.private !== undefined) {
-          vis.innerHTML = repo.private ? PICK_LOCK : PICK_GLOBE;
-          vis.title = repo.private ? 'Private' : 'Public';
-          const word = document.createElement('span');
-          word.className = 'sr-only';
-          word.textContent = repo.private ? 'Private' : 'Public';
-          vis.appendChild(word);
-        }
-        el.append(sigil, text, vis);
-        return el;
-      };
-      const paint = () => {
-        if (!ownsPicker()) return;
-        const terms = input.value.toLowerCase().split(/\s+/).filter(Boolean);
-        const loaded = state.repos.map(repo => ({ owner: repo.owner, name: repo.name, description: repo.description, private: repo.private, pushed_at: repo.pushed_at }));
-        const byName = new Map(loaded.map(repo => [`${repo.owner}/${repo.name}`, repo]));
-        const matches = repo => terms.every(term => `${repo.owner}/${repo.name} ${repo.description || ''}`.toLowerCase().includes(term));
-        const recent = recentRepositories().filter(item => !(pickOptions.own && item.visitor))
-          .map(item => byName.get(`${item.owner}/${item.name}`) || item).filter(matches);
-        const recentKeys = new Set(recent.map(repo => `${repo.owner}/${repo.name}`));
-        const rest = loaded.filter(repo => !recentKeys.has(`${repo.owner}/${repo.name}`) && matches(repo));
-        /* A pasted address or owner/name that is not one of the listed repositories opens any repository the account can read. */
-        const reference = pickOptions.own ? null : repositoryReference(input.value);
-        const listed = reference && !reference.wrongHost
-          && [...recent, ...rest, ...loaded].find(repo => `${repo.owner}/${repo.name}`.toLowerCase() === `${reference.owner}/${reference.name}`.toLowerCase());
-        listEl.replaceChildren();
-        options = [];
-        const group = (label, repos) => {
-          if (!repos.length) return;
-          const head = document.createElement('div');
-          head.className = 'rp-pick-group';
-          head.setAttribute('role', 'presentation');
-          head.textContent = label;
-          listEl.appendChild(head);
-          for (const repo of repos) {
-            const el = row(repo, `rpPick-${options.length}`);
-            const index = options.length;
-            el.addEventListener('mousemove', () => { if (highlighted !== repo) light(index); });
-            el.addEventListener('click', () => choose({ repo }));
-            listEl.appendChild(el);
-            options.push({ el, repo });
-          }
-        };
-        /* An address names one repository and is all that is listed; a typed owner/name is also a search, so the matches come first. */
-        const address = reference && !reference.wrongHost && reference.kind === 'address';
-        if (address) group('Any repository', [listed || { owner: reference.owner, name: reference.name, any: true }]);
-        else {
-          group(terms.length ? 'Matches' : 'Recent', recent);
-          group(terms.length ? (recent.length ? 'More matches' : 'Matches') : 'All repositories', rest);
-          if (reference && !reference.wrongHost && !listed) group('Any repository', [{ owner: reference.owner, name: reference.name, any: true }]);
-        }
-        if (loading && !loaded.length) {
-          for (let index = 0; index < 4; index += 1) { const ghost = document.createElement('div'); ghost.className = 'rp-pick-ghost'; listEl.appendChild(ghost); }
-        } else if (!options.length) {
-          const empty = document.createElement('p');
-          empty.className = 'rp-pick-empty';
-          empty.textContent = failed || (reference && reference.wrongHost
-            ? `That address is on ${reference.wrongHost}; this session reads repositories on ${sessionHost()}.`
-            : terms.length ? `No repository matches “${input.value.trim()}”${pickMore ? ' in those loaded' : ''}.` : 'No repositories yet.');
-          listEl.appendChild(empty);
-        }
-        foot.replaceChildren();
-        const count = document.createElement('span');
-        count.textContent = loaded.length ? `${loaded.length} ${loaded.length === 1 ? 'repository' : 'repositories'} loaded` : '';
-        foot.appendChild(count);
-        if (pickMore && !loading) {
-          const more = document.createElement('button');
-          more.type = 'button';
-          more.className = 'btn btn-ghost small';
-          more.textContent = 'Load more';
-          more.addEventListener('click', () => load());
-          foot.appendChild(more);
-        }
-        light(options.length ? 0 : -1);
-      };
-      const load = async () => {
-        loading = true; failed = ''; paint();
-        try {
-          const batch = await api(`/api/repos?page=${pickPage + 1}&sort=${state.repoSort}`);
-          if (!ownsPicker()) return;
-          pickPage += 1;
-          const known = new Set(state.repos.map(repo => repo.full_name));
-          const fresh = batch.filter(repo => !known.has(repo.full_name));
-          pageStore.mutate('repos', repos => { repos.push(...fresh); });
-          pickMore = batch.length >= 30;
-        } catch (error) {
-          failed = error && error.message ? `Repositories could not be listed: ${error.message}` : 'Repositories could not be listed.';
-        }
-        loading = false;
-        paint();
-      };
-      input.addEventListener('input', paint);
-      input.addEventListener('keydown', event => {
-        const at = options.findIndex(option => option.repo === highlighted);
-        if (event.key === 'ArrowDown') { event.preventDefault(); light(Math.min(options.length - 1, at + 1)); }
-        else if (event.key === 'ArrowUp') { event.preventDefault(); light(Math.max(0, at - 1)); }
-        else if (event.key === 'Home' && options.length) { event.preventDefault(); light(0); }
-        else if (event.key === 'End' && options.length) { event.preventDefault(); light(options.length - 1); }
-        else if (event.key === 'Enter') { event.preventDefault(); choose(options[at]); }
-      });
-      if (!state.repos.length) { pickPage = 0; load(); }
-      else { pickPage = state.repoPage; pickMore = state.repos.length >= state.repoPage * 30; paint(); }
-    }
-  });
-  $('#modalOk').disabled = false;
-  const repo = chosen || (ok ? highlighted : null);
-  if (!repo) return;
-  if (await openRepo(repo.owner, repo.name)) switchTab(target);
-}
+const repositoryPicker = createRepositoryPicker({
+  state,
+  api: path => api(path),
+  modal: request => modal(request),
+  owner: () => modalOwner(),
+  closeModal: confirmed => closeModal(confirmed),
+  okButton: () => $('#modalOk'),
+  railMark: target => {
+    const mark = document.querySelector(`.nv-rail-item[data-rail="${target}"] .nv-rail-i`);
+    return mark ? mark.outerHTML : '';
+  },
+  coarse: () => Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches),
+  doc: document,
+  sigil: fullName => RepoSigil.render(fullName),
+  timeAgo: iso => timeAgo(iso),
+  host: () => sessionHost(),
+  recent: () => recentRepositories(),
+  reference: text => repositoryReference(text),
+  append: fresh => pageStore.mutate('repos', repos => { repos.push(...fresh); }),
+  open: (owner, name) => openRepo(owner, name),
+  switchTab: tool => switchTab(tool)
+});
+function pickRepository(target, pickOptions = {}) { return repositoryPicker.pick(target, pickOptions); }
 async function refreshRepoMetadata() {
   if (!state.work || !state.work.owner || !state.work.repo) return null;
   const info = await api(`/api/repo/${state.work.owner}/${state.work.repo}`);
@@ -5707,7 +5550,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
       if (isRepositoryTool(target)) switchTab(target);
     });
   }
-  if (!state.work) return PICK_TOOLS[target] ? pickRepository(target) : toast('Open a repository first.', 'err');
+  if (!state.work) return pickTool(target) ? pickRepository(target) : toast('Open a repository first.', 'err');
   /* Governance and Safeguards belong to a repository's collaborators: with somebody else's open, they ask which of yours. */
   if (visitingRepository() && VISITOR_TABS.has(target)) return pickRepository(target, { own: true });
   showPage('work');

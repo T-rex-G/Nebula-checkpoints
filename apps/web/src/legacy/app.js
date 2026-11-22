@@ -73,8 +73,9 @@ import { createExposureView } from '../features/exposure/exposure-view.ts';
 import { bindExposureControls } from '../features/exposure/exposure-controls.ts';
 import { TREE_ICON, createFileTree } from '../features/workbench/file-tree.ts';
 import { createItemMenu } from '../features/workbench/item-menu.ts';
-import { protectedPatternMatch } from '../features/safeguards/protected-paths.ts';
 import { createSafety } from '../features/safeguards/safety-controller.ts';
+import { createSafeguards } from '../features/safeguards/safeguards-screen.ts';
+import { createFileIndex } from '../features/workbench/file-index.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1019,10 +1020,7 @@ function resetRepositoryViews() {
   clearGovernanceState();
   clearExposureState();
   clearAuditState();
-  safeguardsRender++;
-  const safeguards = $('#safeguardsRoot');
-  if (safeguards) safeguards.replaceChildren();
-  branchRulesCache = { key: '', at: 0, value: null };
+  safeguards.reset();
   if (neural) neural.reset();
 }
 /*
@@ -1169,10 +1167,14 @@ function reloadView() {
   else if (t === 'releases') loadReleases();
   else if (t === 'actions') loadActions();
   else if (t === 'governance') loadGovernanceTwin(true);
+  else if (t === 'safeguards') renderSafeguards({ fresh: true });
   else if (t === 'editor' && state.file && !state.file.binary && !state.file.dirty) openFile(state.file.path);
 }
 $('#syncBtn').addEventListener('click', () => repositoryHeader.sync());
-$('#branchSelect').addEventListener('change', e => repositoryHeader.changeBranch(e.target.value));
+$('#branchSelect').addEventListener('change', e => {
+  repositoryHeader.changeBranch(e.target.value);
+  if (currentTab() === 'safeguards') renderSafeguards();
+});
 $('#newBranchBtn').addEventListener('click', () => repositoryHeader.createBranch());
 $('#refreshTreeBtn').addEventListener('click', () => reloadTree());
 $('#zipBtn').addEventListener('click', () => downloadZip());
@@ -2464,89 +2466,43 @@ async function securityScanFlow() {
   } catch (e) { toast(e.message, 'err'); }
 }
 /*
- * Safeguards: what stands between a mistake and the repository, in one place.
- *
- * Three layers, read top to bottom as a reviewer would: the posture in three
- * figures; this app's own switches beside the rules the provider enforces for
- * every client; the paths this app refuses to change, with one-tap presets
- * that say how many files each would cover; and the recovery tools. The
- * provider's rules are read, never written -- the link goes to the provider's
- * own settings page, where changing them belongs.
+ * Every file path of the open branch, read once for the palette and Safeguards
+ * (features/workbench/file-index.ts).
  */
-const SAFEGUARD_PRESETS = Object.freeze([
-  { label: 'CI workflows', patterns: ['.github/workflows/**'] },
-  { label: 'Environment files', patterns: ['**/.env*'] },
-  { label: 'Keys and certificates', patterns: ['**/*.pem', '**/*.key'] },
-  { label: 'Lockfiles', patterns: ['**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/poetry.lock', '**/Cargo.lock', '**/go.sum'] },
-  { label: 'Migrations', patterns: ['**/migrations/**'] },
-  { label: 'Infrastructure', patterns: ['**/*.tf', '**/Dockerfile', '**/docker-compose*.yml'] },
-  { label: 'Code owners', patterns: ['**/CODEOWNERS'] }
-]);
-const SG_ICON = Object.freeze({
-  on: '<path d="M5 12.5l4.2 4.2L19 7"/>',
-  off: '<path d="M7 7l10 10M17 7L7 17"/>',
-  unknown: '<path d="M9.2 9.3a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.6M12 17.2v.1"/>',
-  snapshot: '<path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3v10.5H4z"/><circle cx="12" cy="13.3" r="3.3"/>',
-  recover: '<path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5"/><path d="M12 8v4.5l3 1.8"/>',
-  scan: '<path d="M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3z"/><path d="M9.3 12l2 2 3.5-3.8"/>',
-  activity: '<path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/>',
-  evidence: '<path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18M9.5 13l1.8 1.8 3.4-3.6"/>',
-  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.2 10.5V7.8a3.8 3.8 0 0 1 7.6 0v2.7"/>',
-  branch: '<circle cx="6.5" cy="5.5" r="2.2"/><circle cx="6.5" cy="18.5" r="2.2"/><circle cx="17.5" cy="8.5" r="2.2"/><path d="M6.5 7.7v8.6M17.5 10.7c0 3.3-3 4.3-8.8 5.4"/>',
-  out: '<path d="M14 4h6v6M20 4l-8.5 8.5M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'
+const fileIndex = createFileIndex({
+  api: path => api(path),
+  work: () => state.work,
+  held: () => state.fileIndex,
+  hold: files => { state.fileIndex = files; }
 });
-const sgSvg = (name, cls = 'sg-ico') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${SG_ICON[name]}</svg>`;
-let branchRulesCache = { key: '', at: 0, value: null };
-
-async function sgFileIndex() {
-  if (Array.isArray(state.fileIndex)) return state.fileIndex;
-  try {
-    const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
-    state.fileIndex = out.files;
-  } catch { return null; }
-  return state.fileIndex;
-}
-function sgMatchCount(patterns, files) {
-  if (!Array.isArray(files)) return null;
-  return files.filter(file => patterns.some(pattern => protectedPatternMatch(pattern, file))).length;
-}
-function sgLastSnapshot() {
-  try {
-    const snap = JSON.parse(localStorage.getItem('nv_snap_' + safetyKey()) || 'null');
-    return snap && snap.capturedAt ? snap.capturedAt : null;
-  } catch { return null; }
-}
-async function sgBranchRules(force) {
-  const key = `${safetyKey()}@${state.work.branch}`;
-  if (!force && branchRulesCache.key === key && Date.now() - branchRulesCache.at < 60000) return branchRulesCache.value;
-  const value = await api(`/api/repo/${wPath()}/branch-protection?branch=${encodeURIComponent(state.work.branch)}`)
-    .catch(error => ({ error: error.message || 'The provider did not answer.' }));
-  branchRulesCache = { key, at: Date.now(), value };
-  return value;
-}
-function sgPosture(rules, safety, protectedCount, snapshotAt) {
-  if (rules && !rules.error) {
-    const on = id => (rules.controls.find(control => control.id === id) || {}).state === 'on';
-    if (!rules.protected) return { tone: 'open', word: 'Unprotected branch' };
-    if (on('review') && on('force-push') && on('deletion')) {
-      return protectedCount && snapshotAt ? { tone: 'good', word: 'Guarded' } : { tone: 'part', word: 'Mostly guarded' };
-    }
-    return { tone: 'part', word: 'Partly guarded' };
-  }
-  return { tone: 'part', word: 'Branch rules unread' };
-}
-function sgRulesHTML(rules) {
-  if (!rules) return '<p class="sg-muted sg-loading">Reading the provider’s rules…</p>';
-  if (rules.error) return `<p class="sg-muted">${esc(rules.error)}</p>`;
-  const rows = rules.controls.map(control => `<li class="sg-rule" data-state="${control.state === 'on' ? 'on' : control.state === 'off' ? 'off' : 'unknown'}">
-      <span class="sg-rule-glyph">${sgSvg(control.state === 'on' ? 'on' : control.state === 'off' ? 'off' : 'unknown')}</span>
-      <span class="sg-rule-text"><span class="sg-rule-name">${esc(control.label)}</span>${control.detail && !/administration access/.test(control.detail) ? `<span class="sg-rule-detail">${esc(control.detail)}</span>` : ''}</span>
-    </li>`).join('');
-  const partial = rules.access === 'partial' ? '<p class="sg-note">Some rules need administration access to read; those show a question mark, never a tick.</p>' : '';
-  const link = rules.settingsUrl && /^https:\/\//.test(rules.settingsUrl)
-    ? `<a class="sg-link" href="${esc(rules.settingsUrl)}" target="_blank" rel="noopener noreferrer">Branch settings ${sgSvg('out', 'sg-ico sg-ico-sm')}</a>` : '';
-  return `<ul class="sg-rules">${rows}</ul>${partial}<div class="sg-card-foot"><span class="sg-muted">${rules.sources.length ? esc(rules.sources.join(' · ')) : rules.protected ? 'Protected' : 'No rule covers this branch'}</span>${link}</div>`;
-}
+/*
+ * Safeguards (features/safeguards/safeguards-screen.ts, safeguards-view.ts): the
+ * posture, this app's switches beside the provider's rules, the locked paths
+ * with their presets, and the recovery tools, drawn for the repository open.
+ */
+const safeguards = createSafeguards({
+  root: () => $('#safeguardsRoot'),
+  work: () => state.work,
+  record: () => state.safety,
+  safety,
+  files: () => fileIndex.load(),
+  api: path => api(path),
+  toast: (message, kind) => toast(message, kind),
+  ago: iso => timeAgo(iso),
+  stored: name => { try { return localStorage.getItem(name); } catch { return null; } },
+  capabilities: root => CapabilityUI.apply(root),
+  flows: {
+    snapshot: () => snapshotFlow(),
+    recover: () => recoveryFlow(),
+    scan: () => securityScanFlow(),
+    activity: () => exportActivityFlow(),
+    evidence: () => exportEvidenceFlow()
+  },
+  activeElement: () => document.activeElement,
+  focusFree: () => !document.activeElement || document.activeElement === document.body,
+  escapeSelector: value => CSS.escape(value),
+  now: () => Date.now()
+});
 /*
  * Safeguards is a section of the workbench, not a dialog over it: a reader
  * working through Audit and Exposure reaches it the same way, its address is
@@ -2558,158 +2514,7 @@ function openSafeguards() {
   if (pages.current() !== 'work') showPage('work');
   switchTab('safeguards');
 }
-let safeguardsRender = 0;
-async function renderSafeguards() {
-  const root = $('#safeguardsRoot');
-  if (!root || !state.work) return;
-  const generation = ++safeguardsRender;
-  const owns = () => generation === safeguardsRender && root.isConnected;
-  if (!root.children.length) root.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  await refreshSafety();
-  if (!owns()) return;
-  const sf = state.safety || {};
-  const global = sf.globalControls !== false;
-  const prot = protectedList();
-  const snapshotAt = sgLastSnapshot();
-  const providerName = 'GitHub';
-  const switchRow = (id, on, title, text) => `<label class="sg-switch-row${global ? '' : ' is-managed'}">
-      <span class="sg-switch-text"><span class="sg-switch-title">${title}</span><span class="sg-switch-sub">${text}</span></span>
-      <input type="checkbox" role="switch" class="sg-switch" id="${id}" ${on ? 'checked' : ''} ${global ? '' : 'disabled'}>
-    </label>`;
-  /* Each tile names the capability that gates it, so a tile whose capability is not Supported is never drawn. */
-  const tiles = [
-    { id: 'sgSnap', feature: 'recovery', icon: 'snapshot', title: 'Emergency snapshot', sub: snapshotAt ? `Last ${timeAgo(snapshotAt)}` : 'None taken yet' },
-    { id: 'sgRecover', feature: 'recovery', icon: 'recover', title: 'Disaster recovery', sub: 'Preview, then restore refs' },
-    { id: 'sgScan', feature: 'dependency-audit', icon: 'scan', title: 'Security scan', sub: 'Dependencies and upload gate' },
-    { id: 'sgActivity', feature: 'governance', icon: 'activity', title: 'Export activity', sub: 'Commits, PRs, issues, releases' },
-    { id: 'sgEvidence', feature: 'governance', icon: 'evidence', title: 'Export evidence', sub: 'Signed, verifiable package' }
-  ].map(tile => `<button type="button" class="sg-tile" id="${tile.id}" data-feature="${tile.feature}">
-      ${sgSvg(tile.icon, 'sg-ico sg-tile-ico')}<span class="sg-tile-title">${tile.title}</span><span class="sg-tile-sub">${esc(tile.sub)}</span></button>`).join('');
-  /* Focus survives a redraw: the control the reader just used is the one that has it afterwards. */
-  const focusedId = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id || document.activeElement.dataset.preset : '';
-  root.innerHTML = `<div class="sg sg-page">
-      <section class="sg-posture" data-tone="part" aria-live="polite">
-        <span class="sg-posture-mark">${sgSvg('scan', 'sg-ico')}</span>
-        <div class="sg-posture-read"><p class="sg-posture-word" id="sgPostureWord">Reading…</p>
-          <p class="sg-posture-sub"><span class="mono">${esc(safetyKey())}</span> · <span class="mono">${esc(state.work.branch)}</span></p></div>
-        <dl class="sg-stats">
-          <div><dt>Branch rules</dt><dd id="sgStatRules">…</dd></div>
-          <div><dt>Locked paths</dt><dd>${prot.length}</dd></div>
-          <div><dt>Snapshot</dt><dd>${snapshotAt ? esc(timeAgo(snapshotAt)) : 'Never'}</dd></div>
-        </dl>
-      </section>
-      <div class="sg-grid">
-        <section class="sg-card" aria-labelledby="sgLocalHead">
-          <h3 class="sg-card-head" id="sgLocalHead">${sgSvg('lock')}In Nebulaverse-X</h3>
-          ${switchRow('sgReadOnly', sf.readOnly, 'Read-only mode', 'Refuse every commit, upload, delete, merge and reset.')}
-          ${switchRow('sgFreeze', sf.freezeSync, 'Freeze scheduled sync', 'Pause queued and automatic syncs; manual sync still works.')}
-          ${global ? '' : '<p class="sg-note">Set by the deployment in the hosted alpha; protected paths below are yours to change.</p>'}
-        </section>
-        <section class="sg-card" aria-labelledby="sgProviderHead" id="sgProvider">
-          <div class="sg-card-row"><h3 class="sg-card-head" id="sgProviderHead">${sgSvg('branch')}On ${esc(providerName)} · <span class="mono">${esc(state.work.branch)}</span></h3>
-            <button type="button" class="btn btn-ghost small" id="sgRulesRefresh">Read again</button></div>
-          <div id="sgRules">${sgRulesHTML(null)}</div>
-        </section>
-      </div>
-      <section class="sg-card sg-paths" aria-labelledby="sgPathsHead">
-        <div class="sg-card-row"><h3 class="sg-card-head" id="sgPathsHead">${sgSvg('lock')}Locked paths <span class="sg-count">${prot.length}</span></h3><span class="sg-muted" id="sgFilesNote"></span></div>
-        <p class="sg-muted sg-lede">Nebulaverse-X refuses to change these, on the server, until they are unlocked.</p>
-        <div class="sg-presets" role="group" aria-label="Lock a common set">${SAFEGUARD_PRESETS.map((preset, index) => {
-          const done = preset.patterns.every(pattern => prot.includes(pattern));
-          return `<button type="button" class="sg-preset" data-preset="${index}" ${done ? 'disabled aria-pressed="true"' : 'aria-pressed="false"'} title="${esc(preset.patterns.join('  '))}">
-            ${sgSvg(done ? 'on' : 'lock', 'sg-ico sg-ico-sm')}<span>${esc(preset.label)}</span><span class="sg-preset-n" data-preset-n="${index}"></span></button>`;
-        }).join('')}</div>
-        <div class="sg-add"><input id="sgProtectPattern" type="text" placeholder="A file, folder or pattern, e.g. config/**" autocomplete="off" spellcheck="false" aria-label="Path or pattern to lock"><button type="button" class="btn btn-ghost small" id="sgAddProtect">Lock</button></div>
-        ${prot.length
-          ? `<ul class="sg-locked">${prot.map((pattern, index) => `<li class="sg-lock-row"><span class="mono sg-lock-pattern">${esc(pattern)}</span><span class="sg-lock-n" data-lock-n="${index}"></span><button type="button" class="btn btn-ghost small sg-unlock" data-unlock="${index}" aria-label="Unlock ${esc(pattern)}">Unlock</button></li>`).join('')}</ul>`
-          : '<p class="sg-empty">Nothing locked yet. Start with a preset, or lock a file from its menu in the tree.</p>'}
-      </section>
-      <section class="sg-actions" aria-labelledby="sgToolsHead">
-        <h3 class="sg-card-head sg-tools-head" id="sgToolsHead">${sgSvg('recover')}Recovery and evidence</h3>
-        <div class="sg-tiles">${tiles}</div>
-      </section>
-    </div>`;
-  /* Bound in the same turn as the markup: no control is ever on screen without its handler. */
-  CapabilityUI.apply(root);
-  const bind = (id, fn) => { const el = root.querySelector('#' + id); if (el) el.addEventListener('click', fn); };
-  const ro = root.querySelector('#sgReadOnly'), fz = root.querySelector('#sgFreeze');
-  if (ro) ro.addEventListener('change', async () => { if (!(await setSafety({ readOnly: ro.checked }))) ro.checked = !ro.checked; });
-  if (fz) fz.addEventListener('change', async () => { if (!(await setSafety({ freezeSync: fz.checked }))) fz.checked = !fz.checked; });
-  bind('sgSnap', () => snapshotFlow());
-  bind('sgActivity', () => exportActivityFlow());
-  bind('sgRecover', () => recoveryFlow());
-  bind('sgScan', () => securityScanFlow());
-  bind('sgEvidence', () => exportEvidenceFlow());
-  const lock = async patterns => {
-    const repo = safetyKey();
-    for (const pattern of patterns) {
-      if (protectedList().includes(pattern)) continue;
-      if (!(await setSafety({ protect: { repo, path: pattern, on: true } }))) return false;
-    }
-    return true;
-  };
-  bind('sgAddProtect', async () => {
-    const input = root.querySelector('#sgProtectPattern'); const pattern = input && input.value.trim().replace(/^\/+/, '');
-    if (!pattern) return toast('Enter a file, folder or wildcard pattern', 'err');
-    if (await lock([pattern])) { toast(`${pattern} locked`, 'ok'); renderSafeguards(); }
-  });
-  const input = root.querySelector('#sgProtectPattern');
-  if (input) input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); root.querySelector('#sgAddProtect').click(); } });
-  root.querySelectorAll('[data-preset]').forEach(control => control.addEventListener('click', async () => {
-    const preset = SAFEGUARD_PRESETS[Number(control.dataset.preset)];
-    if (!preset) return;
-    control.disabled = true;
-    if (await lock(preset.patterns)) { toast(`${preset.label} locked`, 'ok'); renderSafeguards(); }
-    else control.disabled = false;
-  }));
-  root.querySelectorAll('[data-unlock]').forEach(control => control.addEventListener('click', async () => {
-    const pattern = prot[Number(control.dataset.unlock)];
-    if (!pattern) return;
-    control.disabled = true;
-    if (await setSafety({ protect: { repo: safetyKey(), path: pattern, on: false } })) { toast(`${pattern} unlocked`, 'ok'); renderSafeguards(); }
-    else control.disabled = false;
-  }));
-  if (focusedId) {
-    const again = root.querySelector(`#${CSS.escape(focusedId)}`) || root.querySelector(`[data-preset="${CSS.escape(focusedId)}"]`) || root.querySelector('#sgProtectPattern');
-    if (again && !again.disabled) again.focus({ preventScroll: true });
-  }
-  /* How much each preset and lock would cover, once the file list is in hand. */
-  sgFileIndex().then(files => {
-    if (!owns() || !Array.isArray(files)) return;
-    const note = root.querySelector('#sgFilesNote');
-    if (note) note.textContent = `${files.length.toLocaleString()} files on ${state.work.branch}`;
-    SAFEGUARD_PRESETS.forEach((preset, index) => {
-      const slot = root.querySelector(`[data-preset-n="${index}"]`);
-      if (slot) slot.textContent = String(sgMatchCount(preset.patterns, files));
-    });
-    prot.forEach((pattern, index) => {
-      const slot = root.querySelector(`[data-lock-n="${index}"]`);
-      if (!slot) return;
-      const n = sgMatchCount([pattern], files);
-      slot.textContent = n === 1 ? '1 file' : `${n} files`;
-      slot.dataset.zero = n ? 'false' : 'true';
-    });
-  });
-  /* The provider's rules, and the posture they decide. */
-  const paintRules = rules => {
-    if (!owns()) return;
-    const host = root.querySelector('#sgRules');
-    if (host) host.innerHTML = sgRulesHTML(rules);
-    const stat = root.querySelector('#sgStatRules');
-    if (stat) stat.textContent = rules && !rules.error ? `${rules.enforced} of ${rules.controls.length}` : '—';
-    const posture = sgPosture(rules, sf, prot.length, snapshotAt);
-    const section = root.querySelector('.sg-posture');
-    if (section) section.dataset.tone = posture.tone;
-    const word = root.querySelector('#sgPostureWord');
-    if (word) word.textContent = posture.word;
-  };
-  bind('sgRulesRefresh', () => {
-    const host = root.querySelector('#sgRules');
-    if (host) host.innerHTML = sgRulesHTML(null);
-    sgBranchRules(true).then(paintRules);
-  });
-  sgBranchRules(false).then(paintRules);
-}
+function renderSafeguards(options) { return safeguards.render(options); }
 async function moveFolderFlow(dirPath) {
   const ok = await modal({
     title: 'Rename / move folder',
@@ -3506,13 +3311,7 @@ async function openPalette() {
   const inp = $('#paletteInput');
   inp.value = ''; renderPalette('');
   setTimeout(() => inp.focus({ preventScroll: true }), 50);
-  if (!state.fileIndex) {
-    try {
-      const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
-      state.fileIndex = out.files;
-      if (overlayOpen($('#paletteScrim'))) renderPalette(inp.value);
-    } catch { state.fileIndex = []; }
-  }
+  if (!state.fileIndex && (await fileIndex.load()) && overlayOpen($('#paletteScrim'))) renderPalette(inp.value);
 }
 function closePalette() {
   const scrim = $('#paletteScrim');

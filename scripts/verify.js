@@ -418,7 +418,7 @@ must(migrationSql.includes('nv_governance_reject_history_mutation') && migration
 /* That a protection holds in every session of the identity is test/composition-postgres.test.js's, as is the runner applying every migration. */
 must(migrationSql.includes('nv_schema_migrations') === false, 'The numbered migration runner keeps the migration record; no migration may');
 /* The activity export's CSV defuses a cell a spreadsheet would run: test/e2e/activity-export.spec.js reads the file. */
-must(app.includes('protectedPatternMatch') && app.includes('sgProtectPattern'), 'Wildcard protected-path UI is missing');
+/* Wildcard locks -- a pattern read as the server reads it, and the field that locks one -- are test/page-safety.test.js's and test/page-safeguards.test.js's; test/e2e/safeguards.spec.js locks one by pattern. */
 const neural = read('apps/web/src/visualizations/neural.js');
 /* "Explain this connection": the shortest chain of relations (features/neural/graph-path.ts) is test/neural-graph-interaction.test.js's, and the dialog it opens test/e2e/neural-safety.spec.js's. */
 /* The verified live stream -- an EventSource the map calls live only once it is ready, and opens again on return -- is test/pulsar-reliability.test.js's; its words, test/neural-graph-panels.test.js's. */

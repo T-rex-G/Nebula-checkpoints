@@ -396,7 +396,7 @@ export function createExposure(deps: ExposureDeps): ExposureController {
     });
     deps.render();
     try {
-      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${fingerprint}/verify`, {
+      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${encodeURIComponent(fingerprint)}/verify`, {
         method: 'POST',
         body: { confirm: 'use-this-credential', authorized: true }
       });
@@ -441,7 +441,7 @@ export function createExposure(deps: ExposureDeps): ExposureController {
     });
     deps.render();
     try {
-      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${fingerprint}/accept-risk`, { method: 'POST' });
+      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${encodeURIComponent(fingerprint)}/accept-risk`, { method: 'POST' });
       /* Recorded on the finding's own repository either way, so its posture is read again. */
       if (!holds(held, scopeKey)) { deps.invalidatePosture(); return; }
       merge(held, fingerprint, field(body, 'finding'));
@@ -485,7 +485,7 @@ export function createExposure(deps: ExposureDeps): ExposureController {
     });
     deps.render();
     try {
-      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${fingerprint}/probe-readability`, {
+      const body = await deps.api(`/api/repo/${deps.path()}/exposure/findings/${encodeURIComponent(fingerprint)}/probe-readability`, {
         method: 'POST',
         body: { confirm: 'contact-this-project', authorized: true, relation, projection }
       });

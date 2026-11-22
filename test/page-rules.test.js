@@ -462,7 +462,6 @@ const HANDOFFS = Object.freeze({
   'CodeMirror.findModeByFileName <- file': 'reads the file\'s path, a string',
   'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
-  'exposureView.tally <- exposure': 'reads the findings, their counts and which are open into the tally and the open-all control, changing nothing (features/exposure/exposure-view.ts)',
   'greeting <- me': 'reads the reader\'s name or login, strings, into the overview\'s greeting (features/overview/overview-core.ts)',
   'isProtectedBranch <- work': 'finds the named branch in the repository\'s list and reads whether it is protected, changing nothing (repository-branches.ts\'s branchProtected)',
   'limitsKnown <- runtime': 'reads the four limits, numbers, into a flag (features/access/login-screen.ts\'s runtimeLimitsKnown)',

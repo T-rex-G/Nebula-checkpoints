@@ -70,6 +70,7 @@ import { createFilesPanel } from '../features/workbench/files-panel.ts';
 import { DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, historyPreferred, ruleLabel as exposureRuleLabel } from '../features/exposure/exposure-words.ts';
 import { createExposure } from '../features/exposure/exposure-controller.ts';
 import { createExposureView } from '../features/exposure/exposure-view.ts';
+import { bindExposureControls } from '../features/exposure/exposure-controls.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1287,7 +1288,6 @@ const exposureView = createExposureView({
   timers: { set: (run, ms) => setTimeout(run, ms), clear: handle => clearTimeout(handle) }
 });
 function renderExposure() { exposureView.render(); }
-function renderExposureTally(current) { exposureView.tally(current); }
 function announceExposure(message) { exposureView.announce(message); }
 function exposureScopeKey() { return exposureView.scopeKey(); }
 
@@ -1295,24 +1295,9 @@ function clearExposureState() { exposureScreen.clear(); }
 
 function exposureHistoryPreferred() { return historyPreferred(() => localStorage); }
 
-function toggleAllExposureFindings() { exposureScreen.toggleAll(); }
-
-/* ---- The history ------------------------------------------------------- */
-
-function loadExposureHistory(options) { return exposureScreen.loadHistory(options); }
-function loadExposureReport(scanId) { return exposureScreen.loadReport(scanId); }
-function clearExposureHistory() { return exposureScreen.clearHistory(); }
-
-
 function exportExposure(kind) { return exposureScreen.exportFindings(kind); }
 function filterExposure() { exposureScreen.filter(); }
 function loadExposure(options) { return exposureScreen.load(options); }
-function refreshExposureScan(current) { return exposureScreen.refreshScan(current); }
-function verifyExposureFinding(fingerprint) { return exposureScreen.verify(fingerprint); }
-function acceptExposureRisk(fingerprint) { return exposureScreen.accept(fingerprint); }
-function probeExposureReadability(fingerprint) { return exposureScreen.probe(fingerprint); }
-function requestExposureScan() { return exposureScreen.request(); }
-function cancelExposureScan() { return exposureScreen.cancel(); }
 
 governance.wire($('#govRoot'));
 
@@ -3542,85 +3527,30 @@ function switchTab(name) {
 }
 $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
-{
-  const scanBtn = $('#exposureScanBtn');
-  if (scanBtn) scanBtn.addEventListener('click', () => { void requestExposureScan(); });
-  const refreshBtn = $('#exposureRefreshBtn');
-  if (refreshBtn) refreshBtn.addEventListener('click', () => {
-    const scan = exposureState().scan;
-    if (scan && ['queued', 'running'].includes(scan.state)) void refreshExposureScan();
-    else void loadExposure({ filterOnly: true });
-  });
-  const cancelBtn = $('#exposureCancelBtn');
-  if (cancelBtn) cancelBtn.addEventListener('click', () => { void cancelExposureScan(); });
-  const expandAll = $('#exposureExpandAllBtn');
-  if (expandAll) expandAll.addEventListener('click', toggleAllExposureFindings);
-  const clearBtn = $('#exposureClearBtn');
-  if (clearBtn) clearBtn.addEventListener('click', () => { void clearExposureHistory(); });
-  const moreBtn = $('#exposureHistoryMoreBtn');
-  if (moreBtn) moreBtn.addEventListener('click', () => { void loadExposureHistory({ more: true }); });
-  const depth = $('#exposureHistoryToggle');
-  if (depth) {
-    depth.addEventListener('change', () => {
-      try { localStorage.setItem('nv_exposure_history', depth.checked ? '1' : '0'); } catch { /* the default stands */ }
-    });
-  }
-  /*
-   * `toggle` does not bubble, so these listen in the capture phase. They only
-   * record what is open -- re-rendering from inside a toggle would rebuild
-   * the element that fired it.
-   */
-  const historyHost = $('#exposureHistory');
-  if (historyHost) {
-    historyHost.addEventListener('toggle', event => {
-      const details = event.target;
-      if (!(details instanceof HTMLDetailsElement) || !details.dataset.scanId) return;
-      const current = exposureState();
-      if (details.open) {
-        pageStore.mutate('exposure', () => { current.openScans.add(details.dataset.scanId); });
-        if (!current.reports[details.dataset.scanId]) void loadExposureReport(details.dataset.scanId);
-      } else {
-        pageStore.mutate('exposure', () => { current.openScans.delete(details.dataset.scanId); });
-      }
-    }, true);
-  }
-  /* Delegated, because the list is rebuilt on every render. */
-  const list = $('#exposureList');
-  if (list) {
-    list.addEventListener('toggle', event => {
-      const details = event.target;
-      if (!(details instanceof HTMLDetailsElement) || !details.dataset.fingerprint) return;
-      const current = exposureState();
-      if (details.open) pageStore.mutate('exposure', () => { current.expanded.add(details.dataset.fingerprint); });
-      else pageStore.mutate('exposure', () => { current.expanded.delete(details.dataset.fingerprint); });
-      renderExposureTally(current);
-    }, true);
-    list.addEventListener('click', event => {
-      const verify = event.target.closest('.exposure-verify');
-      if (verify) return void verifyExposureFinding(verify.dataset.fingerprint);
-      const accept = event.target.closest('.exposure-accept');
-      if (accept) return void acceptExposureRisk(accept.dataset.fingerprint);
-      const probe = event.target.closest('.exposure-probe');
-      if (probe) return void probeExposureReadability(probe.dataset.fingerprint);
-    });
-    /*
-     * Typed values live in state rather than in the DOM, because the list is
-     * rebuilt on every render and a half-typed table name would otherwise
-     * vanish the moment anything else on the screen changed. Nothing
-     * re-renders on a keystroke, so the field keeps focus.
-     */
-    list.addEventListener('input', event => {
-      const field = event.target.closest('.exposure-probe-input');
-      if (!field) return;
-      const current = exposureState();
-      const draft = current.probeDrafts[field.dataset.fingerprint] || { relation: '', columns: '' };
-      pageStore.mutate('exposure', () => {
-        draft[field.dataset.field] = field.value;
-        current.probeDrafts[field.dataset.fingerprint] = draft;
-      });
-    });
-  }
-}
+/*
+ * The Exposure screen's controls (features/exposure/exposure-controls.ts):
+ * scan, retry, cancel, open all, clear and older scans, the history-depth
+ * preference, and the lists' disclosures, presses and typed questions.
+ */
+bindExposureControls({
+  $: selector => $(selector),
+  current: () => exposureState(),
+  mutate: change => pageStore.mutate('exposure', change),
+  tally: current => exposureView.tally(current),
+  request: () => exposureScreen.request(),
+  refreshScan: () => exposureScreen.refreshScan(),
+  load: options => loadExposure(options),
+  cancel: () => exposureScreen.cancel(),
+  toggleAll: () => exposureScreen.toggleAll(),
+  clearHistory: () => exposureScreen.clearHistory(),
+  loadHistory: options => exposureScreen.loadHistory(options),
+  loadReport: scanId => exposureScreen.loadReport(scanId),
+  verify: fingerprint => exposureScreen.verify(fingerprint),
+  accept: fingerprint => exposureScreen.accept(fingerprint),
+  probe: fingerprint => exposureScreen.probe(fingerprint),
+  remember: (key, value) => localStorage.setItem(key, value),
+  isDisclosure: target => target instanceof HTMLDetailsElement
+});
 
 $('#bottomNav').addEventListener('click', e => {
   const btn = e.target.closest('button');

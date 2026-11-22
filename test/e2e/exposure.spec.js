@@ -1374,3 +1374,36 @@ test('a paged list loads its next page from where the last one ended', async ({ 
   await expect(page.locator('#exposureShown')).toContainText('2 of 2 matching findings loaded');
   await expect(more).toBeHidden();
 });
+
+/*
+ * A typed question is kept under its own finding. The readability fields
+ * were once kept under whatever a finding's fingerprint answered to, so one
+ * named `__proto__` wrote the typed table into every object on the page.
+ */
+test('a question typed for a finding is kept under that finding and reaches no other object', async ({ page }) => {
+  await mockExposure(page, { findings: [anonKeyFinding({ fingerprint: '__proto__' })] });
+  await openExposure(page);
+  await expandFindings(page);
+  const table = page.locator('.exposure-probe-input[data-field="relation"]');
+  await table.fill('profiles');
+  await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
+  expect(await page.evaluate(() => [({}).relation, ({}).columns, Object.relation])).toEqual([null, null, null].map(() => undefined));
+  await page.locator('#exposureExpandAllBtn').click();
+  await expandFindings(page);
+  await expect(table).toHaveValue('profiles');
+});
+
+/*
+ * A check goes to the finding pressed. A fingerprint was put into the check's
+ * address as it came, so one carrying a slash or a dot segment sent the
+ * check, the acceptance or the question to another address.
+ */
+test('a check goes to the finding pressed, whatever its fingerprint holds', async ({ page }) => {
+  const state = await mockExposure(page, { findings: [finding({ fingerprint: 'x/../y' })] });
+  await openExposure(page);
+  await expandFindings(page);
+  const verify = page.locator('.exposure-verify');
+  await verify.click();
+  await verify.click();
+  await expect.poll(() => state.requests.filter(line => line.startsWith('POST'))).toEqual(['POST /api/repo/acme/demo/exposure/findings/x%2F..%2Fy/verify']);
+});

@@ -497,6 +497,20 @@ check('a project is asked only with a table and columns typed, as typed, on the 
   assert.strictEqual(stale.says().pop(), 'Previous readability result expired or has no check time. Check again for current evidence.');
 });
 
+check('a finding\u2019s fingerprint is one segment of every address it goes into', async () => {
+  const odd = 'x/../y?z#w';
+  for (const [act, tail] of [['verify', 'verify'], ['accept', 'accept-risk'], ['probe', 'probe-readability']]) {
+    const h = harness();
+    h.x.current().findings = [finding(odd)];
+    h.x.current().probeDrafts = { [odd]: { relation: 'profiles', columns: 'id' } };
+    await h.x[act](odd);
+    const done = h.x[act](odd);
+    assert.deepStrictEqual(h.asked(), [`/api/repo/octo/repo/exposure/findings/x%2F..%2Fy%3Fz%23w/${tail}`], act);
+    await h.answer(new RegExp(`${tail}$`), {});
+    await done;
+  }
+});
+
 check('a scan is requested for the branch open, with history as chosen, and shown first in the history', async () => {
   const h = harness({ readsHistory: false });
   h.x.current().scopeKey = 'github:octo/repo';

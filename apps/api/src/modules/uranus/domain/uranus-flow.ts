@@ -2355,6 +2355,21 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
     if (!limit && ceiling !== Infinity && heapUsed() > ceiling) limit = 'memory';
     return Boolean(limit);
   };
+  const lexical = analyseLexicalFlows(files, sources, cfamily, maxBytes, late);
+  const { routes, settled, stats } = lexical;
+  const jsSources = sources.filter(file => JS_FILE.test(file.path));
+  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? analyseSemanticFlows(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE) : null;
+  if (semantic) stats.semantic = semantic.stats;
+  const flows = dedupe(semantic?.flows ?? lexical.flows);
+  stats.routes = routes.length;
+  stats.flows = flows.length;
+  stats.helpers = flows.filter(flow => flow.viaHelper).length;
+  if (stats.cut || (semantic && !semantic.stats.complete && limit)) stats.limit = limit;
+  return { flows, routes, settled, stats, ...(semantic && { semanticLeads: semantic.leads, semanticSites: semantic.sites }) };
+}
+
+/* Release token trees and per-function caches before constructing the compiler project. */
+function analyseLexicalFlows(files: readonly FlowFile[], sources: ReadableFile[], cfamily: ReadableFile[], maxBytes: number, late: () => boolean) {
   const program = new Program(sources);
   const stats: FlowStats = { javascript: 0, python: 0, go: 0, java: 0, php: 0, functions: 0, routes: 0, flows: 0, helpers: 0, cut: 0 };
   const counted = new Map<string, { language: FileContext['language']; functions: number }>();
@@ -2445,15 +2460,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
     flows = [...flows, ...other.flows].sort(byFile);
     routes = [...routes, ...other.routes].sort(byFile);
   }
-  const jsSources = sources.filter(file => JS_FILE.test(file.path));
-  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? analyseSemanticFlows(jsSources, flows, late, MAX_FLOWS_PER_FILE) : null;
-  if (semantic) { flows = semantic.flows; stats.semantic = semantic.stats; }
-  flows = dedupe(flows);
-  stats.routes = routes.length;
-  stats.flows = flows.length;
-  stats.helpers = flows.filter(flow => flow.viaHelper).length;
-  if (stats.cut || (semantic && !semantic.stats.complete && limit)) stats.limit = limit;
-  return { flows, routes, settled, stats, ...(semantic && { semanticLeads: semantic.leads, semanticSites: semantic.sites }) };
+  return { flows, routes, settled, stats };
 }
 
 /* One flow per rule and sink line: several sources into one call are one finding with the first trace. */

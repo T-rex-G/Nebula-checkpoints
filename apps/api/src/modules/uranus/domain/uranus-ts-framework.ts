@@ -3,9 +3,10 @@
  * and actual module specifiers to distinguish a platform operation from a lookalike. */
 import ts from 'typescript';
 import { htmlTextPieces } from './uranus-sanitise.ts';
-import { globalName, importOrigin, initializer, member, reassigned, unwrap, valueDeclaration } from './uranus-ts-symbols.ts';
+import { htmlInvocation } from './uranus-ts-methods.ts';
+import { constantText, globalName, importOrigin, initializer, member, methodReplaced, reassigned, unwrap, valueDeclaration } from './uranus-ts-symbols.ts';
 
-type BrowserRole = 'window' | 'document' | 'element' | 'frame' | 'raw-text-element' | 'range' | 'location' |
+type BrowserRole = 'window' | 'document' | 'element' | 'frame' | 'raw-text-element' | 'range' | 'dom-parser' | 'location' |
   'external-url' | 'external-search' | 'input-element' | 'message';
 type FrameworkRole = 'route' | 'snapshot' | 'params' | 'param-map' | 'sanitizer' |
   'declared-route' | 'declared-snapshot' | 'declared-params' | 'declared-param-map';
@@ -14,11 +15,12 @@ type InputModel = 'input' | 'possible-input';
 type ValueModel = InputModel | 'encoded-text' | 'scalar';
 
 export interface SemanticSink {
+  readonly site?: ts.Node;
   readonly value: ts.Expression;
   readonly additionalValues?: readonly ts.Expression[];
   readonly kind: 'dom' | 'html';
   readonly context: 'markup' | 'text';
-  readonly policy: 'trust-boundary' | 'unknown-receiver' | null;
+  readonly policy: 'trust-boundary' | 'unknown-receiver' | 'detached-document' | null;
   readonly label: string;
 }
 
@@ -58,13 +60,13 @@ function callbackRole(declaration: ts.Declaration | null, checker: ts.TypeChecke
   if ((!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) || fn.parameters[0] !== declaration) return null;
   const call = fn.parent;
   if (!ts.isCallExpression(call)) return null;
-  const method = member(call.expression);
+  const method = member(call.expression, checker);
   if (!method) return null;
   if (method.name === 'addEventListener' && call.arguments[1] === fn && call.arguments[0] &&
       ts.isStringLiteralLike(call.arguments[0]) && call.arguments[0].text === 'message' &&
       roleOf(method.base, checker, depth + 1) === 'window') return 'message';
   if (method.name !== 'subscribe' || call.arguments[0] !== fn) return null;
-  const property = member(method.base);
+  const property = member(method.base, checker);
   if (!property) return null;
   const route = roleOf(property.base, checker, depth + 1);
   if (route !== 'route' && route !== 'declared-route') return null;
@@ -91,7 +93,7 @@ function roleOf(expression: ts.Expression, checker: ts.TypeChecker, depth = 0): 
     const callback = callbackRole(decl, checker, depth);
     if (callback) return callback;
   }
-  const prop = member(node);
+  const prop = member(node, checker);
   if (prop) {
     const host = roleOf(prop.base, checker, depth + 1);
     if (host === 'window') {
@@ -112,7 +114,7 @@ function roleOf(expression: ts.Expression, checker: ts.TypeChecker, depth = 0): 
     if (host === 'external-url' && prop.name === 'searchParams') return 'external-search';
   }
   if (ts.isCallExpression(node)) {
-    const callee = member(node.expression);
+    const callee = member(node.expression, checker);
     if (callee) {
       const host = roleOf(callee.base, checker, depth + 1);
       if (host === 'document') {
@@ -130,9 +132,18 @@ function roleOf(expression: ts.Expression, checker: ts.TypeChecker, depth = 0): 
       if (argument?.package === '@angular/platform-browser' && argument.name === 'DomSanitizer') return 'sanitizer';
     }
   }
-  if (ts.isNewExpression(node) && node.arguments?.[0] && inputOf(node.arguments[0], checker, depth + 1) === 'input') {
-    if (globalName(node.expression, 'URLSearchParams', checker)) return 'external-search';
-    if (globalName(node.expression, 'URL', checker)) return 'external-url';
+  if (ts.isNewExpression(node)) {
+    const constructor = unwrap(node.expression);
+    if (!node.arguments?.length) {
+      if (globalName(constructor, 'DOMParser', checker)) return 'dom-parser';
+      const qualified = member(constructor, checker);
+      if (qualified?.name === 'DOMParser' && !methodReplaced(constructor, qualified.base, 'DOMParser', checker) &&
+          roleOf(qualified.base, checker, depth + 1) === 'window') return 'dom-parser';
+    }
+    if (node.arguments?.[0] && inputOf(node.arguments[0], checker, depth + 1) === 'input') {
+      if (globalName(constructor, 'URLSearchParams', checker)) return 'external-search';
+      if (globalName(constructor, 'URL', checker)) return 'external-url';
+    }
   }
   return null;
 }
@@ -140,7 +151,7 @@ function roleOf(expression: ts.Expression, checker: ts.TypeChecker, depth = 0): 
 function inputOf(expression: ts.Expression, checker: ts.TypeChecker, depth: number): InputModel | null {
   if (depth > MODULE_DEPTH) return null;
   const node = unwrap(expression);
-  const prop = member(node);
+  const prop = member(node, checker);
   if (prop) {
     const host = roleOf(prop.base, checker, depth + 1);
     if ((host === 'location' || host === 'external-url') && LOCATION_DATA.has(prop.name)) return 'input';
@@ -157,7 +168,7 @@ function inputOf(expression: ts.Expression, checker: ts.TypeChecker, depth: numb
     if (host === 'declared-params') return 'possible-input';
   }
   if (ts.isCallExpression(node)) {
-    const method = member(node.expression);
+    const method = member(node.expression, checker);
     if (method && method.name === 'get' && node.arguments.length === 1) {
       const host = roleOf(method.base, checker, depth + 1);
       if (host === 'param-map' || host === 'external-search') return 'input';
@@ -254,14 +265,14 @@ function ordinaryData(base: ts.Expression, key: string, checker: ts.TypeChecker)
     expression.properties.some(item => item.name && (ts.isIdentifier(item.name) || ts.isStringLiteralLike(item.name)) && item.name.text === key);
 }
 
-function writtenMember(node: ts.Node) {
+function writtenMember(node: ts.Node, checker: ts.TypeChecker) {
   if (!ts.isBinaryExpression(node) || ![ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken,
     ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken].includes(node.operatorToken.kind)) return null;
-  return member(node.left);
+  return member(node.left, checker);
 }
 
 export function isOrdinaryHtmlReceiver(node: ts.Node, checker: ts.TypeChecker): boolean {
-  const prop = writtenMember(node);
+  const prop = writtenMember(node, checker);
   return !!(prop && ['innerHTML', 'outerHTML', 'srcdoc'].includes(prop.name) && ordinaryData(prop.base, prop.name, checker));
 }
 
@@ -306,36 +317,49 @@ function jsxMarkup(node: ts.Node): ts.Expression | null {
 
 export function semanticSink(node: ts.Node, checker: ts.TypeChecker): SemanticSink | null {
   if (ts.isBinaryExpression(node)) {
-    const prop = writtenMember(node);
+    const prop = writtenMember(node, checker);
     if (!prop || !['innerHTML', 'outerHTML', 'srcdoc'].includes(prop.name) || ordinaryData(prop.base, prop.name, checker)) return null;
     const role = roleOf(prop.base, checker);
     const supported = prop.name === 'srcdoc' ? role === 'frame' : element(role);
     if (role && !supported) return null;
-    return { value: node.right, kind: 'dom', context: role === 'raw-text-element' || !textContext(node.right) ? 'markup' : 'text',
+    return { site: prop.key, value: node.right, kind: 'dom', context: role === 'raw-text-element' || !textContext(node.right) ? 'markup' : 'text',
       policy: supported ? null : 'unknown-receiver', label: 'HTML property assignment' };
   }
   if (ts.isCallExpression(node)) {
-    const method = member(node.expression);
-    if (!method) return null;
-    const first = node.arguments[0];
+    const call = htmlInvocation(node, checker);
+    if (!call) return null;
+    const { method, site, args } = call;
+    const first = args[0];
     if (!first) return null;
-    if (!['bypassSecurityTrustHtml', 'insertAdjacentHTML', 'setHTMLUnsafe', 'createContextualFragment', 'write', 'writeln'].includes(method.name)) return null;
-    const role = roleOf(method.base, checker);
+    const role = roleOf(call.receiver, checker);
+    if (call.bound) {
+      const original = roleOf(method.base, checker);
+      if (!role || !original || (role !== original && !(element(role) && element(original)))) return null;
+    }
+    if (method.name === 'parseFromString') {
+      // The HTML parser returns a detached, inert document. Rendering needs a
+      // separate adoption step; parsing on its own is a trust-boundary review.
+      return role === 'dom-parser' && args[1] && constantText(args[1], checker) === 'text/html' ?
+        { site, value: first, kind: 'dom', context: 'markup', policy: 'detached-document', label: 'detached HTML document parser' } : null;
+    }
     if (method.name === 'bypassSecurityTrustHtml') {
-      return role === 'sanitizer' ? { value: first, kind: 'dom', context: 'markup', policy: 'trust-boundary', label: 'explicit framework HTML trust' } : null;
+      return role === 'sanitizer' ? { site, value: first, kind: 'dom', context: 'markup', policy: 'trust-boundary', label: 'explicit framework HTML trust' } : null;
     }
     if (method.name === 'write' || method.name === 'writeln') {
-      return role === 'document' ? { value: first, additionalValues: node.arguments.slice(1), kind: 'dom', context: 'markup',
+      return role === 'document' ? { site, value: first, additionalValues: args.slice(1), kind: 'dom', context: 'markup',
         policy: null, label: 'document HTML stream' } : null;
     }
     if (method.name === 'createContextualFragment') {
-      return role === 'range' ? { value: first, kind: 'dom', context: 'markup', policy: null, label: 'HTML fragment parser' } : null;
+      return role === 'range' ? { site, value: first, kind: 'dom', context: 'markup', policy: null, label: 'HTML fragment parser' } : null;
     }
-    const value = method.name === 'insertAdjacentHTML' ? node.arguments[1] : first;
+    const value = method.name === 'insertAdjacentHTML' ? args[1] : first;
     if (!value || (role && !element(role))) return null;
-    if (method.name === 'insertAdjacentHTML' && ts.isStringLiteralLike(first) && !RELATIVE_POSITIONS.has(first.text.toLowerCase())) return null;
+    if (method.name === 'insertAdjacentHTML') {
+      const position = constantText(first, checker);
+      if (position !== null ? !RELATIVE_POSITIONS.has(position.toLowerCase()) : call.bound) return null;
+    }
     if (ordinaryData(method.base, method.name, checker)) return null;
-    return { value, kind: 'dom', context: role === 'raw-text-element' || !textContext(value) ? 'markup' : 'text',
+    return { site, value, kind: 'dom', context: role === 'raw-text-element' || !textContext(value) ? 'markup' : 'text',
       policy: element(role) ? null : 'unknown-receiver', label: 'element HTML parser' };
   }
   const value = jsxMarkup(node);

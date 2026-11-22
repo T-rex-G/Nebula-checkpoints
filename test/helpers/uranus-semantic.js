@@ -149,6 +149,20 @@ function checkSemanticAnalysis(analyse) {
   assert.equal(actualRenderer.length, 1);
   assert.equal(actualRenderer[0].verdict, 'needs-validation', 'a real renderer still needs review for the same opaque return');
 
+  const tagged = source(browser,
+    'const transform = catalog.loadTag();',
+    'const heading = catalog.currentTitle;',
+    'document.body.setHTMLUnsafe(transform`<b>${heading}</b>`);',
+    'const supplied = window.location.search;',
+    'const markup = transform`<b>${supplied}</b>`;',
+    'document.body.setHTMLUnsafe(markup);');
+  const tags = analyse({ files: [tagged] });
+  assert.equal(tags.engine.traced.semantic.complete, false);
+  assert.equal(findingsAt(tags, browser, 3).length, 0);
+  const uncertainTag = checkedFlow(tags, browser, 6, browser, 4);
+  assert.equal(uncertainTag.verdict, 'needs-validation');
+  assert.match(uncertainTag.blocker, /template tag/);
+
   const dense = analyse({ files: [source(browser, ...Array.from({ length: 44 }, () =>
     'document.body.setHTMLUnsafe(window.location.hash);'))] });
   assert.equal(dense.engine.traced.semantic.truncatedFiles, 1);

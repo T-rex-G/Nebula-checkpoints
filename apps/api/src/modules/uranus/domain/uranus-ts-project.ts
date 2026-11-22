@@ -100,6 +100,7 @@ function typeOnlyReference(literal: ts.StringLiteralLike): boolean {
 function callerRoots(roots: string[], sources: ReadonlyMap<string, SourceText>, ordered: readonly string[],
   stop: () => boolean, skipped: Set<string>): string[] {
   const callers = new Map<string, Set<string>>();
+  const found = new Set(roots);
   let indexBytes = 0, indexed = 0;
   for (const path of ordered) {
     if (stop()) break;
@@ -112,6 +113,9 @@ function callerRoots(roots: string[], sources: ReadonlyMap<string, SourceText>, 
     }
     indexed++;
     indexBytes += bytes;
+    // An edge ending at an admitted caller cannot grow the reverse closure.
+    // A relative specifier starts with a literal dot or uses a character escape.
+    if (found.has(path) || !/['"`]\.|\\/.test(file.text)) continue;
     for (const ref of ts.preProcessFile(file.text, true, true).importedFiles) {
       const target = localModule(ref.fileName, path, sources)?.resolvedFileName;
       if (!target) continue;
@@ -120,7 +124,6 @@ function callerRoots(roots: string[], sources: ReadonlyMap<string, SourceText>, 
       from.add(path);
     }
   }
-  const found = new Set(roots);
   const selected = [...roots];
   for (let i = 0; i < selected.length && !stop(); i++) {
     for (const path of callers.get(selected[i] ?? '') ?? []) {
@@ -222,7 +225,9 @@ export function buildSemanticProject(
       attempts++;
       totalBytes += bytes;
       try {
-        const source = ts.createSourceFile(key, file.text, target, true);
+        // The compiler binds parent links after admission. An eager recursive
+        // parent walk duplicates that work and runs before our depth check.
+        const source = ts.createSourceFile(key, file.text, target, false);
         // The pinned compiler records parser recovery on the source before binding.
         if ('parseDiagnostics' in source && Array.isArray(source.parseDiagnostics) && source.parseDiagnostics.length) {
           skipped.add(key); return undefined;

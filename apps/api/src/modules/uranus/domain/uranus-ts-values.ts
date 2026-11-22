@@ -12,11 +12,15 @@ export interface SemanticValue {
   readonly steps?: readonly ts.Node[];
   readonly conditional?: boolean;
   readonly truth?: boolean;
+  readonly atom?: string | number | boolean | null;
   readonly plain?: boolean;
   readonly reason?: string;
+  readonly project?: (name: string, depth: number) => SemanticValue;
 }
 const unknown: SemanticValue = { kind: 'unknown' };
 const unresolvedCall: SemanticValue = { kind: 'unknown', reason: 'unresolved-call' };
+const unresolvedTag: SemanticValue = { kind: 'unknown', reason: 'unresolved-tag' };
+const unresolvedMember: SemanticValue = { kind: 'unknown', reason: 'unresolved-member' };
 const literal: SemanticValue = { kind: 'literal' };
 const undefinedValue: SemanticValue = { kind: 'literal', truth: false, plain: true, reason: 'undefined' };
 const scalar: SemanticValue = { kind: 'scalar' };
@@ -44,31 +48,12 @@ interface Definition {
 type RuntimeFunction = ts.FunctionLikeDeclaration & { body: ts.ConciseBody };
 
 function through(value: SemanticValue, node: ts.Node): SemanticValue {
+  const project = value.project;
+  if (project) return { ...value, project: (name, depth) => through(project(name, depth), node) };
   if (value.kind !== 'input') return value;
   const prior = value.steps ?? [];
   if (prior.includes(node) || prior.length >= 10 || node === value.origin) return value;
   return { ...value, steps: [...prior, node] };
-}
-
-/* A join represents alternatives. A concrete input on only one arm remains a
- * witness, with its conditional status carried through every caller. */
-function alternatives(values: readonly SemanticValue[]): SemanticValue {
-  if (!values.length) return unknown;
-  const witness = values.find(value => value.kind === 'input');
-  if (witness) {
-    const conditional = values.some(value => value.kind !== 'input' || value.conditional);
-    return conditional ? { ...witness, conditional: true } : witness;
-  }
-  const first = values[0];
-  if (values.some(value => value.kind === 'unknown' && value.reason === 'unresolved-call')) return unresolvedCall;
-  if (first && values.every(value => value.kind === first.kind)) {
-    if (first.kind === 'literal' || first.kind === 'scalar') return { kind: first.kind,
-      truth: values.every(value => value.truth === first.truth) ? first.truth : undefined, plain: values.every(value => value.plain),
-      reason: values.every(value => value.reason === first.reason) ? first.reason : undefined };
-    return first;
-  }
-  if (values.every(value => value.kind === 'literal' || value.kind === 'scalar')) return literal;
-  return unknown;
 }
 
 function outerExpression(node: ts.Expression): ts.Expression {
@@ -109,7 +94,8 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   const definitions = new Map<ts.Symbol, Definition[]>();
   const calls = new Map<RuntimeFunction, ts.CallExpression[]>();
   const returns = new Map<RuntimeFunction, ts.ReturnStatement[]>();
-  const unsafeObjects = new Set<ts.Symbol>();
+  const references = new Map<ts.Symbol, ts.Identifier[]>();
+  const pathsBySymbol = new Map<ts.Symbol, Map<string, boolean>>();
   const dynamicScopes = new WeakSet<ts.Node>();
   const argumentsMayAlias = new WeakSet<ts.Node>();
   const active = new Set<ts.Node>();
@@ -123,6 +109,46 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   }
   function cutoff(): SemanticValue { limited = true; return unknown; }
   const control = controlReader(visit);
+
+  /* A join represents alternatives. A concrete input on only one arm remains a
+   * witness, with its conditional status carried through every caller. */
+  function alternatives(values: readonly SemanticValue[]): SemanticValue {
+    if (!values.length) return unknown;
+    const witness = values.find(value => value.kind === 'input');
+    if (witness) {
+      const source = values.find(value => value.kind === 'input' && value.reason === 'unverified-tag') ??
+        values.find(value => value.kind === 'input' && !value.conditional) ?? witness;
+      const conditional = values.some(value => value.kind !== 'input' || value.conditional || value.origin !== source.origin);
+      return conditional ? { ...source, conditional: true } : source;
+    }
+    const first = values[0];
+    if (values.some(value => value.project)) {
+      if (values.length === 1 && first) return first;
+      return { kind: 'unknown', truth: values.every(value => value.truth === true) ? true : undefined,
+        project(name, depth) {
+            if (depth >= MAX_DEPTH || !visit()) return cutoff();
+            const fields: SemanticValue[] = [];
+            for (const value of values) {
+              if (!visit()) return cutoff();
+              fields.push(value.project?.(name, depth + 1) ?? unknown);
+            }
+            return alternatives(fields);
+          } };
+    }
+    if (values.some(value => value.reason === 'unresolved-tag')) return unresolvedTag;
+    if (values.some(value => value.kind === 'unknown' && value.reason === 'unresolved-call')) return unresolvedCall;
+    if (values.some(value => value.reason === 'unresolved-member'))
+      return values.every(value => value.reason === 'unresolved-member' || value.kind === 'literal' || value.kind === 'scalar') ? unresolvedMember : unknown;
+    if (first && values.every(value => value.kind === first.kind)) {
+      if (first.kind === 'literal' || first.kind === 'scalar') return { kind: first.kind,
+        truth: values.every(value => value.truth === first.truth) ? first.truth : undefined, plain: values.every(value => value.plain),
+        atom: values.every(value => value.atom === first.atom) ? first.atom : undefined,
+        reason: values.every(value => value.reason === first.reason) ? first.reason : undefined };
+      return first;
+    }
+    if (values.every(value => value.kind === 'literal' || value.kind === 'scalar')) return literal;
+    return unknown;
+  }
 
   function symbol(node: ts.Node): ts.Symbol | undefined {
     let id = checker.getSymbolAtLocation(node);
@@ -240,8 +266,6 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
         const list = returns.get(fn) ?? [];
         list.push(node); returns.set(fn, list);
       } else if (ts.isCallExpression(node)) callSites.push(node);
-      // A member read from a fresh const object is stable only while neither
-      // the object nor its members escape or change.
       if (ts.isIdentifier(node)) {
         if (node.text === 'arguments' && !checker.getSymbolAtLocation(node)?.declarations?.length) {
           const base = outerExpression(node), parent = base.parent;
@@ -255,12 +279,11 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
         const id = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
           ? checker.getShorthandAssignmentValueSymbol(node.parent) : symbol(node);
         const decl = id?.valueDeclaration;
-        if (id && decl && ts.isVariableDeclaration(decl) && decl.initializer && ts.isObjectLiteralExpression(unwrap(decl.initializer))
+        if (id && decl && (ts.isVariableDeclaration(decl) || ts.isParameter(decl) || ts.isBindingElement(decl) || ts.isFunctionDeclaration(decl))
             && node !== decl.name) {
-          const base = outerExpression(node), parent = base.parent;
-          const propertyRead = (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === base;
-          const destructure = ts.isVariableDeclaration(parent) && parent.initializer === base && ts.isObjectBindingPattern(parent.name);
-          if (!destructure && (!propertyRead || writeOrEscape(parent))) unsafeObjects.add(id);
+          const list = references.get(id) ?? [];
+          if (list.length <= MAX_DEFINITIONS) list.push(node);
+          references.set(id, list);
         }
       }
       ts.forEachChild(node, child => { stack.push({ node: child, fn }); });
@@ -287,6 +310,17 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
       const inner = truth(node.operand, env, depth + 1);
       return inner === undefined ? undefined : !inner;
     }
+    if (env.size && ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)) {
+      const atom = (operand: ts.Expression) => {
+        const value = unwrap(operand), direct = primitive(value);
+        if (direct !== undefined) return direct;
+        return !active.has(value) && (ts.isIdentifier(value) || member(value)) ? read(value, env, depth + 1).atom : undefined;
+      };
+      const left = atom(node.left), right = atom(node.right);
+      if (left !== undefined && right !== undefined) return node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? left === right : left !== right;
+    }
+    if (env.size && member(node) && !active.has(node)) return read(node, env, depth + 1).truth;
     if (!ts.isIdentifier(node)) return undefined;
     const id = symbol(node), decl = id?.valueDeclaration;
     if (!id || !decl) return undefined;
@@ -313,32 +347,110 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     return remaining ?? facts.tests;
   }
 
-  function field(object: ts.Expression, key: string, env: Environment, depth: number): SemanticValue {
-    let node = unwrap(object);
-    if (ts.isIdentifier(node)) {
-      const id = symbol(node), decl = id?.valueDeclaration;
-      if (!id || unsafeObjects.has(id) || !decl || !ts.isVariableDeclaration(decl) || !decl.initializer ||
-          dynamicScopes.has(control.facts(decl).owner) ||
-          (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Export) ||
-          !ts.isVariableDeclarationList(decl.parent) || !(decl.parent.flags & ts.NodeFlags.Const)) return unknown;
-      node = unwrap(decl.initializer);
-      if (ts.isObjectLiteralExpression(node) && node.properties.some(p => !ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p)))
-        return unknown;
+  /** A property proof requires a fresh data object and read-only uses of every
+   * alias along that path. Passing the selected scalar onwards cannot modify
+   * the slot. Passing its containing object to unknown code can. */
+  function readOnly(id: ts.Symbol | undefined, path: readonly string[], seen: ReadonlySet<ts.Symbol>, depth: number): boolean {
+    if (!id || seen.has(id) || depth >= MAX_DEPTH || !visit()) return false;
+    const decl = id.valueDeclaration;
+    if (!decl || dynamicScopes.has(control.facts(decl).owner) || (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Export) ||
+        definitions.get(id)?.some(write => write.node !== decl) || (ts.isParameter(decl) && argumentsMayAlias.has(decl.parent))) return false;
+    const uses = references.get(id) ?? [];
+    if (uses.length > MAX_DEFINITIONS) { cutoff(); return false; }
+    const next = new Set(seen).add(id);
+    return uses.every(use => readOnlyUse(use, path, next, depth + 1));
+  }
+
+  function bindingReads(name: ts.BindingName, path: readonly string[], seen: ReadonlySet<ts.Symbol>, depth: number): boolean {
+    if (ts.isIdentifier(name)) return readOnly(symbol(name), path, seen, depth + 1);
+    if (!ts.isObjectBindingPattern(name)) return false;
+    for (const element of name.elements) {
+      const key = element.propertyName ? staticName(element.propertyName) : ts.isIdentifier(element.name) ? element.name.text : undefined;
+      if (key === undefined || element.dotDotDotToken) return false;
+      if (key === path[0] && path.length > 1 && !bindingReads(element.name, path.slice(1), seen, depth + 1)) return false;
     }
-    if (!ts.isObjectLiteralExpression(node)) return unknown;
-    for (let i = node.properties.length - 1; i >= 0; i--) {
-      const prop = node.properties[i];
-      if (!prop || ts.isSpreadAssignment(prop) || !prop.name) return unknown;
-      const name = staticName(prop.name);
-      if (name === undefined) return unknown;
-      if (name !== key) continue;
-      if (ts.isPropertyAssignment(prop)) return read(prop.initializer, env, depth + 1);
-      if (ts.isShorthandPropertyAssignment(prop)) {
-        const id = checker.getShorthandAssignmentValueSymbol(prop);
-        if (id) return reaching(id, prop.name, env, depth + 1);
+    return true;
+  }
+
+  function readOnlyUse(value: ts.Expression, path: readonly string[], seen: ReadonlySet<ts.Symbol>, depth: number): boolean {
+    if (depth >= MAX_DEPTH || !visit()) return false;
+    let node = outerExpression(value), remaining = path, diverged = false;
+    while ((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.expression === node) {
+      const access = member(node.parent);
+      if (!access) return false;
+      if (remaining.length) {
+        if (access.name !== remaining[0]) diverged = true;
+        remaining = remaining.slice(1);
       }
-      return unknown;
+      node = outerExpression(node.parent);
     }
+    if (writeOrEscape(node)) return false;
+    if (diverged || !remaining.length) return true;
+    const parent = node.parent;
+    if (ts.isVariableDeclaration(parent) && parent.initializer === node && ts.isVariableDeclarationList(parent.parent) &&
+        (parent.parent.flags & ts.NodeFlags.Const)) return bindingReads(parent.name, remaining, seen, depth);
+    if (ts.isCallExpression(parent) && !parent.arguments.some(ts.isSpreadElement)) {
+      const fn = target(parent.expression), position = parent.arguments.indexOf(node);
+      const formal = fn?.parameters[position];
+      return !!formal && !formal.dotDotDotToken && bindingReads(formal.name, remaining, seen, depth);
+    }
+    if (ts.isShorthandPropertyAssignment(parent) || (ts.isPropertyAssignment(parent) && parent.initializer === node)) {
+      const key = staticName(parent.name);
+      return key !== undefined && readOnlyUse(parent.parent, [key, ...remaining], seen, depth + 1);
+    }
+    if (ts.isReturnStatement(parent) || (ts.isArrowFunction(parent) && parent.body === node)) {
+      const fn = ts.isArrowFunction(parent) ? parent : control.facts(parent).owner;
+      if (!runtimeFunction(fn) || !hasBody(fn)) return false;
+      const declaration = ts.isFunctionDeclaration(fn) ? fn : ts.isVariableDeclaration(fn.parent) ? fn.parent : undefined;
+      const name = declaration?.name;
+      if (!declaration || !name || !ts.isIdentifier(name) || (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export)) return false;
+      const id = symbol(name), sites = calls.get(fn) ?? [];
+      const refs = id && references.get(id);
+      if (!id || seen.has(id) || !refs || refs.length > MAX_DEFINITIONS || refs.length !== sites.length) return false;
+      const next = new Set(seen).add(id);
+      return refs.every(ref => {
+        const callee = outerExpression(ref), call = callee.parent;
+        return ts.isCallExpression(call) && call.expression === callee && readOnlyUse(call, remaining, next, depth + 1);
+      });
+    }
+    return false;
+  }
+
+  function protect(value: SemanticValue, id: ts.Symbol, prefix: readonly string[] = []): SemanticValue {
+    const project = value.project;
+    if (!project) return value;
+    return { kind: 'unknown', truth: value.truth, project(name, depth) {
+      if (depth >= MAX_DEPTH || !visit()) return cutoff();
+      const path = [...prefix, name], key = JSON.stringify(path);
+      const cache = pathsBySymbol.get(id) ?? new Map<string, boolean>();
+      let safe = cache.get(key);
+      if (safe === undefined) {
+        safe = readOnly(id, path, new Set(), 0);
+        cache.set(key, safe); pathsBySymbol.set(id, cache);
+      }
+      return safe ? protect(project(name, depth + 1), id, path) : unknown;
+    } };
+  }
+
+  function record(node: ts.ObjectLiteralExpression, env: Environment): SemanticValue {
+    if (node.properties.length > MAX_DEFINITIONS) return cutoff();
+    const fields = new Map<string, ts.Expression>();
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) return unknown;
+      const name = staticName(property.name);
+      if (name === undefined || name === '__proto__') return unknown;
+      fields.set(name, ts.isPropertyAssignment(property) ? property.initializer : property.name);
+    }
+    return { kind: 'unknown', truth: true, project(name, depth) {
+      const field = fields.get(name);
+      return field ? read(field, env, depth + 1) : unknown;
+    } };
+  }
+
+  function field(object: ts.Expression, key: string | undefined, env: Environment, depth: number): SemanticValue {
+    const base = unwrap(object), value = read(base, env, depth + 1);
+    if (key !== undefined && value.project) return value.project(key, depth + 1);
+    if (value.reason === 'unresolved-member' || (ts.isIdentifier(base) && !checker.getSymbolAtLocation(base))) return unresolvedMember;
     return unknown;
   }
 
@@ -450,7 +562,10 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   function concatenate(parts: readonly SemanticValue[], text: readonly string[] | undefined): SemanticValue {
     const source = parts.find(value => value.kind === 'input');
     if (source) return source;
+    if (parts.some(v => v.reason === 'unresolved-tag')) return unresolvedTag;
     if (parts.some(v => v.reason === 'unresolved-call')) return unresolvedCall;
+    if (parts.some(v => v.reason === 'unresolved-member') &&
+        parts.every(v => v.reason === 'unresolved-member' || v.kind === 'literal' || v.kind === 'scalar')) return unresolvedMember;
     if (parts.every(v => v.kind === 'literal' || v.kind === 'scalar')) return literal;
     if (text && htmlTextPieces(text) && parts.every(v => v.kind === 'encoded-text' || v.kind === 'scalar' || v.plain)) return { kind: 'encoded-text' };
     return unknown;
@@ -483,7 +598,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
           args.set(key, through(defaulted(value, param.initializer, args, depth), node));
         }
       }
-      if (!ts.isBlock(fn.body)) return through(read(fn.body, args, depth + 1), node);
+      if (!ts.isBlock(fn.body)) return through(through(read(fn.body, args, depth + 1), fn.body), node);
       const values: SemanticValue[] = [];
       const exits = returns.get(fn) ?? [];
       if (exits.length > MAX_DEFINITIONS) return cutoff();
@@ -497,7 +612,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
               control.exits(parent.finallyBlock, 0, decides)) break;
           point = parent;
         }
-        if (point === fn) values.push(ret.expression ? read(ret.expression, args, depth + 1) : undefinedValue);
+        if (point === fn) values.push(ret.expression ? through(read(ret.expression, args, depth + 1), ret) : undefinedValue);
       }
       if (!control.exits(fn.body, 0, decides)) values.push(undefinedValue);
       return through(alternatives(values), node);
@@ -507,7 +622,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   function defaulted(value: SemanticValue, fallback: ts.Expression | undefined, env: Environment, depth: number) {
     if (!fallback) return value;
     if (value.reason === 'undefined') return read(fallback, env, depth + 1);
-    return value.kind === 'unknown' || (value.kind === 'literal' && value.truth === undefined)
+    return (value.kind === 'unknown' && value.truth !== true) || (value.kind === 'literal' && value.truth === undefined)
       ? alternatives([value, read(fallback, env, depth + 1)]) : value;
   }
 
@@ -526,19 +641,28 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
 
   function evaluate(node: ts.Expression, env: Environment, depth: number): SemanticValue {
     const constant = primitive(node);
-    if (constant !== undefined) return { kind: 'literal', truth: !!constant, plain: typeof constant !== 'string' || /^[a-z0-9 _.-]*$/i.test(constant) };
+    if (constant !== undefined) return { kind: 'literal', atom: constant, truth: !!constant,
+      plain: typeof constant !== 'string' || /^[a-z0-9 _.-]*$/i.test(constant) };
     if (ts.isBigIntLiteral(node)) return literal;
     const modeled = frameworkValue(node, checker);
     if (modeled === 'possible-input') return { kind: 'input', origin: node, conditional: true, reason: 'declared-input' };
     if (modeled) return modeled === 'input' ? { kind: 'input', origin: node } : { kind: modeled };
     if (semanticRequestInput(node, checker)) return { kind: 'input', origin: node };
+    if (ts.isObjectLiteralExpression(node)) return record(node, env);
     if (ts.isIdentifier(node)) {
       const id = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ?
         checker.getShorthandAssignmentValueSymbol(node.parent) : symbol(node);
       if (node.text === 'undefined' && !checker.getSymbolAtLocation(node)?.declarations?.length) return undefinedValue;
-      return id ? reaching(id, node, env, depth + 1) : unknown;
+      return id ? protect(reaching(id, node, env, depth + 1), id) : unknown;
     }
-    if (ts.isTaggedTemplateExpression(node)) return unresolvedCall;
+    if (ts.isTaggedTemplateExpression(node)) {
+      if (!ts.isTemplateExpression(node.template)) return unresolvedTag;
+      for (const span of node.template.templateSpans) {
+        const part = read(span.expression, env, depth + 1);
+        if (part.kind === 'input') return through({ ...part, conditional: true, reason: 'unverified-tag' }, node);
+      }
+      return unresolvedTag;
+    }
     if (ts.isCallExpression(node)) return invocation(node, env, depth);
     if (ts.isConditionalExpression(node)) {
       const selected = truth(node.condition, env, depth + 1);
@@ -572,6 +696,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node) || ts.isTypeOfExpression(node)) return scalar;
     const access = member(node);
     if (access) return field(access.base, access.name, env, depth + 1);
+    if (ts.isElementAccessExpression(node)) return field(node.expression, undefined, env, depth + 1);
     return unknown;
   }
 

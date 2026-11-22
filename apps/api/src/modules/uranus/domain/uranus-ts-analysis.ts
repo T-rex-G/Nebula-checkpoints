@@ -9,7 +9,7 @@ import { createSemanticReader, type SemanticValue } from './uranus-ts-values.ts'
 import type { FlowFile, FlowRecord, TracedFlowRecord } from './uranus-flow.ts';
 import type { Step } from './uranus-cfamily.ts';
 
-export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input';
+export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document';
 export interface SemanticStats {
   files: number;
   nodes: number;
@@ -89,10 +89,13 @@ function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 
     const path = pathOf(step), at = lineOf(step);
     if (trace.some(s => s.path === path && s.line === at)) continue;
     if (trace.length >= 5) break;
-    trace.push({ path, line: at, role: 'propagation', note: 'the symbol or call carries the value' });
+    const note = ts.isTaggedTemplateExpression(step) && value.reason === 'unverified-tag'
+      ? 'a template tag received this value as a substitution' : 'the symbol or call carries the value';
+    trace.push({ path, line: at, role: 'propagation', note });
   }
   trace.push({ path, line, role: 'sink', note: label });
-  const reason = blocker ?? (value.reason === 'declared-input' ? 'declared-input' : value.conditional ? 'conditional' : null);
+  const valueReason = value.reason === 'declared-input' || value.reason === 'unverified-tag' ? value.reason : null;
+  const reason = blocker ?? valueReason ?? (value.conditional ? 'conditional' : null);
   return { rule: kind === 'sql' ? 'SEC-001' : 'SEC-002', kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
     source: 'a modeled application input', verdict: reason ? 'needs-validation' : 'confirmed',
     blocker: reason ? { reason } : null, trace, viaHelper: trace.some(step => step.path !== path) ? 'file' : null };
@@ -119,7 +122,8 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     stats.unresolvedImports = project.unresolvedImports;
     const checker = project.checker;
     if (!checker) return { flows: legacy, sites, leads, stats };
-    const reader = createSemanticReader(checker, project.pathOf, stop, project.files);
+    let reader: ReturnType<typeof createSemanticReader> | undefined;
+    const values = () => reader ??= createSemanticReader(checker, project.pathOf, stop, project.files);
     let visited = 0, interrupted = false;
     for (const file of project.files) {
       const path = project.pathOf(file);
@@ -142,19 +146,20 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
           const sourceLine = keyOf(path, lineOf(root));
           (globalName(root, root.text, checker) ? ambient : shadowed).add(sourceLine);
         }
-        const sink = semanticSink(node, checker);
-        if (sink || isOrdinaryHtmlReceiver(node, checker)) {
-          const line = observeLine(file, nameOfSite(node), path, lines);
-          if (sink && reader.reachable(node)) {
+        const sink = ts.isBinaryExpression(node) || ts.isCallExpression(node) || ts.isJsxAttribute(node) ? semanticSink(node, checker) : null;
+        if (sink || (ts.isBinaryExpression(node) && isOrdinaryHtmlReceiver(node, checker))) {
+          const line = observeLine(file, sink?.site ?? nameOfSite(node), path, lines);
+          if (sink && values().reachable(node)) {
             for (const expression of [sink.value, ...(sink.additionalValues || [])]) {
-              const value = reader.read(expression);
+              const value = values().read(expression);
               if (value.kind === 'literal' || value.kind === 'scalar' || value.kind === 'trusted-html' ||
                   (value.kind === 'encoded-text' && sink.context === 'text')) continue;
               line.safe = false;
               const obstacle = sink.policy;
-              // When both the receiver and a transform's implementation are unknown,
-              // the compiler has no evidence that this expression passes unchecked data to a renderer.
-              if (obstacle === 'unknown-receiver' && value.reason === 'unresolved-call') {
+              // An opaque tag without a witnessed substitution supplies no origin.
+              // An opaque call on an unresolved rendering boundary also lacks a witness.
+              if (value.reason === 'unresolved-tag' || (obstacle === 'unknown-receiver' &&
+                  (value.reason === 'unresolved-call' || value.reason === 'unresolved-member'))) {
                 stats.unresolvedOperations++;
                 continue;
               }
@@ -169,9 +174,9 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
           }
         }
         const sql = ts.isCallExpression(node) && semanticSqlSink(node, checker);
-        if (sql && reader.reachable(node)) {
+        if (sql && values().reachable(node)) {
           const at = lineOf(nameOfSite(node));
-          const flow = traced(reader.read(sql), path, at, 'sql', 'used as database statement text', null, project.pathOf);
+          const flow = traced(values().read(sql), path, at, 'sql', 'used as database statement text', null, project.pathOf);
           if (flow && admit('SEC-001', at)) analyzed.push(flow);
         }
         ts.forEachChild(node, visitNode);
@@ -180,7 +185,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
       if (truncated) stats.truncatedFiles++;
       if (interrupted) break;
     }
-    inspected = !project.incomplete && !interrupted && !reader.limited() && !stats.truncatedFiles;
+    inspected = !project.incomplete && !interrupted && !reader?.limited() && !stats.truncatedFiles;
     stats.complete = inspected && !stats.unresolvedOperations;
   } catch (error) {
     // A compiler or traversal failure never discards findings from the other analysis.
@@ -204,8 +209,13 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     if (!entry) return true;
     const sourceLine = keyOf(entry.path, entry.line);
     if (flow.source === 'the page’s URL' && shadowed.has(sourceLine) && !ambient.has(sourceLine)) return false;
-    return line.operations !== 1 || !line.flows.some(replacement => replacement.verdict === 'needs-validation' &&
-      replacement.trace[0]?.path === entry.path && replacement.trace[0]?.line === entry.line);
+    if (line.operations !== 1) return true;
+    return !line.flows.some(replacement => {
+      if (replacement.trace[0]?.path !== entry.path || replacement.trace[0]?.line !== entry.line) return false;
+      if (replacement.verdict === 'needs-validation') return true;
+      return replacement.verdict === flow.verdict && replacement.trace.some(step =>
+        step.role === 'propagation' && step.path !== flow.path && !flow.trace.some(old => old.path === step.path && old.line === step.line));
+    });
   });
   return { flows: [...kept, ...analyzed], sites, leads, stats };
 }

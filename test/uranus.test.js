@@ -446,5 +446,7 @@ function surfaceOf(files) {
 
 require('./helpers/uranus-semantic').checkSemanticAnalysis(audit.analyse);
 require('./helpers/uranus-semantic-sql').checkSemanticSql(audit.analyse);
+require('./helpers/uranus-semantic-records').checkSemanticRecords(audit.analyse);
+require('./helpers/uranus-semantic-methods').checkSemanticMethods(audit.analyse);
 
 console.log('uranus tests passed');

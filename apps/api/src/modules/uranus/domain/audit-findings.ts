@@ -242,6 +242,16 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'detached-document':
+      return {
+        blocker: 'The HTML parser creates a detached document. A rendering use has yet to be established.',
+        check: 'Follow the returned document and check whether its nodes are later inserted into a live page.'
+      };
+    case 'unverified-tag':
+      return {
+        blocker: 'An external value enters a template tag whose returned content could not be resolved.',
+        check: 'Inspect how the tag uses the substitutions and encodes its return value for this operation.'
+      };
     case 'declared-input':
       return {
         blocker: 'The declared framework type identifies a possible input. The runtime provider is unresolved.',

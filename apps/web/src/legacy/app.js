@@ -71,6 +71,8 @@ import { DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, historyPreferred, rule
 import { createExposure } from '../features/exposure/exposure-controller.ts';
 import { createExposureView } from '../features/exposure/exposure-view.ts';
 import { bindExposureControls } from '../features/exposure/exposure-controls.ts';
+import { TREE_ICON, createFileTree } from '../features/workbench/file-tree.ts';
+import { createItemMenu } from '../features/workbench/item-menu.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1312,161 +1314,50 @@ async function refreshRate() {
 
 /* ---------------- tree ---------------- */
 /*
- * Which of the editor's two resting states applies. Kept beside the tree load
- * because the tree is the only thing that knows whether there is anything to
- * pick.
+ * The file tree (features/workbench/file-tree.ts): a folder read and drawn, a
+ * folder opened in place, a file opened, the editor told whether there is
+ * anything to pick; a reading for another repository, branch or a later read
+ * dropped. An entry's menu (features/workbench/item-menu.ts): open, rename,
+ * download, protect and delete, heard by that menu alone and carried out on
+ * the repository it was opened on.
  */
-function markEmptyRepository(bare) {
-  const pick = $('.editor-empty-pick');
-  const empty = $('.editor-empty-bare');
-  const visiting = $('.editor-empty-visitor');
-  if (!pick || !empty) return;
-  pick.hidden = bare;
-  /* Somebody else's repository is not the reader's to fill: it is told what there is, not what to add. */
-  empty.hidden = !bare || visitingRepository();
-  if (visiting) visiting.hidden = !bare || !visitingRepository();
-}
-
-/*
- * The tree's marks, drawn rather than typed.
- *
- * A directory used to be U+25B8 and a file U+00B7 -- a period, set at 15px in
- * the muted colour, against a column of filenames. It read as nothing, and
- * this is the control the workbench is navigated with. These follow the same
- * geometry as every other icon in the product: a 24 box, stroked, no fill.
- *
- * The directory chevron points right and is rotated by CSS when the row opens,
- * so the open and closed states are one mark in two positions rather than two
- * marks that have to be kept in agreement.
- */
-/* The marks for an empty list and beside a number are components/icons.ts's. */
-
-const TREE_ICON = Object.freeze({
-  dir: '<svg class="ti-mark ti-mark-dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
-  file: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5V8.5h5"/></svg>',
-  hit: '<svg class="ti-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>'
+const itemMenu = createItemMenu({
+  doc: document,
+  body: () => $('#modalBody'),
+  renameTo: () => $('#rnTo2').value,
+  modal: request => modal(request),
+  closeModal: confirmed => closeModal(confirmed),
+  capabilities: body => CapabilityUI.apply(body),
+  isProtected: path => isProtectedPath(path),
+  work: () => state.work,
+  api: (path, options) => api(path, options),
+  guardedWrite: extra => guardedWrite(extra),
+  rememberHead: commit => rememberHead(commit),
+  toast: (message, kind) => toast(message, kind),
+  openFile: path => openFile(path),
+  fileOpen: () => state.file,
+  closeFile: () => closeFile(),
+  reloadTree: () => reloadTree(),
+  deleteFolder: path => deleteFolderFlow(path),
+  moveFolder: path => moveFolderFlow(path),
+  toggleProtect: path => toggleProtect(path),
+  haptic: ms => hapt(ms),
+  timers: { set: (run, ms) => setTimeout(run, ms), clear: handle => clearTimeout(handle) }
 });
+const fileTree = createFileTree({
+  doc: document,
+  $: selector => $(selector),
+  rows: () => $$('.tree-item'),
+  api: path => api(path),
+  work: () => state.work,
+  visiting: () => visitingRepository(),
+  size: bytes => fmtSize(bytes),
+  attachMenu: (row, entry) => itemMenu.attach(row, entry),
+  openFile: path => openFile(path),
+  closeDrawer: () => closeDrawer()
+});
+function loadTree(dirPath, host, isRoot) { return fileTree.load(dirPath, host, isRoot); }
 
-async function loadTree(dirPath, host, isRoot) {
-  if (isRoot) host.innerHTML = '<div class="skeleton" style="height:160px"></div>';
-  try {
-    const items = await api(`/api/repo/${wPath()}/tree?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(dirPath)}`);
-    const frag = document.createDocumentFragment();
-    items.forEach((it, idx) => {
-      const row = document.createElement('div');
-      row.className = 'tree-item' + (it.type === 'dir' ? ' dir' : '');
-      row.style.animationDelay = Math.min(idx * 20, 240) + 'ms';
-      row.innerHTML = `<span class="ti-icon">${it.type === 'dir' ? TREE_ICON.dir : TREE_ICON.file}</span><span class="ti-name"></span>
-        ${it.type === 'file' ? `<span class="tree-size">${fmtSize(it.size)}</span>` : ''}`;
-      row.querySelector('.ti-name').textContent = it.name;
-      attachItemMenu(row, it);
-      if (it.type === 'dir') {
-        let open = false, sub = null;
-        row.addEventListener('click', async () => {
-          open = !open;
-          row.classList.toggle('open', open);
-          if (open && !sub) {
-            sub = document.createElement('div'); sub.className = 'tree-indent'; row.after(sub);
-            await loadTree(it.path, sub, false);
-          } else if (sub) sub.style.display = open ? '' : 'none';
-        });
-      } else {
-        row.addEventListener('click', () => {
-          $$('.tree-item').forEach(t => t.classList.remove('active'));
-          row.classList.add('active');
-          openFile(it.path);
-          closeDrawer();
-        });
-      }
-      frag.appendChild(row);
-    });
-    if (isRoot) host.innerHTML = '';
-    host.appendChild(frag);
-    if (isRoot && !items.length) host.innerHTML = '<div class="tree-item">Empty repository</div>';
-    /*
-     * The editor's resting state follows the tree. It reads "Pick a file from
-     * the constellation on the left" -- true with files, and an instruction
-     * that cannot be carried out without them, printed alongside a tree
-     * already saying the repository is empty.
-     */
-    if (isRoot) markEmptyRepository(!items.length);
-  } catch (e) { if (isRoot) host.innerHTML = `<div class="tree-item">⚠ ${esc(e.message)}</div>`; }
-}
-
-/* ---- item context menu (long-press on touch, right-click on desktop) ---- */
-let _lpTimer = null, _lpFired = false;
-function attachItemMenu(row, it) {
-  row.addEventListener('click', e => {
-    if (_lpFired) { e.stopImmediatePropagation(); e.preventDefault(); _lpFired = false; }
-  });
-  row.addEventListener('contextmenu', e => { e.preventDefault(); openItemMenu(it); });
-  row.addEventListener('touchstart', () => {
-    _lpFired = false;
-    _lpTimer = setTimeout(() => { _lpFired = true; hapt(14); openItemMenu(it); }, 520);
-  }, { passive: true });
-  ['touchend', 'touchmove', 'touchcancel'].forEach(ev =>
-    row.addEventListener(ev, () => clearTimeout(_lpTimer), { passive: true }));
-}
-function openItemMenu(it) {
-  const isDir = it.type === 'dir';
-  modal({
-    title: it.name + (isDir ? '/' : ''), okText: 'Close',
-    bodyHTML: `
-      ${isDir ? '' : `<button class="btn btn-ghost btn-block" data-mi="open" style="margin-top:0">Open in editor</button>
-      <button class="btn btn-ghost btn-block" data-mi="rename" data-feature="file.rename">Rename / move</button>
-      <button class="btn btn-ghost btn-block" data-mi="download">Download</button>`}
-      ${isDir ? '<button class="btn btn-ghost btn-block" data-mi="movedir" data-feature="folder.move">Rename / move folder…</button>'
-        : `<button class="btn btn-ghost btn-block" data-mi="protect">${isProtectedPath(it.path) ? 'Unprotect file' : 'Protect file'}</button>`}
-      <button class="btn btn-ghost btn-block danger" data-mi="delete" ${isDir ? 'style="margin-top:0"' : ''}>${isDir ? 'Delete folder…' : 'Delete file…'}</button>`
-  });
-  CapabilityUI.apply($('#modalBody'));
-  $('#modalBody').addEventListener('click', async e => {
-    const b = e.target.closest('[data-mi]');
-    if (!b) return;
-    const act = b.dataset.mi;
-    closeModal(false);
-    if (act === 'open') openFile(it.path);
-    else if (act === 'download') {
-      const a = document.createElement('a');
-      a.href = `/api/repo/${wPath()}/raw?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(it.path)}`;
-      a.download = it.name; document.body.appendChild(a); a.click(); a.remove();
-    }
-    else if (act === 'rename') {
-      const ok = await modal({
-        title: 'Rename / move',
-        bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${esc(it.path)}" spellcheck="false">`,
-        okText: 'Rename ✦'
-      });
-      if (!ok) return;
-      const to = $('#rnTo2').value.trim().replace(/^\/+/, '');
-      if (!to || to === it.path) return;
-      try {
-        const out = await api(`/api/repo/${wPath()}/rename`, { method: 'POST', body: guardedWrite({ from: it.path, to, branch: state.work.branch }) });
-        rememberHead(out.commit);
-        toast(`Renamed to ${to} ✦`, 'ok');
-        state.fileIndex = null; loadTree('', $('#tree'), true);
-      } catch (e2) { toast(e2.message, 'err'); }
-    }
-    else if (act === 'delete' && !isDir) {
-      const ok = await modal({
-        title: 'Delete file',
-        bodyHTML: `<p style="font-size:.9rem;line-height:1.5">Delete <b class="mono">${esc(it.path)}</b> from <b>${esc(state.work.branch)}</b>?</p>`,
-        okText: 'Delete', danger: true
-      });
-      if (!ok) return;
-      try {
-        const out = await api(`/api/repo/${wPath()}/file`, { method: 'DELETE', body: guardedWrite({ path: it.path, branch: state.work.branch, sha: it.sha }) });
-        rememberHead(out.commit);
-        toast('File deleted', 'ok');
-        if (state.file && state.file.path === it.path) closeFile();
-        state.fileIndex = null; loadTree('', $('#tree'), true);
-      } catch (e2) { toast(e2.message, 'err'); }
-    }
-    else if (act === 'delete' && isDir) deleteFolderFlow(it.path);
-    else if (act === 'movedir') moveFolderFlow(it.path);
-    else if (act === 'protect') toggleProtect(it.path);
-  }, { once: false });
-}
 /* ================= SAFEGUARDS ================= */
 function safetyKey() { return (state.work && state.work.owner) ? `${state.work.owner}/${state.work.repo}` : ''; }
 function protectedList() { return ((state.safety && state.safety.protected) || {})[safetyKey()] || []; }

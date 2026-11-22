@@ -39,14 +39,26 @@ test('the light follows a fine pointer, and only where one can hover', async ({ 
   await core.scrollIntoViewIfNeeded();
   const box = await core.boundingBox();
   const hover = await page.evaluate(() => matchMedia('(hover:hover) and (pointer:fine)').matches);
-  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.75);
+  const x = box.x + box.width * 0.25;
+  const y = box.y + box.height * 0.75;
+  await page.mouse.move(x, y);
   if (!hover) {
     /* A phone never pays for the listener, so nothing is written. */
     await page.waitForTimeout(200);
     expect(await light(core)).toEqual(['', '']);
     return;
   }
-  await expect.poll(async () => (await light(core)).map(value => Math.round(parseFloat(value)))).toEqual([25, 75]);
+  /*
+   * The pointer keeps moving, as a reader's does: while the cross-fade into
+   * the overview runs, the browser hands pointer events to the transition,
+   * not to the page, and a single move made then never reaches the panel.
+   * Each try ends on the same point, so the light is read there.
+   */
+  await expect.poll(async () => {
+    await page.mouse.move(x + 1, y);
+    await page.mouse.move(x, y);
+    return (await light(core)).map(value => Math.round(parseFloat(value)));
+  }).toEqual([25, 75]);
   await page.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.6);
   await expect.poll(async () => (await light(core)).map(value => Math.round(parseFloat(value)))).toEqual([90, 60]);
 });

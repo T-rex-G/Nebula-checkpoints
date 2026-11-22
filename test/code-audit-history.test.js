@@ -339,11 +339,13 @@ async function withClient(connectionString, run) {
     }
 
     for (const [label, traced] of [
-      ['Timeout', { cut: 1, limit: 'time' }], ['FlowLimit', { truncated: 1 }], ['Component', { patternOnly: 1 }]
+      ['Timeout', { cut: 1, limit: 'time' }], ['FlowLimit', { truncated: 1 }], ['Component', { patternOnly: 1 }],
+      ['SemanticBudget', { semantic: { files: 1, nodes: 27, skippedFiles: 1, unresolvedImports: 0, complete: false } }]
     ]) {
       const repoScope = { ...scope, repo: 'TraceEvidence' + label };
       const common = { coverage: { read: 1, eligible: 1, complete: true }, suppressed: [] };
       const findings = ['ACC-002', 'AI-001', 'AI-002', 'AI-003'].map(rule => ({ ...codeFinding(rule), rule, category: rule.startsWith('AI') ? 'ai' : 'access' }));
+      findings.push({ ...codeFinding('markup'), rule: 'SEC-002', category: 'code' });
       await history.record({ scope: repoScope, identityKey: IDENTITY, now: T0, result: auditResult({ ...common, findings }) });
       const result = auditResult({ ...common, findings: [], auditedAt: T0 + HOUR });
       result.engine.traced = traced;

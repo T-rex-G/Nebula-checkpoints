@@ -37,6 +37,8 @@
  */
 
 import { getHeapStatistics } from 'node:v8';
+import { mayContainSemanticSink } from './uranus-ts-candidates.ts';
+import { analyseSemanticFlows, type SemanticLead, type SemanticReason, type SemanticSite, type SemanticStats } from './uranus-ts-analysis.ts';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
 import { RE_EXPORT, afterSemicolon, at, bindingNames, lastOf, statementEnd, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, readChain, skipType } from './uranus-shape.ts';
@@ -136,7 +138,7 @@ interface SettledName {
 export interface Settled extends SettledName {
   readonly path: string;
 }
-type FlowBlocker = { readonly reason: 'guarded' | 'unverified-transform'; readonly path: string; readonly line: number } | { readonly reason: 'weak-source' } | { readonly reason: FlowSinkKind };
+type FlowBlocker = { readonly reason: 'guarded' | 'unverified-transform'; readonly path: string; readonly line: number } | { readonly reason: 'weak-source' | 'conditional' | SemanticReason } | { readonly reason: FlowSinkKind };
 /* A flow from a caller's input to a sink, as the JavaScript and Python walk reports it. */
 export interface FlowRecord {
   readonly rule: string;
@@ -2296,6 +2298,7 @@ export interface FlowOptions {
   readonly heapUsed?: () => number;
 }
 export interface FlowStats {
+  semantic?: SemanticStats;
   javascript: number;
   python: number;
   go: number;
@@ -2314,6 +2317,8 @@ export interface FlowStats {
 export type TracedFlowRecord = FlowRecord | Flow;
 export type TracedRoute = FlowRoute | CFamilyReading['routes'][number];
 export interface FlowReading {
+  readonly semanticSites?: readonly SemanticSite[];
+  readonly semanticLeads?: readonly SemanticLead[];
   readonly flows: TracedFlowRecord[];
   readonly routes: TracedRoute[];
   readonly settled: Settled[];
@@ -2440,11 +2445,15 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
     flows = [...flows, ...other.flows].sort(byFile);
     routes = [...routes, ...other.routes].sort(byFile);
   }
+  const jsSources = sources.filter(file => JS_FILE.test(file.path));
+  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? analyseSemanticFlows(jsSources, flows, late, MAX_FLOWS_PER_FILE) : null;
+  if (semantic) { flows = semantic.flows; stats.semantic = semantic.stats; }
+  flows = dedupe(flows);
   stats.routes = routes.length;
   stats.flows = flows.length;
   stats.helpers = flows.filter(flow => flow.viaHelper).length;
-  if (stats.cut) stats.limit = limit;
-  return { flows: dedupe(flows), routes, settled, stats };
+  if (stats.cut || (semantic && !semantic.stats.complete && limit)) stats.limit = limit;
+  return { flows, routes, settled, stats, ...(semantic && { semanticLeads: semantic.leads, semanticSites: semantic.sites }) };
 }
 
 /* One flow per rule and sink line: several sources into one call are one finding with the first trace. */

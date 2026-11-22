@@ -108,6 +108,7 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, advi
   const cut = (flowResult.stats && flowResult.stats.cut) || 0;
   const truncated = flowResult.stats.truncated || 0;
   const limit = flowResult.stats.limit;
+  const semanticGap = flowResult.stats.semantic?.complete === false;
   const followed = (['javascript', 'python', 'go', 'java', 'php'] as const).reduce((sum, language) => sum + ((flowResult.stats && flowResult.stats[language]) || 0), 0);
   /* Why tracing stopped, in the words the ledger uses for it. */
   const stopped = limit === 'memory' ? 'needed more memory than this server gives one audit' : 'ran past the time this server gives one audit';
@@ -124,10 +125,11 @@ export function ledger({ findings, prepared, allPaths, surface, flowResult, advi
       else if (!traced && !untraced.length) { status = 'not-applicable'; detail = 'No application code was found to read.'; }
       else if (!traced) { status = 'patterns'; detail = `Only pattern-checked: values are traced in JavaScript, TypeScript, Python, Go, Java and PHP, and this code is ${untraced.join(', ')}.`; }
       else if (limit && !followed) { status = 'patterns'; detail = `Only pattern-checked: following values across ${traced} files ${stopped}, so every file was checked against the rules instead.`; }
-      else if (untraced.length || failed || deep || cut || truncated || rulesOnly) {
+      else if (untraced.length || failed || deep || cut || truncated || rulesOnly || (entry.needs === 'code' && semanticGap)) {
         status = 'partial';
         const gaps = [];
         if (untraced.length) gaps.push(`${untraced.join(', ')} files were only pattern-checked`);
+        if (entry.needs === 'code' && semanticGap) gaps.push('JavaScript or TypeScript semantic analysis was incomplete');
         if (failed) gaps.push(`${failed} files could not be followed`);
         if (truncated) gaps.push(`${truncated} ${truncated === 1 ? 'file exceeded' : 'files exceeded'} the per-file flow reporting limit`);
         if (deep) gaps.push(`${deep} ${deep === 1 ? 'file nests' : 'files nest'} expressions deeper than values are followed`);

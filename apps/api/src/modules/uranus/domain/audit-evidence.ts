@@ -21,7 +21,8 @@ export function resolutionEvidence(result: Readonly<Record<string, unknown>>, tr
   const coverage = fieldsOf(result.coverage);
   const files = coverage.complete === true && count(coverage.read) >= count(coverage.eligible) && !truncated;
   const traced = fieldsOf(read(result.engine, 'traced'));
-  const code = files && !traced.limit && !['cut', 'failed', 'deep', 'truncated', 'patternOnly', 'rulesOnly'].some(key => count(traced[key]) > 0) && !count(coverage.rulesOnly);
+  const semanticComplete = !Object.hasOwn(traced, 'semantic') || read(traced.semantic, 'complete') === true;
+  const code = files && semanticComplete && !traced.limit && !['cut', 'failed', 'deep', 'truncated', 'patternOnly', 'rulesOnly'].some(key => count(traced[key]) > 0) && !count(coverage.rulesOnly);
   const lookedUp = ['packages', 'advisories'].every(name => {
     const checked = coverage[name];
     const total = name === 'packages' ? 'declared' : 'versions';

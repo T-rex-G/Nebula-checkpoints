@@ -60,7 +60,7 @@ export interface RawItem {
   readonly flowBlocker?: FindingBlocker | null;
   readonly source?: string | null;
   readonly reach?: Reach | null;
-  readonly evidence?: Exclude<Evidence, 'fact' | 'pattern'>;
+  readonly evidence?: Exclude<Evidence, 'fact'>;
 }
 export interface Assurance {
   readonly verdict: Verdict;
@@ -242,6 +242,31 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'declared-input':
+      return {
+        blocker: 'The declared framework type identifies a possible input. The runtime provider is unresolved.',
+        check: 'Check which object the caller or dependency injector supplies at this declaration.'
+      };
+    case 'unknown-origin':
+      return {
+        blocker: 'The origin of the value passed to this HTML operation could not be resolved.',
+        check: 'Inspect its assignments and callers to determine whether external input reaches the operation.'
+      };
+    case 'unknown-receiver':
+      return {
+        blocker: 'The receiver could not be identified as an object that interprets HTML.',
+        check: 'Inspect the receiver’s declaration and assignments, then check how it handles the value.'
+      };
+    case 'html-context':
+      return {
+        blocker: 'The available encoding guarantee does not establish safety in this HTML context.',
+        check: 'Check where the value is inserted in the markup and whether its encoder covers that position.'
+      };
+    case 'trust-boundary':
+      return {
+        blocker: 'The framework marks this value as trusted HTML. Its use at a rendering boundary needs verification.',
+        check: 'Follow the returned value to its consumers and check how each renderer handles it.'
+      };
     case 'unverified-transform':
       return {
         blocker: `The analysis could not verify the transform used at ${where(blocker.path, blocker.line)} for this use.`,
@@ -253,7 +278,7 @@ function validationText(item: RawItem): { blocker: string; check: string } {
         check: `Read the test at ${where(blocker.path, blocker.line)}. It should accept only a fixed set of values, or refuse anything outside one.`
       };
     case 'conditional':
-      return { blocker: 'Only some branches carry caller input to this use.', check: 'Check whether a caller can reach a branch that supplies the input.' };
+      return { blocker: 'An observed path carries input here. Other branches or callers may supply a different value.', check: 'Check which callers can reach the path that supplies the input.' };
     case 'weak-source':
       return item.rule === 'SEC-033'
         ? { blocker: 'A plain string written to a response is read as HTML unless the endpoint says otherwise; whether a browser renders this one depends on the content type it is sent with.', check: 'In a local run, request the endpoint with <b>x</b> in the parameter. If the answer is text/html and echoes it unescaped, this is confirmed.' }

@@ -444,4 +444,7 @@ function surfaceOf(files) {
   assert.match(blocked.blocker, /could not verify the transform/);
 }
 
+require('./helpers/uranus-semantic').checkSemanticAnalysis(audit.analyse);
+require('./helpers/uranus-semantic-sql').checkSemanticSql(audit.analyse);
+
 console.log('uranus tests passed');

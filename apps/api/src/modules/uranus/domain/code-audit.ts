@@ -524,7 +524,14 @@ export function analyse({ files, paths, registry = new Map(), advisories = new M
     flowBlocker: flow.blocker, source: flow.source, reach: reachOf(flow, surface.surfaces), evidence: 'traced'
   }));
   const surfaced = surface.raw.map((item): RawItem => ({ ...item, flowBlocker: item.blocker, evidence: 'surface', severity: undefined }));
-  raw.unshift(...traced, ...surfaced);
+  const leads = (flowResult.semanticLeads ?? []).map((lead): RawItem => ({
+    rule: 'SEC-002', path: lead.path, line: lead.line, verdict: 'needs-validation',
+    evidence: 'pattern', flowBlocker: { reason: lead.reason }
+  }));
+  raw.unshift(...traced, ...surfaced, ...leads);
+  /* The semantic pass settles a line only when every potential markup operation there was accounted for. */
+  const safeMarkupLines = new Set((flowResult.semanticSites ?? [])
+    .filter(site => site.suppressPattern).map(site => `SEC-002\0${site.path}\0${site.line}`));
 
   /* One finding per rule and location, with an identity stable across runs. */
   const seen = new Map<string, boolean>();
@@ -577,7 +584,7 @@ export function analyse({ files, paths, registry = new Map(), advisories = new M
   };
   for (const item of raw) {
     const key = `${item.rule}\0${item.path || ''}\0${item.line || ''}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key) || (!item.evidence && safeMarkupLines.has(key))) continue;
     if (settledLead(item)) continue;
     seen.set(key, true);
     const semantic = findingSemantic(item, item.semantic ? null : identityAt(item));
@@ -600,6 +607,7 @@ export function analyse({ files, paths, registry = new Map(), advisories = new M
     endpoints: surface.counts.endpoints, actions: surface.counts.actions, flows: flowResult.flows.length,
     crossFile: flowResult.flows.filter(flow => flow.viaHelper === 'file').length, failed: flowResult.stats.failed || 0,
     patternOnly: applicationCode.length - flowInput.length, truncated: flowResult.stats.truncated || 0, deep: flowResult.stats.deep || 0, cut: flowResult.stats.cut || 0, limit: flowResult.stats.limit || null,
+    ...(flowResult.stats.semantic && { semantic: flowResult.stats.semantic }),
     /* Files beyond the traced set, checked against every per-file rule. */
     rulesOnly: beyond ? beyond.files || 0 : 0
   } };

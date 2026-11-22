@@ -37,9 +37,9 @@ import * as WorkspacePulseModel from '../features/overview/workspace-pulse.ts';
 import { clearActivityFeed as clearActivityFeedCard, render as renderWorkspacePulseCards, renderActivityFeed } from '../features/overview/WorkspacePulse.tsx';
 import { render as renderGalaxyPulseGrid } from '../features/repositories/GalaxyPulse.tsx';
 import RenderedAudit from '../features/parallax/RenderedAudit.tsx';
-import * as PullBoardModel from '../features/posture/pull-board.ts';
+import { createPullBoard } from '../features/posture/pull-board-controller.ts';
 import { render as renderPullBoardCard } from '../features/posture/PullBoard.tsx';
-import * as SecurityPostureModel from '../features/posture/security-posture.ts';
+import { POSTURE_TTL_MS, createPosture } from '../features/posture/posture-controller.ts';
 import { render as renderSecurityPostureCard } from '../features/posture/SecurityPosture.tsx';
 import RepoSigil from '../features/repositories/repo-sigil.ts';
 import TrustUI from '../features/trust/TrustViews.tsx';
@@ -59,6 +59,8 @@ import Visuals from '../visualizations/nebula-visuals.ts';
 import { EMPTY_ICON, META_ICON } from '../components/icons.ts';
 import { REPO_PART, repositoryReference, sessionHost } from '../features/repositories/repository-reference.ts';
 import { createRepositoryList } from '../features/repositories/repository-list-controller.ts';
+import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
+import { paintBoundary } from '../features/overview/boundary-line.ts';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -755,87 +757,25 @@ function showOverview(arrive = true) {
   loadSecurityPosture();
   loadActivityFeed();
   if (arrive) showPage('overview');
-  watchPullBoard();
-  if (pullBoardState.visible) void loadPullBoard();
+  pullBoard.watch();
+  if (pullBoard.visible()) void pullBoard.load();
 }
 
 /*
- * The recent-activity feed.
- *
- * Fetched rather than computed, and cached per identity: a reader returning to
- * the overview should not spend another handful of provider requests. Refresh
- * explicitly re-reads it. A request from an old identity may never repaint it.
- *
- * Every failure path ends in a drawn card. A feed that silently stays on
- * "Reading recent activity…" is worse than one that says it could not read
- * anything, because the reader cannot tell a slow network from a broken
- * surface.
+ * The recent-activity feed (features/overview/activity-feed-controller.ts):
+ * read once per identity and again on Refresh, every failure drawn.
  */
-let activityFeedState = null;
-let activityFeedRequest = 0;
-
-function clearActivityFeed() {
-  activityFeedRequest++;
-  activityFeedState = null;
-  clearActivityFeedCard($('#wpFeed'));
-  const refresh = $('#wpFeedRefresh');
-  if (refresh) refresh.disabled = true;
-}
-
-function paintActivityFeed() {
-  const root = $('#wpFeed');
-  if (!root) return;
-  renderActivityFeed(root, activityFeedState);
-  const refresh = $('#wpFeedRefresh');
-  if (refresh) {
-    refresh.disabled = !state.me || !!(activityFeedState && activityFeedState.loading);
-    refresh.textContent = activityFeedState && activityFeedState.loading ? 'Refreshing…' : 'Refresh';
-  }
-}
-
-async function loadActivityFeed(force) {
-  if (!$('#wpFeed') || !state.me) return;
-  if (activityFeedState && (activityFeedState.loading || !force)) { paintActivityFeed(); return; }
-  const request = ++activityFeedRequest;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  const current = () => request === activityFeedRequest && epoch === state.uiEpoch && identity === state.me;
-  activityFeedState = { loading: true };
-  paintActivityFeed();
-  try {
-    const payload = await api('/api/activity/recent');
-    if (!current()) return;
-    activityFeedState = {
-      loading: false,
-      /*
-       * The moment the answer arrived, not the moment each row is painted.
-       * Reading Date.now() inside the renderer makes "3h ago" creep upward
-       * every time anything else repaints the card, which is a clock the
-       * reader can watch drift.
-       */
-      now: Date.now(),
-      generatedAt: payload.generatedAt,
-      days: payload.days,
-      perRepositoryLimit: payload.perRepositoryLimit || 20,
-      kinds: payload.kinds || [],
-      inventoryCount: payload.inventoryCount || 0,
-      measured: !!payload.measured,
-      events: Array.isArray(payload.events) ? payload.events : [],
-      truncated: !!payload.truncated,
-      totalEvents: payload.totalEvents || 0,
-      undated: payload.undated || 0,
-      repositories: Array.isArray(payload.repositories) ? payload.repositories : [],
-      failed: Array.isArray(payload.failed) ? payload.failed : []
-    };
-  } catch (error) {
-    if (!current()) return;
-    activityFeedState = {
-      loading: false,
-      error: `Recent activity could not be read: ${(error && error.message) || 'request failed'}`
-    };
-  }
-  paintActivityFeed();
-}
+const activityFeed = createActivityFeed({
+  state,
+  api: path => api(path),
+  root: () => $('#wpFeed'),
+  refresh: () => $('#wpFeedRefresh'),
+  draw: (root, current) => renderActivityFeed(root, current),
+  erase: root => clearActivityFeedCard(root),
+  now: () => Date.now()
+});
+function clearActivityFeed() { activityFeed.clear(); }
+function loadActivityFeed(force) { return activityFeed.load(force); }
 
 $('#wpFeedRefresh')?.addEventListener('click', () => loadActivityFeed(true));
 
@@ -903,231 +843,56 @@ function localSnapshotKeys() {
 }
 
 /*
- * The workspace posture: the credential's real reach, the recovery points
- * that exist, the leaked credentials still open, and whether the server's
- * boundary is up. One request, re-read at most once a minute, and bound to
- * the identity that asked -- a response for a previous account may never
- * paint the next one's overview.
+ * The workspace posture, the security posture card and upload scanning
+ * (features/posture/posture-controller.ts), the open pull requests across the
+ * workspace (features/posture/pull-board-controller.ts), and the rail's
+ * boundary line (features/overview/boundary-line.ts): each read for the
+ * identity that asked, and dropped when another is here.
  */
-const POSTURE_TTL_MS = 60 * 1000;
-let postureRequest = 0;
-let postureAt = 0;
-/* Anything that changes what the posture reports marks it for re-reading. */
-function invalidatePosture() { postureAt = 0; securityPostureAt = 0; findingsState.at = 0; }
-function clearPosture() {
-  postureRequest++;
-  postureAt = 0;
-  state.posture = null;
-  paintBoundary(null);
-  clearSecurityPosture();
-  clearFindings();
-  clearPullBoard();
-}
-async function loadPosture(force) {
-  if (!state.me) return;
-  if (!force && postureAt && Date.now() - postureAt < POSTURE_TTL_MS) return;
-  const request = ++postureRequest;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  postureAt = Date.now();
-  try {
-    const posture = await api('/api/workspace/posture');
-    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
-    state.posture = posture && typeof posture === 'object' ? posture : null;
-    paintBoundary(state.posture ? state.posture.boundary : { state: 'unknown' });
-  } catch (error) {
-    if (request !== postureRequest || epoch !== state.uiEpoch || identity !== state.me) return;
-    postureAt = 0;
-    paintBoundary({ state: isOfflineError(error) ? 'offline' : 'unreachable' });
-  }
-  renderWorkspacePulse();
-}
-
-/*
- * The security posture card (features/posture/security-posture.ts), on the posture's
- * own terms: one request, re-read at most once a minute, bound to the identity
- * that asked, and not asked at all by a deployment that does not offer it.
- * The repositories nobody has read come from the inventory the session holds,
- * so the card is drawn again whenever that changes.
- */
-let securityPostureRequest = 0;
-let securityPostureAt = 0;
-function clearSecurityPosture() {
-  securityPostureRequest++;
-  securityPostureAt = 0;
-  state.securityPosture = null;
-}
-function securityPostureOffered() {
-  return CapabilityUI.decision('workspace.posture').status === 'Supported';
-}
+const posture = createPosture({
+  state,
+  api: path => api(path),
+  now: () => Date.now(),
+  isOffline: error => isOfflineError(error),
+  capability: name => CapabilityUI.decision(name).status,
+  paintBoundary: boundary => paintBoundary($('#navBoundary'), boundary),
+  renderPulse: () => renderWorkspacePulse(),
+  clearFindings: () => clearFindings(),
+  invalidateFindings: () => { findingsState.at = 0; },
+  clearPullBoard: () => pullBoard.clear(),
+  section: () => $('#wpPostureSection'),
+  host: () => $('#wpPosture .wp-body'),
+  draw: (host, view, actions) => renderSecurityPostureCard(host, view, actions),
+  openTool: (owner, repo, tab) => openRepositoryTool(owner, repo, tab),
+  inbox: () => (findingsOffered() ? filters => showFindings(findingsInbox.parseFilters(filters || '')) : null)
+});
+function invalidatePosture() { posture.invalidate(); }
+function clearPosture() { posture.clear(); }
+function loadPosture(force) { return posture.load(force); }
+function renderSecurityPosture() { posture.renderSecurity(); }
+function loadSecurityPosture(force) { return posture.loadSecurity(force); }
 async function openRepositoryTool(owner, repo, tab) {
   const opened = await openRepo(owner, repo);
   if (opened) switchTab(tab);
 }
-function renderSecurityPosture() {
-  const section = $('#wpPostureSection');
-  const host = $('#wpPosture .wp-body');
-  if (!section || !host) return;
-  section.hidden = !securityPostureOffered();
-  if (section.hidden) return;
-  renderSecurityPostureCard(host, SecurityPostureModel.model(state.securityPosture, state.repos), {
-    audit: (owner, repo) => { void openRepositoryTool(owner, repo, 'audit'); },
-    inbox: findingsOffered() ? filters => showFindings(findingsInbox.parseFilters(filters || '')) : null
-  });
-}
-async function loadSecurityPosture(force) {
-  if (!state.me) return;
-  if (!securityPostureOffered()) { renderSecurityPosture(); return; }
-  if (!force && securityPostureAt && Date.now() - securityPostureAt < POSTURE_TTL_MS) { renderSecurityPosture(); return; }
-  const request = ++securityPostureRequest;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  const stale = () => request !== securityPostureRequest || epoch !== state.uiEpoch || identity !== state.me;
-  securityPostureAt = Date.now();
-  if (!state.securityPosture) renderSecurityPosture();
-  try {
-    const summary = await api('/api/workspace/security-posture');
-    if (stale()) return;
-    state.securityPosture = summary && typeof summary === 'object' ? summary : { available: false, reason: 'unreadable' };
-  } catch (error) {
-    if (stale()) return;
-    securityPostureAt = 0;
-    state.securityPosture = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
-  }
-  renderSecurityPosture();
-}
-
-/*
- * The open pull requests across the workspace (features/posture/pull-board.ts). Read
- * only when the card comes into view, from the repositories most recently
- * pushed to, a few at a time, through the same list route the workbench
- * uses -- so a card opened from here lands on a list already in the cache.
- * Bound to the identity that asked, like the posture above it.
- */
-const PULL_BOARD_TTL_MS = 5 * 60 * 1000;
-const pullBoardState = { results: null, at: 0, request: 0, inflight: false, visible: false, observer: null };
-function clearPullBoard() {
-  pullBoardState.request++;
-  pullBoardState.results = null;
-  pullBoardState.at = 0;
-  pullBoardState.inflight = false;
-}
-function pullBoardOffered() {
-  return CapabilityUI.decision('pulls.read').status === 'Supported';
-}
-function renderPullBoard() {
-  const section = $('#wpPullsSection');
-  const host = $('#wpPulls .wp-body');
-  if (!section || !host) return;
-  section.hidden = !pullBoardOffered();
-  if (section.hidden) return;
-  const Board = PullBoardModel;
-  renderPullBoardCard(host, Board.model({ results: pullBoardState.results, repos: state.repos }), {
-    open: (owner, repo, number) => {
-      state.pendingPull = { key: `${owner}/${repo}`.toLowerCase(), number: Number(number) };
-      /* The board lists open pull requests, so the list it lands on is the open one. */
-      if (state.prState !== 'open') {
-        state.prState = 'open';
-        selectSegment('#prState', button => button.dataset.v === 'open');
-      }
-      void openRepositoryTool(owner, repo, 'pulls').then(() => {
-        /* The list was already drawn, so the tab did not read it again: read it now to open the card's pull request. */
-        if (state.pendingPull && !$('#prList .skeleton')) loadPRs();
-      });
-    },
-    refresh: () => { void loadPullBoard(true); }
-  });
-  /*
-   * The inventory arrived after the card came into view: read it now. Only
-   * when there is someone to read for and something readable to ask, so the
-   * reading's own early returns, which draw the card, never ask again.
-   */
-  if (pullBoardState.visible && !pullBoardState.inflight && !pullBoardState.results && state.me
-    && Board.pickRepositories(state.repos).length) void loadPullBoard();
-}
-function watchPullBoard() {
-  const section = $('#wpPullsSection');
-  if (!section || pullBoardState.observer) return;
-  if (typeof IntersectionObserver !== 'function') { pullBoardState.visible = true; return; }
-  pullBoardState.observer = new IntersectionObserver(entries => {
-    pullBoardState.visible = entries.some(entry => entry.isIntersecting);
-    if (pullBoardState.visible) void loadPullBoard();
-  }, { rootMargin: '200px 0px' });
-  pullBoardState.observer.observe(section);
-}
-async function loadPullBoard(force) {
-  if (!state.me || !pullBoardOffered()) { renderPullBoard(); return; }
-  if (pullBoardState.inflight && !force) return;
-  if (!force && pullBoardState.results && Date.now() - pullBoardState.at < PULL_BOARD_TTL_MS) { renderPullBoard(); return; }
-  const Board = PullBoardModel;
-  const repositories = Board.pickRepositories(state.repos);
-  if (!repositories.length) { renderPullBoard(); return; }
-  const request = ++pullBoardState.request;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  const stale = () => request !== pullBoardState.request || epoch !== state.uiEpoch || identity !== state.me;
-  pullBoardState.inflight = true;
-  pullBoardState.results = null;
-  renderPullBoard();
-  const results = await Board.readAll(repositories, async (owner, repo) => {
-    const path = `/api/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=open`;
-    try {
-      if (!force) return await apiCached(path, PULL_BOARD_TTL_MS);
-      const fresh = await api(path);
-      transport.cache.set(path, fresh);
-      return fresh;
-    } catch (error) {
-      error.offline = isOfflineError(error);
-      throw error;
-    }
-  });
-  if (stale()) {
-    /*
-     * Overtaken by a new identity or a new interface epoch rather than by a
-     * newer reading: the answer is dropped, and so is the flag that held the
-     * card at "reading", so the board reads again for whoever is now here.
-     */
-    if (request === pullBoardState.request) {
-      pullBoardState.inflight = false;
-      renderPullBoard();
-    }
-    return;
-  }
-  pullBoardState.inflight = false;
-  pullBoardState.results = results;
-  pullBoardState.at = Date.now();
-  renderPullBoard();
-}
-
-/*
- * The rail's boundary line says what the server last reported. It was static
- * markup that read "Boundary online" before a single request had been made,
- * and kept saying it with the database down.
- */
-const BOUNDARY_COPY = Object.freeze({
-  checking: ['Checking boundary', 'Waiting for the server\u2019s report'],
-  online: ['Boundary online', 'Server-owned controls active'],
-  local: ['Boundary online', 'Server controls active \u00b7 no database configured'],
-  degraded: ['Boundary degraded', 'The server database is unavailable'],
-  maintenance: ['Maintenance', 'The server is not accepting changes'],
-  offline: ['Offline', 'Changes queue until the network returns'],
-  unreachable: ['Boundary unreachable', 'The server did not report its state'],
-  unknown: ['Boundary unknown', 'The server\u2019s report could not be read']
+const pullBoard = createPullBoard({
+  state,
+  api: path => api(path),
+  cached: (path, ttl) => apiCached(path, ttl),
+  keep: (path, value) => transport.cache.set(path, value),
+  isOffline: error => isOfflineError(error),
+  now: () => Date.now(),
+  capability: name => CapabilityUI.decision(name).status,
+  section: () => $('#wpPullsSection'),
+  host: () => $('#wpPulls .wp-body'),
+  draw: (host, view, actions) => renderPullBoardCard(host, view, actions),
+  intersection: typeof IntersectionObserver === 'function' ? (seen, options) => new IntersectionObserver(seen, options) : null,
+  chooseOpenList: () => selectSegment('#prState', button => button.dataset.v === 'open'),
+  openTool: (owner, repo, tab) => openRepositoryTool(owner, repo, tab),
+  listDrawn: () => !$('#prList .skeleton'),
+  loadPulls: () => loadPRs()
 });
-function paintBoundary(boundary) {
-  const root = $('#navBoundary');
-  if (!root) return;
-  let key = 'checking';
-  if (boundary && boundary.maintenance) key = 'maintenance';
-  else if (boundary && boundary.state === 'online') key = boundary.database === 'not-configured' ? 'local' : 'online';
-  else if (boundary && BOUNDARY_COPY[boundary.state]) key = boundary.state;
-  const [title, detail] = BOUNDARY_COPY[key];
-  root.dataset.state = key;
-  const t = root.querySelector('.nv-rail-state-t');
-  const d = root.querySelector('.nv-rail-d');
-  if (t) t.textContent = title;
-  if (d) d.textContent = detail;
-}
+function renderPullBoard() { pullBoard.render(); }
 
 /*
  * The pointer light on the core panel.
@@ -1152,42 +917,8 @@ function wireCorePointer() {
 }
 wireCorePointer();
 
-/*
- * The trust score and live-signal count.
- *
- * Every input is read from what this session already holds -- no measure
- * triggers a request of its own, so opening the overview cannot spend a
- * reader's rate limit to draw a number at them. Anything absent stays absent:
- * the model reports it as unmeasured rather than scoring it zero.
- */
-/*
- * Upload-scanning posture, read once per session.
- *
- * A failure here is left as an absent reading rather than a false one: the
- * endpoint is capability-gated, so a provider that does not offer it answers
- * with a refusal, and reporting that as "not scanned" would accuse a
- * deployment of something this client never established.
- */
-let scannerPostureAsked = false;
-async function loadScannerPosture() {
-  /*
-   * Asked for once, and only once the overview is actually on screen. Reading
-   * it during boot spent a request on every sign-in, sign-out and reconnect
-   * cycle -- including the ones that never reach a screen that shows it.
-   */
-  if (scannerPostureAsked) return;
-  scannerPostureAsked = true;
-  try {
-    const status = await api('/api/security/scanner-status');
-    state.scanner = {
-      active: !!(status.builtin && status.builtin.available) || !!(status.yara && status.yara.configured),
-      rulesConfigured: !!(status.yara && status.yara.configured)
-    };
-  } catch {
-    state.scanner = null;
-  }
-  renderWorkspacePulse();
-}
+/* Upload scanning, asked once the overview is shown (features/posture/posture-controller.ts). */
+function loadScannerPosture() { return posture.loadScanner(); }
 
 /*
  * The design's WebGL pieces mount when their screen is shown, never at boot.
@@ -1202,6 +933,14 @@ function mountNebulaVisual(kind, selector) {
   Visuals.mount(kind, host);
 }
 
+/*
+ * The trust score and live-signal count.
+ *
+ * Every input is read from what this session already holds -- no measure
+ * triggers a request of its own, so opening the overview cannot spend a
+ * reader's rate limit to draw a number at them. Anything absent stays absent:
+ * the model reports it as unmeasured rather than scoring it zero.
+ */
 function renderWorkspacePulse(repos) {
   const capabilities = CapabilityUI;
   /* The inventory's failure path reports an empty set without discarding what

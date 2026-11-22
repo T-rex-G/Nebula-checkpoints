@@ -152,6 +152,90 @@ test('the rail and the Overview both lead to the inbox', async ({ page }) => {
   }
 });
 
+/*
+ * A decision changes what the Overview's security card counts, so the card
+ * is read again when the reader goes back to it, not served from the reading
+ * made before the decision.
+ */
+test('a decision in the inbox is read again on the Overview, not served from before it', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let readings = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/workspace/security-posture') readings += 1; });
+  await page.goto('/#/overview');
+  await expect(page.locator('#wpPosture')).toBeVisible();
+  await expect.poll(() => readings).toBe(1);
+  await page.locator('#wpPosture .pp-inbox-link').click();
+  await expect(page.locator('#page-findings')).toHaveClass(/active/);
+  const root = page.locator('#findingsRoot');
+  await root.locator('.fi-select').first().check();
+  const bar = root.getByRole('region', { name: 'Decide the selected findings' });
+  await bar.locator('.fi-bulk-disposition').selectOption('accepted-risk');
+  await bar.locator('.fi-bulk-reason').selectOption('fix-scheduled');
+  await bar.locator('.fi-bulk-days').selectOption('30');
+  await bar.getByRole('button', { name: 'Decide' }).click();
+  await expect(root.getByRole('button', { name: /^Decided 2$/ })).toBeVisible();
+  /* Back to the Overview by the rail. */
+  const rail = page.locator('.nv-rail-item[data-rail="overview"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(page.locator('#page-overview')).toHaveClass(/active/);
+  await expect.poll(() => readings).toBe(2);
+});
+
+/*
+ * A decision made outside the inbox -- a leaked credential accepted on the
+ * Exposure screen -- changes what the inbox lists, so the inbox is read
+ * again when the reader returns to it, not served from the reading made
+ * before the decision.
+ */
+test('a decision on the Exposure screen is read again in the inbox, not served from before it', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  const scope = { provider: 'github', authority: 'github.com', owner: 'sandbox', repo: 'demo' };
+  const now = new Date().toISOString();
+  const scan = { scanId: '90000000-0000-4000-8000-000000000001', scope, requestedBy: 'alpha-tester', refName: 'refs/heads/main', commitSha: 'c'.repeat(40),
+    rulesVersion: 1, engineVersion: 1, fingerprintKeyVersion: 1, configVersion: 1, state: 'complete', coverage: 'complete', skippedReason: null,
+    filesScanned: 12, bytesScanned: 4096, parentScanId: null, createdAt: now, startedAt: now, finishedAt: now, retainUntil: new Date(Date.now() + 86400000).toISOString() };
+  const leak = (disposition = 'open') => ({
+    fingerprint: 'f'.repeat(64), fingerprintKeyVersion: 1, rulesVersion: 1, engineVersion: 1, rule: 'github-token', path: 'scripts/release.sh',
+    placeholder: '<github-token #1>', occurrences: [{ line: 4, column: 11 }], occurrenceCount: 1, truncated: false, scope, commit: 'c'.repeat(40), disposition,
+    ...(disposition === 'accepted-risk' ? { dispositionBy: 'alpha-tester', dispositionAt: now, dispositionNarration: 'Somebody reviewed this finding and accepted the risk.' } : {}),
+    narration: { narrationVersion: 1, severity: 'critical', what: '<github-token #1> is a credential this scan recognised.',
+      consequence: 'A GitHub access token is in the repository.', action: 'Revoke the token in GitHub developer settings now.', where: 'In scripts/release.sh, at line 4.' }
+  });
+  const accepted = [];
+  await page.route(url => url.pathname.startsWith('/api/repo/sandbox/demo/exposure'), async route => {
+    const { pathname } = new URL(route.request().url());
+    const method = route.request().method();
+    if (pathname.endsWith('/accept-risk') && method === 'POST') { accepted.push(pathname); return route.fulfill({ status: 201, json: { finding: leak('accepted-risk') } }); }
+    if (pathname.endsWith('/exposure/findings')) return route.fulfill({ json: { findings: [leak(accepted.length ? 'accepted-risk' : 'open')], verifications: {}, probes: {} } });
+    if (pathname.endsWith('/exposure/scans') && method === 'GET') return route.fulfill({ json: { scans: [scan] } });
+    if (/\/exposure\/scans\/[^/]+$/.test(pathname) && method === 'GET') return route.fulfill({ json: { scan } });
+    return route.fulfill({ status: 404, json: { error: 'Not found' } });
+  });
+  let readings = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/workspace/findings') readings += 1; });
+  await page.goto('/#/findings');
+  const root = page.locator('#findingsRoot');
+  await expect(root.locator('.fi-item')).toHaveCount(4);
+  await expect.poll(() => readings).toBe(1);
+  await root.locator('.fi-item', { hasText: 'GitHub token' }).getByRole('button', { name: 'Open' }).click();
+  await expect(page.locator('#tab-exposure')).toBeVisible();
+  const toggle = page.locator('#exposureExpandAllBtn');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  const accept = page.locator('.exposure-accept').first();
+  await accept.click();
+  await expect(accept).toHaveText(/Record me as accepting this exposure/i);
+  await accept.click();
+  await expect(page.locator('.exposure-item').first()).toHaveAttribute('data-disposition', 'accepted-risk');
+  expect(accepted).toHaveLength(1);
+  /* Back to the inbox by the rail, well inside the time a reading is otherwise kept. */
+  const rail = page.locator('.nv-rail-item[data-rail="findings"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(page.locator('#page-findings')).toHaveClass(/active/);
+  await expect.poll(() => readings).toBe(2);
+});
+
 test('an unanswered database is not an empty inbox', async ({ page }) => {
   const root = await inbox(page, { findingsInbox: 'unavailable' });
   await expect(root).toContainText('The server database did not answer');

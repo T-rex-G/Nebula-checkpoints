@@ -15,7 +15,7 @@ const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
-async function signIn(page, answer = {}) {
+async function signIn(page, answer = {}, routes = async () => {}) {
   await mockPublicAlphaApi(page, {
     access: 'required',
     ready: 'ready',
@@ -24,6 +24,7 @@ async function signIn(page, answer = {}) {
   });
   /* Registered after the fixture's routes, so each is asked first. */
   for (const [route, body] of Object.entries(answer)) await page.route(`**${route}`, request => request.fulfill({ json: body }));
+  await routes();
   await page.goto('/');
   await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
   await ui.checkbox(page, /I accept/).check();
@@ -142,6 +143,31 @@ test('a reading that lands during the press on the numbers does not swallow it',
   /* The reading that waited is drawn once the press is over, and the numbers stay open in it. */
   await expect(trust).toContainText('Private repositories');
   await expect(trust.locator('.wp-numbers').first()).toHaveJSProperty('open', true);
+});
+
+/*
+ * Upload scanning is asked once the overview is shown. A refusal is an
+ * answer, but a request that never reached the server is not one: it is asked
+ * again the next time the overview is shown. It used to be asked once per
+ * page, and the lost request counted as the answer for the rest of it.
+ */
+test('upload scanning lost to the network is asked again when the overview is next shown', async ({ page }) => {
+  let asked = 0;
+  await signIn(page, {}, () => page.route('**/api/security/scanner-status', route => {
+    asked += 1;
+    return asked === 1 ? route.abort('internetdisconnected') : route.fallback();
+  }));
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust).toContainText('Scanner status has not loaded.');
+  await expect.poll(() => asked).toBe(1);
+  await page.locator('#ovGoRepos').click();
+  await expect(ui.screen(page, 'repos')).toBeVisible();
+  const rail = page.locator('.nv-rail-item[data-rail="overview"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect.poll(() => asked).toBe(2);
+  await expect(trust).not.toContainText('Scanner status has not loaded.');
 });
 
 test('an open critical leak caps the score and says why', async ({ page }) => {

@@ -131,6 +131,21 @@ test('a failed request leaves a drawn card rather than a permanent loading line'
   await expect(feed(page)).not.toContainText('Reading recent activity');
 });
 
+/*
+ * An empty answer is an answer with nothing in it. It used to be drawn as
+ * the script's own error: "Recent activity could not be read: Cannot read
+ * properties of null (reading 'generatedAt')".
+ */
+test('an empty answer is said as nothing to read, never as the script\'s own error', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', route => route.fulfill({ status: 200, contentType: 'application/json', body: 'null' }));
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(feed(page)).toContainText('No repositories are available to this session yet.');
+  await expect(feed(page)).not.toContainText('could not be read');
+  await expect(feed(page)).not.toContainText('Cannot read');
+});
+
 test('the feed does not displace the activity chart it sits beneath', async ({ page }) => {
   await overview(page);
   /*

@@ -108,6 +108,30 @@ test('a card opens its pull request in its own repository', async ({ page }) => 
   await expect(page.locator('#prDetail')).toContainText('Pin the release workflow\'s actions to commits');
 });
 
+/*
+ * The board lands on the open pull requests, so the list it opens is the
+ * open one, even when the reader last chose another in that repository.
+ */
+test('a card opens the list of open pull requests, whichever list was chosen last', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.goto('/#/sandbox/demo@main/pulls');
+  await expect(page.locator('#tab-pulls')).toBeVisible();
+  await page.locator('#prState [data-v="closed"]').click();
+  await expect(page.locator('#prState [data-v="closed"]')).toHaveAttribute('aria-checked', 'true');
+  /* Back to the Overview by the rail. */
+  const rail = page.locator('.nv-rail-item[data-rail="overview"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(page.locator('#page-overview')).toHaveClass(/active/);
+  const card = page.locator('#wpPulls');
+  await card.scrollIntoViewIfNeeded();
+  await card.getByRole('button', { name: /Open pull request #42 in sandbox\/demo/ }).click();
+  await expect(page.locator('#tab-pulls')).toBeVisible();
+  await expect(page.locator('#prState [data-v="open"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('#prState [data-v="closed"]')).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('#prDetail')).toContainText('Pin the release workflow\'s actions to commits');
+});
+
 /* A press on a pull request is delivered even when the board is redrawn under it. */
 test('a redraw that lands during the press on a pull request does not swallow it', async ({ page }) => {
   await installClock(page);
@@ -352,4 +376,31 @@ test('a reading overtaken by a new identity reads again instead of hanging', asy
   /* Read again (from the lists already fetched, within their five minutes), not left reading. */
   await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');
   await expect(card).not.toContainText('Reading the open pull requests');
+});
+
+/*
+ * The board belongs to the account that read it. An account change lets it
+ * go, so the next account's board is read for that account -- never the last
+ * one's pull requests, served from the five minutes they are kept.
+ */
+test('an account change reads the board again for the new account and never shows the last one\'s pull requests', async ({ page }) => {
+  await page.setViewportSize({ width: page.viewportSize().width, height: 700 });
+  const asked = countPulls(page);
+  let switched = false;
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+    { login: 'alpha-tester', provider: 'github' }, { login: 'second-github', provider: 'github' }
+  ] } }));
+  await page.route('**/api/accounts/switch-idx', route => { switched = true; return route.fulfill({ json: { ok: true, login: 'second-github' } }); });
+  await page.route('**/api/repo/sandbox/demo/pulls?*', route => (switched ? route.fulfill({ json: [] }) : route.fallback()));
+  await page.goto('/#/overview');
+  const card = page.locator('#wpPulls');
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.locator('.pb-sentence')).toHaveText('4 open pull requests in 1 repository: 2 waiting on review, the longest for 9 days.');
+  await ui.button(page, 'Accounts').click();
+  await ui.dialog(page, 'Accounts').getByRole('button', { name: 'Switch' }).click();
+  await expect(page.locator('.toast').filter({ hasText: 'Switched to second-github' })).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.locator('.pb-sentence')).toHaveText('No open pull requests in the 1 repository read.');
+  expect(asked).toEqual(['/api/repo/sandbox/demo/pulls', '/api/repo/sandbox/demo/pulls']);
 });

@@ -1310,3 +1310,67 @@ test('a refusal that arrives after another repository is opened is not said ther
   await expect(page.locator('#exposureLive')).not.toContainText(/governance administrator/i);
   await expect(page.locator('#exposureProofLine')).not.toContainText(/governance administrator/i);
 });
+
+/*
+ * A word the server never sent is shown as itself. The screen once looked
+ * every state, coverage and decision up by any name a table answers to, so a
+ * scan in the state `constructor` read as the page's own code, and a probe
+ * whose columns came as one name rather than a list stopped the whole screen
+ * drawing.
+ */
+test('a name the server never sent is shown as itself, and columns that are not a list are none', async ({ page }) => {
+  const recent = new Date(Date.now() - 60000).toISOString();
+  const later = new Date(Date.now() + 3600000).toISOString();
+  await mockExposure(page, {
+    scanState: scan({ state: 'constructor', coverage: 'toString', skippedReason: 'constructor' }),
+    findings: [finding({ disposition: 'toString' }), anonKeyFinding()],
+    history: [historyScan({ state: 'constructor', coverage: 'toString' })],
+    probes: {
+      ['b'.repeat(64)]: { probeId: 'p-1', fingerprint: 'b'.repeat(64), state: 'denied', relation: 'profiles', projection: 'id', observedAt: recent, freshnessDeadline: later, narration: 'Refused.' }
+    }
+  });
+  await openExposure(page);
+  await expect(page.locator('#exposureState')).toHaveText('constructor');
+  await expect(page.locator('#exposureCoverage')).toHaveText('toString');
+  await expect(page.locator('#exposureCaveat')).toBeHidden();
+  await expandFindings(page);
+  const odd = page.locator('.exposure-item[data-disposition="toString"]');
+  await expect(odd.locator('.exposure-item-status')).toHaveText('toString');
+  await expect(odd.locator('.exposure-item-disposition')).toHaveText('Status: toString');
+  await expect(page.locator('.exposure-item-readability')).toHaveText('Refused. Asked: profiles ().');
+  await expect(page.locator('.exposure-scan-state').first()).toHaveText('constructor');
+  await expect(page.locator('#tab-exposure')).not.toContainText(/native code|function /);
+});
+
+/* Opening the last closed finding by hand makes the open-all control say it will close them all. */
+test('opening every finding by hand turns the open-all control into close-all', async ({ page }) => {
+  await mockExposure(page, { scanState: scan(), findings: [finding()] });
+  await openExposure(page);
+  const toggle = page.locator('#exposureExpandAllBtn');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.exposure-item-summary').first().click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toContainText('Collapse all');
+  await page.locator('.exposure-item-summary').first().click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+/* A paged list loads its next page when asked, from where the last one ended. */
+test('a paged list loads its next page from where the last one ended', async ({ page }) => {
+  await mockExposure(page, { scanState: scan() });
+  const asked = [];
+  await page.route(url => url.pathname === '/api/repo/acme/demo/exposure/findings', route => {
+    const query = Object.fromEntries(new URL(route.request().url()).searchParams);
+    asked.push(query);
+    const second = query.cursor === 'page-2';
+    return route.fulfill({ json: { findings: [finding({ fingerprint: (second ? 'e' : 'f').repeat(64), path: second ? 'b.js' : 'a.js' })], verifications: {}, probes: {},
+      total: 2, counts: { all: 2, bySeverity: { critical: 2 }, byDisposition: { open: 2 } }, nextCursor: second ? null : 'page-2' } });
+  });
+  await openExposure(page);
+  const more = page.locator('#exposureLoadMore');
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect.poll(() => asked.some(query => query.cursor === 'page-2')).toBe(true);
+  await expect(page.locator('#exposureShown')).toContainText('2 of 2 matching findings loaded');
+  await expect(more).toBeHidden();
+});

@@ -3,7 +3,7 @@
  * What a protected-path pattern covers, read the two ways it is read: by the
  * server (pathMatches, apps/api/src/platform/values/path-patterns.ts), which
  * refuses a write to a protected path and scores a pushed change to one, and
- * by the page (protectedPatternMatch, apps/web/src/legacy/app.js), which shows
+ * by the page (protectedPatternMatch, apps/web/src/features/safeguards/protected-paths.ts), which shows
  * a file as protected. A file the page shows as protected must be one the
  * server protects, and the other way round, so one table is put to both.
  *
@@ -14,20 +14,11 @@
  * gap went unseen.
  */
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
 const { pathMatches } = require('../apps/api/src/platform/values/path-patterns.ts');
 const { protectedPathError } = require('../apps/api/src/modules/corona/index.ts');
 
-const page = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
-const start = page.indexOf('function protectedPatternMatch(');
-const end = page.indexOf('\n}\n', start);
-assert(start >= 0 && end > start, 'the page must declare protectedPatternMatch');
-const sandbox = {};
-vm.createContext(sandbox);
-vm.runInContext(`${page.slice(start, end + 2)}\nthis.protectedPatternMatch = protectedPatternMatch;`, sandbox);
-const readers = Object.freeze({ server: pathMatches, page: sandbox.protectedPatternMatch });
+const { protectedPatternMatch } = require('../apps/web/src/features/safeguards/protected-paths.ts');
+const readers = Object.freeze({ server: pathMatches, page: protectedPatternMatch });
 
 /* [pattern, path, covered] */
 const TABLE = Object.freeze([

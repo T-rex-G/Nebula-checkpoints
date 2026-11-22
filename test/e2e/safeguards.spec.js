@@ -84,3 +84,27 @@ test('safeguards show the provider rules, lock paths by preset and unlock them',
   await expect(page.locator('#tab-audit')).toBeVisible();
   await expect(page.locator('#tab-safeguards')).toBeHidden();
 });
+
+/*
+ * Read-only takes New file away and gives it back. Turning read-only off once
+ * cleared the page's read-only state and left New file disabled until the
+ * page was loaded again.
+ */
+test('read-only turned off gives New file back', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  let safety = { readOnly: true, freezeSync: false, protected: {}, globalControls: true };
+  await page.route('**/api/safety', route => {
+    if (route.request().method() === 'POST') safety = { ...safety, ...route.request().postDataJSON() };
+    return route.fulfill({ json: safety });
+  });
+  await page.goto('/#/sandbox/demo@main/safeguards');
+  const section = page.getByRole('region', { name: 'Safeguards' });
+  await expect(section).toBeVisible();
+  await expect(page.locator('body')).toHaveClass(/\bread-only\b/);
+  await expect(page.locator('#newFileBtn')).toBeDisabled();
+  await page.locator('#sgReadOnly').uncheck();
+  await expect(page.locator('body')).not.toHaveClass(/\bread-only\b/);
+  await expect(page.locator('#newFileBtn')).toBeEnabled();
+  await page.locator('#sgReadOnly').check();
+  await expect(page.locator('#newFileBtn')).toBeDisabled();
+});

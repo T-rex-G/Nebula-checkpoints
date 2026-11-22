@@ -73,6 +73,8 @@ import { createExposureView } from '../features/exposure/exposure-view.ts';
 import { bindExposureControls } from '../features/exposure/exposure-controls.ts';
 import { TREE_ICON, createFileTree } from '../features/workbench/file-tree.ts';
 import { createItemMenu } from '../features/workbench/item-menu.ts';
+import { protectedPatternMatch } from '../features/safeguards/protected-paths.ts';
+import { createSafety } from '../features/safeguards/safety-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1359,46 +1361,29 @@ const fileTree = createFileTree({
 function loadTree(dirPath, host, isRoot) { return fileTree.load(dirPath, host, isRoot); }
 
 /* ================= SAFEGUARDS ================= */
-function safetyKey() { return (state.work && state.work.owner) ? `${state.work.owner}/${state.work.repo}` : ''; }
-function protectedList() { return ((state.safety && state.safety.protected) || {})[safetyKey()] || []; }
-function protectedPatternMatch(pattern, value) {
-  /* As the server reads it (pathMatches): a pattern ending in `/` names a folder and covers everything beneath it. */
-  const written = String(pattern || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
-  const folder = written.endsWith('/');
-  const p = written.replace(/\/+$/, '') + (folder && /[?*]/.test(written) ? '/**' : '');
-  const v = String(value || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/{2,}/g, '/');
-  if (!p || !v) return false;
-  if (!/[?*]/.test(p)) return v === p || v.startsWith(p + '/');
-  let rx = '^';
-  for (let i = 0; i < p.length; i++) {
-    const c = p[i];
-    if (c === '*') {
-      /* As the server reads it: `**/` is zero or more folders, so `**/.env*` covers the root `.env` too. */
-      if (p[i + 1] === '*') { i++; if (p[i + 1] === '/') { i++; rx += '(?:.*/)?'; } else rx += '.*'; } else rx += '[^/]*';
-    }
-    else if (c === '?') rx += '[^/]';
-    else rx += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  try { return new RegExp(rx + '$').test(v); } catch { return false; }
-}
-function isProtectedPath(p) { return protectedList().some(pattern => protectedPatternMatch(pattern, p)); }
-function isExactProtectedPath(p) { return protectedList().includes(String(p).replace(/^\/+/, '')); }
-async function refreshSafety() {
-  try { state.safety = await api('/api/safety'); }
-  catch { state.safety = state.safety || { readOnly: false, freezeSync: false, protected: {} }; }
-  applySafetyUI();
-}
-async function setSafety(patch) {
-  try { state.safety = await api('/api/safety', { method: 'POST', body: patch }); applySafetyUI(); return true; }
-  catch (e) { toast(e.message, 'err'); return false; }
-}
-function applySafetyUI() {
-  const ro = !!(state.safety && state.safety.readOnly);
-  document.body.classList.toggle('read-only', ro);
-  const chip = $('#roChip'); if (chip) chip.hidden = !ro;
-  const fz = $('#freezeChip'); if (fz) fz.hidden = !(state.safety && state.safety.freezeSync);
-  if (ro) ['commitFileBtn', 'newFileBtn'].forEach(id => { const el = $('#' + id); if (el) el.disabled = true; });
-}
+/*
+ * The safety record and the locked paths (features/safeguards/safety-controller.ts,
+ * features/safeguards/protected-paths.ts): read from the server and shown, read
+ * as the server reads a lock, and changed through it.
+ */
+const safety = createSafety({
+  api: (path, options) => api(path, options),
+  safety: () => state.safety,
+  setSafety: value => { state.safety = value; },
+  work: () => state.work,
+  toast: (message, kind) => toast(message, kind),
+  body: () => document.body,
+  $: selector => $(selector),
+  fileChanged: () => Boolean(state.file && state.file.dirty && !state.file.binary),
+  openSafeguards: () => openSafeguards()
+});
+function safetyKey() { return safety.key(); }
+function protectedList() { return safety.list(); }
+function isProtectedPath(p) { return safety.isProtected(p); }
+function isExactProtectedPath(p) { return safety.isExactProtected(p); }
+function refreshSafety() { return safety.refresh(); }
+function setSafety(patch) { return safety.set(patch); }
+function applySafetyUI() { safety.apply(); }
 function dlFile(name, text, type) {
   const a = document.createElement('a');
   a.setAttribute('aria-hidden', 'true');
@@ -1408,15 +1393,7 @@ function dlFile(name, text, type) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
-async function toggleProtect(p) {
-  if (isProtectedPath(p) && !isExactProtectedPath(p)) {
-    toast(`${p} is protected by a wildcard or folder policy. Remove that policy in Safeguards.`, 'err');
-    return openSafeguards();
-  }
-  const on = !isExactProtectedPath(p);
-  if (await setSafety({ protect: { repo: safetyKey(), path: p, on } }))
-    toast(on ? `${p} is now protected` : `${p} unlocked`, 'ok');
-}
+function toggleProtect(p) { return safety.toggleProtect(p); }
 /*
  * The repository audit. One result per repository in memory, bound to the
  * identity and branch it was taken for; a result for another repository or a

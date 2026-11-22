@@ -199,11 +199,9 @@ test('the feed is read once per visit, not once per glance', async ({ page }) =>
   await expect(ui.screen(page, 'repos')).toBeVisible();
 
   /*
-   * Back via the rail rather than the topbar brand. #homeBtn is the obvious
-   * control and it cannot be clicked: on the repositories screen it computes
-   * to zero width, so Playwright waits for a stable, visible target forever.
-   * That is a real defect in that button and not this feed's to fix, but a
-   * test that drives it would be measuring the bug rather than the feed.
+   * Back via the rail, the one way back that every screen offers; the
+   * brand's own way back from the repositories screen is held by
+   * test/e2e/overview-core.spec.js.
    */
   const rail = page.locator('.nv-rail-item[data-rail="overview"]');
   /* The menu button on the screen that is actually showing: every page

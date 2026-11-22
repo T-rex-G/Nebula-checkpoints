@@ -33,7 +33,9 @@ import AlphaUI from '../features/access/alpha-ui.ts';
 import CapabilityUI from '../features/capabilities/capability-ui.ts';
 import { createGovernance } from '../features/governance/governance-actions.ts';
 import { render as drawGovernance } from '../features/governance/GovernanceView.tsx';
-import * as WorkspacePulseModel from '../features/overview/workspace-pulse.ts';
+import { createOverview } from '../features/overview/overview-controller.ts';
+import { coreLineText, greeting, localSnapshotKeys, paintCoreLine, paintCoreState, wireCorePointer } from '../features/overview/overview-core.ts';
+import { render as drawOverviewPulse } from '../features/overview/OverviewPulse.tsx';
 import { clearActivityFeed as clearActivityFeedCard, render as renderWorkspacePulseCards, renderActivityFeed } from '../features/overview/WorkspacePulse.tsx';
 import { render as renderGalaxyPulseGrid } from '../features/repositories/GalaxyPulse.tsx';
 import RenderedAudit from '../features/parallax/RenderedAudit.tsx';
@@ -746,20 +748,37 @@ $('#ovHomeBtn') && $('#ovHomeBtn').addEventListener('click', () => showOverview(
 $('#ovGoRepos') && $('#ovGoRepos').addEventListener('click', () => showPage('repos'));
 $('#ovOpenBrowser') && $('#ovOpenBrowser').addEventListener('click', () => showPage('repos'));
 
-/* Draws the overview for whoever is signed in and, unless `arrive` is false, takes the reader to it. */
-function showOverview(arrive = true) {
-  const who = $('#ovWho');
-  if (who) who.textContent = (state.me && (state.me.name || state.me.login)) || 'tester';
-  paintCoreState();
-  renderWorkspacePulse();
-  loadScannerPosture();
-  loadPosture();
-  loadSecurityPosture();
-  loadActivityFeed();
-  if (arrive) showPage('overview');
-  pullBoard.watch();
-  if (pullBoard.visible()) void pullBoard.load();
-}
+/*
+ * The overview (features/overview/overview-controller.ts): shown for whoever
+ * is signed in, its readings asked for, and its pulse -- the summary row
+ * (overview-pulse.ts, OverviewPulse.tsx), the core's rail and line
+ * (overview-core.ts) and the cards -- drawn from one measurement of what the
+ * session holds.
+ */
+const overview = createOverview({
+  state,
+  capabilities: CapabilityUI,
+  localSnapshots: () => localSnapshotKeys(() => localStorage),
+  greet: () => { const who = $('#ovWho'); if (who) who.textContent = greeting(state.me); },
+  paintCoreState: () => paintCoreState($('#ovCoreScope'), $('#ovCoreLive'), state.me),
+  paintCoreLine: pulse => paintCoreLine($('#ovCoreLine'), pulse, state.me, (line, draw) => repaintCard(line, draw)),
+  row: () => ({ section: $('#ovPulse'), grid: $('#ovPulseGrid') }),
+  drawRow: (section, grid, measures) => drawOverviewPulse(section, grid, measures),
+  cards: () => ({ trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') }),
+  drawCards: (hosts, pulse) => renderWorkspacePulseCards(hosts, pulse),
+  readings: {
+    scanner: () => loadScannerPosture(),
+    posture: () => loadPosture(),
+    security: () => loadSecurityPosture(),
+    feed: () => loadActivityFeed(),
+    renderSecurity: () => renderSecurityPosture()
+  },
+  board: { watch: () => pullBoard.watch(), visible: () => pullBoard.visible(), load: () => pullBoard.load(), render: () => pullBoard.render() },
+  showPage: name => showPage(name)
+});
+function showOverview(arrive = true) { overview.show(arrive); }
+function renderWorkspacePulse(repos) { overview.renderPulse(repos); }
+wireCorePointer($('#ovCore'), window.matchMedia ? query => window.matchMedia(query) : null, () => state.settings.motion);
 
 /*
  * The recent-activity feed (features/overview/activity-feed-controller.ts):
@@ -778,69 +797,6 @@ function clearActivityFeed() { activityFeed.clear(); }
 function loadActivityFeed(force) { return activityFeed.load(force); }
 
 $('#wpFeedRefresh')?.addEventListener('click', () => loadActivityFeed(true));
-
-/*
- * The core panel's rail says where this session actually is.
- *
- * It reads the same authority `loadProviderCapabilities` resolves, so the rail
- * and the capability set can never name two different hosts. A session with no
- * identity says so rather than showing a provider it is not talking to: the
- * live dot is what claims a connection, and a claim without a source is the
- * one thing this surface must not make.
- */
-function paintCoreState() {
-  const scope = $('#ovCoreScope');
-  const live = $('#ovCoreLive');
-  if (!scope) return;
-  const connected = !!state.me && state.me.provider === 'github';
-  scope.textContent = connected ? 'github.com' : 'Not connected';
-  if (live) {
-    /*
-     * "Connected" rather than "Live": an identity proves a session, not that
-     * anything is being watched in real time, and this rail has no stream
-     * behind it that would earn the stronger word.
-     */
-    live.textContent = connected ? 'Connected' : 'Not connected';
-    live.classList.toggle('is-idle', !connected);
-  }
-}
-
-/*
- * The line under the core states the reading, not a slogan. It used to say
- * "Secure by default. Proven by design." to every session, including one with
- * a leaked key open and nothing scanned -- a claim this panel never checked.
- */
-function paintCoreLine(pulse) {
-  const line = $('#ovCoreLine');
-  if (!line) return;
-  const said = coreLineText(pulse);
-  /* Rewritten once no press is down on the overview: a line that wraps anew moves every card below it. */
-  repaintCard(line, () => { line.textContent = said; });
-}
-function coreLineText(pulse) {
-  const trust = pulse && pulse.trust;
-  if (!state.me) return 'Sign in to measure this workspace.';
-  if (!trust || trust.score === null) return 'Measuring this workspace\u2026';
-  const attention = trust.attention
-    ? `${trust.attention} ${trust.attention === 1 ? 'signal needs' : 'signals need'} attention`
-    : 'every measured signal healthy';
-  return `Grade ${trust.grade} \u00b7 ${trust.score}/100 \u00b7 ${attention}${trust.capped ? ' \u00b7 capped by a critical leak' : ''}.`;
-}
-
-/*
- * Repositories with a recovery reference held in this browser. The account
- * boundary purge removes every one of these keys, so this can only ever count
- * the current identity's references.
- */
-function localSnapshotKeys() {
-  const keys = new Set();
-  try {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('nv_snap_')) keys.add(key.slice('nv_snap_'.length).toLowerCase());
-    }
-  } catch { /* storage unavailable: no browser-held references to count */ }
-  return keys;
-}
 
 /*
  * The workspace posture, the security posture card and upload scanning
@@ -894,29 +850,6 @@ const pullBoard = createPullBoard({
 });
 function renderPullBoard() { pullBoard.render(); }
 
-/*
- * The pointer light on the core panel.
- *
- * Two custom properties and one radial gradient: the browser repaints a
- * background, there is no layer to composite and nothing to lay out. The
- * listener is passive and only runs while a fine pointer is over the panel, so
- * a phone never pays for it, and with motion off the properties simply stop
- * being written -- the surface keeps whatever it last had, which is the same
- * surface it has at rest.
- */
-function wireCorePointer() {
-  const panel = $('#ovCore');
-  if (!panel || !window.matchMedia || !window.matchMedia('(hover:hover) and (pointer:fine)').matches) return;
-  panel.addEventListener('pointermove', event => {
-    if (!state.settings.motion || event.pointerType === 'touch') return;
-    const box = panel.getBoundingClientRect();
-    if (!box.width || !box.height) return;
-    panel.style.setProperty('--nv-px', `${((event.clientX - box.left) / box.width) * 100}%`);
-    panel.style.setProperty('--nv-py', `${((event.clientY - box.top) / box.height) * 100}%`);
-  }, { passive: true });
-}
-wireCorePointer();
-
 /* Upload scanning, asked once the overview is shown (features/posture/posture-controller.ts). */
 function loadScannerPosture() { return posture.loadScanner(); }
 
@@ -933,127 +866,6 @@ function mountNebulaVisual(kind, selector) {
   Visuals.mount(kind, host);
 }
 
-/*
- * The trust score and live-signal count.
- *
- * Every input is read from what this session already holds -- no measure
- * triggers a request of its own, so opening the overview cannot spend a
- * reader's rate limit to draw a number at them. Anything absent stays absent:
- * the model reports it as unmeasured rather than scoring it zero.
- */
-function renderWorkspacePulse(repos) {
-  const capabilities = CapabilityUI;
-  /* The inventory's failure path reports an empty set without discarding what
-   * the session still holds, so the caller may override the list it reads. */
-  const list = Array.isArray(repos) ? repos : state.repos;
-  /*
-   * One model, two readings. The summary row and the cards below it used to be
-   * computed apart, which let the row say one thing and the card under it say
-   * another about the same session. They now share a single measurement.
-   */
-  const pulse = WorkspacePulseModel.model({
-    repos: list,
-    features: capabilities && capabilities.features ? capabilities.features() : null,
-    recoveryStatus: capabilities ? capabilities.decision('recovery').status : null,
-    scanner: state.scanner,
-    identity: state.me,
-    posture: state.posture,
-    localSnapshots: localSnapshotKeys()
-  });
-  renderOverviewPulse(list, pulse);
-  paintCoreLine(pulse);
-  const roots = { trust: $('#wpTrust'), signals: $('#wpSignals'), activity: $('#wpActivity') };
-  if (roots.trust || roots.signals || roots.activity) renderWorkspacePulseCards(roots, pulse);
-  renderSecurityPosture();
-  renderPullBoard();
-}
-
-/*
- * The summary row across the top of the overview. Every figure here is read
- * off the same pulse model the cards below use, so the row can never disagree
- * with the card that explains it -- and a measure without a source shows an em
- * dash and the word "Not measured" rather than a plausible-looking zero.
- */
-const PULSE_ICONS = Object.freeze({
-  repositories: 'M4 6.5A2.5 2.5 0 0 1 6.5 4H19v13H6.5A2.5 2.5 0 0 0 4 19.5z',
-  private: 'M6 10.5h12v9H6zM9 10.5V7.5a3 3 0 0 1 6 0v3',
-  trust: 'M12 3.2l7 3v5.3c0 4.2-2.9 7.6-7 9.3-4.1-1.7-7-5.1-7-9.3V6.2z',
-  signals: 'M2 12h3.4l2.3-7 3.4 14 2.6-9.4 1.8 5 1.6-2.6H22',
-  attention: 'M12 4.4l8.4 15H3.6zM12 10.4v4M12 17.1h.01'
-});
-
-function pulseMeasures(list, pulse) {
-  const trust = pulse && pulse.trust;
-  const signals = pulse && pulse.signals;
-  /*
-   * "Needs attention" counts the components the model itself scored as warning
-   * or critical. Components it could not measure are not counted -- an unknown
-   * is not a problem, and reporting it as one would invent a fault.
-   */
-  const flagged = trust && Array.isArray(trust.components)
-    ? trust.components.filter(c => c.status === 'warning' || c.status === 'critical').length
-    : null;
-  return [
-    { icon: 'repositories', label: 'Galaxies', value: list.length, note: 'repositories connected' },
-    { icon: 'private', label: 'Private', value: list.filter(r => r && r.private).length, note: 'of the connected set' },
-    {
-      icon: 'trust', label: 'Trust score',
-      value: trust && trust.score !== null && trust.score !== undefined ? trust.score : null,
-      note: trust && trust.score !== null && trust.score !== undefined
-        ? `Grade ${trust.grade} \u00b7 ${trust.measuredCount} of ${trust.componentCount} measured`
-        : 'Not measured'
-    },
-    {
-      icon: 'signals', label: 'Provider-verified',
-      value: signals && signals.measured ? signals.providerVerified : null,
-      note: signals && signals.measured ? `of ${signals.total} · registry evidence` : 'Not measured'
-    },
-    {
-      icon: 'attention', label: 'Needs attention',
-      value: flagged === null ? null : flagged,
-      note: flagged === null ? 'Not measured' : (flagged === 1 ? 'component flagged' : 'components flagged')
-    }
-  ];
-}
-
-function renderOverviewPulse(repos, pulse) {
-  const section = $('#ovPulse');
-  const grid = $('#ovPulseGrid');
-  if (!section || !grid) return;
-  const measures = pulseMeasures(Array.isArray(repos) ? repos : [], pulse);
-  /* Rebuilt once no press is down on the overview, like the cards below it (components/held-repaint.ts). */
-  repaintCard(grid, () => drawOverviewPulse(section, grid, measures));
-}
-function drawOverviewPulse(section, grid, measures) {
-  grid.innerHTML = '';
-  for (const measure of measures) {
-    const cell = document.createElement('div');
-    cell.className = 'gx-pulse-cell';
-    if (measure.value === null) cell.classList.add('is-unmeasured');
-    const dt = document.createElement('dt');
-    const mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    mark.setAttribute('class', 'gx-pulse-ico');
-    mark.setAttribute('viewBox', '0 0 24 24');
-    mark.setAttribute('aria-hidden', 'true');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', PULSE_ICONS[measure.icon]);
-    mark.appendChild(path);
-    const name = document.createElement('span');
-    name.textContent = measure.label;
-    dt.append(mark, name);
-    const dd = document.createElement('dd');
-    const value = document.createElement('span');
-    value.className = 'gx-pulse-value';
-    value.textContent = measure.value === null ? '\u2014' : String(measure.value);
-    const note = document.createElement('span');
-    note.className = 'gx-pulse-note';
-    note.textContent = measure.note;
-    dd.append(value, note);
-    cell.append(dt, dd);
-    grid.appendChild(cell);
-  }
-  section.hidden = false;
-}
 /* Both home screens open the same account sheet (features/access/accounts-dialog.ts). */
 const accountsDialog = createAccountsDialog({
   api,

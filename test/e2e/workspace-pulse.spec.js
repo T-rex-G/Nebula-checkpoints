@@ -170,6 +170,77 @@ test('upload scanning lost to the network is asked again when the overview is ne
   await expect(trust).not.toContainText('Scanner status has not loaded.');
 });
 
+/*
+ * The row above the cards marks a measure it could not take: the cell says
+ * so in its class, a dash stands for the figure and the note says "Not
+ * measured". A measured nought is a reading and is drawn as one.
+ */
+test('the row above the cards marks what it could not measure, and draws a measured nought as a nought', async ({ page }) => {
+  await signIn(page, {}, async () => {
+    for (const path of ['**/api/capabilities*', '**/api/account/capabilities*']) {
+      await page.route(path, route => route.fulfill({ status: 503, json: { error: 'Capabilities are unavailable', code: 'OPERATION_FAILED' } }));
+    }
+    await page.route('**/api/repos*', route => (route.request().method() === 'GET'
+      ? route.fulfill({ json: [{ full_name: 'sandbox/demo', name: 'demo', owner: 'sandbox', private: false, language: 'JavaScript', stars: 0, forks: 0, pushed_at: new Date().toISOString() }] })
+      : route.fallback()));
+  });
+  const row = page.locator('#ovPulse');
+  await expect(row).toBeVisible();
+  const cell = label => page.locator('#ovPulseGrid .gx-pulse-cell').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) });
+  await expect(cell('Galaxies').locator('.gx-pulse-value')).toHaveText('1');
+  await expect(cell('Private').locator('.gx-pulse-value')).toHaveText('0');
+  await expect(cell('Private')).not.toHaveClass(/is-unmeasured/);
+  await expect(cell('Provider-verified')).toHaveClass(/is-unmeasured/);
+  await expect(cell('Provider-verified').locator('.gx-pulse-value')).toHaveText('\u2014');
+  await expect(cell('Provider-verified').locator('.gx-pulse-note')).toHaveText('Not measured');
+});
+
+/*
+ * The row is drawn again when a reading lands, but not under a press on the
+ * Overview: a row that changes height moves what was pressed. It waits for
+ * the press to end, like the cards below it.
+ */
+test('the row waits for a press on the Overview to end before it is drawn again', async ({ page }) => {
+  await installClock(page);
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let holding = false;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let asked = 0;
+  await page.route('**/api/workspace/posture', async route => {
+    if (!holding) return route.fallback();
+    asked += 1;
+    await held;
+    /* The posture changed meanwhile: a critical leak is open, which caps the score. */
+    return route.fulfill({ json: {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], expiresAt: '2026-12-31T00:00:00.000Z', detail: 'Fine-grained token.' },
+      recovery: { available: true, repositories: [{ owner: 'sandbox', repo: 'demo', latestAt: new Date(Date.now() - 86400000).toISOString(), points: 1 }] },
+      exposure: { available: true, repositories: [{ owner: 'sandbox', repo: 'demo', scannedAt: new Date(Date.now() - 3600000).toISOString(), partial: false, open: { critical: 1, serious: 0, warning: 0 } }] },
+      boundary: { state: 'online', database: 'ready', maintenance: false }
+    } });
+  });
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  const summary = trust.locator('.wp-numbers summary').first();
+  await expect(summary).toBeVisible();
+  const score = page.locator('#ovPulseGrid .gx-pulse-cell').filter({ has: page.locator('dt', { hasText: /^Trust score$/ }) }).locator('.gx-pulse-value');
+  await expect(score).toHaveText(/^\d{1,3}$/);
+  await page.waitForLoadState('networkidle');
+  const before = await score.textContent();
+  holding = true;
+  await page.clock.fastForward(61000);
+  await page.locator('#ovHomeBtn').click();
+  await expect.poll(() => asked).toBeGreaterThan(0);
+  await pressOn(page, summary);
+  const landed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/workspace/posture');
+  release();
+  await landed;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(score, 'the row is not drawn again under the press').toHaveText(before);
+  await page.mouse.up();
+  await expect(score).not.toHaveText(before);
+});
+
 test('an open critical leak caps the score and says why', async ({ page }) => {
   await mockPublicAlphaApi(page, {
     access: 'required', ready: 'ready', provider: 'github', repositoryState: 'current', postureState: 'critical-leak'
@@ -347,4 +418,24 @@ test('the activity plot is drawn inside its frame, not along the edges', async (
   expect(plot.y).toBeGreaterThanOrEqual(card.y);
   expect(plot.y + plot.height).toBeLessThanOrEqual(card.y + card.height + 1);
   expect(plot.height).toBeGreaterThan(40);
+});
+
+/*
+ * A recovery point held only in this browser is one: the overview reads this
+ * browser's references beside the server's, and says which it found where.
+ */
+test('a recovery point held only in this browser is counted, and said to be held here', async ({ page }) => {
+  await signIn(page, {
+    '/api/workspace/posture': {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], detail: 'Fine-grained token.' },
+      recovery: { available: true, repositories: [] },
+      exposure: { available: false, repositories: [] },
+      boundary: { state: 'online', database: 'ready', maintenance: false }
+    }
+  });
+  const recovery = page.getByRole('article', { name: 'Trust score' }).locator('.wp-component').filter({ hasText: 'Recovery points' });
+  await expect(recovery).toContainText('The connected repository has no recovery point.');
+  await page.evaluate(() => localStorage.setItem('nv_snap_sandbox/demo', JSON.stringify({ sha: 'a'.repeat(40), at: new Date().toISOString() })));
+  await page.reload();
+  await expect(recovery).toContainText('The connected repository has a recovery point; 1 held only in this browser.');
 });

@@ -2069,18 +2069,17 @@ check('a reading is drawn as an arc, not filled in by a legend colour', () => {
 });
 
 check('the live rail reports a session rather than asserting one', () => {
-  const make = liftFunction('paintCoreState', ['$', 'state']);
+  const { paintCoreState } = require('../apps/web/src/features/overview/overview-core.ts');
   const scope = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
   const live = fakeElement({ width: 10, height: 10, left: 0, top: 0 });
   live.classList = { toggle(name, on) { live.idle = on; } };
-  const lookup = selector => (selector === '#ovCoreScope' ? scope : selector === '#ovCoreLive' ? live : null);
 
-  make(lookup, { me: { provider: 'github', host: 'github.com' } })();
+  paintCoreState(scope, live, { provider: 'github', host: 'github.com' });
   const connected = scope.textContent;
   assert.ok(/github\.com/.test(connected), `a connected session does not name its host: ${connected}`);
   assert.strictEqual(live.idle, false, 'a connected session is not shown as live');
 
-  make(lookup, { me: null })();
+  paintCoreState(scope, live, null);
   assert.notStrictEqual(scope.textContent, connected,
     'the rail says the same thing signed in and signed out, so it is a label rather than a reading');
   assert.ok(!/github\.com/.test(scope.textContent),
@@ -2089,26 +2088,41 @@ check('the live rail reports a session rather than asserting one', () => {
     'a session with no identity is still shown as live, which is the one claim this rail must not fake');
 
   /* Retired identities must never appear as an active repository connection. */
-  make(lookup, { me: { provider: 'gitea', authority: 'git.example.org' } })();
+  paintCoreState(scope, live, { provider: 'gitea', authority: 'git.example.org' });
   assert.strictEqual(scope.textContent, 'Not connected');
   assert.strictEqual(live.idle, true, 'a retired identity must not appear connected');
 });
 
 check('the pointer light costs nothing on a device that has no pointer', () => {
-  const wiring = appSource.slice(appSource.indexOf('function wireCorePointer'));
-  const body = wiring.slice(0, wiring.indexOf('\n}\n'));
-  assert.ok(/\(hover:hover\)/.test(body) && /\(pointer:fine\)/.test(body),
+  const { wireCorePointer } = require('../apps/web/src/features/overview/overview-core.ts');
+  const asked = [];
+  const listeners = [];
+  const moved = [];
+  const panel = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    style: { setProperty: (name, value) => moved.push(name), transform: '' },
+    classList: { add: () => moved.push('class'), remove: () => moved.push('class') },
+    addEventListener: (type, run, options) => listeners.push({ type, run, options })
+  };
+  wireCorePointer(panel, query => { asked.push(query); return { matches: false }; }, () => true);
+  assert.ok(asked.some(query => /\(hover:hover\)/.test(query) && /\(pointer:fine\)/.test(query)),
     'the pointer light is wired up without asking whether the device has a pointer');
-  assert.ok(/passive:\s*true/.test(body),
+  assert.strictEqual(listeners.length, 0, 'a device that cannot hover is listened to');
+  let motion = true;
+  wireCorePointer(panel, () => ({ matches: true }), () => motion);
+  assert.ok(listeners.length === 1 && listeners[0].options && listeners[0].options.passive === true,
     'the pointer listener is not passive, so it can hold up a scroll');
-  assert.ok(/state\.settings\.motion/.test(body),
-    'the pointer light ignores the motion setting');
+  motion = false;
+  listeners[0].run({ clientX: 5, clientY: 5, pointerType: 'mouse' });
+  assert.deepStrictEqual(moved, [], 'the pointer light ignores the motion setting');
+  motion = true;
+  listeners[0].run({ clientX: 5, clientY: 5, pointerType: 'mouse' });
   /*
    * Two custom properties and a gradient. If it ever moves a layer instead,
    * every frame of a pointer move becomes a composite on a full-width panel.
    */
-  assert.ok(!/\.style\.transform|classList\.(add|remove)/.test(body),
-    'the pointer light moves an element rather than a background position');
+  assert.deepStrictEqual(moved, ['--nv-px', '--nv-py'], 'the pointer light moves an element rather than a background position');
+  assert.strictEqual(panel.style.transform, '', 'the pointer light moves an element rather than a background position');
   const lit = rules.find(rule => rule.selector.includes('.ov-core::after'));
   assert.ok(lit && /--nv-px/.test(lit.body),
     'nothing in the cascade reads the pointer position the shell writes');

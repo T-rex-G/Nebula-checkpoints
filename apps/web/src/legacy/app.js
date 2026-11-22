@@ -64,6 +64,9 @@ import { createRepositoryList } from '../features/repositories/repository-list-c
 import { createRepositoryOpener } from '../features/repositories/repository-opener.ts';
 import { createRepositoryPicker } from '../features/repositories/repository-picker-controller.ts';
 import { pickTool } from '../features/repositories/repository-picker.ts';
+import { createRepositoryHeader } from '../features/repositories/repository-header-controller.ts';
+import { branchProtected as isProtectedBranch, fillBranchSelect as fillBranches } from '../features/repositories/repository-branches.ts';
+import { createFilesPanel } from '../features/workbench/files-panel.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1049,7 +1052,7 @@ const repositoryOpener = createRepositoryOpener({
   },
   readOnly: visitor => { if (state.cm) state.cm.setOption('readOnly', visitor); },
   branches: (names, defaultBranch) => {
-    fillBranchSelect($('#branchSelect'), names, defaultBranch, true);
+    fillBranchSelect($('#branchSelect'), names, defaultBranch);
     fillBranchSelect($('#cmpBase'), names, defaultBranch);
     fillBranchSelect($('#cmpHead'), names, names.find(n => n !== defaultBranch) || defaultBranch);
   },
@@ -1104,146 +1107,83 @@ const repositoryPicker = createRepositoryPicker({
   switchTab: tool => switchTab(tool)
 });
 function pickRepository(target, pickOptions = {}) { return repositoryPicker.pick(target, pickOptions); }
-async function refreshRepoMetadata() {
-  if (!state.work || !state.work.owner || !state.work.repo) return null;
-  const info = await api(`/api/repo/${state.work.owner}/${state.work.repo}`);
-  const previousBranch = state.work.branch;
-  state.work = { ...state.work, ...info, branch: (info.branches || []).some(b => b.name === previousBranch) ? previousBranch : info.default_branch };
-  const names = (state.work.branches || []).map(b => b.name);
-  fillBranchSelect($('#branchSelect'), names, state.work.branch, true);
-  fillBranchSelect($('#cmpBase'), names, names.includes($('#cmpBase').value) ? $('#cmpBase').value : state.work.default_branch);
-  fillBranchSelect($('#cmpHead'), names, names.includes($('#cmpHead').value) ? $('#cmpHead').value : (names.find(n => n !== state.work.default_branch) || state.work.default_branch));
-  refreshShield();
-  return info;
-}
-
-async function toggleStar() {
-  try {
-    const out = await api(`/api/repo/${wPath()}/star`, { method: state.work.starred ? 'DELETE' : 'PUT' });
-    pageStore.mutate('work', work => { work.starred = out.starred; });
-    toast(out.starred ? '★ Starred' : 'Unstarred', 'ok');
-  } catch (e) { presentError(e); }
-}
-function fillBranchSelect(sel, names, selected, withGlyph) {
-  sel.innerHTML = '';
-  names.forEach(b => {
-    const o = document.createElement('option');
-    o.value = b; o.textContent = b;
-    if (b === selected) o.selected = true;
-    sel.appendChild(o);
-  });
-}
 /*
- * The files card on a desk can step aside for the tool beside it. It is a
- * viewer's preference, not repository data, so it lives in this browser and
- * outlives the repository that was open. On a phone the files are a drawer
- * already and none of this applies; the card is made inert only while it is
- * out of sight on a desk, so a hidden tree is never reachable by Tab.
+ * The repository header's controls (features/repositories/repository-header-controller.ts
+ * and repository-branches.ts): the repository read again and laid over the
+ * one open in place, the branch chosen and its shield, a branch created and
+ * switched to, the star and the archive.
  */
-const FILES_HIDDEN_KEY = 'nv_files_hidden';
-let filesHidden = false;
-try { filesHidden = localStorage.getItem(FILES_HIDDEN_KEY) === '1'; } catch {}
-function applyFilesHidden() {
-  const workspace = $('#page-work .workspace');
-  const side = $('#side');
-  if (!workspace || !side) return;
-  const hidden = filesHidden && !isMobile();
-  workspace.classList.toggle('files-hidden', hidden);
-  if (hidden) side.setAttribute('inert', '');
-  else side.removeAttribute('inert');
-  const label = hidden ? 'Show files' : 'Hide files';
-  const toggle = $('#filesToggle');
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', String(!hidden));
-    toggle.setAttribute('aria-label', label);
-    toggle.title = `${label} (Ctrl+B)`;
-  }
-}
-function setFilesHidden(hidden) {
-  const returning = document.activeElement && $('#side') && $('#side').contains(document.activeElement);
-  filesHidden = Boolean(hidden);
-  try { localStorage.setItem(FILES_HIDDEN_KEY, filesHidden ? '1' : '0'); } catch {}
-  applyFilesHidden();
-  /* Focus inside a card that has just gone inert would be lost; hand it to the control that brings it back. */
-  if (filesHidden && returning) $('#filesToggle')?.focus({ preventScroll: true });
-}
-$('#filesToggle')?.addEventListener('click', () => setFilesHidden(!filesHidden));
-$('#filesCollapse')?.addEventListener('click', () => setFilesHidden(true));
-document.addEventListener('keydown', event => {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || String(event.key).toLowerCase() !== 'b') return;
-  if (!$('#page-work')?.classList.contains('active') || isMobile()) return;
-  if (event.target && event.target.closest && event.target.closest('.CodeMirror, textarea, [contenteditable="true"]')) return;
-  event.preventDefault();
-  setFilesHidden(!filesHidden);
+const repositoryHeader = createRepositoryHeader({
+  state,
+  api: (path, options) => api(path, options),
+  mutateWork: change => pageStore.mutate('work', change),
+  doc: document,
+  branchSelect: () => $('#branchSelect'),
+  compareBase: () => $('#cmpBase'),
+  compareHead: () => $('#cmpHead'),
+  shield: () => $('#branchShield'),
+  modal: request => modal(request),
+  newBranchName: () => $('#nbName').value,
+  toast: (message, kind) => toast(message, kind),
+  presentError: error => presentError(error),
+  haptic: () => hapt(),
+  closeDrawer: () => closeDrawer(),
+  closeFile: () => closeFile(),
+  reloadTree: () => reloadTree(),
+  reloadView: () => reloadView(),
+  resetCommits: () => resetCommits(),
+  refreshRate: () => refreshRate(),
+  saveRoute: () => saveRoute()
 });
-window.addEventListener('resize', applyFilesHidden);
-applyFilesHidden();
-
-$('#syncBtn').addEventListener('click', async () => {
-  if (!state.work.repo) return;
-  hapt();
-  await refreshRepoMetadata().catch(e => toast(e.message, 'err'));
+function refreshRepoMetadata() { return repositoryHeader.refresh(); }
+function toggleStar() { return repositoryHeader.toggleStar(); }
+function refreshShield() { repositoryHeader.refreshShield(); }
+function downloadZip() { repositoryHeader.downloadZip(); }
+function fillBranchSelect(select, names, selected) { fillBranches(document, select, names, selected); }
+function branchProtected(name) { return isProtectedBranch(state.work, name); }
+/* The file tree read again from the top, its index let go of. */
+function reloadTree() {
   state.fileIndex = null;
   loadTree('', $('#tree'), true);
+}
+/* The commits from their first page, read again when they are shown. */
+function resetCommits() {
+  state.commitsPage = 1;
+  $('#commitList').innerHTML = '';
+  if (currentTab() === 'commits') loadCommits(true);
+}
+/* The tool open, read again by Refresh. */
+function reloadView() {
   const t = currentTab();
-  if (t === 'commits') { state.commitsPage = 1; $('#commitList').innerHTML = ''; loadCommits(true); }
+  if (t === 'commits') resetCommits();
   else if (t === 'pulls') loadPRs();
   else if (t === 'issues') loadIssues();
   else if (t === 'releases') loadReleases();
   else if (t === 'actions') loadActions();
   else if (t === 'governance') loadGovernanceTwin(true);
   else if (t === 'editor' && state.file && !state.file.binary && !state.file.dirty) openFile(state.file.path);
-  refreshRate();
-  toast('Refreshed ✦', 'ok');
-});
-function branchProtected(name) {
-  const b = (state.work.branches || []).find(x => x.name === name);
-  return !!(b && b.protected);
 }
-function refreshShield() {
-  const on = branchProtected(state.work.branch);
-  $('#branchShield').hidden = !on;
-}
-$('#branchSelect').addEventListener('change', e => {
-  pageStore.mutate('work', work => { work.branch = e.target.value; });
-  refreshShield();
-  closeFile(); state.fileIndex = null;
-  loadTree('', $('#tree'), true);
-  state.commitsPage = 1; $('#commitList').innerHTML = '';
-  if (currentTab() === 'commits') loadCommits(true);
-  saveRoute();
+$('#syncBtn').addEventListener('click', () => repositoryHeader.sync());
+$('#branchSelect').addEventListener('change', e => repositoryHeader.changeBranch(e.target.value));
+$('#newBranchBtn').addEventListener('click', () => repositoryHeader.createBranch());
+$('#refreshTreeBtn').addEventListener('click', () => reloadTree());
+$('#zipBtn').addEventListener('click', () => downloadZip());
+
+/* The files card stepping aside on a desk (features/workbench/files-panel.ts). */
+const filesPanel = createFilesPanel({
+  storage: () => localStorage,
+  workspace: () => $('#page-work .workspace'),
+  side: () => $('#side'),
+  toggle: () => $('#filesToggle'),
+  mobile: () => isMobile(),
+  onWork: () => Boolean($('#page-work')?.classList.contains('active')),
+  active: () => document.activeElement
 });
-$('#newBranchBtn').addEventListener('click', async () => {
-  const ok = await modal({
-    title: 'New branch',
-    bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
-      <p class="hint">Created from <b>${esc(state.work.branch)}</b></p>`,
-    okText: 'Create branch'
-  });
-  if (!ok) return;
-  const name = $('#nbName').value.trim();
-  if (!name) return;
-  try {
-    const created = await api(`/api/repo/${wPath()}/branches`, { method: 'POST', body: { name, from: state.work.branch } });
-    pageStore.mutate('work', work => { work.branches.push({ name, sha: created.sha || '' }); });
-    ['#branchSelect', '#cmpBase', '#cmpHead'].forEach(s => {
-      const o = document.createElement('option');
-      o.value = name; o.textContent = name;
-      $(s).appendChild(o);
-    });
-    $('#branchSelect').value = name; pageStore.mutate('work', work => { work.branch = name; });
-    toast(`Branch ${name} created ✦`, 'ok');
-    closeDrawer();
-  } catch (e) { toast(e.message, 'err'); }
-});
-$('#refreshTreeBtn').addEventListener('click', () => { state.fileIndex = null; loadTree('', $('#tree'), true); });
-$('#zipBtn').addEventListener('click', downloadZip);
-function downloadZip() {
-  const a = document.createElement('a');
-  a.href = `/api/repo/${wPath()}/zip?ref=${encodeURIComponent(state.work.branch)}`;
-  a.download = ''; document.body.appendChild(a); a.click(); a.remove();
-  toast('Preparing archive…');
-}
+$('#filesToggle')?.addEventListener('click', () => filesPanel.set(!filesPanel.hidden()));
+$('#filesCollapse')?.addEventListener('click', () => filesPanel.set(true));
+document.addEventListener('keydown', event => filesPanel.shortcut(event));
+window.addEventListener('resize', () => filesPanel.apply());
+filesPanel.apply();
 const wPath = () => `${state.work.owner}/${state.work.repo}`;
 
 /*

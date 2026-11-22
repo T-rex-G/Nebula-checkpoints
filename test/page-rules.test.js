@@ -464,6 +464,7 @@ const HANDOFFS = Object.freeze({
   'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
   'greeting <- me': 'reads the reader\'s name or login, strings, into the overview\'s greeting (features/overview/overview-core.ts)',
+  'isProtectedBranch <- work': 'finds the named branch in the repository\'s list and reads whether it is protected, changing nothing (repository-branches.ts\'s branchProtected)',
   'limitsKnown <- runtime': 'reads the four limits, numbers, into a flag (features/access/login-screen.ts\'s runtimeLimitsKnown)',
   'limitsText <- runtime': 'reads the limits, numbers, into the sign-in screen\'s words (features/access/login-screen.ts)',
   'offlineRepoKey <- me': 'reads the provider, a string, into the name the offline list keeps a repository by (platform/offline-repos.ts)',

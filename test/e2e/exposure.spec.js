@@ -1238,3 +1238,22 @@ test('switching repository does not leave the previous findings on screen', asyn
   await expect(page.locator('.exposure-item')).toHaveCount(0);
   release();
 });
+
+/*
+ * A narrowed view of a paged list is asked of the server, filters and all:
+ * the server holds the findings the page has not loaded.
+ */
+test('a narrowed paged list asks the server for that view', async ({ page }) => {
+  await mockExposure(page, { scanState: scan() });
+  const asked = [];
+  await page.route(url => url.pathname === '/api/repo/acme/demo/exposure/findings', route => {
+    asked.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: { findings: [finding()], verifications: {}, probes: {}, total: 3, counts: { all: 3, bySeverity: { critical: 1, warning: 2 }, byDisposition: { open: 3 } }, nextCursor: null } });
+  });
+  await openExposure(page);
+  await expect(page.locator('#exposureShown')).toContainText('1 of 3 matching findings loaded');
+  await page.locator('.exposure-segments .audit-segment[data-value="critical"]').click();
+  await expect.poll(() => asked.some(query => query.severity === 'critical')).toBe(true);
+  await page.locator('#exposureStatusFilter').selectOption('open');
+  await expect.poll(() => asked.some(query => query.severity === 'critical' && query.status === 'open')).toBe(true);
+});

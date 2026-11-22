@@ -67,6 +67,8 @@ import { pickTool } from '../features/repositories/repository-picker.ts';
 import { createRepositoryHeader } from '../features/repositories/repository-header-controller.ts';
 import { branchProtected as isProtectedBranch, fillBranchSelect as fillBranches } from '../features/repositories/repository-branches.ts';
 import { createFilesPanel } from '../features/workbench/files-panel.ts';
+import { answerFresh, breakdownLine as exposureBreakdownLine, COVERAGE_WORDS as EXPOSURE_COVERAGE_WORDS, dayLabel as exposureDayLabel, DISPOSITION_FALLBACK as EXPOSURE_DISPOSITION_FALLBACK, DISPOSITION_TONE as EXPOSURE_DISPOSITION_TONE, DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, exportRows, filtered as exposureFiltered, findingsUrl, firstLine as exposureFirstLine, historyPreferred, PROBE_FALLBACK as EXPOSURE_PROBE_FALLBACK, proofLine as exposureProofLine, refLabel as exposureRefLabel, ruleLabel as exposureRuleLabel, scanCounts as exposureScanCounts, SEVERITY_WORDS as EXPOSURE_SEVERITY_WORDS, severityOf as exposureSeverity, SKIPPED_WORDS as EXPOSURE_SKIPPED_WORDS, sortFindings as sortExposureFindings, STATE_WORDS as EXPOSURE_STATE_WORDS, VERIFICATION_FALLBACK as EXPOSURE_VERIFICATION_FALLBACK } from '../features/exposure/exposure-words.ts';
+import { GLYPHS as NV_GLYPH, orbitChip } from '../features/exposure/orbit-chip.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1230,27 +1232,6 @@ function loadGovernanceTwin(force = false) { return governance.load(force); }
  * this file inserts all of it as text, never as markup, because a path is
  * bytes a repository chose and a finding should be safe to put on a screen.
  */
-/*
- * Used only if the server sends an attempt with no narration. The words there
- * come from a reviewed lookup table; these exist so a missing entry reads as
- * an unfinished sentence rather than an empty element.
- */
-const EXPOSURE_VERIFICATION_FALLBACK = {
-  verified: 'The provider confirmed this credential is live.',
-  rejected: 'The provider refused this credential, so it no longer works.',
-  unverifiable: 'The provider was asked and could not tell us either way.'
-};
-const EXPOSURE_PROBE_FALLBACK = {
-  readable: 'The anonymous role read a row from that table.',
-  denied: 'That request was refused, which is evidence about that request and not about the whole table.',
-  unverifiable: 'Nothing was established about what the anonymous role can read.'
-};
-const EXPOSURE_DISPOSITION_FALLBACK = {
-  open: 'This finding is open and nothing has established that the credential stopped working.',
-  'credential-rejected': 'The issuing provider refused this credential, so it no longer works.',
-  'accepted-risk': 'Somebody accepted this risk. The credential is still in the repository.',
-  'removed-from-tree': 'This credential is no longer in the tree, but it is still in the history.'
-};
 
 /*
  * The readability question, as a form rather than a button, because a probe
@@ -1358,90 +1339,7 @@ function clearExposureState() {
   renderExposure();
 }
 
-/*
- * The one place a scan's state becomes words. `pending`, `partial`, `failed`
- * and `canceled` all render as themselves and none of them renders green:
- * a scan that has not finished, or finished without reading everything, is not
- * a clean repository and must never look like one.
- */
-const EXPOSURE_STATE_WORDS = {
-  queued: 'Queued',
-  running: 'Running',
-  complete: 'Complete',
-  partial: 'Finished, partial',
-  failed: 'Failed',
-  canceled: 'Canceled'
-};
-const EXPOSURE_COVERAGE_WORDS = {
-  unknown: 'Unknown',
-  complete: 'Whole tree read',
-  partial: 'Part of the tree read'
-};
-const EXPOSURE_SKIPPED_WORDS = {
-  'file-count-limit': 'the file ceiling was reached',
-  'byte-limit': 'the byte ceiling was reached',
-  'time-limit': 'the time ceiling was reached',
-  'tree-truncated': 'the provider truncated the file listing',
-  'unreadable-files': 'some files were not read',
-  canceled: 'it was canceled',
-  'transport-refused': 'the repository could not be read',
-  'authorization-revoked': 'the authorised session is no longer valid',
-  'finding-limit': 'the finding ceiling was reached',
-  'configuration-changed': 'the scanner was upgraded before this scan ran',
-  'commit-limit': 'the commit ceiling was reached, so the oldest history was not read',
-  'rate-limited': 'GitHub asked for fewer requests, so the history was not read to the end'
-};
-
-function exposureProofLine(scan) {
-  if (!scan) return 'Start a scan to check this branch for exposed credentials.';
-  if (scan.state === 'queued' || scan.state === 'running') {
-    return 'A scan is in progress. Nothing is proven until it finishes.';
-  }
-  if (scan.coverage === 'complete' && scan.state === 'complete') {
-    return scan.scanMode === 'history'
-      ? 'This scan read the whole tree at the commit below and every commit before it, and checked supported credential patterns. This is not a full application security audit.'
-      : 'This scan read the whole tree at the commit below and checked supported credential patterns. It did not read the history, where a deleted credential can still be. This is not a full application security audit.';
-  }
-  return 'This scan did not read the whole tree, so it cannot tell you the repository is clean.';
-}
-
-/*
- * What the scan read, in numbers that add up: text files read, binary files
- * not scanned, others not read, and any a ceiling stopped before. "Partial"
- * on its own cannot tell a scan that skipped three logos from one that
- * skipped half the tree; this can.
- */
-function exposureBreakdownLine(scan) {
-  if (!scan || !Number.isInteger(scan.filesTotal)) return '';
-  const read = Number.isInteger(scan.filesScanned) ? scan.filesScanned : 0;
-  const binary = Number.isInteger(scan.filesSkippedBinary) ? scan.filesSkippedBinary : 0;
-  const other = Number.isInteger(scan.filesSkippedOther) ? scan.filesSkippedOther : 0;
-  const unreached = Math.max(0, scan.filesTotal - read - binary - other);
-  const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
-  const parts = [`Read ${read} of ${plural(scan.filesTotal, 'file', 'files')}.`];
-  if (binary) parts.push(`${plural(binary, 'binary file', 'binary files')} (images, fonts, archives) not scanned.`);
-  if (other) parts.push(`${plural(other, 'other', 'others')} not read (links, submodules, oversized or unreadable).`);
-  if (unreached && !['queued', 'running'].includes(scan.state)) {
-    parts.push(`${plural(unreached, 'file', 'files')} not reached before a limit.`);
-  }
-  if (Number.isInteger(scan.archivesScanned) && scan.archivesScanned > 0) {
-    const inside = Number.isInteger(scan.archiveMembersScanned) ? scan.archiveMembersScanned : 0;
-    parts.push(`Opened ${plural(scan.archivesScanned, 'archive', 'archives')} and read ${plural(inside, 'file', 'files')} inside.`);
-  }
-  if (scan.scanMode === 'history' && Number.isInteger(scan.commitsTotal)) {
-    const readCommits = Number.isInteger(scan.commitsScanned) ? scan.commitsScanned : 0;
-    const since = scan.historyBaseCommit ? ` since the last full history scan (${String(scan.historyBaseCommit).slice(0, 7)})` : '';
-    parts.push(`Read ${readCommits} of ${plural(scan.commitsTotal, 'commit', 'commits')}${since}.`);
-    if (Number(scan.commitsSkipped) > 0) parts.push(`${plural(scan.commitsSkipped, 'commit', 'commits')} could not be read.`);
-  }
-  return parts.join(' ');
-}
-
-/* Whether the next scan reads history. A per-viewer preference, so it is kept
-   in this browser only, and a blocked storage just means the default. */
-function exposureHistoryPreferred() {
-  try { return localStorage.getItem('nv_exposure_history') !== '0'; } catch { return true; }
-}
+function exposureHistoryPreferred() { return historyPreferred(() => localStorage); }
 
 /* The count by severity, and the one control that opens or closes them all. */
 function renderExposureTally(current) {
@@ -1500,31 +1398,6 @@ function toggleAllExposureFindings() {
 }
 
 /* ---- The history ------------------------------------------------------- */
-
-function exposureRefLabel(refName) {
-  return String(refName || '').replace(/^refs\/(?:heads|tags)\//, '') || 'HEAD';
-}
-
-/* Today and yesterday by name, anything older by date -- a history is read by
-   "when was that", and "Tuesday 22 Sep" answers it faster than a timestamp. */
-function exposureDayLabel(date) {
-  const startOf = value => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
-  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function exposureScanCounts(scan) {
-  const counts = scan.severityCounts || {};
-  const parts = ['critical', 'serious', 'warning']
-    .filter(key => Number(counts[key]) > 0)
-    .map(key => `${counts[key]} ${key}`);
-  if (parts.length) return parts.join(' · ');
-  if (['queued', 'running'].includes(scan.state)) return 'In progress';
-  if (scan.state === 'failed' || scan.state === 'canceled') return 'No results';
-  return scan.coverage === 'complete' ? 'Nothing found' : 'Nothing found in what was read';
-}
 
 function renderExposureHistory(current) {
   const host = $('#exposureHistory');
@@ -1962,42 +1835,7 @@ function renderExposure() {
  */
 const EXPOSURE_WHERE = Object.freeze([['all', 'Anywhere'], ['tree', 'In the tree'], ['history', 'Only in history'], ['archive', 'In an archive'], ['encoded', 'Encoded']]);
 const EXPOSURE_STATUSES = Object.freeze([['all', 'Any status'], ['open', 'Open'], ['credential-rejected', 'No longer works'], ['accepted-risk', 'Accepted'], ['removed-from-tree', 'Removed from tree']]);
-function exposureWhereOf(finding) {
-  return {
-    tree: finding.inTree !== false,
-    history: finding.inTree === false,
-    archive: String(finding.path || '').includes('!/'),
-    encoded: finding.decodedFrom === 'base64'
-  };
-}
-function exposureMatches(finding, view) {
-  if (view.severity && exposureSeverity(finding) !== view.severity) return false;
-  if (view.status !== 'all' && (finding.disposition || 'open') !== view.status) return false;
-  if (view.where !== 'all' && !exposureWhereOf(finding)[view.where]) return false;
-  const terms = String(view.query || '').toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return true;
-  const text = [exposureRuleLabel(finding.rule), finding.rule, finding.displayPath, EXPOSURE_SEVERITY_WORDS[exposureSeverity(finding)],
-    EXPOSURE_DISPOSITION_WORDS[finding.disposition || 'open']].filter(Boolean).join(' ').toLowerCase();
-  return terms.every(term => text.includes(term));
-}
-function exposureFiltered(current) {
-  return current.paged ? current.findings : current.findings.filter(finding => exposureMatches(finding, current.view));
-}
-/* Rows safe to hand to an export: the displayable path, never the raw one. */
-function exposureExportRows(findings, current) {
-  return sortExposureFindings(findings).map(finding => {
-    const verification = current.verifications[finding.fingerprint];
-    const where = exposureWhereOf(finding);
-    return {
-      severity: exposureSeverity(finding), label: exposureRuleLabel(finding.rule), rule: String(finding.rule || 'credential'),
-      where: finding.displayPath || 'a file', line: exposureFirstLine(finding), status: finding.disposition || 'open',
-      inTree: finding.inTree !== false, archive: where.archive, encoded: where.encoded,
-      commit: /^[0-9a-f]{7,40}$/.test(String(finding.introducedCommit || '')) ? String(finding.introducedCommit).slice(0, 12) : '',
-      verified: verification ? (exposureAnswerFresh(verification) ? verification.state : `previously ${verification.state} (expired or undated)`) : '', fingerprint: finding.fingerprint || '',
-      acceptedBy: finding.disposition === 'accepted-risk' ? finding.dispositionBy || '' : ''
-    };
-  });
-}
+function exposureExportRows(findings, current) { return exportRows(findings, current.verifications, Date.now()); }
 async function exportExposure(kind) {
   const current = exposureState();
   if (current.exporting) return;
@@ -2049,21 +1887,8 @@ async function exportExposure(kind) {
     if (current === exposureState()) renderExposure();
   }
 }
-function exposureAnswerFresh(answer) {
-  const deadline = Date.parse(answer && answer.freshnessDeadline || '');
-  const observed = Date.parse(answer && answer.observedAt || '');
-  return Number.isFinite(observed) && Number.isFinite(deadline) && observed <= Date.now() && deadline > Date.now();
-}
-function exposureFindingsUrl(current, cursor = null, limit = 50) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  const view = current.view;
-  if (view.severity) params.set('severity', view.severity);
-  if (view.status !== 'all') params.set('status', view.status);
-  if (view.where !== 'all') params.set('where', view.where);
-  if (view.query) params.set('q', view.query);
-  if (cursor) params.set('cursor', cursor);
-  return `/api/repo/${wPath()}/exposure/findings?${params}`;
-}
+function exposureAnswerFresh(answer) { return answerFresh(answer, Date.now()); }
+function exposureFindingsUrl(current, cursor = null, limit = 50) { return findingsUrl(wPath(), current.view, cursor, limit); }
 function filterExposure() {
   if (exposureState().paged) {
     pageStore.mutate('exposure', exposure => {
@@ -2190,106 +2015,8 @@ function renderExposureTools(current, shownCount) {
   if (exportBtn) exportBtn.disabled = !shownCount || current.loading || current.exporting;
 }
 
-const EXPOSURE_SEVERITY_RANK = { critical: 0, serious: 1, warning: 2 };
-/*
- * Orbit, the status language the security screens share: an outlined chip,
- * the tone on its edge and its glyph, the words in ink, a beam round the
- * edge for the few the eye should go to first. The styles are in style.css.
- */
-const NV_GLYPH = Object.freeze({
-  critical: 'M8.6 3.5h6.8l5.1 5.1v6.8l-5.1 5.1H8.6l-5.1-5.1V8.6zM9.4 9.4l5.2 5.2M14.6 9.4l-5.2 5.2',
-  serious: 'M12 4l9 15.5H3zM12 10v4.2M12 16.9v.1',
-  warning: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 7.9v.1',
-  open: 'M12 5.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z',
-  check: 'M5 12.5l4.2 4.2L19 7',
-  shield: 'M12 3.3l7.2 3v5.3c0 4.3-3 7.9-7.2 9.4-4.2-1.5-7.2-5.1-7.2-9.4V6.3zM9.3 12l2 2 3.5-3.8',
-  history: 'M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v3.2h3.2M12 8v4.3l2.8 1.7',
-  archive: 'M4 7.5h16v3H4zM5.5 10.5V19h13v-8.5M10 14h4',
-  encoded: 'M8.5 7l-5 5 5 5M15.5 7l5 5-5 5',
-  off: 'M7 7l10 10M17 7L7 17',
-  pending: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2'
-});
-function nvChip(tone, word, { glyph, count, beam, className } = {}) {
-  const chip = document.createElement('span');
-  chip.className = `nv-chip${className ? ` ${className}` : ''}`;
-  chip.dataset.tone = tone;
-  if (beam) chip.dataset.beam = 'on';
-  if (glyph) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.setAttribute('focusable', 'false');
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', glyph);
-    svg.appendChild(path);
-    chip.appendChild(svg);
-  }
-  if (count !== undefined) {
-    const number = document.createElement('b');
-    number.textContent = String(count);
-    chip.appendChild(number);
-    if (word) chip.appendChild(document.createTextNode(' '));
-  }
-  if (word) {
-    const text = document.createElement('span');
-    text.textContent = word;
-    chip.appendChild(text);
-  }
-  return chip;
-}
-/* What a finding's disposition looks like as a chip: only an open one asks for work. */
-const EXPOSURE_DISPOSITION_TONE = Object.freeze({
-  open: ['serious', 'open'], 'credential-rejected': ['good', 'check'], 'accepted-risk': ['info', 'shield'], 'removed-from-tree': ['neutral', 'history']
-});
-const EXPOSURE_SEVERITY_WORDS = { critical: 'Critical', serious: 'Serious', warning: 'Warning' };
-const EXPOSURE_DISPOSITION_WORDS = {
-  open: 'Open', 'credential-rejected': 'No longer works', 'accepted-risk': 'Accepted', 'removed-from-tree': 'Removed from tree'
-};
-
-function exposureSeverity(finding) {
-  const severity = finding && finding.narration && finding.narration.severity;
-  return EXPOSURE_SEVERITY_RANK[severity] == null ? 'serious' : severity;
-}
-
-function sortExposureFindings(findings) {
-  return [...(findings || [])].sort((a, b) => (
-    EXPOSURE_SEVERITY_RANK[exposureSeverity(a)] - EXPOSURE_SEVERITY_RANK[exposureSeverity(b)]
-    || String(a.path || '').localeCompare(String(b.path || ''))
-    || String(a.rule || '').localeCompare(String(b.rule || ''))
-  ));
-}
-
-/*
- * A rule name made readable: `stripe-live-key` is "Stripe live key", with
- * the handful of initialisms a reader expects in capitals. A label, not a
- * narration -- the sentence underneath is still the table's.
- */
-const EXPOSURE_INITIALISMS = new Set(['aws', 'api', 'url', 'ca', 'pgp', 'dsa', 'jwt', 'ci', 'ssh', 'id', 'ad']);
-/* Names a provider spells its own way. A label that reads "Github" or
-   "Openai" looks like a scanner that does not know what it found. */
-const EXPOSURE_NAMES = {
-  github: 'GitHub', gitlab: 'GitLab', oauth: 'OAuth', openai: 'OpenAI', huggingface: 'Hugging Face',
-  digitalocean: 'DigitalOcean', hashicorp: 'HashiCorp', pypi: 'PyPI', npm: 'npm', jfrog: 'JFrog',
-  circleci: 'CircleCI', planetscale: 'PlanetScale', flyio: 'Fly.io', sendgrid: 'SendGrid',
-  mailchimp: 'Mailchimp', easypost: 'EasyPost', putty: 'PuTTY', mongodb: 'MongoDB',
-  xai: 'xAI', openrouter: 'OpenRouter', langsmith: 'LangSmith', onepassword: '1Password',
-  launchdarkly: 'LaunchDarkly', sonarqube: 'SonarQube', nuget: 'NuGet', rubygems: 'RubyGems',
-  cratesio: 'crates.io', woocommerce: 'WooCommerce', npmrc: '.npmrc', sourcegraph: 'Sourcegraph',
-  bitbucket: 'Bitbucket', datadog: 'Datadog', hubspot: 'HubSpot', airtable: 'Airtable'
-};
-function exposureRuleLabel(rule) {
-  const words = String(rule || 'credential').split('-').filter(Boolean);
-  return words.map((word, index) => {
-    if (EXPOSURE_NAMES[word]) return EXPOSURE_NAMES[word];
-    if (EXPOSURE_INITIALISMS.has(word)) return word.toUpperCase();
-    return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
-  }).join(' ');
-}
-
-function exposureFirstLine(finding) {
-  const occurrence = Array.isArray(finding.occurrences) && finding.occurrences[0];
-  return occurrence && Number.isInteger(occurrence.line) ? occurrence.line : null;
-}
+/* Orbit, the status language the security screens share (features/exposure/orbit-chip.ts). */
+function nvChip(tone, word, options) { return orbitChip(document, tone, word, options); }
 
 /*
  * One finding, as a disclosure. The summary is what a reader scans down: how

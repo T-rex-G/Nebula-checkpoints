@@ -380,6 +380,9 @@ test('history is included unless the reader turns it off, and the choice is reme
   await page.reload();
   await openExposure(page);
   await expect(page.locator('#exposureHistoryToggle')).not.toBeChecked();
+  await page.locator('#exposureScanBtn').click();
+  await expect.poll(() => state.scanBodies.length).toBe(2);
+  expect(state.scanBodies[1].history).toBe(false);
 });
 
 test('a finding says when it is only in history, inside an archive, or encoded', async ({ page }) => {
@@ -1256,4 +1259,54 @@ test('a narrowed paged list asks the server for that view', async ({ page }) => 
   await expect.poll(() => asked.some(query => query.severity === 'critical')).toBe(true);
   await page.locator('#exposureStatusFilter').selectOption('open');
   await expect.poll(() => asked.some(query => query.severity === 'critical' && query.status === 'open')).toBe(true);
+});
+
+/*
+ * A scan canceled is canceled everywhere it is shown. The proof card used to
+ * say "Canceled" while the history beside it still called the same scan "In
+ * progress", until the page was reloaded.
+ */
+test('a canceled scan is canceled in the history too', async ({ page }) => {
+  await mockExposure(page, { findings: [] });
+  await openExposure(page);
+  await page.getByRole('button', { name: /Scan this branch/i }).click();
+  const entry = page.locator('.exposure-scan[data-scan-id="90000000-0000-4000-8000-000000000001"]');
+  await expect(entry.locator('.exposure-scan-counts')).toHaveText('In progress');
+  await page.getByRole('button', { name: /Cancel scan/i }).click();
+  await expect(page.locator('#exposureState')).toHaveAttribute('data-state', 'canceled');
+  await expect(entry.locator('.exposure-scan-state')).toHaveAttribute('data-state', 'canceled');
+  await expect(entry.locator('.exposure-scan-counts')).toHaveText('No results');
+});
+
+/*
+ * An answer about one repository is not said on another. A refused check
+ * that came back after the reader had opened a second repository used to be
+ * announced on the second one's screen, as though it were about that one.
+ */
+test('a refusal that arrives after another repository is opened is not said there', async ({ page }) => {
+  await mockExposure(page, { findings: [finding()], verifyStatus: 403 });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route(url => /\/exposure\/findings\/[^/]+\/verify$/.test(url.pathname), async route => {
+    await held;
+    return route.fulfill({ status: 403, json: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' } });
+  });
+  await openExposure(page);
+  await expandFindings(page);
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await verify.click();
+
+  await page.route('**/api/repo/acme/other', route => route.fulfill({ json: { full_name: 'acme/other', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: 'c'.repeat(40) }] } }));
+  await page.route('**/api/repo/acme/other/**', route => route.fulfill({ json: [] }));
+  await page.evaluate(() => { location.hash = '#/acme/other@main/exposure'; });
+  await expect(page.locator('#workRepoName')).toHaveText('acme/other');
+  await expect(page.locator('#tab-exposure')).toBeVisible();
+
+  const answered = page.waitForResponse(response => /\/verify$/.test(new URL(response.url()).pathname));
+  release();
+  await answered;
+  await page.waitForTimeout(300);
+  await expect(page.locator('#exposureLive')).not.toContainText(/governance administrator/i);
+  await expect(page.locator('#exposureProofLine')).not.toContainText(/governance administrator/i);
 });

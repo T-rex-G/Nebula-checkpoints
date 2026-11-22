@@ -1,10 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
 const { exposureFindingPayload } = require('../apps/api/src/modules/quasar/index.ts');
-const app = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
+const { createExposure, freshExposureState } = require('../apps/web/src/features/exposure/exposure-controller.ts');
 const secret = 'ghp_' + 'A'.repeat(36);
 const finding = { fingerprint: 'f'.repeat(64), rule: 'github-pat', path: `archive.zip!/${secret}.txt`, disposition: 'open' };
 const publicFinding = exposureFindingPayload(finding);
@@ -12,17 +9,22 @@ assert(!JSON.stringify(publicFinding).includes(secret), 'serialized DTO must nev
 assert.equal(publicFinding.path, publicFinding.displayPath);
 assert.equal(finding.path, `archive.zip!/${secret}.txt`, 'private reread locator is unchanged');
 
+/* A scan's report, read by the Exposure screen's controller (features/exposure/exposure-controller.ts). */
 function harness(answer) {
-  let state = { reports: {} };
+  const page = { work: { owner: 'acme', repo: 'demo', branch: 'main' }, me: null, exposure: freshExposureState('first') };
   let scope = 'first';
   const requests = [];
-  const context = { URLSearchParams, exposureState: () => state, exposureScopeKey: () => scope,
-    pageStore: { mutate: (_slice, change) => change(state) },
-    wPath: () => 'acme/demo', renderExposure() {}, api: async url => { requests.push(url); return answer(url); } };
-  const start = app.indexOf('async function loadExposureReport(');
-  const end = app.indexOf('\n/*', start);
-  vm.runInNewContext(app.slice(start, end), context);
-  return { requests, load: context.loadExposureReport, get state() { return state; }, switch() { scope = 'second'; state = { reports: {} }; } };
+  const screen = createExposure({
+    state: page,
+    api: async url => { requests.push(url); return answer(url); },
+    mutate: change => change(page.exposure),
+    render() {}, announce() {}, invalidatePosture() {},
+    scopeKey: () => scope, path: () => 'acme/demo',
+    shown: () => true, hidden: () => false, readsHistory: () => true,
+    timers: { set: () => 0, clear() {} }, now: () => Date.now(),
+    download() {}, reports: { exposureSarif: () => '', exposureCsv: () => '' }
+  });
+  return { requests, load: scanId => screen.loadReport(scanId), get state() { return page.exposure; }, switch() { scope = 'second'; page.exposure = freshExposureState('second'); } };
 }
 const entry = fingerprint => ({ finding: { fingerprint, rule: 'github-pat' }, occurrences: [1], occurrenceCount: 1 });
 (async () => {

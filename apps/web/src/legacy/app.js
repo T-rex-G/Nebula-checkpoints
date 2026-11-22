@@ -67,8 +67,9 @@ import { pickTool } from '../features/repositories/repository-picker.ts';
 import { createRepositoryHeader } from '../features/repositories/repository-header-controller.ts';
 import { branchProtected as isProtectedBranch, fillBranchSelect as fillBranches } from '../features/repositories/repository-branches.ts';
 import { createFilesPanel } from '../features/workbench/files-panel.ts';
-import { answerFresh, breakdownLine as exposureBreakdownLine, COVERAGE_WORDS as EXPOSURE_COVERAGE_WORDS, dayLabel as exposureDayLabel, DISPOSITION_FALLBACK as EXPOSURE_DISPOSITION_FALLBACK, DISPOSITION_TONE as EXPOSURE_DISPOSITION_TONE, DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, exportRows, filtered as exposureFiltered, findingsUrl, firstLine as exposureFirstLine, historyPreferred, PROBE_FALLBACK as EXPOSURE_PROBE_FALLBACK, proofLine as exposureProofLine, refLabel as exposureRefLabel, ruleLabel as exposureRuleLabel, scanCounts as exposureScanCounts, SEVERITY_WORDS as EXPOSURE_SEVERITY_WORDS, severityOf as exposureSeverity, SKIPPED_WORDS as EXPOSURE_SKIPPED_WORDS, sortFindings as sortExposureFindings, STATE_WORDS as EXPOSURE_STATE_WORDS, VERIFICATION_FALLBACK as EXPOSURE_VERIFICATION_FALLBACK } from '../features/exposure/exposure-words.ts';
+import { answerFresh, breakdownLine as exposureBreakdownLine, COVERAGE_WORDS as EXPOSURE_COVERAGE_WORDS, dayLabel as exposureDayLabel, DISPOSITION_FALLBACK as EXPOSURE_DISPOSITION_FALLBACK, DISPOSITION_TONE as EXPOSURE_DISPOSITION_TONE, DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, filtered as exposureFiltered, firstLine as exposureFirstLine, historyPreferred, PROBE_FALLBACK as EXPOSURE_PROBE_FALLBACK, proofLine as exposureProofLine, refLabel as exposureRefLabel, ruleLabel as exposureRuleLabel, scanCounts as exposureScanCounts, SEVERITY_WORDS as EXPOSURE_SEVERITY_WORDS, severityOf as exposureSeverity, SKIPPED_WORDS as EXPOSURE_SKIPPED_WORDS, sortFindings as sortExposureFindings, STATE_WORDS as EXPOSURE_STATE_WORDS, VERIFICATION_FALLBACK as EXPOSURE_VERIFICATION_FALLBACK } from '../features/exposure/exposure-words.ts';
 import { GLYPHS as NV_GLYPH, orbitChip } from '../features/exposure/orbit-chip.ts';
+import { createExposure } from '../features/exposure/exposure-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1296,29 +1297,31 @@ function exposureWarning(message) {
 }
 
 /*
- * One constructor for the screen's state, so a field added here is a field
- * every reset gets -- rather than three literals drifting apart and a
- * repository switch leaving the previous history on screen.
+ * The Exposure screen at work (features/exposure/exposure-controller.ts): its
+ * findings, history and reports read, a running scan followed, a scan
+ * requested and canceled, the two-press checks, the history cleared and an
+ * export collected whole. What is drawn stays here until it moves.
  */
-function freshExposureState(scopeKey = '') {
-  return {
-    scan: null, findings: [], verifications: {}, probes: {}, probeDrafts: {},
-    confirming: '', verifying: '', accepting: '', probing: '', clearing: false,
-    loading: false, error: '', scopeKey,
-    paged: false, total: 0, counts: null, nextCursor: null, requestId: 0, exporting: false,
-    /* Which findings are open, by fingerprint, so a re-render keeps them. */
-    expanded: new Set(),
-    /* The history, newest first, with a cursor for the next page. */
-    history: [], historyLoading: false, historyDone: false, historyError: '',
-    /* Which history entries are open, and each one's report once fetched. */
-    openScans: new Set(), reports: {},
-    /* What the list is narrowed to: a severity, a status, where it sits, and words. */
-    view: { severity: null, status: 'all', where: 'all', query: '' }
-  };
-}
-
+const exposureScreen = createExposure({
+  state,
+  api: (path, options) => api(path, options),
+  mutate: change => pageStore.mutate('exposure', change),
+  render: () => renderExposure(),
+  announce: message => announceExposure(message),
+  invalidatePosture: () => invalidatePosture(),
+  scopeKey: () => exposureScopeKey(),
+  path: () => wPath(),
+  shown: () => Boolean($('#tab-exposure')?.classList.contains('active')),
+  hidden: () => document.hidden,
+  readsHistory: () => { const depth = $('#exposureHistoryToggle'); return depth ? depth.checked : exposureHistoryPreferred(); },
+  timers: { set: (run, ms) => setTimeout(run, ms), clear: handle => clearTimeout(handle) },
+  now: () => Date.now(),
+  download: (name, text, type) => dlFile(name, text, type),
+  reports: AuditReports
+});
+/* The screen's state, made when there is none, read as the page's own slice so the page rules follow it through what is drawn. */
 function exposureState() {
-  if (!state.exposure) state.exposure = freshExposureState();
+  exposureScreen.current();
   return state.exposure;
 }
 
@@ -1333,11 +1336,7 @@ function exposureScopeKey() {
   return state.work ? `${state.work.provider || 'github'}:${state.work.owner}/${state.work.repo}` : '';
 }
 
-function clearExposureState() {
-  clearTimeout(exposurePollTimer);
-  state.exposure = freshExposureState();
-  renderExposure();
-}
+function clearExposureState() { exposureScreen.clear(); }
 
 function exposureHistoryPreferred() { return historyPreferred(() => localStorage); }
 
@@ -1388,14 +1387,7 @@ function renderExposureTally(current) {
   }
 }
 
-function toggleAllExposureFindings() {
-  const current = exposureState();
-  const allOpen = current.findings.length > 0
-    && current.findings.every(finding => current.expanded.has(finding.fingerprint));
-  pageStore.mutate('exposure', () => { current.expanded = allOpen ? new Set() : new Set(current.findings.map(finding => finding.fingerprint)); });
-  renderExposure();
-  announceExposure(allOpen ? 'All findings collapsed.' : 'All findings expanded.');
-}
+function toggleAllExposureFindings() { exposureScreen.toggleAll(); }
 
 /* ---- The history ------------------------------------------------------- */
 
@@ -1530,129 +1522,9 @@ function exposureHistoryEntry(scan, current) {
   return item;
 }
 
-async function loadExposureHistory({ more = false } = {}) {
-  if (!state.work) return;
-  const current = exposureState();
-  const scopeKey = exposureScopeKey();
-  if (current.historyLoading) return;
-  pageStore.mutate('exposure', () => { current.historyLoading = true; });
-  renderExposure();
-  try {
-    const last = more ? current.history[current.history.length - 1] : null;
-    const query = new URLSearchParams({ limit: '20' });
-    if (last) {
-      query.set('beforeAt', last.createdAt);
-      query.set('beforeId', last.scanId);
-    }
-    const body = await api(`/api/repo/${wPath()}/exposure/scans?${query}`);
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    const page = Array.isArray(body && body.scans) ? body.scans : [];
-    pageStore.mutate('exposure', () => {
-      current.history = more ? [...current.history, ...page] : page;
-      current.historyDone = page.length < 20;
-      current.historyError = '';
-    });
-    /*
-     * The proof card shows the newest scan when this session has not started
-     * one -- a reader coming back should see what the last scan proved, not
-     * an invitation to start one as though none had ever run.
-     */
-    if (!more && page.length && (!current.scan || current.scan.scanId === page[0].scanId)) {
-      pageStore.mutate('exposure', () => { current.scan = page[0]; });
-    }
-  } catch (error) {
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    pageStore.mutate('exposure', () => { current.historyError = 'Scan history could not be loaded.'; });
-  } finally {
-    if (current === exposureState()) {
-      pageStore.mutate('exposure', () => { current.historyLoading = false; });
-      renderExposure();
-      scheduleExposurePoll(current);
-    }
-  }
-}
-
-async function loadExposureReport(scanId) {
-  const current = exposureState();
-  const scopeKey = exposureScopeKey();
-  const existing = current.reports[scanId];
-  if (existing && (existing.loading || existing.entries)) return;
-  pageStore.mutate('exposure', () => { current.reports[scanId] = { loading: true, entries: null, error: '' }; });
-  renderExposure();
-  try {
-    const observations = [];
-    const cursors = new Set();
-    const base = `/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}/observations`;
-    let cursor = null;
-    let complete = false;
-    // A scan records at most 500 findings. Bound even a broken continuation.
-    for (let page = 0; page < 5; page++) {
-      const query = new URLSearchParams({ limit: '100' });
-      if (cursor) query.set('cursor', cursor);
-      const body = await api(`${base}?${query}`);
-      if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-      if (!body || !Array.isArray(body.observations)) throw new Error('Invalid scan report');
-      observations.push(...body.observations.slice(0, 100));
-      complete = body.complete === true && body.observations.length <= 100;
-      if (complete || !body.nextCursor || cursors.has(body.nextCursor)) break;
-      cursor = body.nextCursor;
-      cursors.add(cursor);
-    }
-    pageStore.mutate('exposure', () => {
-      current.reports[scanId] = {
-        loading: false, error: '', complete,
-        entries: observations.filter(item => item && item.finding).map(item => ({
-          ...item.finding, occurrences: item.occurrences, occurrenceCount: item.occurrenceCount
-        }))
-      };
-    });
-  } catch (error) {
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    pageStore.mutate('exposure', () => { current.reports[scanId] = { loading: false, entries: null, error: 'This scan’s report could not be loaded.' }; });
-  } finally {
-    if (current === exposureState()) renderExposure();
-  }
-}
-
-/*
- * Clearing, armed like every other irreversible control. On success the
- * screen is emptied rather than reloaded: there is nothing left to load, and
- * a reload racing the delete could briefly show what was just removed.
- */
-async function clearExposureHistory() {
-  if (!state.work) return;
-  const current = exposureState();
-  if (exposureArm('clear', 'history', 'Press again to delete every scan, finding and check result for this repository.')) return;
-  pageStore.mutate('exposure', () => {
-    current.confirming = '';
-    current.clearing = true;
-  });
-  renderExposure();
-  const scopeKey = exposureScopeKey();
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/clear`, {
-      method: 'POST',
-      body: { confirm: 'clear-exposure-history' }
-    });
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    const cleared = (body && body.cleared) || {};
-    clearTimeout(exposurePollTimer);
-    state.exposure = freshExposureState(scopeKey);
-    pageStore.mutate('exposure', exposure => { exposure.historyDone = true; });
-    renderExposure();
-    announceExposure(`Cleared ${Number(cleared.scans) || 0} scans and ${Number(cleared.findings) || 0} findings.`);
-  } catch (error) {
-    if (current !== exposureState()) return;
-    pageStore.mutate('exposure', () => {
-      current.clearing = false;
-      current.error = error && error.code === 'EXPOSURE_SCAN_ACTIVE'
-        ? 'A scan is still running. Cancel it before clearing the history.'
-        : 'The history could not be cleared.';
-    });
-    renderExposure();
-    announceExposure(current.error);
-  }
-}
+function loadExposureHistory(options) { return exposureScreen.loadHistory(options); }
+function loadExposureReport(scanId) { return exposureScreen.loadReport(scanId); }
+function clearExposureHistory() { return exposureScreen.clearHistory(); }
 
 /*
  * While a scan runs: a radar of dots, each lit as the sweep passes it, the
@@ -1835,69 +1707,9 @@ function renderExposure() {
  */
 const EXPOSURE_WHERE = Object.freeze([['all', 'Anywhere'], ['tree', 'In the tree'], ['history', 'Only in history'], ['archive', 'In an archive'], ['encoded', 'Encoded']]);
 const EXPOSURE_STATUSES = Object.freeze([['all', 'Any status'], ['open', 'Open'], ['credential-rejected', 'No longer works'], ['accepted-risk', 'Accepted'], ['removed-from-tree', 'Removed from tree']]);
-function exposureExportRows(findings, current) { return exportRows(findings, current.verifications, Date.now()); }
-async function exportExposure(kind) {
-  const current = exposureState();
-  if (current.exporting) return;
-  let shown = exposureFiltered(current);
-  const scope = exposureScopeKey();
-  const selected = { ...current, view: { ...current.view } };
-  pageStore.mutate('exposure', () => { current.exporting = true; });
-  renderExposure();
-  try {
-    if (current.paged) {
-      const collected = [];
-      let cursor = null;
-      do {
-        const page = await api(exposureFindingsUrl(selected, cursor, 200));
-        if (current !== exposureState() || scope !== exposureScopeKey()) return;
-        if (!page || !Array.isArray(page.findings) || !Number.isInteger(page.total)) throw new Error('Incomplete export response');
-        collected.push(...page.findings);
-        pageStore.mutate('exposure', () => { Object.assign(current.verifications, page.verifications || {}); });
-        cursor = page.nextCursor;
-        if (collected.length > 10000 || (cursor && !page.findings.length)) throw new Error('Export limit reached');
-        if (!cursor && collected.length !== page.total) throw new Error('Incomplete export');
-      } while (cursor);
-      shown = collected;
-    }
-  if (!shown.length) return;
-  const rows = exposureExportRows(shown, current);
-  const day = new Date().toISOString().slice(0, 10);
-  const base = `${state.work.repo}-exposure-${day}`;
-  if (kind === 'sarif') {
-    const provider = (state.me && state.me.provider) || 'github';
-    const scan = current.scan || {};
-    dlFile(`${base}.sarif`, AuditReports.exposureSarif(rows, {
-      ref: state.work.branch, commitSha: scan.commitSha,
-      repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : ''
-    }), 'application/sarif+json');
-  } else {
-    dlFile(`${base}.csv`, AuditReports.exposureCsv(rows), 'text/csv');
-  }
-  announceExposure(`${rows.length} ${rows.length === 1 ? 'finding' : 'findings'} exported.`);
-  } catch (error) {
-    pageStore.mutate('exposure', () => {
-      current.error = error.code === 'EXPOSURE_CURSOR_STALE'
-        ? 'Findings changed during export. Refresh and export again.'
-        : 'A complete export could not be collected. Narrow the filters or try again.';
-    });
-    announceExposure(current.error);
-  } finally {
-    pageStore.mutate('exposure', () => { current.exporting = false; });
-    if (current === exposureState()) renderExposure();
-  }
-}
+function exportExposure(kind) { return exposureScreen.exportFindings(kind); }
 function exposureAnswerFresh(answer) { return answerFresh(answer, Date.now()); }
-function exposureFindingsUrl(current, cursor = null, limit = 50) { return findingsUrl(wPath(), current.view, cursor, limit); }
-function filterExposure() {
-  if (exposureState().paged) {
-    pageStore.mutate('exposure', exposure => {
-      exposure.findings = [];
-      exposure.nextCursor = null;
-    });
-    void loadExposure({ filterOnly: true });
-  } else renderExposure();
-}
+function filterExposure() { exposureScreen.filter(); }
 function ensureExposureTools() {
   const host = $('#exposureTools');
   if (!host || host.dataset.ready) return host;
@@ -2278,359 +2090,13 @@ function exposureFindingBody(item, finding, current, interactive) {
 
 }
 
-async function loadExposure({ append = false, filterOnly = false } = {}) {
-  if (!state.work) return;
-  const scopeKey = exposureScopeKey();
-  if (exposureState().scopeKey !== scopeKey) state.exposure = freshExposureState(scopeKey);
-  const now = exposureState();
-  if (append && (!now.nextCursor || now.loading)) return;
-  pageStore.mutate('exposure', () => {
-    now.requestId += 1;
-    now.loading = true;
-  });
-  const requestId = now.requestId;
-  renderExposure();
-  if (!filterOnly) void loadExposureHistory();
-  try {
-    const page = await api(exposureFindingsUrl(now, append ? now.nextCursor : null));
-    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
-    const items = Array.isArray(page && page.findings) ? page.findings : [];
-    pageStore.mutate('exposure', () => {
-      now.findings = append ? [...now.findings, ...items] : items;
-      now.paged = Number.isInteger(page.total) && Boolean(page.counts);
-      now.total = now.paged ? page.total : items.length;
-      now.counts = now.paged ? page.counts : null;
-      now.nextCursor = page.nextCursor || null;
-      now.verifications = { ...(append ? now.verifications : {}), ...(page.verifications || {}) };
-      now.probes = { ...(append ? now.probes : {}), ...(page.probes || {}) };
-    });
-    if (now.error) announceExposure('Findings loaded.');
-    pageStore.mutate('exposure', () => { now.error = ''; });
-  } catch (error) {
-    if (now !== exposureState() || scopeKey !== exposureScopeKey() || requestId !== now.requestId) return;
-    if (error.code === 'EXPOSURE_CURSOR_STALE') {
-      pageStore.mutate('exposure', () => { now.loading = false; });
-      announceExposure('Findings changed. Loading the current view.');
-      return loadExposure({ filterOnly: true });
-    }
-    pageStore.mutate('exposure', () => {
-      if (!append) {
-        now.findings = [];
-        now.verifications = {};
-        now.probes = {};
-        now.nextCursor = null;
-      }
-      now.error = 'Findings could not be loaded for this repository. Refresh to try again.';
-    });
-  } finally {
-    if (requestId === now.requestId) pageStore.mutate('exposure', () => { now.loading = false; });
-    if (now === exposureState() && scopeKey === exposureScopeKey()) {
-      renderExposure();
-      scheduleExposurePoll(now);
-    }
-  }
-}
-
-/* A scan runs asynchronously. Poll only its scoped, identity-protected route;
-   stop on navigation or errors and refresh findings when it finishes. */
-let exposurePollTimer = null;
-function scheduleExposurePoll(current) {
-  clearTimeout(exposurePollTimer);
-  if (current !== exposureState() || current.scopeKey !== exposureScopeKey()
-    || !$('#tab-exposure')?.classList.contains('active')
-    || !['queued', 'running'].includes(current.scan?.state)) return;
-  exposurePollTimer = setTimeout(() => { void refreshExposureScan(current); }, 2000);
-}
-
-async function refreshExposureScan(current = exposureState()) {
-  if (current !== exposureState() || current.scopeKey !== exposureScopeKey()
-    || !$('#tab-exposure')?.classList.contains('active') || !current.scan) return;
-  if (document.hidden) { scheduleExposurePoll(current); return; }
-  const scanId = current.scan.scanId;
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/scans/${encodeURIComponent(scanId)}`);
-    if (current !== exposureState() || current.scan?.scanId !== scanId
-      || current.scopeKey !== exposureScopeKey()) return;
-    if (!body?.scan) throw new Error('Missing scan status');
-    /* A status read begun before cancellation cannot resurrect the scan. */
-    if (current.scan.state === 'canceled') return;
-    pageStore.mutate('exposure', () => {
-      current.scan = body.scan;
-      current.error = '';
-      current.history = current.history.map(item => (
-        item.scanId === body.scan.scanId ? { ...item, ...body.scan } : item
-      ));
-    });
-    renderExposure();
-    if (['queued', 'running'].includes(current.scan.state)) scheduleExposurePoll(current);
-    else {
-      announceExposure(`Scan ${EXPOSURE_STATE_WORDS[current.scan.state] || 'finished'}. Updating findings.`);
-      invalidatePosture();
-      await loadExposure();
-    }
-  } catch (error) {
-    if (current !== exposureState() || current.scan?.scanId !== scanId
-      || current.scopeKey !== exposureScopeKey() || current.scan.state === 'canceled') return;
-    pageStore.mutate('exposure', () => { current.error = 'The status check failed. Your scan may still be running. Retry the status check.'; });
-    renderExposure();
-    announceExposure(current.error);
-  }
-}
-
-/*
- * Two presses, and the second one is the one that acts. The first arms the
- * control and shows what will happen; anything else -- the other control,
- * another finding, a reload, leaving the screen -- disarms it. A single click
- * that quietly used somebody's leaked credential, or quietly signed their
- * name to an exposure, would be the wrong default however clear the label was.
- *
- * The armed control is named by action and fingerprint together, so arming
- * one disarms every other: there is never a second armed button waiting to
- * be hit by a click aimed at the first.
- */
-function exposureArm(action, fingerprint, question) {
-  const current = exposureState();
-  const key = `${action}:${fingerprint}`;
-  if (current.confirming === key) return false;
-  pageStore.mutate('exposure', () => { current.confirming = key; });
-  renderExposure();
-  announceExposure(question);
-  return true;
-}
-
-async function verifyExposureFinding(fingerprint) {
-  if (!state.work) return;
-  const current = exposureState();
-  if (exposureArm('verify', fingerprint, 'Press again to send this credential to the service that issued it.')) return;
-  pageStore.mutate('exposure', () => {
-    current.confirming = '';
-    current.verifying = fingerprint;
-  });
-  renderExposure();
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/verify`, {
-      method: 'POST',
-      /* `api` serialises the body itself; stringifying here would send a
-         JSON string rather than an object, and the server would see no
-         confirmation at all. */
-      body: { confirm: 'use-this-credential', authorized: true }
-    });
-    const verification = body && body.verification ? { ...body.verification, narration: body.narration } : null;
-    if (verification) pageStore.mutate('exposure', () => { current.verifications[fingerprint] = verification; });
-    invalidatePosture();
-    if (body && body.finding) {
-      pageStore.mutate('exposure', () => {
-        current.findings = current.findings.map(item => (
-          item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
-        ));
-      });
-    }
-    announceExposure(verification && (body.narration || (exposureAnswerFresh(verification) ? EXPOSURE_VERIFICATION_FALLBACK[verification.state] : 'Previous verification expired or has no check time. Check again for current evidence.')) || 'The check finished.');
-  } catch (error) {
-    pageStore.mutate('exposure', () => {
-      current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
-        ? 'A governance administrator with permission from the credential owner must run this check.'
-        : 'That credential could not be checked.';
-    });
-    announceExposure(current.error);
-  } finally {
-    pageStore.mutate('exposure', () => { current.verifying = ''; });
-    renderExposure();
-  }
-}
-
-/*
- * Accepting the risk, which is the honest response to a finding that is
- * genuinely intended -- a sample key in a fixture, a credential that was
- * already revoked before anyone looked. Without it a reader with a screen of
- * known-intended findings has one option left, which is to stop reading the
- * screen, and that costs more than any single finding on it.
- *
- * It is not a dismissal. The finding stays, the sentence under it says a
- * person accepted the exposure and that the credential is still in the
- * repository, and the server records the name. This is why the control does
- * not say "ignore".
- */
-async function acceptExposureRisk(fingerprint) {
-  if (!state.work) return;
-  const current = exposureState();
-  if (exposureArm('accept', fingerprint, 'Press again to record you as accepting this exposure. Nothing here undoes it.')) return;
-  pageStore.mutate('exposure', () => {
-    current.confirming = '';
-    current.accepting = fingerprint;
-  });
-  renderExposure();
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/accept-risk`, {
-      method: 'POST'
-    });
-    if (body && body.finding) {
-      pageStore.mutate('exposure', () => {
-        current.findings = current.findings.map(item => (
-          item.fingerprint === fingerprint ? { ...item, ...body.finding } : item
-        ));
-      });
-    }
-    pageStore.mutate('exposure', () => { current.error = ''; });
-    invalidatePosture();
-    announceExposure('Recorded. The credential is still in the repository.');
-  } catch (error) {
-    /*
-     * Who may accept is the server's decision and it is a role, not a
-     * capability. Saying so beats "that did not work", because the reader
-     * whose press was refused can do something about the first sentence and
-     * nothing about the second.
-     */
-    pageStore.mutate('exposure', () => {
-      current.error = error && error.code === 'GOVERNANCE_ROLE_REQUIRED'
-        ? 'Accepting an exposure needs a governance administrator. Yours is recorded as a lower role.'
-        : 'That finding could not be accepted.';
-    });
-    announceExposure(current.error);
-  } finally {
-    pageStore.mutate('exposure', () => { current.accepting = ''; });
-    renderExposure();
-  }
-}
-
-/*
- * Asking the project, which is the only way to find out. What the anonymous
- * role can read is decided by policies living in somebody's project rather
- * than in their repository, so no amount of reading the tree answers it.
- *
- * Two presses again, and the same reason as the verification beside it: this
- * contacts a third party. The difference is what a refusal means -- a denied
- * request is evidence about that request, not a clean bill of health for the
- * table -- and the narration the server sends says so rather than leaving the
- * reader to infer it.
- */
-async function probeExposureReadability(fingerprint) {
-  if (!state.work) return;
-  const current = exposureState();
-  const draft = current.probeDrafts[fingerprint] || { relation: '', columns: '' };
-  const relation = String(draft.relation || '').trim();
-  const projection = String(draft.columns || '')
-    .split(',').map(column => column.trim()).filter(Boolean);
-  /*
-   * Refused here rather than sent, because a press with nothing typed is a
-   * mis-click and not a question. Anything that is typed goes to the server
-   * as typed: what this product will and will not ask a project for is the
-   * prober's decision, and duplicating it here would mean two answers.
-   */
-  if (!relation || !projection.length) {
-    announceExposure('Name a table and at least one column before asking.');
-    return;
-  }
-  if (exposureArm('probe', fingerprint, 'Press again to send one request to that project.')) return;
-  pageStore.mutate('exposure', () => {
-    current.confirming = '';
-    current.probing = fingerprint;
-  });
-  renderExposure();
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/findings/${fingerprint}/probe-readability`, {
-      method: 'POST',
-      body: { confirm: 'contact-this-project', authorized: true, relation, projection }
-    });
-    const probe = body && body.probe ? { ...body.probe, narration: body.narration } : null;
-    pageStore.mutate('exposure', () => {
-      if (probe) current.probes[fingerprint] = probe;
-      current.error = '';
-    });
-    announceExposure((probe && (body.narration || (exposureAnswerFresh(probe) ? EXPOSURE_PROBE_FALLBACK[probe.state] : 'Previous readability result expired or has no check time. Check again for current evidence.'))) || 'The question finished.');
-  } catch (error) {
-    /*
-     * The two refusals a reader can act on, named rather than flattened into
-     * "that did not work": one says the key is the wrong kind for this
-     * question, the other that the file holds no project to ask.
-     */
-    const code = error && error.code;
-    pageStore.mutate('exposure', () => {
-      current.error = code === 'GOVERNANCE_ROLE_REQUIRED'
-        ? 'A governance administrator with permission from the project owner must run this probe.'
-        : code === 'EXPOSURE_PROBE_NOT_ANONYMOUS'
-        ? 'Only an anonymous key can be used to ask what the public can read.'
-        : code === 'EXPOSURE_PROBE_NO_PROJECT'
-          ? 'No project reference was found beside that key, so there is nothing to ask.'
-          : 'That project could not be asked.';
-    });
-    announceExposure(current.error);
-  } finally {
-    pageStore.mutate('exposure', () => { current.probing = ''; });
-    renderExposure();
-  }
-}
-
-async function requestExposureScan() {
-  if (!state.work) return;
-  const current = exposureState();
-  if (current.loading || ['queued', 'running'].includes(current.scan?.state)) return;
-  const scopeKey = exposureScopeKey();
-  pageStore.mutate('exposure', () => { current.loading = true; });
-  renderExposure();
-  try {
-    const depth = $('#exposureHistoryToggle');
-    const history = depth ? depth.checked : exposureHistoryPreferred();
-    const body = await api(`/api/repo/${wPath()}/exposure/scans`, {
-      method: 'POST',
-      body: { ref: (state.work && state.work.branch) || 'HEAD', history }
-    });
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    pageStore.mutate('exposure', () => {
-      current.scan = body && body.scan ? body.scan : null;
-      current.error = '';
-    });
-    if (current.scan && !current.history.some(item => item.scanId === current.scan.scanId)) {
-      pageStore.mutate('exposure', () => {
-        current.history = [
-          { ...current.scan, findingCount: 0, severityCounts: { critical: 0, serious: 0, warning: 0 } },
-          ...current.history
-        ];
-      });
-    }
-    announceExposure('Scan requested. Nothing is proven until it finishes.');
-  } catch (error) {
-    if (current !== exposureState() || scopeKey !== exposureScopeKey()) return;
-    const messages = {
-      EXPOSURE_AUTHORIZATION_MISSING: 'Reconnect GitHub, then try the scan again.',
-      EXPOSURE_AUTHORIZATION_REVOKED: 'Your GitHub session expired. Reconnect GitHub, then try again.',
-      EXPOSURE_REF_UNRESOLVED: 'This branch could not be found or accessed. Refresh your branches and check repository access.',
-      EXPOSURE_PROVIDER_UNSUPPORTED: 'Repository exposure scanning currently supports GitHub only.',
-      EXPOSURE_READ_FAILED: 'GitHub could not be reached or refused this read. Try again shortly; if it persists, check your GitHub connection.'
-    };
-    pageStore.mutate('exposure', () => { current.error = messages[error?.code] || 'The scan could not be started for this repository. Try again or check your repository access.'; });
-    announceExposure(current.error);
-  } finally {
-    pageStore.mutate('exposure', () => { current.loading = false; });
-    if (current === exposureState() && scopeKey === exposureScopeKey()) {
-      renderExposure();
-      scheduleExposurePoll(current);
-    }
-  }
-}
-
-async function cancelExposureScan() {
-  if (!state.work) return;
-  const current = exposureState();
-  if (!current.scan) return;
-  try {
-    const body = await api(`/api/repo/${wPath()}/exposure/scans/${current.scan.scanId}/cancel`, {
-      method: 'POST'
-    });
-    if (current !== exposureState() || current.scopeKey !== exposureScopeKey()) return;
-    pageStore.mutate('exposure', () => {
-      current.scan = body && body.scan ? body.scan : current.scan;
-      current.error = '';
-    });
-    clearTimeout(exposurePollTimer);
-    announceExposure('Scan canceled. Its coverage is partial.');
-  } catch (error) {
-    pageStore.mutate('exposure', () => { current.error = 'The scan could not be canceled.'; });
-    announceExposure(current.error);
-  } finally {
-    renderExposure();
-  }
-}
+function loadExposure(options) { return exposureScreen.load(options); }
+function refreshExposureScan(current) { return exposureScreen.refreshScan(current); }
+function verifyExposureFinding(fingerprint) { return exposureScreen.verify(fingerprint); }
+function acceptExposureRisk(fingerprint) { return exposureScreen.accept(fingerprint); }
+function probeExposureReadability(fingerprint) { return exposureScreen.probe(fingerprint); }
+function requestExposureScan() { return exposureScreen.request(); }
+function cancelExposureScan() { return exposureScreen.cancel(); }
 
 governance.wire($('#govRoot'));
 
@@ -4850,7 +4316,7 @@ function switchTab(name) {
   if (name === 'actions' && !$('#actionsList').children.length) loadActions();
   if (name === 'governance') loadGovernanceTwin();
   if (name === 'exposure') loadExposure();
-  else clearTimeout(exposurePollTimer);
+  else exposureScreen.stopPoll();
   if (name === 'audit') paintAudit();
   if (name === 'safeguards') renderSafeguards();
   if (name === 'neural') ensureNeural();

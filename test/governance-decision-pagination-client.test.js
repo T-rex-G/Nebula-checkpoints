@@ -1,27 +1,30 @@
 'use strict';
+/*
+ * Older governance decisions are read a page at a time
+ * (features/governance/governance-actions.ts): merged without counting one
+ * twice, the cursor kept for the next page or dropped once the history is
+ * complete, and a page for a repository or account no longer open dropped.
+ */
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { createGovernance } = require('../apps/web/src/features/governance/governance-actions.ts');
 
-const source = fs.readFileSync(path.join(__dirname, '../apps/web/src/legacy/app.js'), 'utf8');
-const start = source.indexOf('async function loadMoreGovernanceDecisions(');
-const end = source.indexOf('\nfunction governanceBasePath()', start);
-assert(start >= 0 && end > start, 'the actual client pagination function must be available');
 function harness() {
   let resolve;
   const requests = [];
   const state = { work: { owner: 'Acme', repo: 'Demo' }, governance: { digitalTwin: { history: { decisions: [{ seq: 50 }, { seq: 49 }], nextBeforeDecisionSeq: 49, nextDecisionSeq: null } } } };
-  const context = {
+  const governance = createGovernance({
     state,
-    pageStore: { mutate: (slice, change) => change(state[slice]) },
-    wPath: () => `${state.work.owner}/${state.work.repo}`,
+    mutate: change => change(state.governance),
     api: url => { requests.push(url); return new Promise(done => { resolve = done; }); },
-    renderGovernanceInterface() {},
-    announceGovernance() {}
-  };
-  vm.runInNewContext(`${source.slice(start, end)}\nglobalThis.loadPage = loadMoreGovernanceDecisions;`, context);
-  return { state, requests, load: context.loadPage, resolve: value => resolve(value) };
+    modal: async () => true, toast() {}, stepUp: async () => null,
+    $: () => null,
+    doc: { createElement: () => ({}), body: { appendChild() {} }, activeElement: null },
+    storage: () => ({ getItem: () => null, setItem() {} }),
+    draw() {}, requestAnimationFrame: run => run(), setTimeout: () => 0, clearTimeout() {},
+    now: () => 0, randomId: () => 'id', cssEscape: value => value
+  });
+  const load = (cursor, order = 'desc') => governance.handlers['load-more-decisions']({ dataset: order === 'desc' ? { beforeSeq: String(cursor) } : { afterSeq: String(cursor) } });
+  return { state, requests, load, resolve: value => resolve(value) };
 }
 
 (async () => {

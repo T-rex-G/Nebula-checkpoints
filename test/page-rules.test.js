@@ -468,8 +468,6 @@ const HANDOFFS = Object.freeze({
   'WorkspacePulseModel.model <- repos': 'measures what it is handed into a new model',
   'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
-  'defaultGovernanceSimulation <- work': 'reads the default branch, a string, into a new request',
-  'drawGovernance <- governance': 'draws the screen from what it is handed and keeps nothing of it',
   'limitsKnown <- runtime': 'reads the four limits, numbers, into a flag (features/access/login-screen.ts\'s runtimeLimitsKnown)',
   'limitsText <- runtime': 'reads the limits, numbers, into the sign-in screen\'s words (features/access/login-screen.ts)',
   'offlineRepoKey <- me': 'reads the provider, a string, into the name the offline list keeps a repository by (platform/offline-repos.ts)',

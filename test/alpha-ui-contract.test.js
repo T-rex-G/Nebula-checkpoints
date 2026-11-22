@@ -158,11 +158,22 @@ assert(!safeguardsBlock.includes('setTimeout(() => {'),
  * accessibility rule does report this, but only on a screen it visits, and
  * most of these live in dialogs the staged pass never opens.
  */
+/* Every dialog governance opens, as features/governance/governance-dialogs.ts writes it. */
+function governanceDialogs() {
+  const d = require('../apps/web/src/features/governance/governance-dialogs.ts');
+  return [
+    d.CREATE_POLICY_BODY, d.draftBody({}, {}), d.editDraftBody({}, {}), d.templatesBody([{ templateId: 't' }]), d.baselineBody({}, {}),
+    d.SUBMIT_BODY, d.simulationBody({}), d.reviewBody(true), d.activationBody(null), d.exceptionBody('main', ''), d.EXCEPTION_DECISION_BODY,
+    d.REVOKE_BODY, d.preferencesBody(true, ''), d.EXPORT_BODY, d.WEBHOOK_BODY, d.deactivateBody(1), d.archiveBody(true), d.RESTORE_BODY,
+    d.WITHDRAW_BODY, d.resetBody('a/b', 2, 1)
+  ].join('\n');
+}
 {
   const sources = [
     ['index.html', fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8')],
     ['app.js', fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8')],
-    ['the governance screen', require('./helpers/governance-view').markup(require('./helpers/governance-view').sample())]
+    ['the governance screen', require('./helpers/governance-view').markup(require('./helpers/governance-view').sample())],
+    ['the governance dialogs', governanceDialogs()]
   ];
   const LABEL = /<label\b([^>]*)>((?:(?!<\/label>).){0,400})<\/label>/gs;
   let checked = 0;

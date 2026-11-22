@@ -169,6 +169,33 @@ test('archive, restore, discard and withdraw each reach their own route', async 
   ]);
   expect(sent[0].body).toEqual({ expectedRevision: 2, reason: 'Replaced.' });
   expect(sent[2].body).toEqual({ expectedRevision: 1 });
+  /* Each write is its own: the server keeps an answer per key, so a key used twice would hand the second write the first one's answer. */
+  expect(sent.map(item => item.idempotencyKey.split(':').slice(0, 2).join(':'))).toEqual([
+    'governance-ui:policy-archive', 'governance-ui:policy-restore', 'governance-ui:draft-discard', 'governance-ui:version-withdraw'
+  ]);
+  expect(new Set(sent.map(item => item.idempotencyKey.split(':')[2])).size).toBe(4);
+});
+
+/*
+ * An exception whose expiry was cleared, or one the browser could not read,
+ * is asked for one in words. It used to reach the script's own date
+ * conversion and say "Invalid time value".
+ */
+test('an exception whose expiry was cleared is asked for one in words, and nothing is sent', async ({ page }) => {
+  await openGovernance(page);
+  const requested = [];
+  await page.route(/\/exceptions$/, route => {
+    if (route.request().method() === 'POST') requested.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 201, json: {} });
+  });
+  await page.locator('[data-gov-action="request-exception"]').first().click();
+  await page.locator('#govExceptionAction').fill('file.write');
+  await page.locator('#govExceptionRules').fill('protected-main-write');
+  await page.locator('#govExceptionExpires').fill('');
+  await page.locator('#govExceptionReason').fill('A hotfix this afternoon.');
+  await page.locator('#modalOk').click();
+  await expect(page.locator('.toast').last()).toContainText('Choose when the exception expires.');
+  expect(requested).toEqual([]);
 });
 
 test('the reset asks for the repository name and sends nothing when it is wrong', async ({ page }) => {
@@ -181,6 +208,18 @@ test('the reset asks for the repository name and sends nothing when it is wrong'
   await page.locator('#govResetConfirm').fill('sandbox/other');
   await page.locator('#modalOk').click();
   await expect(page.locator('.toast').last()).toContainText('Type sandbox/demo exactly');
+  expect(sent).toEqual([]);
+});
+
+test('a reset named exactly asks the reader to verify the sensitive action before anything is sent', async ({ page }) => {
+  const sent = await openGovernance(page);
+  const reset = page.locator('[data-gov-action="reset-governance"]');
+  await reset.scrollIntoViewIfNeeded();
+  await reset.click();
+  await page.locator('#govLifecycleReason').fill('Start again.');
+  await page.locator('#govResetConfirm').fill('SANDBOX/demo');
+  await page.locator('#modalOk').click();
+  await expect(ui.dialog(page, 'Verify sensitive action')).toBeVisible();
   expect(sent).toEqual([]);
 });
 

@@ -59,8 +59,11 @@ import { offlineRepoKey, offlineRepoList as readOfflineRepos, offlineRepoStorage
 import { createTransport } from '../platform/transport.ts';
 import Visuals from '../visualizations/nebula-visuals.ts';
 import { EMPTY_ICON, META_ICON } from '../components/icons.ts';
-import { REPO_PART, repositoryReference, sessionHost } from '../features/repositories/repository-reference.ts';
+import { repositoryReference, sessionHost } from '../features/repositories/repository-reference.ts';
 import { createRepositoryList } from '../features/repositories/repository-list-controller.ts';
+import { createRepositoryOpener } from '../features/repositories/repository-opener.ts';
+import { nameRepository } from '../features/repositories/repository-header.ts';
+import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
 import { paintBoundary } from '../features/overview/boundary-line.ts';
 
@@ -992,80 +995,6 @@ async function createRepositoryFlow() {
 }
 
 /* ================= WORKSPACE ================= */
-function trustFailureText(result, label) {
-  if (result.status === 'fulfilled') return '';
-  return `${label} is unavailable. No clean result is claimed.`;
-}
-async function loadRepositoryTrustSummary() {
-  const trustKey = wPath();
-  const loading = {
-    connection: { text: 'Checking provider and repository freshness…', evidenceState: 'Inferred' },
-    pipeline: { text: 'Checking application and evidence health…', evidenceState: 'Inferred' },
-    risk: { text: 'Checking access and governance risk…', evidenceState: 'Inferred' },
-    action: { text: 'Waiting for verified trust results.', evidenceState: 'Inferred' },
-    evidence: { text: 'Loading supporting evidence…', evidenceState: 'Inferred' },
-    announcement: 'Repository opened. Trust checks are running.'
-  };
-  TrustUI.renderSummary(loading);
-  const [liveResult, accessResult, evidenceResult] = await Promise.allSettled([
-    api(`/api/repo/${wPath()}/live-events/status`),
-    api(`/api/repo/${wPath()}/access-surface`),
-    api(`/api/repo/${wPath()}/evidence`)
-  ]);
-  if (!state.work || wPath() !== trustKey) return;
-  const live = liveResult.status === 'fulfilled' ? liveResult.value : null;
-  const access = accessResult.status === 'fulfilled' ? accessResult.value : null;
-  const evidence = evidenceResult.status === 'fulfilled' ? evidenceResult.value : null;
-  const failures = [
-    trustFailureText(liveResult, 'Live-event status'),
-    trustFailureText(accessResult, 'Access-surface status'),
-    trustFailureText(evidenceResult, 'Evidence status')
-  ].filter(Boolean);
-
-  const connection = !live
-    ? { text: 'Repository metadata responded, but connection freshness could not be verified.', evidenceState: 'Unavailable' }
-    : live.available === false
-      ? { text: `Repository responded; verified live events are unavailable${live.reason ? `: ${live.reason}` : '.'}`, evidenceState: 'Unavailable' }
-      : live.connected
-        ? { text: 'Repository is current and verified live events are connected.', evidenceState: 'Provider-verified' }
-        : { text: 'Repository is current; verified live events are not connected.', evidenceState: 'Provider-verified' };
-
-  const chain = evidence && evidence.chain;
-  const pipeline = !evidence || evidence.available === false || !chain || chain.available === false
-    ? { text: 'Durable evidence verification is unavailable; no healthy pipeline is claimed.', evidenceState: 'Unavailable' }
-    : chain.valid
-      ? { text: `Evidence chain verified${Number.isFinite(chain.checked) ? ` across ${chain.checked} record(s)` : ''}.`, evidenceState: 'Deterministic' }
-      : { text: 'Evidence verification did not pass. Treat the pipeline as stale.', evidenceState: 'Stale' };
-
-  const risk = !access || access.available === false
-    ? { text: 'Access and governance risk could not be enumerated.', evidenceState: 'Unavailable' }
-    : access.partial
-      ? { text: 'Access inventory is partial; risk may be understated.', evidenceState: 'Stale' }
-      : access.risk && access.risk.severity !== 'normal'
-        ? { text: `${access.risk.severity === 'critical' ? 'Critical' : 'Warning'} access risk (${Number(access.risk.score) || 0}/100): ${access.risk.reasons && access.risk.reasons[0] ? access.risk.reasons[0].message : 'review the access surface.'}`, evidenceState: 'Provider-verified' }
-        : { text: 'No issue was found in the provider access inventory.', evidenceState: 'Provider-verified' };
-
-  let action = { text: 'No immediate corrective action is indicated. Continue with the golden path.', evidenceState: 'Inferred' };
-  if (failures.length) action = { text: 'Retry unavailable trust checks before making a sensitive change.', evidenceState: 'Unavailable' };
-  else if (access && access.partial) action = { text: 'Refresh the access inventory with sufficient provider permissions.', evidenceState: 'Stale' };
-  else if (access && access.risk && access.risk.severity !== 'normal') action = { text: 'Review the access surface and resolve the highest-scoring reason first.', evidenceState: 'Inferred' };
-  else if (!evidence || evidence.available === false || !chain || chain.available === false) action = { text: 'Connect durable evidence storage before relying on audit history.', evidenceState: 'Unavailable' };
-  else if (!chain.valid) action = { text: 'Re-verify the evidence chain before relying on audit history.', evidenceState: 'Stale' };
-  else if (live && !live.connected) action = { text: 'Connect verified live events if current event evidence is required.', evidenceState: 'Inferred' };
-
-  const evidenceSummary = !evidence || evidence.available === false || !chain || chain.available === false
-    ? { text: 'Supporting evidence is unavailable without durable persistence.', evidenceState: 'Unavailable' }
-    : chain.valid
-      ? { text: `${chain.checked || 0} chained record(s), ${(evidence.events || []).length} event(s), and ${(evidence.snapshots || []).length} snapshot(s) support this summary.`, evidenceState: 'Deterministic' }
-      : { text: 'Evidence exists, but its chain is not currently verified.', evidenceState: 'Stale' };
-
-  TrustUI.renderSummary({
-    connection, pipeline, risk, action, evidence: evidenceSummary,
-    announcement: failures.length
-      ? `Repository trust summary updated with ${failures.length} unavailable check${failures.length === 1 ? '' : 's'}.`
-      : 'Repository trust summary updated.'
-  });
-}
 /*
  * Everything on screen that belongs to one repository, cleared together when
  * another is opened -- before the first await, so no section is drawn with
@@ -1073,7 +1002,6 @@ async function loadRepositoryTrustSummary() {
  * still in flight for it (an audit poll, a scan status, a graph load, a
  * branch-rule read) lands on a view that is no longer its own and is dropped.
  */
-let openRepoRequest = 0;
 function resetRepositoryViews() {
   clearGovernanceState();
   clearExposureState();
@@ -1084,112 +1012,63 @@ function resetRepositoryViews() {
   branchRulesCache = { key: '', at: 0, value: null };
   if (neural) neural.reset();
 }
-/* The account is leaving: a repository still opening for it never finishes opening, and its graph goes. */
-function forgetRepositoryWork() {
-  openRepoRequest++;
-  state.opening = null;
-  if (neural) neural.reset();
-}
 /*
- * Resolves true when this repository is the one open at the end, false when
- * it could not be opened, and null when another was opened meanwhile -- that
- * open owns the workbench, and whoever called this has nothing left to do.
+ * A repository opened into the workbench (features/repositories/repository-opener.ts):
+ * the last one let go of first, named as typed then as the provider spells it,
+ * read-only when it is somebody else's, its trust summary drawn for it alone
+ * (repository-trust.ts), and a failure back to the list with focus on what
+ * was pressed. Resolves true when this repository is the one open at the end,
+ * false when it could not be opened, and null when another was opened
+ * meanwhile -- that open owns the workbench.
  */
-async function openRepo(owner, repo) {
-  /* Not before the session is known: a start in flight is waited for, and nothing opens for nobody. */
-  if (sessionArriving) await sessionArriving;
-  if (!state.me) return false;
-  const opening = ++openRepoRequest;
-  /* What the reader pressed to get here. The workbench hides it while the repository loads. */
-  const opener = document.activeElement;
-  showPage('work');
-  /* No repository is open until this one answers: nothing may act on the last one meanwhile. */
-  state.work = null;
-  resetRepositoryViews();
-  /* The owner is its own span so a phone can show the repository alone; the text is the full name either way. */
-  const repoName = $('#workRepoName');
-  const ownerPart = document.createElement('span');
-  ownerPart.className = 'repo-owner';
-  ownerPart.textContent = `${owner}/`;
-  repoName.replaceChildren(ownerPart, document.createTextNode(repo));
-  repoName.title = `${owner}/${repo}`;
-  $('#workPrivateBadge').hidden = true;
-  $('#workVisitorBadge').hidden = true;
-  document.body.classList.remove('repo-visitor');
-  $('#tree').innerHTML = '<div class="skeleton" style="height:200px"></div>';
-  closeFile();
-  state.staged = []; renderStagedCount();
-  state.fileIndex = null;
-  ['#prList', '#issueList', '#releaseList', '#commitList', '#cmpResult', '#uploadQueue', '#actionsList'].forEach(s => { $(s).innerHTML = ''; });
-  $('#prDetail').hidden = true; $('#issueDetail').hidden = true;
-  let opened;
-  state.opening = opened = (async () => {
-    try { return { info: await api(`/api/repo/${owner}/${repo}`) }; }
-    catch (error) { return { error }; }
-  })();
-  const answer = await opened;
-  if (state.opening === opened) state.opening = null;
-  /* Another repository was chosen while this one loaded: that one owns the workbench. */
-  if (opening !== openRepoRequest) return null;
-  try {
-    if (answer.error) throw answer.error;
-    const info = answer.info;
-    /* The provider's spelling of the name, so a pasted "Owner/Repo" and a listed "owner/repo" are one repository everywhere a key is made of it. */
-    const canonical = String(info.full_name || '').split('/');
-    const named = canonical.length >= 2 && canonical.join('/').toLowerCase() === `${owner}/${repo}`.toLowerCase();
-    if (named) {
-      owner = canonical.slice(0, -1).join('/');
-      repo = canonical[canonical.length - 1];
-      ownerPart.textContent = `${owner}/`;
-      repoName.replaceChildren(ownerPart, document.createTextNode(repo));
-      repoName.title = `${owner}/${repo}`;
-    }
-    const visitor = repositoryVisitor(info.permission);
-    state.work = { owner, repo, branch: info.default_branch, ...info, visitor };
-    $('#workPrivateBadge').hidden = !info.private;
+const repositoryOpener = createRepositoryOpener({
+  state,
+  api: path => api(path),
+  arriving: () => sessionArriving,
+  pressed: () => {
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active !== document.body ? active : null;
+  },
+  showPage: name => showPage(name),
+  resetViews: () => resetRepositoryViews(),
+  emptyWorkbench: () => {
+    $('#tree').innerHTML = '<div class="skeleton" style="height:200px"></div>';
+    closeFile();
+    state.staged = []; renderStagedCount();
+    state.fileIndex = null;
+    ['#prList', '#issueList', '#releaseList', '#commitList', '#cmpResult', '#uploadQueue', '#actionsList'].forEach(s => { $(s).innerHTML = ''; });
+    $('#prDetail').hidden = true; $('#issueDetail').hidden = true;
+  },
+  name: (owner, repo) => nameRepository($('#workRepoName'), document, owner, repo),
+  badges: (privateRepo, visitor) => {
+    $('#workPrivateBadge').hidden = !privateRepo;
     $('#workVisitorBadge').hidden = !visitor;
     document.body.classList.toggle('repo-visitor', visitor);
-    if (state.cm) state.cm.setOption('readOnly', visitor);
-    const names = info.branches.map(b => b.name);
-    fillBranchSelect($('#branchSelect'), names, info.default_branch, true);
-    fillBranchSelect($('#cmpBase'), names, info.default_branch);
-    fillBranchSelect($('#cmpHead'), names, names.find(n => n !== info.default_branch) || info.default_branch);
+  },
+  readOnly: visitor => { if (state.cm) state.cm.setOption('readOnly', visitor); },
+  branches: (names, defaultBranch) => {
+    fillBranchSelect($('#branchSelect'), names, defaultBranch, true);
+    fillBranchSelect($('#cmpBase'), names, defaultBranch);
+    fillBranchSelect($('#cmpHead'), names, names.find(n => n !== defaultBranch) || defaultBranch);
+  },
+  arrive: () => {
     refreshShield();
     switchTab('editor');
     loadTree('', $('#tree'), true);
     refreshRate();
     saveRoute();
-    loadRepositoryTrustSummary().catch(error => {
-      TrustUI.renderSummary({
-        connection: { text: 'Repository metadata responded.', evidenceState: 'Provider-verified' },
-        pipeline: { text: 'Trust checks could not be completed.', evidenceState: 'Unavailable' },
-        risk: { text: 'Risk state is unavailable.', evidenceState: 'Unavailable' },
-        action: { text: 'Retry trust checks before making a sensitive change.', evidenceState: 'Unavailable' },
-        evidence: { text: 'Supporting evidence is unavailable.', evidenceState: 'Unavailable' },
-        announcement: 'Repository trust checks are unavailable.'
-      });
-      presentError(error);
-    });
-    const work = state.work;
-    api(`/api/repo/${owner}/${repo}/star`).then(x => { if (state.work === work) pageStore.mutate('work', () => { work.starred = x.starred; }); }).catch(() => {});
-    rememberRepository(owner, repo, visitor);
-    return true;
-  } catch (e) {
-    /*
-     * The list comes back before the error is shown, and focus with it to
-     * what the reader pressed. The workbench had hidden that control, so the
-     * dialog -- which gives focus back to whatever held it when it opened --
-     * was giving it to nothing, and a keyboard reader who dismissed it started
-     * again from the top of the page.
-     */
-    await showPage('repos');
-    /* Another repository was chosen meanwhile: that one owns the screen, and this answer is stale. */
-    if (opening !== openRepoRequest) return null;
-    if (opener instanceof HTMLElement && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
-    presentError(e);
-    return false;
-  }
+  },
+  drawTrust: summary => TrustUI.renderSummary(summary),
+  presentError: error => presentError(error),
+  star: (work, starred) => pageStore.mutate('work', () => { work.starred = starred; }),
+  storage: () => localStorage
+});
+/* The account is leaving: a repository still opening for it never finishes opening, and its graph goes. */
+function forgetRepositoryWork() {
+  repositoryOpener.forget();
+  if (neural) neural.reset();
 }
+function openRepo(owner, repo) { return repositoryOpener.open(owner, repo); }
 
 /*
  * A security tool chosen before a repository is: rather than refusing, it
@@ -1205,27 +1084,9 @@ const PICK_TOOLS = Object.freeze({
   audit: Object.freeze({ title: 'Audit', lede: 'Uranus maps every endpoint and follows what a caller sends to what uses it.' }),
   safeguards: Object.freeze({ title: 'Safeguards', lede: 'Read-only mode, locked paths, branch rules and recovery.' })
 });
-const RECENT_REPOSITORIES = 'nv_recent:repositories';
-function recentRepositories() {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_REPOSITORIES) || '[]');
-    return (Array.isArray(list) ? list : [])
-      .filter(item => item && typeof item.owner === 'string' && typeof item.name === 'string' && REPO_PART.test(item.owner) && REPO_PART.test(item.name))
-      .map(item => (item.visitor === true ? { owner: item.owner, name: item.name, visitor: true } : { owner: item.owner, name: item.name }))
-      .slice(0, 5);
-  } catch { return []; }
-}
-/* Somebody else's repository is remembered as such, so a picker for the reader's own leaves it out. */
-function rememberRepository(owner, name, visitor = false) {
-  try {
-    const rest = recentRepositories().filter(item => `${item.owner}/${item.name}`.toLowerCase() !== `${owner}/${name}`.toLowerCase());
-    localStorage.setItem(RECENT_REPOSITORIES, JSON.stringify([visitor ? { owner, name, visitor: true } : { owner, name }, ...rest].slice(0, 5)));
-  } catch { /* private mode: no recent list, and nothing is lost */ }
-}
-/* A repository somebody else owns, open read-only: nothing here offers to change it. */
-const VISITOR_TABS = new Set(['upload', 'governance', 'safeguards']);
+/* The recent list and who is visiting (features/repositories/recent-repositories.ts). */
+function recentRepositories() { return readRecentRepositories(() => localStorage); }
 function visitingRepository() { return Boolean(state.work && state.work.visitor); }
-function repositoryVisitor(permission) { return ['read', 'triage', 'none'].includes(permission); }
 const PICK_GLOBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM3.5 12h17M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5S9.4 5.9 12 3.5z"/></svg>';
 const PICK_LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 10.8h11v9.2h-11zM8.8 10.8V8.2a3.2 3.2 0 0 1 6.4 0v2.6"/></svg>';
 let pickPage = 0;
@@ -5840,9 +5701,9 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   }
   /* A repository still opening is the one the tool is for: it lands there once it answers. */
   if (!state.work && state.opening) {
-    const opening = openRepoRequest;
+    const opening = repositoryOpener.generation();
     return state.opening.then(() => {
-      if (opening !== openRepoRequest || !state.work) return;
+      if (opening !== repositoryOpener.generation() || !state.work) return;
       if (isRepositoryTool(target)) switchTab(target);
     });
   }

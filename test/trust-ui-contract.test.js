@@ -7,7 +7,6 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
-const app = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 
 for (const id of [
@@ -22,10 +21,11 @@ for (const id of [
  * shows a provider's markup as text is the browser's
  * (test/e2e/public-alpha-states.spec.js).
  */
-assert(app.includes('Promise.allSettled(['));
-for (const endpoint of ['live-events/status', 'access-surface', 'evidence']) {
-  assert(app.includes(endpoint), `trust summary must load ${endpoint}`);
-}
+/*
+ * That an opened repository's summary reads its live-event status, access
+ * surface and evidence together, and says each one that failed as
+ * unavailable, is asked of the opener (test/page-opener.test.js).
+ */
 /*
  * That the workbench draws its trust summary with this module, and answers a
  * refused or failed action with its error dialog -- safe state and next action

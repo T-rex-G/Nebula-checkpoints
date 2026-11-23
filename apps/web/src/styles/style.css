@@ -1173,7 +1173,8 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
  * actually informative.
  */
 .branch-pick{position:relative;display:inline-flex;align-items:center}
-.branch-pick-mark{position:absolute;left:10px;width:15px;height:15px;pointer-events:none;
+/* Over the picker: its glass is a layer of its own, and the mark beneath it was dimmed and blurred. */
+.branch-pick-mark{position:absolute;left:10px;z-index:1;width:15px;height:15px;pointer-events:none;
   fill:none;stroke:var(--muted);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .branch-select{width:auto;max-width:180px;padding:8px 30px 8px 12px;min-height:40px;font-size:.82rem}
 /* Room for the mark only where there is a mark: elsewhere the name sat behind an empty gap. */
@@ -1394,6 +1395,13 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .editor-bar{position:sticky;top:calc(var(--tbh, 62px) + env(safe-area-inset-top,0px) + 12px);z-index:20;
   background:rgba(13,12,34,0.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--glass-border);flex-wrap:wrap}
+/*
+ * Above a phone's width the editor's pane scrolls by itself, so the bar sticks
+ * to the top of that pane, not under the page's bar: measured from the pane,
+ * the page bar's height pushed it that far down into the editor, over the
+ * file's first lines and any draft offered back, with an empty band above it.
+ */
+@media (min-width:901px){.editor-bar{top:0}}
 .file-path{font-size:.78rem;color:var(--teal);word-break:break-all;min-width:0;flex:1 1 140px}
 .file-size{font-size:.7rem;color:var(--muted)}
 .editor-bar-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
@@ -2114,8 +2122,8 @@ html.vt-reveal::view-transition-new(root){z-index:2}
   box-shadow:0 0 14px rgba(34,211,238,.18)}
 
 /* find & replace bar */
-.find-bar{position:sticky;top:var(--findtop, calc(env(safe-area-inset-top,0px) + 128px));z-index:19;background:rgba(13,12,34,0.94);border-bottom:1px solid var(--glass-border);padding:8px 10px;display:flex;flex-direction:column;gap:6px;
-  background:rgba(255,255,255,0.03)}
+/* The find bar stays over the file as it scrolls, so it is the editor bar's glass: a second, all but clear background let the code show through it. */
+.find-bar{position:sticky;top:var(--findtop, calc(env(safe-area-inset-top,0px) + 128px));z-index:19;background:rgba(13,12,34,0.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--glass-border);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .find-row{display:flex;align-items:center;gap:6px}
 .find-row input{flex:1;min-width:60px;min-height:36px;padding:7px 11px;font-size:.84rem}
 .find-count{font-size:.7rem;color:var(--muted);white-space:nowrap;min-width:44px;text-align:center}
@@ -5998,6 +6006,9 @@ a.audit-adv-id:hover { text-decoration-color: currentColor; }
 [data-design="obsidian"] body::after{background:rgba(4,4,5,.86)}
 [data-design="obsidian"][data-theme="light"] body::after{background:rgba(244,242,238,.86)}
 [data-design="obsidian"] .neural-rail.is-docked{background:rgba(10,11,14,.9)}
+/* The editor's bars in Obsidian's own near-black, not Nebula's indigo. */
+[data-design="obsidian"] .editor-bar{background:rgba(9,9,11,.92)}
+[data-design="obsidian"] .find-bar{background:rgba(9,9,11,.94)}
 [data-design="obsidian"][data-theme="light"] .neural-rail.is-docked{background:rgba(251,250,248,.94)}
 [data-design="obsidian"] .neural-card{background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 11%,rgba(16,17,21,.95)),rgba(13,14,17,.96) 42%);box-shadow:0 22px 56px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.07)}
 [data-design="obsidian"][data-theme="light"] .neural-card{background:linear-gradient(180deg,color-mix(in srgb,var(--node,#8b5cf6) 9%,#fff),#fdfcfa 42%);box-shadow:0 18px 44px rgba(41,37,36,.14),inset 0 1px 0 #fff}

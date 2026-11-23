@@ -4076,7 +4076,9 @@ const find = { q: '', cs: false, re: false, matches: [], idx: -1, marks: [] };
 function openFindPanel(prefill) {
   try {
     const bar = document.querySelector('.editor-bar');
-    const topOff = (parseFloat(getComputedStyle(bar).top) || 74) + bar.offsetHeight;
+    /* The bar's own sticky offset, which is 0 where the editor's pane scrolls by itself. */
+    const barTop = parseFloat(getComputedStyle(bar).top);
+    const topOff = (Number.isFinite(barTop) ? barTop : 74) + bar.offsetHeight;
     $('#findBar').style.setProperty('--findtop', topOff + 'px');
   } catch {}
   switchTab('editor');

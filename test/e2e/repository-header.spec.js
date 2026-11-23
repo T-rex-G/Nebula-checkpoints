@@ -182,3 +182,25 @@ test('the files toggle in the bar folds the file list away and brings it back', 
   await expect(page.locator('#side')).not.toHaveAttribute('inert', '');
   expect(await page.evaluate(() => localStorage.getItem('nv_files_hidden'))).toBe('0');
 });
+
+/*
+ * The branch picker's mark is drawn over the picker wherever it is shown, not
+ * under the picker's glass, which dimmed and blurred it. Its glass made solid
+ * for the check, the picker would hide a mark beneath it entirely.
+ */
+test('the branch picker\u2019s mark is drawn over the picker at every width that shows it', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'widths are set here; one project covers them');
+  await openSandbox(page);
+  const mark = page.locator('#page-work .branch-pick-mark');
+  const picker = page.locator('#page-work .branch-pick');
+  await page.locator('#branchSelect').evaluate(select => { select.style.backgroundColor = 'rgb(255, 0, 0)'; });
+  for (const width of [1280, 1000, 900, 800]) {
+    await page.setViewportSize({ width, height: 760 });
+    await expect(mark).toBeVisible();
+    const shown = await picker.screenshot({ animations: 'disabled' });
+    await mark.evaluate(element => { element.style.visibility = 'hidden'; });
+    const hidden = await picker.screenshot({ animations: 'disabled' });
+    await mark.evaluate(element => { element.style.visibility = ''; });
+    expect(shown.equals(hidden), `the mark is drawn over the picker at ${width}px`).toBe(false);
+  }
+});

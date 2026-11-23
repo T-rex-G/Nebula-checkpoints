@@ -36,9 +36,11 @@
  * which languages were followed and which were only pattern-checked.
  */
 
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
 import { mayContainSemanticSink } from './uranus-ts-candidates.ts';
-import { analyseSemanticFlows, type SemanticLead, type SemanticReason, type SemanticSite, type SemanticStats } from './uranus-ts-analysis.ts';
+import type * as Semantic from './uranus-ts-analysis.ts';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
 import { RE_EXPORT, afterSemicolon, at, bindingNames, lastOf, statementEnd, expressionEnd, functionAt, isPunc, isStr, isWord, jsExports, jsFunctions, jsImports, parameters, pyFunctions, pyImports, readChain, skipType } from './uranus-shape.ts';
@@ -138,7 +140,7 @@ interface SettledName {
 export interface Settled extends SettledName {
   readonly path: string;
 }
-type FlowBlocker = { readonly reason: 'guarded' | 'unverified-transform'; readonly path: string; readonly line: number } | { readonly reason: 'weak-source' | 'conditional' | SemanticReason } | { readonly reason: FlowSinkKind };
+type FlowBlocker = { readonly reason: 'guarded' | 'unverified-transform'; readonly path: string; readonly line: number } | { readonly reason: 'weak-source' | 'conditional' | Semantic.SemanticReason } | { readonly reason: FlowSinkKind };
 /* A flow from a caller's input to a sink, as the JavaScript and Python walk reports it. */
 export interface FlowRecord {
   readonly rule: string;
@@ -2298,7 +2300,7 @@ export interface FlowOptions {
   readonly heapUsed?: () => number;
 }
 export interface FlowStats {
-  semantic?: SemanticStats;
+  semantic?: Semantic.SemanticStats;
   javascript: number;
   python: number;
   go: number;
@@ -2317,8 +2319,8 @@ export interface FlowStats {
 export type TracedFlowRecord = FlowRecord | Flow;
 export type TracedRoute = FlowRoute | CFamilyReading['routes'][number];
 export interface FlowReading {
-  readonly semanticSites?: readonly SemanticSite[];
-  readonly semanticLeads?: readonly SemanticLead[];
+  readonly semanticSites?: readonly Semantic.SemanticSite[];
+  readonly semanticLeads?: readonly Semantic.SemanticLead[];
   readonly flows: TracedFlowRecord[];
   readonly routes: TracedRoute[];
   readonly settled: Settled[];
@@ -2336,6 +2338,19 @@ export interface FlowReading {
  */
 function isReadable(file: FlowFile): file is ReadableFile {
   return typeof file.text === 'string';
+}
+
+let semanticPass: typeof Semantic.analyseSemanticFlows | undefined;
+
+/* Keep the synchronous audit API, including native and source-free compiled workers.
+ * Resolve only our own sibling. No file or module name comes from the audited tree. */
+function loadSemanticPass(): typeof Semantic.analyseSemanticFlows {
+  if (semanticPass) return semanticPass;
+  const native = fileURLToPath(import.meta.resolve('./uranus-ts-analysis.ts'));
+  const runtime = import.meta.url.endsWith('.ts') ? native : native.replace(/\.ts$/, '.js');
+  const implementation: typeof Semantic = createRequire(import.meta.url)(runtime);
+  semanticPass = implementation.analyseSemanticFlows;
+  return semanticPass;
 }
 
 export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = {}): FlowReading {
@@ -2358,7 +2373,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
   const lexical = analyseLexicalFlows(files, sources, cfamily, maxBytes, late);
   const { routes, settled, stats } = lexical;
   const jsSources = sources.filter(file => JS_FILE.test(file.path));
-  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? analyseSemanticFlows(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE) : null;
+  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? loadSemanticPass()(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE) : null;
   if (semantic) stats.semantic = semantic.stats;
   const flows = dedupe(semantic?.flows ?? lexical.flows);
   stats.routes = routes.length;

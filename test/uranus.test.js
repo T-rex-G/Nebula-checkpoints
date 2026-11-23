@@ -16,6 +16,20 @@ const assert = require('assert');
 const audit = require('../apps/api/src/modules/uranus/index.ts');
 const { lexJs, lexPython, analyseFlows, analyseSurface } = audit;
 
+/* A rules-only batch can contain JavaScript and still has no need for the compiler. */
+{
+  const compiler = require.resolve('typescript');
+  const view = { path: 'app/view.ts', text: 'const node = document.createElement("p"); node.innerHTML = "Label";' };
+  assert.equal(require.cache[compiler], undefined, 'importing the public engine should leave the compiler cold');
+  audit.scanRules([view]);
+  audit.analyse({ files: [{ path: 'app/total.ts', text: 'export const total = 1;' }, { path: 'app/total.py', text: 'total = 1' }] });
+  assert.equal(require.cache[compiler], undefined, 'rules-only and no-candidate audits keep the compiler cold');
+  const result = audit.analyse({ files: [view] });
+  assert.equal(result.engine.traced.semantic.files, 1);
+  assert.equal(result.engine.traced.semantic.complete, true);
+  assert(require.cache[compiler], 'the first semantic candidate loads the production compiler');
+}
+
 const I = '$'; /* splits template interpolations so this file stays plain text */
 const tpl = (...parts) => parts.join('');
 

@@ -50,7 +50,16 @@ assert(neural.includes('/api/security/scanner-status'), 'Neural dependency/secur
 const neuralGraph = require('../apps/web/src/features/neural/graph-model.ts');
 const graphOf = data => neuralGraph.buildGraph(data, { work: { owner: 'o', repo: 'r', branch: 'main' }, me: null, now: 0, ruleLabel: String, dispositionWords: {} });
 assert(/^Upload malware gate/.test(graphOf({ scanner: { builtin: { available: true } } }).nodes.find(n => n.id === 'scan:upload-gate').label), 'Neural dependency/security view must expose upload scanner posture');
-assert(app.includes('function activityCsv'), 'Activity export must support CSV');
+/*
+ * The activity export offers CSV, its cells defused for a spreadsheet, and the
+ * security scan says an unreachable OSV check as incomplete and discloses the
+ * upload gate: features/safeguards/repository-exports.ts and security-scan.ts,
+ * asked in test/page-exports.test.js.
+ */
+{
+  const { activityCsv } = require('../apps/web/src/features/workbench/export-safety.ts');
+  assert(activityCsv({ commits: [{ sha: 'a', message: '=1+1' }] }).includes('"\'=1+1"'), 'Activity export must support CSV');
+}
 /*
  * Recovery accepts a signed emergency manifest as well as a snapshot, compares
  * and previews before anything moves, and restores with only the preview's
@@ -59,8 +68,12 @@ assert(app.includes('function activityCsv'), 'Activity export must support CSV')
  */
 assert(graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:unavailable')
   && !graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:clean'), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
-assert(app.includes('Dependency scan incomplete'), 'Dependency scan dialog must not report a clean result when OSV is unavailable');
-assert(app.includes('/api/security/scanner-status') && app.includes('Upload malware gate'), 'Security scan dialog must disclose built-in and optional YARA upload protection');
+{
+  const scan = require('../apps/web/src/features/safeguards/security-scan.ts');
+  const offline = scan.scanReport({ scanned: 9, vulnerable: [], osv: { available: false } }, scan.scannerUnknown(new Error('Forbidden')));
+  assert(offline.title === 'Dependency scan incomplete', 'Dependency scan dialog must not report a clean result when OSV is unavailable');
+  assert(/Upload malware gate[\s\S]*unavailable[\s\S]*YARA adapter: <b>not configured<\/b> \u2014 Forbidden/.test(offline.bodyHTML), 'Security scan dialog must disclose built-in and optional YARA upload protection');
+}
 /* What the account boundary lets go of is features/access/account-boundary.ts's, asked in test/page-session.test.js. */
 {
   const { isPrivateStorageKey } = require('../apps/web/src/features/access/account-boundary.ts');

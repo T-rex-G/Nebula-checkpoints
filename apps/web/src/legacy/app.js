@@ -79,6 +79,8 @@ import { createFileIndex } from '../features/workbench/file-index.ts';
 import { createFolderFlows } from '../features/workbench/folder-flows.ts';
 import { createRepositoryDeletion } from '../features/repositories/repository-deletion.ts';
 import { createSnapshotRecovery } from '../features/safeguards/snapshot-recovery.ts';
+import { createRepositoryExports } from '../features/safeguards/repository-exports.ts';
+import { createSecurityScan } from '../features/safeguards/security-scan.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -2323,101 +2325,36 @@ const snapshotRecovery = createSnapshotRecovery({
   restored: () => { repositoryHeader.refresh().catch(() => {}); reloadTree(); }
 });
 function snapshotFlow() { return snapshotRecovery.snapshot(); }
-function activityCsv(activity) {
-  return ExportSafety.activityCsv(activity);
-}
-
-async function fetchIntelligenceEventsForExport() {
-  const events = new Map();
-  let after = '';
-  let available = true;
-  let truncatedBefore = false;
-  for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
-    const suffix = after ? `&after=${encodeURIComponent(after)}` : '';
-    const page = await api(`/api/repo/${wPath()}/intelligence/events?limit=500${suffix}`);
-    available = page.available !== false;
-    truncatedBefore = truncatedBefore || !!page.truncatedBefore;
-    for (const event of page.events || []) if (event && event.id) events.set(event.id, event);
-    const next = String(page.cursor || '');
-    if (!page.hasMore || !next) break;
-    after = next;
-  }
-  return { available, truncatedBefore, events: [...events.values()].sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0) || String(a.id).localeCompare(String(b.id))) };
-}
-
-async function exportActivityFlow() {
-  try {
-    toast('Collecting activity and verified events…', 'ok');
-    const [activityResult, intelligenceResult] = await Promise.allSettled([
-      api(`/api/repo/${wPath()}/activity?days=30`),
-      fetchIntelligenceEventsForExport()
-    ]);
-    if (activityResult.status !== 'fulfilled') throw activityResult.reason;
-    const base = activityResult.value;
-    const intelligence = intelligenceResult.status === 'fulfilled' ? intelligenceResult.value : { available: false, truncatedBefore: false, events: [], error: intelligenceResult.reason && intelligenceResult.reason.message };
-    const a = { ...base, intelligenceAvailable: !!intelligence.available, intelligenceHistoryTruncated: !!intelligence.truncatedBefore, intelligenceEvents: intelligence.events || [], intelligenceError: intelligence.error || '' };
-    const md = [`# ${a.owner}/${a.repo} — last ${a.days} days`, '',
-      `## Commits (${a.commits.length})`, ...a.commits.map(c => `- \`${(c.sha || '').slice(0, 8)}\` ${c.message} — ${c.author}`), '',
-      `## Pull requests (${a.pulls.length})`, ...a.pulls.map(p => `- #${p.number} ${p.title} (${p.state})`), '',
-      `## Issues (${a.issues.length})`, ...a.issues.map(i => `- #${i.number} ${i.title} (${i.state})`), '',
-      `## Releases (${a.releases.length})`, ...a.releases.map(r => `- ${r.tag} ${r.name || ''}`), '',
-      `## Verified intelligence events (${a.intelligenceEvents.length})`,
-      ...(a.intelligenceAvailable ? a.intelligenceEvents.map(event => `- ${event.createdAt || ''} [${event.severity || 'normal'} · ${event.score || 0}] ${event.summary || event.eventType || 'event'} — ${event.actor || 'unknown actor'}`) : [`- Unavailable${a.intelligenceError ? `: ${a.intelligenceError}` : ' because Neon-backed live intelligence is not enabled.'}`])
-    ].join('\n');
-    const stamp = new Date(a.generatedAt || Date.now()).toISOString().slice(0, 10);
-    setTimeout(() => {
-      const bind = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
-      bind('actMd', () => dlFile(`${a.repo}-activity-${stamp}.md`, md, 'text/markdown'));
-      bind('actJson', () => dlFile(`${a.repo}-activity-${stamp}.json`, JSON.stringify(a, null, 2)));
-      bind('actCsv', () => dlFile(`${a.repo}-activity-${stamp}.csv`, activityCsv(a), 'text/csv'));
-    }, 0);
-    await modal({
-      title: 'Activity export ready', okText: 'Close',
-      bodyHTML: `<p class="hint">${a.commits.length} commits · ${a.pulls.length} PRs · ${a.issues.length} issues · ${a.releases.length} releases · ${a.intelligenceEvents.length} verified event(s).</p>
-        ${a.intelligenceHistoryTruncated ? '<p class="hint">Verified-event export contains the latest 500 retained events; older retained history is not included in this browser export.</p>' : ''}${a.intelligenceAvailable ? '' : '<p class="hint">Verified-event history is unavailable without Neon-backed live intelligence; the provider activity export is still complete for the selected period.</p>'}
-        <div class="btn-row" style="margin-top:10px"><button class="btn btn-ghost small" id="actMd">Download Markdown</button><button class="btn btn-ghost small" id="actJson">Download JSON</button><button class="btn btn-ghost small" id="actCsv">Download CSV</button></div>`
-    });
-  } catch (e) { toast(e.message, 'err'); }
-}
-
-async function exportEvidenceFlow() {
-  try {
-    toast('Building verifiable evidence package…', 'ok');
-    const evidence = await api(`/api/repo/${wPath()}/evidence`);
-    const stamp = new Date(evidence.generatedAt || Date.now()).toISOString().slice(0, 10);
-    dlFile(`${state.work.repo}-evidence-${stamp}.json`, JSON.stringify(evidence, null, 2));
-    await modal({ title: 'Evidence package exported', okText: 'Done', bodyHTML: `<p class="hint">${(evidence.events || []).length} verified event(s), ${(evidence.snapshots || []).length} signed snapshot(s). Evidence chain: <b>${evidence.chain && evidence.chain.valid ? 'valid' : evidence.chain && evidence.chain.available ? 'verification failed' : 'unavailable without Neon'}</b>.</p>` });
-  } catch (e) { presentError(e); }
-}
+/*
+ * A repository's activity and its evidence package exported
+ * (features/safeguards/repository-exports.ts): each for the repository it was
+ * asked of, its files named for it.
+ */
+const repositoryExports = createRepositoryExports({
+  api: path => api(path),
+  work: () => state.work,
+  modal: options => modal(options),
+  toast: (message, kind) => toast(message, kind),
+  present: error => presentError(error),
+  download: (name, text, type) => dlFile(name, text, type),
+  csv: activity => ExportSafety.activityCsv(activity),
+  now: () => Date.now()
+});
+function exportActivityFlow() { return repositoryExports.activity(); }
+function exportEvidenceFlow() { return repositoryExports.evidence(); }
 function recoveryFlow() { return snapshotRecovery.recover(); }
 
-async function securityScanFlow() {
-  try {
-    toast('Scanning dependencies and checking upload defenses…', 'ok');
-    const [a, scanner] = await Promise.all([
-      api(`/api/repo/${wPath()}/audit-deps?ref=${encodeURIComponent(state.work.branch)}`),
-      api('/api/security/scanner-status').catch(error => ({ builtin: { available: false }, yara: { configured: false, required: false }, error: error.message }))
-    ]);
-    const rows = a.vulnerable.map(v => {
-      const d = v.ids.map(id => a.details[id]).filter(Boolean)[0];
-      return `<div class="glass" style="padding:8px;margin:6px 0">
-        <p style="margin:0"><span class="mono">${esc(v.name)}@${esc(v.version)}</span> <span class="hint">(${esc(v.ecosystem)})</span></p>
-        <p class="hint" style="margin:4px 0 0">${esc(v.ids.join(', '))}${d && d.severity ? ` — ${esc(d.severity)}` : ''}</p>
-        ${d && d.summary ? `<p class="hint" style="margin:4px 0 0">${esc(d.summary)}</p>` : ''}</div>`;
-    }).join('');
-    const db = a.dependabot;
-    const osvUnavailable = !!(a.scanned && (!a.osv || a.osv.available === false));
-    await modal({
-      title: osvUnavailable ? 'Dependency scan incomplete' : (a.vulnerable.length ? `${a.vulnerable.length} vulnerable package(s)` : 'No known vulnerabilities'), okText: 'Done',
-      bodyHTML: `${osvUnavailable ? `<div class="neural-report-banner"><b>OSV could not be reached.</b><p>${esc((a.osv && a.osv.error) || 'The vulnerability database did not return a usable response.')} No clean result is claimed; retry the scan later.</p></div>` : ''}<p class="hint">${a.scanned} package(s) ${osvUnavailable ? 'resolved from manifests' : 'checked against the OSV database'}${a.sources.length ? ' from ' + esc(a.sources.map(s => s.file).join(', ')) : ''}.</p>
-        ${a.approximate ? '<p class="hint">Versions came from package.json ranges — commit a lockfile for exact results.</p>' : ''}
-        ${!a.scanned ? '<p class="hint">No supported manifest found (package-lock.json, package.json, requirements.txt, go.mod, Cargo.lock, Gemfile.lock).</p>' : ''}
-        <div class="neural-report-banner"><b>Upload malware gate</b><p>Built-in whole-file signature scan: <b>${scanner.builtin && scanner.builtin.available ? 'active' : 'unavailable'}</b>. Optional YARA adapter: <b>${scanner.yara && scanner.yara.configured ? (scanner.yara.required ? 'configured and required' : 'configured') : 'not configured'}</b>${scanner.error ? ` — ${esc(scanner.error)}` : ''}.</p></div>
-        <div style="max-height:44vh;overflow-y:auto">${rows}</div>
-        ${db.available ? `<p class="hint" style="margin-top:8px">Dependabot: ${db.alerts.length} open alert(s).</p>` : (db.note ? `<p class="hint" style="margin-top:8px">Dependabot unavailable — ${esc(db.note)}.</p>` : '')}`
-    });
-  } catch (e) { toast(e.message, 'err'); }
-}
+/*
+ * The security scan (features/safeguards/security-scan.ts): a branch's
+ * dependencies and the upload gate, reported on the branch it was asked of.
+ */
+const securityScan = createSecurityScan({
+  api: path => api(path),
+  work: () => state.work,
+  modal: options => modal(options),
+  toast: (message, kind) => toast(message, kind)
+});
+function securityScanFlow() { return securityScan.scan(); }
 /*
  * Every file path of the open branch, read once for the palette and Safeguards
  * (features/workbench/file-index.ts).

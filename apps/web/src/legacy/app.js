@@ -83,7 +83,7 @@ import { createRepositoryExports } from '../features/safeguards/repository-expor
 import { createSecurityScan } from '../features/safeguards/security-scan.ts';
 import { createWorkspace } from '../features/workbench/workspace.ts';
 import { createSiteCheck } from '../features/parallax/site-check.ts';
-import { AUDIT_POLL, blankAuditView, createAuditController, transientAuditError as isTransientAudit } from '../features/uranus/audit-controller.ts';
+import { AUDIT_POLL, createAuditController, transientAuditError as isTransientAudit } from '../features/uranus/audit-controller.ts';
 import { createAuditHistory } from '../features/uranus/audit-history-controller.ts';
 import { TRIAGE_EVENT_WORD, auditDay, auditMoment, createAuditTriage } from '../features/uranus/audit-triage-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
@@ -1418,12 +1418,6 @@ function toggleProtect(p) { return safety.toggleProtect(p); }
  * keeps fingerprints only, and the account-boundary purge removes them.
  */
 /*
- * The kept history and the watch ride on the same view: the audits this
- * identity ran of the branch, which of them is open and what each kept, and
- * what has been published about the branch's packages since the latest.
- */
-let auditView = blankAuditView();
-/*
  * The deployed-site check sits beside it, bound to the repository rather than
  * the branch: the address typed (or the repository's declared homepage) is
  * remembered per repository as an origin, and the last check's fingerprints
@@ -1496,15 +1490,17 @@ async function copyPrompt(text) {
 }
 /*
  * The repository audit's page (features/uranus/audit-controller.ts): its view
- * for the branch open, its controls and exports, and an audit run. The view
- * is the page's until its history, watch and triage move there too.
+ * for the branch open, which it holds, its controls and exports, and an audit
+ * run. The kept history and the team's decisions ride on the same view: the
+ * audits this identity ran of the branch, which of them is open and what each
+ * kept, what has been published about the branch's packages since the latest,
+ * and what the team decided.
  */
 const audit = createAuditController({
   api: path => api(path),
   work: () => state.work,
   epoch: () => state.uiEpoch,
   provider: () => (state.me && state.me.provider) || 'github',
-  view: { get: () => auditView, set: view => { auditView = view; } },
   forgetHistory: () => auditHistory.forget(),
   forgetWatch: () => auditHistory.forgetWatch(),
   decision: feature => CapabilityUI.decision(feature),
@@ -1748,7 +1744,7 @@ const auditHistory = createAuditHistory({
   work: () => state.work,
   epoch: () => state.uiEpoch,
   key: () => audit.key(),
-  view: () => auditView,
+  view: () => audit.view(),
   repaint: () => repaintAudit(),
   toast: (message, kind) => toast(message, kind),
   later: (run, ms) => setTimeout(run, ms),
@@ -1765,7 +1761,7 @@ function repaintAudit() { audit.repaint(); }
 const auditTriage = createAuditTriage({
   api: (path, options) => api(path, options),
   work: () => state.work,
-  view: () => auditView,
+  view: () => audit.view(),
   modal: request => modal(request),
   chosen: () => {
     const picked = document.querySelector('#modalBody input[name="triageDisposition"]:checked');

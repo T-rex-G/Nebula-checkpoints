@@ -3246,11 +3246,21 @@ Taken ahead of E4d-2: the workspace's governance region stands apart from the ov
 - **Next:** E4g-2e, the audit's view held by its controller rather than the page.
 - **Checks:** the unit gate and the audit decisions, audit triage, audit, audit kept, audit history, both audit run, findings inbox, rendered audit, workspace, repository switch, DOM contract and audit layout browser specs on desktop and mobile, on Node 22.23.5; every verify-job gate and the whole browser suite are CI's, on this commit.
 
+### E4g-2e — The audit's view held by its controller
+
+- **What moved.** The audit's view -- the result shown and how it is narrowed, the run's progress, and the parts the history and the team's decisions keep on it -- is held by `features/uranus/audit-controller.ts` rather than the page. The controller replaces it for another branch, a run that starts or ends, or the page let go of, and gives it out as it is now through `view()`; the history's and the decisions' controllers read it from there. `app.js` no longer names the view at all. It is 4 lines shorter (4,854 to 4,850); the gain is that no page code can now hold the view or write one of its own.
+- **The same answers.** No behaviour changes: every read and write of the view is the same one, made in the controller instead of through the page's hand-off. Rather than a differential of two identical paths, the check is the controller's own: its 13 checks, adapted to read the view it holds, and every mutant of the E4g-2b manifest that still applies, with the four that named the hand-off written again for the view held here.
+- **Tests.** `test/page-audit.test.js`: the view started for the branch open through the controller, a view for another branch started again from nothing (a new object, not the old one renamed), a failure for a session since left leaving the view running and unsaid, and clearing leaving a blank view. The history's and the decisions' checks are unchanged and pass.
+- **Mutants.** 68: 66 of the module against the unit tests -- the 57 of E4g-2b that still apply, its four that named the hand-off written for the view held here, and five on the view itself (a fresh view given out each time, the view never replaced, the first one given out for good, another branch drawn over the old view, a run's progress set on a copy) -- and 2 of the page's wiring in the browser, the history and the decisions each reading a copy of the view; all caught.
+- **Counted.** No page read named the audit's view; 311 remain.
+- **Next:** E4g-3, the findings inbox.
+- **Checks:** the unit gate and the audit decisions, audit triage, audit, audit kept, audit history, both audit run, site link, rendered audit, workspace, repository switch and DOM contract browser specs on desktop and mobile, on Node 22.23.5; every verify-job gate and the whole browser suite are CI's, on this commit.
+
 ### E4 — what remains, in order
 
 Each step moves one part of `legacy/app.js` into typed modules and React views, holds its behaviour with a differential against the code it replaces, converts the page reads that named it, and is committed with its mutants and the whole browser suite.
 
-- **E4g** — the audit's view held by its controller, the findings inbox, the editor and staged changes; code search, the site check, the audit's view and run, its kept history and its decisions went first, as E4g-1 and E4g-2a to E4g-2d.
+- **E4g** — the findings inbox, the editor and staged changes; code search, the site check and the repository audit went first, as E4g-1 and E4g-2a to E4g-2e.
 - **E4h** — navigation and the command palette.
 - **E4i** — upload, the batch commit and its retry.
 - **E4j** — commits, pull requests, issues, releases and compare.

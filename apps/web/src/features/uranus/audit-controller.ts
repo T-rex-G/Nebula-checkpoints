@@ -18,8 +18,9 @@
  * the branch, or failing that with this browser's own fingerprints. An answer
  * that is not an audit is a failure, not a result.
  *
- * The view is held by the page until its history, watch and triage move here
- * too (E4g-2c); this module reads and writes it through the page.
+ * The view is held here. The history and the team's decisions read and write
+ * it through view(), as it is now: a run that ends draws a new view carrying
+ * their parts over.
  */
 import { field, items } from '../../platform/values.ts';
 
@@ -83,8 +84,6 @@ export interface AuditControllerDeps {
   readonly epoch: () => unknown;
   /* The reader's provider, for the repository's address in SARIF. */
   readonly provider: () => string;
-  /* The page's audit view, which the page holds. */
-  readonly view: { get(): AuditView; set(view: AuditView): void };
   /* The history's answers on their way let go of, and its timers. */
   readonly forgetHistory: () => void;
   readonly forgetWatch: () => void;
@@ -117,6 +116,8 @@ export interface AuditControllerDeps {
 export interface AuditController {
   /* The repository and branch the view is for: owner/name@branch. */
   key(): string;
+  /* The view as it is now. */
+  view(): AuditView;
   paint(): void;
   /* Drawn again, when the audit is the tool showing. */
   repaint(): void;
@@ -132,6 +133,7 @@ const owaspOf = (finding: unknown): string => text(field(field(finding, 'standar
 
 export function createAuditController(deps: AuditControllerDeps): AuditController {
   let request = 0;
+  let drawn: AuditView = blankAuditView();
 
   function key(): string {
     const work = deps.work();
@@ -143,12 +145,17 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
   };
   const supported = (): boolean => deps.decision('code-audit').status === 'Supported';
 
+  /* The view replaced: for another branch, a run that starts or ends, or the page let go of. */
+  function replaceView(next: AuditView): void {
+    drawn = next;
+  }
+
   function repaint(): void {
     if (deps.shown()) paint();
   }
 
   function handlers(): Record<string, unknown> {
-    const view = (): AuditView => deps.view.get();
+    const view = (): AuditView => drawn;
     return {
       onSiteOpen: (options: unknown) => deps.site.open(options),
       onRun: () => run(),
@@ -235,15 +242,15 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
 
   function paint(): void {
     if (!deps.screen.present()) return;
-    if (deps.view.get().key !== key()) {
+    if (drawn.key !== key()) {
       deps.forgetHistory();
-      deps.view.set(blankAuditView(key()));
+      replaceView(blankAuditView(key()));
     }
     const repository = deps.decision('code-audit');
-    const view = deps.view.get();
+    const view = drawn;
     if (repository.status === 'Supported' && field(view.history, 'status') === 'idle' && deps.work()) deps.history.load();
     deps.screen.render({
-      ...deps.view.get(),
+      ...drawn,
       unavailable: repository.status === 'Supported' ? null : repository.reason,
       site: deps.decision('site-check').status === 'Supported' ? deps.site.link() : null
     }, handlers());
@@ -262,13 +269,13 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
 
   async function run(): Promise<void> {
     const work = deps.work();
-    if (!work || deps.view.get().status === 'running') return;
+    if (!work || drawn.status === 'running') return;
     const mine = ++request;
     const runKey = key();
     const epoch = deps.epoch();
     const current = (): boolean => mine === request && epoch === deps.epoch() && runKey === key();
     const base = `/api/repo/${text(field(work, 'owner'))}/${text(field(work, 'repo'))}/code-audit?ref=${encodeURIComponent(text(field(work, 'branch')))}`;
-    deps.view.set({ ...deps.view.get(), key: runKey, status: 'running', error: '', progress: null });
+    replaceView({ ...drawn, key: runKey, status: 'running', error: '', progress: null });
     paint();
     try {
       let answer = await deps.api(base);
@@ -277,7 +284,7 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
       let restarted = false;
       while (field(answer, 'state') === 'running') {
         if (!current()) return;
-        deps.view.get().progress = answer;
+        drawn.progress = answer;
         repaint();
         await deps.pause(wait);
         if (!current()) return;
@@ -305,8 +312,8 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
       const previous = deps.memory.readPrevious(repoKey);
       deps.memory.remember(repoKey, result);
       const diff = comparison(result, previous);
-      const held = deps.view.get();
-      deps.view.set({
+      const held = drawn;
+      replaceView({
         ...blankAuditView(runKey), history: held.history, watch: held.watch, historyOpen: held.historyOpen, historyDetail: held.historyDetail,
         triage: held.triage, metrics: held.metrics, status: 'done', result, diff
       });
@@ -316,8 +323,8 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
       if (!current()) return;
       const unreachable = !field(error, 'status') && deps.offline(error);
       const said = field(error, 'message');
-      deps.view.set({
-        ...deps.view.get(), status: 'error', progress: null,
+      replaceView({
+        ...drawn, status: 'error', progress: null,
         error: unreachable ? 'The server could not be reached. Check the connection, then try again.' : (typeof said === 'string' && said) || 'The audit could not be completed.'
       });
     }
@@ -325,7 +332,7 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
   }
 
   function reread(): void {
-    if (deps.view.get().key !== key()) { paint(); return; }
+    if (drawn.key !== key()) { paint(); return; }
     if (deps.work() && supported()) deps.history.load();
   }
 
@@ -333,9 +340,9 @@ export function createAuditController(deps: AuditControllerDeps): AuditControlle
     request += 1;
     deps.forgetHistory();
     deps.forgetWatch();
-    deps.view.set(blankAuditView());
+    replaceView(blankAuditView());
     deps.screen.clear();
   }
 
-  return { key, paint, repaint, run, reread, clear };
+  return { key, view: () => drawn, paint, repaint, run, reread, clear };
 }

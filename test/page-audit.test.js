@@ -30,8 +30,6 @@ function setup(options = {}) {
     decisions: { 'code-audit': { status: 'Supported' }, 'site-check': { status: 'Supported' }, ...(options.decisions || {}) },
     siteLink: options.siteLink || { link: true, url: 'https://demo.example.com', result: null, status: 'idle' }
   };
-  let view = au.blankAuditView(options.viewKey ?? 'octo/demo@main');
-  if (options.view) Object.assign(view, options.view);
   const answers = [...(options.answers || [{ state: 'running', run: 'r 1', stage: 'files' }, RESULT])];
   const gates = options.gates || {};
   let calls = 0;
@@ -48,7 +46,6 @@ function setup(options = {}) {
     work: () => page.work,
     epoch: () => page.epoch,
     provider: () => page.provider,
-    view: { get: () => view, set: next => { view = next; log.push(['set', next.key, next.status]); } },
     forgetHistory: () => log.push(['forget-history']),
     forgetWatch: () => log.push(['forget-watch']),
     decision: feature => page.decisions[feature],
@@ -60,7 +57,7 @@ function setup(options = {}) {
     shown: () => page.shown,
     site: { link: () => page.siteLink, open: o => log.push(['site-open', JSON.stringify(o)]) },
     history: {
-      load: () => { view.history = { status: 'loading' }; log.push(['history']); },
+      load: () => { controller.view().history = { status: 'loading' }; log.push(['history']); },
       watch: o => log.push(['watch', o.force]),
       detail: id => log.push(['detail', id]),
       clear: () => log.push(['history-clear']),
@@ -92,7 +89,9 @@ function setup(options = {}) {
     now: () => Date.parse('2026-11-23T12:00:00Z')
   });
   const of = kind => log.filter(entry => entry[0] === kind);
-  return { controller, page, log, of, view: () => view, memory };
+  /* The view the controller holds, as a test starts it: for the branch open unless said otherwise. */
+  Object.assign(controller.view(), { key: options.viewKey ?? 'octo/demo@main' }, options.view || {});
+  return { controller, page, log, of, view: () => controller.view(), memory };
 }
 
 check('a blank view and the failures asked again', () => {
@@ -120,8 +119,10 @@ check('the view is drawn for the branch open, started again for another, and its
   assert.deepStrictEqual([s.page.rendered.unavailable, s.page.rendered.site, s.page.rendered.history], [null, s.page.siteLink, { status: 'loading' }]);
   s.page.work.branch = 'dev';
   s.log.length = 0;
+  const main = s.view();
   s.controller.paint();
-  assert.deepStrictEqual(s.log, [['forget-history'], ['set', 'octo/demo@dev', 'idle'], ['history'], ['render', 'octo/demo@dev', 'idle']]);
+  assert.deepStrictEqual(s.log, [['forget-history'], ['history'], ['render', 'octo/demo@dev', 'idle']]);
+  assert.notStrictEqual(s.view(), main, 'another branch\u2019s view started again from nothing');
   const off = setup({ decisions: { 'code-audit': { status: 'Unavailable', reason: 'Audits are off here.' }, 'site-check': { status: 'Unavailable' } } });
   off.controller.paint();
   assert.deepStrictEqual(off.log, [['render', 'octo/demo@main', 'idle']]);
@@ -404,7 +405,7 @@ check('an audit belongs to the repository, branch and session it was asked in; o
   t.page.epoch = 3;
   failing.release();
   await running;
-  assert.ok(!t.log.some(entry => entry[0] === 'set' && entry[2] === 'error'), 'its failure unsaid');
+  assert.deepStrictEqual([t.view().status, t.view().error], ['running', ''], 'its failure unsaid');
   const busy = setup({ gates: { 1: held() } });
   void busy.controller.run();
   await busy.controller.run();
@@ -426,10 +427,11 @@ check('Refresh reads the history again, or draws the view afresh when it was ano
   assert.deepStrictEqual(off.log, []);
   const moved = setup({ viewKey: 'octo/demo@old' });
   moved.controller.reread();
-  assert.deepStrictEqual(moved.log.slice(0, 2), [['forget-history'], ['set', 'octo/demo@main', 'idle']]);
+  assert.deepStrictEqual([moved.log[0], moved.view().key, moved.view().status], [['forget-history'], 'octo/demo@main', 'idle']);
   const c = setup({ view: { result: RESULT, status: 'done' } });
   c.controller.clear();
-  assert.deepStrictEqual(c.log, [['forget-history'], ['forget-watch'], ['set', '', 'idle'], ['screen-clear']]);
+  assert.deepStrictEqual(c.log, [['forget-history'], ['forget-watch'], ['screen-clear']]);
+  assert.deepStrictEqual([c.view().key, c.view().status, c.view().result], ['', 'idle', null]);
 });
 
 (async () => {

@@ -35,9 +35,15 @@ const { loadPageModule } = require('./helpers/page-module');
 /* OAuth sign-in is identity and access's. */
 
 let failures = 0;
+/* A check that drives a module returns its promise, and is counted once that settles. */
+const settling = [];
 function check(label, fn) {
-  try { fn(); console.log(`  ok  ${label}`); }
-  catch (error) { failures++; console.log(`  FAIL ${label}\n       ${error.message}`); }
+  const failed = error => { failures++; console.log(`  FAIL ${label}\n       ${error.message}`); };
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') settling.push(result.then(() => console.log(`  ok  ${label}`), failed));
+    else console.log(`  ok  ${label}`);
+  } catch (error) { failed(error); }
 }
 
 /* ---------------- a layer, and a clock ---------------- */
@@ -1607,7 +1613,28 @@ check('every exact-match confirmation declines the phone keyboard', () => {
     }
   };
   declines('alphaDeleteConfirm', deletion.match(/<input id="alphaDeleteConfirm"[^>]*>/));
-  declines('recConfirm', appSource.match(/<input id="recConfirm"[^>]*>/));
+  /* The recovery confirmation, folder and repository deletion, a folder's new path and a lock's pattern, as their modules draw them. */
+  const drawn = [];
+  const dialogs = { modal: async request => { drawn.push(request.bodyHTML); return true; }, value: () => null, toast: () => {} };
+  const snap = { kind: 'nebulaverse-snapshot', capturedAt: '2026-11-23T00:00:00Z', refs: [] };
+  const work = { owner: 'octo', repo: 'demo', branch: 'main', branches: [] };
+  return (async () => {
+    await require('../apps/web/src/features/safeguards/snapshot-recovery.ts').createSnapshotRecovery({
+      ...dialogs, work: () => work, stored: () => JSON.stringify(snap), store: () => {}, download: () => {}, snapshotTaken: () => {}, restored: () => {},
+      api: async path => (path.endsWith('/restore-preview') ? { canRestore: true, actions: [{ name: 'main', to: 'a'.repeat(40) }] } : {})
+    }).recover();
+    const folders = require('../apps/web/src/features/workbench/folder-flows.ts').createFolderFlows({
+      ...dialogs, work: () => work, remember: () => {}, reloadTree: () => {}, productName: 'Nebulaverse-X', api: async () => ({ files: ['docs/a.md'] })
+    });
+    await folders.move('docs');
+    await folders.remove('docs');
+    await require('../apps/web/src/features/repositories/repository-deletion.ts').createRepositoryDeletion({
+      ...dialogs, work: () => work, me: () => ({ offlineCacheScope: 's' }), stepUp: async () => null, present: () => {}, forget: () => {}, showRepositories: () => {}, loadRepositories: () => {}
+    }).remove();
+    drawn.push(require('../apps/web/src/features/safeguards/safeguards-view.ts').screenHTML({ key: 'octo/demo', branch: 'main', readOnly: false, freeze: false, global: true, locks: [], snapshotAt: null, ago: () => '' }));
+    const all = drawn.join('\n');
+    for (const id of ['recConfirm', 'mvDirTo', 'delFolderName', 'drName', 'sgProtectPattern']) declines(id, all.match(new RegExp(`<input id="${id}"[^>]*>`)));
+  })();
 });
 
 /* A mismatch named before a request is spent on it: features/security/step-up.ts, asked in test/page-dialogs.test.js. */
@@ -2525,5 +2552,7 @@ check('the landing scrolls without frosted surfaces or filtered strokes', () => 
     'the drifting light fields are back behind the hero');
 });
 
-console.log(failures ? `\n${failures} failed` : '\nall passed');
-process.exit(failures ? 1 : 0);
+Promise.all(settling).then(() => {
+  console.log(failures ? `\n${failures} failed` : '\nall passed');
+  process.exit(failures ? 1 : 0);
+});

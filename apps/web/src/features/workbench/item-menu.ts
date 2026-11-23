@@ -138,7 +138,7 @@ export function createItemMenu(deps: ItemMenuDeps): ItemMenu {
       } else if (act === 'rename') {
         const ok = await deps.modal({
           title: 'Rename / move',
-          bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${escapeAttribute(path)}" spellcheck="false">`,
+          bodyHTML: `<label class="field-label" for="rnTo2">New path</label><input id="rnTo2" type="text" value="${escapeAttribute(path)}" autocapitalize="off" autocorrect="off" spellcheck="false">`,
           okText: 'Rename \u2726'
         });
         if (!ok || !here()) return;

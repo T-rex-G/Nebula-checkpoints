@@ -45,7 +45,7 @@ export function createRepositoryDeletion(deps: RepositoryDeletionDeps): { remove
     const ok = await deps.modal({
       title: 'Delete repository',
       bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${escapeHtml(fullName)}</b> will be permanently deleted on GitHub \u2014 code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label" for="drName">Type <b class="mono">${escapeHtml(fullName)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="drName">Type <b class="mono">${escapeHtml(fullName)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">`,
       okText: 'Delete forever', danger: true
     });
     if (!ok) return;

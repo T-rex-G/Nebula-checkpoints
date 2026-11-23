@@ -51,9 +51,12 @@ const neuralGraph = require('../apps/web/src/features/neural/graph-model.ts');
 const graphOf = data => neuralGraph.buildGraph(data, { work: { owner: 'o', repo: 'r', branch: 'main' }, me: null, now: 0, ruleLabel: String, dispositionWords: {} });
 assert(/^Upload malware gate/.test(graphOf({ scanner: { builtin: { available: true } } }).nodes.find(n => n.id === 'scan:upload-gate').label), 'Neural dependency/security view must expose upload scanner posture');
 assert(app.includes('function activityCsv'), 'Activity export must support CSV');
-assert(app.includes("snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest'"), 'Recovery must accept signed emergency manifests as snapshot inputs');
-assert(app.includes('/snapshot-compare') && app.includes('/restore-preview'), 'Recovery workflow must compare snapshots and preview ref changes');
-assert(app.includes("authorization: preview.authorization") && app.includes("confirm: 'RESTORE'"), 'Client restore must submit only the preview authorization and typed confirmation');
+/*
+ * Recovery accepts a signed emergency manifest as well as a snapshot, compares
+ * and previews before anything moves, and restores with only the preview's
+ * authorization and the typed confirmation: features/safeguards/snapshot-recovery.ts,
+ * asked in test/page-recovery.test.js.
+ */
 assert(graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:unavailable')
   && !graphOf({ deps: { scanned: 9, vulnerable: [], osv: { available: false } } }).nodes.some(n => n.id === 'scan:clean'), 'Neural graph must distinguish an unavailable vulnerability scan from a clean result');
 assert(app.includes('Dependency scan incomplete'), 'Dependency scan dialog must not report a clean result when OSV is unavailable');

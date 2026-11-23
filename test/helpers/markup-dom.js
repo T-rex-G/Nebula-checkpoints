@@ -4,8 +4,9 @@
  *
  * What a module writes as innerHTML is parsed as the browser parses it
  * (parse5), and the elements answer the calls page modules make:
- * querySelector and querySelectorAll with one simple selector (#id, escaped
- * as CSS.escape writes it, .class, a tag, [attribute] or [attribute="value"]), dataset, the form controls'
+ * querySelector and querySelectorAll with simple selectors (#id, escaped as
+ * CSS.escape writes it, .class, a tag, [attribute] or [attribute="value"]),
+ * alone or apart by spaces for descendants, dataset, the form controls'
  * disabled, checked and value, textContent, listeners, click, focus,
  * contains and replaceChildren. As in Chromium, a control disabled or
  * removed while it has focus lets go of it, and click() on a disabled
@@ -98,9 +99,21 @@ class Element {
     if (/^[a-z][\w-]*$/.test(selector)) return this.localName === selector;
     throw new Error(`markup-dom reads one simple selector, not ${JSON.stringify(selector)}`);
   }
+  /* One simple selector, or several apart by spaces, each matched by an ancestor of the next, as a browser reads them. */
   querySelectorAll(selector) {
+    const parts = selector.trim().split(/\s+/);
+    const last = parts.pop();
+    const within = element => {
+      let at = element.parent;
+      for (let i = parts.length - 1; i >= 0; i -= 1) {
+        while (at && !(at instanceof Element && at.matches(parts[i]))) at = at.parent;
+        if (!at) return false;
+        at = at.parent;
+      }
+      return true;
+    };
     const found = [];
-    const walk = element => { for (const child of element.children) { if (child.matches(selector)) found.push(child); walk(child); } };
+    const walk = element => { for (const child of element.children) { if (child.matches(last) && within(child)) found.push(child); walk(child); } };
     walk(this);
     return found;
   }

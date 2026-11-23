@@ -70,7 +70,7 @@ export function createFolderFlows(deps: FolderFlowsDeps): FolderFlows {
       title: 'Rename / move folder',
       bodyHTML: `<p class="hint">Every file under <b class="mono">${escapeHtml(path)}/</b> moves in one atomic commit.</p>
       <label class="set-label" for="mvDirTo" style="margin-top:8px">New path</label>
-      <input id="mvDirTo" type="text" value="${escapeAttribute(path)}" autocomplete="off" spellcheck="false" style="width:100%">
+      <input id="mvDirTo" type="text" value="${escapeAttribute(path)}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%">
       <p class="hint" style="margin-top:6px">Rename in place (<span class="mono">docs</span> \u2192 <span class="mono">guides</span>) or move deeper (<span class="mono">assets/logos</span>).</p>`,
       okText: 'Move \u2726'
     });
@@ -116,7 +116,7 @@ export function createFolderFlows(deps: FolderFlowsDeps): FolderFlows {
     const ok = await deps.modal({
       title: 'Delete folder',
       bodyHTML: `<p style="font-size:.9rem;line-height:1.6">This deletes <b>${victims.length} file${victims.length > 1 ? 's' : ''}</b> under <b class="mono">${escapeHtml(path)}/</b> from <b>${escapeHtml(branch)}</b> in ${commits} commit${commits > 1 ? 's' : ''}.</p>
-      <label class="field-label" for="delFolderName">Type <b class="mono">${escapeHtml(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
+      <label class="field-label" for="delFolderName">Type <b class="mono">${escapeHtml(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">`,
       okText: 'Delete folder', danger: true
     });
     if (!ok || !here()) return;

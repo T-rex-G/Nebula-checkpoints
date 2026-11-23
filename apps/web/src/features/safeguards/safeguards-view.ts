@@ -200,7 +200,7 @@ export function screenHTML(model: ScreenModel): string {
           return `<button type="button" class="sg-preset" data-preset="${index}" ${done ? 'disabled aria-pressed="true"' : 'aria-pressed="false"'} title="${escapeAttribute(preset.patterns.join('  '))}">
             ${icon(done ? 'on' : 'lock', 'sg-ico sg-ico-sm')}<span>${escapeHtml(preset.label)}</span><span class="sg-preset-n" data-preset-n="${index}"></span></button>`;
         }).join('')}</div>
-        <div class="sg-add"><input id="sgProtectPattern" type="text" placeholder="A file, folder or pattern, e.g. config/**" autocomplete="off" spellcheck="false" aria-label="Path or pattern to lock"><button type="button" class="btn btn-ghost small" id="sgAddProtect">Lock</button></div>
+        <div class="sg-add"><input id="sgProtectPattern" type="text" placeholder="A file, folder or pattern, e.g. config/**" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Path or pattern to lock"><button type="button" class="btn btn-ghost small" id="sgAddProtect">Lock</button></div>
         ${locks.length
           ? `<ul class="sg-locked">${locks.map((pattern, index) => `<li class="sg-lock-row"><span class="mono sg-lock-pattern">${escapeHtml(pattern)}</span><span class="sg-lock-n" data-lock-n="${index}"></span><button type="button" class="btn btn-ghost small sg-unlock" data-unlock="${index}" aria-label="Unlock ${escapeAttribute(pattern)}">Unlock</button></li>`).join('')}</ul>`
           : '<p class="sg-empty">Nothing locked yet. Start with a preset, or lock a file from its menu in the tree.</p>'}

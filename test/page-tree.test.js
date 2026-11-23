@@ -328,7 +328,7 @@ check('a rename asks for the new path with the old one whole, and is carried out
   m.menu.open(quoted);
   await m.choose('rename');
   assert.deepStrictEqual(m.log.filter(e => e[0] === 'modal').at(-1), ['modal', 'Rename / move', 'Rename \u2726', false]);
-  assert.ok(m.body.html.includes('value="x&quot; data-injected=&quot;1&quot; &lt;y&gt;.txt" spellcheck="false">'), m.body.html);
+  assert.ok(m.body.html.includes('value="x&quot; data-injected=&quot;1&quot; &lt;y&gt;.txt" autocapitalize="off" autocorrect="off" spellcheck="false">'), m.body.html);
   m.page.renameTo = '  //moved/a.txt ';
   await m.confirm(true);
   assert.deepStrictEqual(m.log.find(e => e[0] === 'api'), ['api', '/api/repo/octo/repo/rename', { method: 'POST', body: { from: quoted.path, to: 'moved/a.txt', branch: 'main', guarded: true } }]);

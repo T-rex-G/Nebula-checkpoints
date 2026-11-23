@@ -98,7 +98,7 @@ check('the folder\u2019s name is the field\u2019s value as written, a quote and 
   const body = dialogDocument(html);
   const input = body.querySelector('#mvDirTo');
   assert.strictEqual(input.value, 'a"b <c>');
-  assert.deepStrictEqual([...input.attributes.keys()], ['id', 'type', 'value', 'autocomplete', 'spellcheck', 'style'], 'the field carries its own attributes only');
+  assert.deepStrictEqual([...input.attributes.keys()], ['id', 'type', 'value', 'autocomplete', 'autocapitalize', 'autocorrect', 'spellcheck', 'style'], 'the field carries its own attributes only');
   assert.strictEqual(body.querySelector('b').textContent, 'a"b <c>/');
   assert.deepStrictEqual(s.sent(), [], 'turned down, nothing sent');
   const typed = folders({ to: 'guides', cancel: true });

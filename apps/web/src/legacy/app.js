@@ -78,6 +78,7 @@ import { createSafeguards } from '../features/safeguards/safeguards-screen.ts';
 import { createFileIndex } from '../features/workbench/file-index.ts';
 import { createFolderFlows } from '../features/workbench/folder-flows.ts';
 import { createRepositoryDeletion } from '../features/repositories/repository-deletion.ts';
+import { createSnapshotRecovery } from '../features/safeguards/snapshot-recovery.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -2304,23 +2305,24 @@ async function openAuditFinding(finding) {
   }
 }
 
-async function snapshotFlow() {
-  try {
-    toast('Capturing recovery snapshot…', 'ok');
-    let signed = null;
-    try { signed = await api(`/api/repo/${wPath()}/signed-snapshot`, { method: 'POST', body: { manifest: true } }); } catch {}
-    const snap = signed && signed.snapshot ? signed.snapshot : await api(`/api/repo/${wPath()}/refs-snapshot?manifest=1`);
-    try { localStorage.setItem('nv_snap_' + safetyKey(), JSON.stringify(snap)); } catch {}
-    invalidatePosture();
-    dlFile(`${snap.repo}-${snap.capturedAt.slice(0, 10)}.nvsnap.json`, JSON.stringify(snap, null, 2));
-    await modal({
-      title: 'Recovery snapshot captured', okText: 'Done',
-      bodyHTML: `<p class="hint">${snap.refs.length} branch${snap.refs.length > 1 ? 'es' : ''}, ${snap.tags.length} tag(s)${snap.manifest ? `, ${snap.manifest.files.length} files indexed` : ''}. ${signed ? `Signed and retained in Neon as <span class="mono">${esc(signed.snapshotId)}</span>.` : 'Saved locally because durable Neon evidence was unavailable.'} A portable copy was downloaded.</p>
-        <div style="max-height:34vh;overflow-y:auto;margin-top:8px">${snap.refs.map(r =>
-          `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — <span class="mono">${esc(r.sha.slice(0, 8))}</span>${r.protected ? ' (protected)' : ''}</p>`).join('')}</div>`
-    });
-  } catch (e) { toast(e.message, 'err'); }
-}
+/*
+ * A recovery snapshot taken, and branches restored from one
+ * (features/safeguards/snapshot-recovery.ts): each for the repository it was
+ * started on.
+ */
+const snapshotRecovery = createSnapshotRecovery({
+  api: (path, options) => api(path, options),
+  work: () => state.work,
+  stored: name => { try { return localStorage.getItem(name); } catch { return null; } },
+  store: (name, value) => { try { localStorage.setItem(name, value); } catch {} },
+  modal: options => modal(options),
+  value: selector => { const input = $(selector); return input ? input.value : null; },
+  toast: (message, kind) => toast(message, kind),
+  download: (name, text, type) => dlFile(name, text, type),
+  snapshotTaken: () => { invalidatePosture(); if (currentTab() === 'safeguards') renderSafeguards(); },
+  restored: () => { repositoryHeader.refresh().catch(() => {}); reloadTree(); }
+});
+function snapshotFlow() { return snapshotRecovery.snapshot(); }
 function activityCsv(activity) {
   return ExportSafety.activityCsv(activity);
 }
@@ -2387,58 +2389,7 @@ async function exportEvidenceFlow() {
     await modal({ title: 'Evidence package exported', okText: 'Done', bodyHTML: `<p class="hint">${(evidence.events || []).length} verified event(s), ${(evidence.snapshots || []).length} signed snapshot(s). Evidence chain: <b>${evidence.chain && evidence.chain.valid ? 'valid' : evidence.chain && evidence.chain.available ? 'verification failed' : 'unavailable without Neon'}</b>.</p>` });
   } catch (e) { presentError(e); }
 }
-async function recoveryFlow() {
-  const stored = localStorage.getItem('nv_snap_' + safetyKey());
-  const ok = await modal({
-    title: 'Verified recovery workflow', okText: 'Analyze snapshot', danger: true,
-    bodyHTML: `<p class="hint">Nebulaverse-X first compares the snapshot with the live repository and creates a non-mutating restore preview. No branch is changed during analysis.</p>
-      <textarea id="recJson" rows="4" placeholder="Paste a .nvsnap.json file…" style="width:100%;margin-top:8px"></textarea>
-      ${stored ? '<p class="hint" style="margin-top:6px">Leave empty to use the last snapshot captured on this device.</p>' : ''}`
-  });
-  if (!ok) return;
-  let snap = null;
-  const typed = $('#recJson') ? $('#recJson').value.trim() : '';
-  try { snap = JSON.parse(typed || stored || 'null'); } catch { return toast('That snapshot could not be read', 'err'); }
-  if (!snap || (snap.kind !== 'nebulaverse-snapshot' && snap.kind !== 'nebulaverse-emergency-manifest') || !Array.isArray(snap.refs)) return toast('Not a Nebulaverse-X snapshot or emergency manifest', 'err');
-  try {
-    toast('Comparing recovery snapshot with the live repository…', 'ok');
-    const [comparison, preview] = await Promise.all([
-      api(`/api/repo/${wPath()}/snapshot-compare`, { method: 'POST', body: { snapshot: snap } }),
-      api(`/api/repo/${wPath()}/restore-preview`, { method: 'POST', body: { snapshot: snap } })
-    ]);
-    const c = comparison.comparison && comparison.comparison.counts || preview.counts || {};
-    const actions = preview.actions || [];
-    const warnings = preview.warnings || [];
-    const actionRows = actions.slice(0, 50).map(action =>
-      `<p class="hint" style="margin:3px 0"><span class="mono">${esc(action.name)}</span> — ${action.action === 'recreate' ? 'recreate' : 'move'} to <span class="mono">${esc(String(action.to || '').slice(0, 12))}</span>${action.protected ? ' · provider protected' : ''}</p>`
-    ).join('');
-    const proceed = await modal({
-      title: 'Recovery impact preview', okText: preview.canRestore ? 'Continue to confirmation' : 'Close', danger: true,
-      bodyHTML: `<div class="neural-report-banner"><b>No repository changes have been made.</b><p>${c.refsToMove || 0} branch(es) would move, ${c.refsToRecreate || 0} would be recreated, and ${c.newerRefsPreserved || 0} newer branch(es) would be preserved.</p></div>
-        <p class="hint">File comparison: ${c.filesModified || 0} modified, ${c.filesToRestore || 0} absent from the current tree, ${c.newerFilesPreserved || 0} newer file(s) preserved. Reference restore changes branch pointers only.</p>
-        ${warnings.map(warning => `<p class="hint">⚠ ${esc(warning)}</p>`).join('')}
-        <div style="max-height:26vh;overflow-y:auto;margin-top:8px">${actionRows || '<p class="hint">All recorded branch references already match.</p>'}</div>`
-    });
-    if (!proceed || !preview.canRestore || !actions.length) return;
-    const confirm = await modal({
-      title: 'Confirm branch reference recovery', okText: 'Restore refs', danger: true,
-      bodyHTML: `<p class="hint">This force-updates or recreates <b>${actions.length}</b> branch reference(s). Commits created after the snapshot are not deleted, but these branches will no longer point to them.</p>
-        <label class="field-label" for="recConfirm">Type <span class="mono">RESTORE</span> to confirm</label>
-        <input id="recConfirm" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" inputmode="text" placeholder="RESTORE">`
-    });
-    if (!confirm) return;
-    const confirmation = $('#recConfirm');
-    if (!confirmation || confirmation.value.trim().toUpperCase() !== 'RESTORE') return toast('Recovery confirmation did not match', 'err');
-    const out = await api(`/api/repo/${wPath()}/restore-refs`, { method: 'POST', body: { confirm: 'RESTORE', authorization: preview.authorization } });
-    const okN = out.report.filter(r => r.ok).length;
-    await modal({
-      title: `Recovery complete — ${okN}/${out.report.length}`, okText: 'Done',
-      bodyHTML: `<div style="max-height:40vh;overflow-y:auto">${out.report.map(r =>
-        `<p class="hint" style="margin:2px 0"><span class="mono">${esc(r.name)}</span> — ${r.ok ? esc(r.action) : 'failed: ' + esc(r.error || '')}</p>`).join('')}</div>`
-    });
-    loadTree('', $('#tree'), true);
-  } catch (e) { toast(e.message, 'err'); }
-}
+function recoveryFlow() { return snapshotRecovery.recover(); }
 
 async function securityScanFlow() {
   try {

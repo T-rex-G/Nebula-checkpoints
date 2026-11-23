@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const source = (path, ...lines) => ({ path, text: lines.join('\n') });
 const at = (audit, path, line) => audit.findings.filter(f => f.rule === 'SEC-001' && f.path === path && f.line === line);
 
-function checkSemanticSql(analyse) {
+function checkSemanticSql(analyse, analyseFlows) {
   const routes = source('server/routes.ts',
     'import express from "express";',
     'import { useColumn, useValue } from "./public.js";',
@@ -81,6 +81,18 @@ function checkSemanticSql(analyse) {
   for (const line of [8, 9, 10, 11, 16, 18, 22, 24]) {
     assert.equal(at(safe, guards.path, line).length, 0, `unproven SQL execution or input at ${guards.path}:${line}`);
   }
+  const statementCoverage = (...statements) => analyseFlows([source('calendar/coverage.mjs',
+    'import { Pool } from "pg";', 'import encode from "escape-html";', 'const db = new Pool();', ...statements)]);
+  const opaque = statementCoverage('db.query({ text: configuredStatement() });', 'db.query(encode(configuredText()));');
+  assert.equal(opaque.stats.semantic.unresolvedOperations, 2);
+  assert.equal(opaque.stats.semantic.complete, false);
+  assert.equal(opaque.flows.filter(flow => flow.rule === 'SEC-001').length, 0, 'an unresolved statement has no source witness');
+  const resolved = statementCoverage('db.query("SELECT $1", [configuredValue()]);', 'db.query(Number(configuredValue()));',
+    'if (false) db.query(configuredStatement());');
+  assert.equal(resolved.stats.semantic.unresolvedOperations, 0, 'check reachable statement text separately from bound values');
+  assert.equal(resolved.stats.semantic.complete, true);
+  assert.equal(resolved.flows.filter(flow => flow.rule === 'SEC-001').length, 0);
+
   checkMysqlBoundaries(analyse);
 }
 
@@ -162,6 +174,7 @@ function checkMysqlBoundaries(analyse) {
   const audited = analyse({ files: [contexts] });
   for (const line of [11, 14, 16]) assert.equal(at(audited, contexts.path, line)[0]?.verdict, 'confirmed', `driver boundary at ${line}`);
   for (const line of [12, 13, 17, 18, 19, 20, 21, 23, 27]) assert.equal(at(audited, contexts.path, line).length, 0, `query context at ${line}`);
+
 
 }
 

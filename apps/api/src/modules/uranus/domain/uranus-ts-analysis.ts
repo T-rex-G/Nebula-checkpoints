@@ -178,8 +178,14 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
         const sql = ts.isCallExpression(node) && semanticSqlSink(node, checker);
         if (sql && values().reachable(node)) {
           const at = lineOf(nameOfSite(node));
-          const flow = traced(values().read(sql), path, at, 'sql', 'used as database statement text', null, project.pathOf);
-          if (flow && admit('SEC-001', at)) analyzed.push(flow);
+          const value = values().read(sql);
+          const flow = traced(value, path, at, 'sql', 'used as database statement text', null, project.pathOf);
+          if (flow) {
+            if (admit('SEC-001', at)) analyzed.push(flow);
+          } else if (value.kind !== 'literal' && value.kind !== 'scalar') {
+            // An HTML encoding guarantee or an opaque call cannot settle statement text.
+            stats.unresolvedOperations++;
+          }
         }
         if (filesystem && ts.isCallExpression(node)) {
           let unresolved = false;

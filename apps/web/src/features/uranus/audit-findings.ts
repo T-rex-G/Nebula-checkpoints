@@ -350,7 +350,7 @@ const severityIcon = (finding: unknown): string => {
 };
 export function findings(view: unknown, now: number, offered: {
   readonly open: boolean; readonly triage: boolean; readonly history: boolean; readonly reopen: boolean;
-}): Findings | null {
+}, pathGroup = field(view, 'pathGroup')): Findings | null {
   const result = field(view, 'result');
   if (!result) return null;
   const categories = items(field(result, 'categories'));
@@ -367,7 +367,6 @@ export function findings(view: unknown, now: number, offered: {
   const severity = field(view, 'severity') || null;
   const verdict = field(view, 'verdict') || null;
   const exploit = field(view, 'exploit') || null;
-  const pathGroup = field(view, 'pathGroup');
   const supporting = new Set(inScope.filter(finding => supportingPathRole(field(finding, 'path'))));
   const query = text(field(view, 'query'));
   const counts = severityCounts(inScope);

@@ -10,6 +10,19 @@ const root = path.resolve(__dirname, '..');
 const uranus = 'apps/api/src/modules/uranus';
 const generated = uranus + '/domain/uranus-ruleset.ts';
 
+/* The compiler reaches the root manifest through the product version. npm's
+ * test commands can change on the migration branch without changing the
+ * deployed analyzer. Keep build, install, start, and all other metadata. */
+function runtimeManifestText(text) {
+  const manifest = JSON.parse(text);
+  if (manifest.scripts) {
+    for (const name of Object.keys(manifest.scripts)) {
+      if (/^(?:pre|post)?test(?:$|:)/.test(name)) delete manifest.scripts[name];
+    }
+  }
+  return JSON.stringify(manifest);
+}
+
 function rulesetDigest() {
   const roots = [
     uranus + '/application/audit-engine.ts', uranus + '/application/audit-repository.ts',
@@ -22,7 +35,7 @@ function rulesetDigest() {
   for (const file of program.getSourceFiles()) {
     const name = path.relative(root, file.fileName).split(path.sep).join('/');
     if (name === generated || name.startsWith('../') || name.includes('node_modules/')) continue;
-    inputs.set(name, file.text);
+    inputs.set(name, name === 'package.json' ? runtimeManifestText(file.text) : file.text);
   }
   for (const name of ['.nvmrc', 'package-lock.json']) inputs.set(name, fs.readFileSync(path.join(root, name), 'utf8'));
   const hash = crypto.createHash('sha256');
@@ -42,4 +55,4 @@ if (require.main === module) {
   }
   console.log('Uranus ruleset ' + digest);
 }
-module.exports = { rulesetDigest };
+module.exports = { rulesetDigest, runtimeManifestText };

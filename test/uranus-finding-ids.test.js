@@ -30,8 +30,20 @@ const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
 const { cases, filesOf } = require('../scripts/uranus-benchmark');
 
 const { ENGINE } = require('../apps/api/src/modules/uranus/domain/audit-catalog.ts');
-const { rulesetDigest } = require('../scripts/uranus-ruleset');
+const { rulesetDigest, runtimeManifestText } = require('../scripts/uranus-ruleset');
 assert.strictEqual(ENGINE.ruleset, rulesetDigest(), 'refresh detector provenance with node scripts/uranus-ruleset.js --write');
+
+const manifest = { version: '1.0.0', scripts: { start: 'node server.js', 'test:unit': 'node first.js' } };
+const runtimeInputs = value => runtimeManifestText(JSON.stringify(value));
+assert.strictEqual(runtimeInputs(manifest), runtimeInputs({ ...manifest, scripts: {
+  ...manifest.scripts, 'test:unit': 'node second.js', pretest: 'node check.js', 'posttest:unit': 'node report.js'
+} }), 'independent test registration preserves detector provenance');
+for (const changed of [
+  { ...manifest, version: '1.0.1' },
+  { ...manifest, scripts: { ...manifest.scripts, start: 'node other.js' } },
+  { ...manifest, scripts: { ...manifest.scripts, postinstall: 'node build.js' } },
+  { ...manifest, dependencies: { typescript: '5.9.3' } }
+]) assert.notStrictEqual(runtimeInputs(manifest), runtimeInputs(changed), 'runtime metadata contributes to the ruleset');
 
 const RECORD = path.join(__dirname, 'oracles', 'uranus-finding-ids.json');
 

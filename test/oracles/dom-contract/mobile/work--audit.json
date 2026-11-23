@@ -117,6 +117,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".workspace",
  "[aria-label=Back to repositories]",
  "[aria-label=Collapse Deployed site]",

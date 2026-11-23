@@ -216,6 +216,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".warning",
  ".workspace",
  "[aria-label=Access]",

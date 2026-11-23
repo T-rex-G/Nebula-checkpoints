@@ -134,6 +134,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".w100",
  ".workspace",
  "[aria-label=Back to repositories]",

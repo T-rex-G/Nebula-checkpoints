@@ -133,6 +133,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".trust-rollup",
  ".trust-rollup-chev",
  ".trust-rollup-states",

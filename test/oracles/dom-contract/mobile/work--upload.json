@@ -92,6 +92,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".upload-card",
  ".upload-opts",
  ".upload-queue",

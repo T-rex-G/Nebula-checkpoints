@@ -207,6 +207,7 @@
  ".topbar-brand",
  ".tree",
  ".tree-item",
+ ".tree-note",
  ".warn",
  ".workspace",
  "[aria-label=Active policies by mode: 1 warn]",

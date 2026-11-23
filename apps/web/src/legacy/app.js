@@ -7,6 +7,7 @@ import * as uploadPlanning from '../../../../packages/contracts/src/upload-plann
 import * as findingsInbox from '../features/findings/findings-model.ts';
 import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
 import { createFindingsInbox } from '../features/findings/findings-controller.ts';
+import { createFileOpener } from '../features/workbench/file-opener.ts';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import CodeMirror from '../components/code-editor.ts';
@@ -1782,9 +1783,6 @@ $('#codeSearch').addEventListener('keydown', e => {
 });
 
 /* ---------------- editor ---------------- */
-const IMG_EXT = ['png','jpg','jpeg','gif','webp','svg','ico'];
-const VID_EXT = ['mp4','webm'];
-const extOf = p => (p.split('.').pop() || '').toLowerCase();
 
 function ensureCM() {
   if (state.cm) return state.cm;
@@ -1838,84 +1836,55 @@ function keepCursorClearOfNav(cm) {
   cm.scrollTo(null, Math.min(info.height - info.clientHeight, info.top + (cursor.bottom - limit)));
 }
 
-async function openFile(p) {
-  const w = state.work;
-  $('#editorEmpty').hidden = true;
-  $('#editorShell').hidden = false;
-  $('#filePath').textContent = p;
-  $('#fileSize').textContent = '';
-  $('#mdPreview').hidden = true; $('#binaryPreview').hidden = true;
-  $('#editDiff').hidden = true; $('#diffBtn').disabled = true;
-  closeFindPanel();
-  removeDraftBar();
-  $('#editorHost').style.display = '';
-  $('#mdPreviewBtn').hidden = extOf(p) !== 'md';
-  $('#mdPreviewBtn').textContent = 'Preview';
-  switchTab('editor');
-
-  const ext = extOf(p);
-  if (IMG_EXT.includes(ext) || VID_EXT.includes(ext) || ext === 'pdf') {
-    state.file = { path: p, sha: null, binary: true };
-    $('#editorHost').style.display = 'none';
-    $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-    const bp = $('#binaryPreview'); bp.hidden = false;
-    const url = `/api/repo/${wPath()}/raw?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`;
-    if (IMG_EXT.includes(ext)) bp.innerHTML = `<img src="${url}" alt="">`;
-    else if (VID_EXT.includes(ext)) bp.innerHTML = `<video src="${url}" controls playsinline></video>`;
-    else bp.innerHTML = `<p>Binary file.</p><a class="btn btn-ghost" href="${url}" download>Download</a>`;
-    try {
-      const meta = await api(`/api/repo/${wPath()}/file?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`);
-      pageStore.mutate('file', file => { file.sha = meta.sha; }); $('#fileSize').textContent = fmtSize(meta.size);
-    } catch {}
-    return;
-  }
-
-  const cm = ensureCM();
-  cm.setValue('Loading…');
-  try {
-    const f = await api(`/api/repo/${wPath()}/file?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`);
-    if (f.lfs) {
-      state.file = { path: p, sha: f.sha, binary: true };
+/*
+ * A file opened in the editor, previewed, offered as a download, or closed
+ * (features/workbench/file-opener.ts): each open in its own turn, so a file
+ * answered after another was opened changes nothing, and the file asked for
+ * is the file open from the moment it is asked for.
+ */
+const fileOpener = createFileOpener({
+  api: path => api(path),
+  work: () => state.work,
+  editor: () => ensureCM(),
+  mode: path => (CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(path) : null),
+  decode: base64 => b64ToUtf8(base64),
+  size: bytes => fmtSize(bytes),
+  file: { set: file => { state.file = file; }, mutate: change => pageStore.mutate('file', change) },
+  ui: {
+    shell: (path, markdown) => {
+      $('#editorEmpty').hidden = true;
+      $('#editorShell').hidden = false;
+      $('#filePath').textContent = path;
+      $('#fileSize').textContent = '';
+      $('#mdPreview').hidden = true; $('#binaryPreview').hidden = true;
+      $('#editDiff').hidden = true; $('#diffBtn').disabled = true;
+      $('#editorHost').style.display = '';
+      $('#mdPreviewBtn').hidden = !markdown;
+      $('#mdPreviewBtn').textContent = 'Preview';
+    },
+    closed: () => { $('#editorShell').hidden = true; $('#editorEmpty').hidden = false; },
+    size: text => { $('#fileSize').textContent = text; },
+    preview: html => {
       $('#editorHost').style.display = 'none';
-      const bp = $('#binaryPreview'); bp.hidden = false;
-      const raw = `/api/repo/${wPath()}/raw?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}`;
-      bp.innerHTML = `<span class="lfs-pill">✦ Git LFS object</span>
-        <p>Stored in Large File Storage — real size <b>${fmtSize(f.size)}</b>.<br>Nebulaverse-X resolves the pointer automatically: download streams the actual file.</p>
-        <a class="btn btn-primary" href="${raw}" download>Download ${fmtSize(f.size)}</a>`;
-      $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-      $('#fileSize').textContent = fmtSize(f.size) + ' · LFS';
-      return;
-    }
-    if (f.tooLarge) {
-      state.file = { path: p, sha: f.sha, binary: true };
-      $('#editorHost').style.display = 'none';
-      const bp = $('#binaryPreview'); bp.hidden = false;
-      bp.innerHTML = `<p>This file is ${fmtSize(f.size)} — too large for the in-browser editor.<br>Use <b>Push</b> to replace it, or download it.</p>
-        <a class="btn btn-ghost" href="/api/repo/${wPath()}/raw?ref=${encodeURIComponent(w.branch)}&path=${encodeURIComponent(p)}" download>Download</a>`;
-      $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-      $('#fileSize').textContent = fmtSize(f.size);
-      return;
-    }
-    const text = b64ToUtf8(f.content || '');
-    state.file = { path: p, sha: f.sha, dirty: false, original: text, _loading: true };
-    $('#fileSize').textContent = fmtSize(f.size);
-    const info = CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(p) : null;
-    cm.setOption('mode', info ? (info.mime || info.mode) : null);
-    cm.setValue(text);
-    pageStore.mutate('file', file => {
-      file._loading = false;
-      file.dirty = false;
-    });
-    rememberRecent(p);
-    saveRoute();
-    offerDraft(p, text);
-    if (state.pendingFind) { const q = state.pendingFind; state.pendingFind = null; setTimeout(() => openFindPanel(q), 120); }
-    $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-    setTimeout(() => cm.refresh(), 30);
-  } catch (e) { cm.setValue(''); toast(e.message, 'err'); }
-}
-function closeFile() {
-  setTimeout(saveRoute, 0); state.file = null; $('#editorShell').hidden = true; $('#editorEmpty').hidden = false; }
+      const preview = $('#binaryPreview');
+      preview.hidden = false;
+      preview.innerHTML = html;
+    },
+    commitable: on => { $('#commitFileBtn').disabled = !on; $('#stageFileBtn').disabled = !on; }
+  },
+  closeFind: () => closeFindPanel(),
+  removeDraftBar: () => removeDraftBar(),
+  showEditor: () => switchTab('editor'),
+  remember: path => rememberRecent(path),
+  saveRoute: () => saveRoute(),
+  offerDraft: (path, text) => offerDraft(path, text),
+  takeFind: () => { const words = state.pendingFind; state.pendingFind = null; return words || null; },
+  openFind: words => openFindPanel(words),
+  toast: (message, kind) => toast(message, kind),
+  later: (run, ms) => setTimeout(run, ms)
+});
+function openFile(p) { return fileOpener.open(p); }
+function closeFile() { fileOpener.close(); }
 
 /*
  * Markdown a provider sends -- a pull request's description, an issue, a

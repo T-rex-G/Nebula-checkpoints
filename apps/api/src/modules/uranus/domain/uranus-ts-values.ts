@@ -2,7 +2,7 @@
 import ts from 'typescript';
 import { constantTruth, controlReader, primitive, runtimeFunction, subtractGuards, type ControlFacts } from './uranus-ts-control.ts';
 import { frameworkValue } from './uranus-ts-framework.ts';
-import { semanticRequestInput } from './uranus-ts-sql.ts';
+import { firstExpressHandler, semanticRequestInput } from './uranus-ts-sql.ts';
 import { member, unwrap } from './uranus-ts-symbols.ts';
 import { htmlTextPieces } from './uranus-sanitise.ts';
 
@@ -93,6 +93,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     stop: () => boolean, files: readonly ts.SourceFile[] = []) {
   const definitions = new Map<ts.Symbol, Definition[]>();
   const calls = new Map<RuntimeFunction, ts.CallExpression[]>();
+  const routeParameters = new Set<ts.Symbol>();
   const returns = new Map<RuntimeFunction, ts.ReturnStatement[]>();
   const references = new Map<ts.Symbol, ts.Identifier[]>();
   const pathsBySymbol = new Map<ts.Symbol, Map<string, boolean>>();
@@ -290,6 +291,17 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     }
     for (const call of callSites) {
       if (!visit()) break;
+      if (call.arguments.some(ts.isIdentifier)) {
+        const start = firstExpressHandler(call, checker);
+        if (start !== undefined && control.facts(call).live) {
+          for (const arg of call.arguments.slice(start)) {
+            if (!ts.isIdentifier(arg)) continue;
+            const parameter = target(arg)?.parameters[0];
+            const id = parameter && ts.isIdentifier(parameter.name) && symbol(parameter.name);
+            if (id) routeParameters.add(id);
+          }
+        }
+      }
       const called = target(call.expression);
       if (!called) continue;
       const list = calls.get(called) ?? [];
@@ -647,7 +659,11 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     const modeled = frameworkValue(node, checker);
     if (modeled === 'possible-input') return { kind: 'input', origin: node, conditional: true, reason: 'declared-input' };
     if (modeled) return modeled === 'input' ? { kind: 'input', origin: node } : { kind: modeled };
-    if (semanticRequestInput(node, checker)) return { kind: 'input', origin: node };
+    const request = semanticRequestInput(node, checker, parameter => {
+      const id = symbol(parameter.name);
+      return !!id && routeParameters.has(id) && !env.has(id);
+    });
+    if (request) return { kind: 'input', origin: node, conditional: request === 'registered' };
     if (ts.isObjectLiteralExpression(node)) return record(node, env);
     if (ts.isIdentifier(node)) {
       const id = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ?

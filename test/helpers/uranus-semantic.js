@@ -21,6 +21,22 @@ function checkedFlow(audit, sinkPath, sinkLine, originPath, originLine) {
 }
 
 function checkSemanticAnalysis(analyse) {
+  const registration = source('server/calendar.ts',
+    'import site from "express";',
+    'import { renderCalendar as receive } from "./views.js";',
+    'const router = site.Router();',
+    'router.get("/calendar", receive);');
+  const view = source('server/views.ts',
+    'export function renderCalendar(incoming, response) {',
+    '  const label = incoming.get("x-calendar-label");',
+    '  document.body.setHTMLUnsafe(label);',
+    '}');
+  const promoted = analyse({ files: [registration, view] });
+  assert.equal(checkedFlow(promoted, view.path, 3, view.path, 2).verdict, 'needs-validation',
+    'a symbol-bound route registration supplies a possible caller for the imported function');
+  const localRegistry = source(registration.path, registration.text.replace('site.Router()', 'createLocalRegistry()'));
+  assert(findingsAt(analyse({ files: [localRegistry, view] }), view.path, 3).every(f => f.evidence !== 'traced'),
+    'an arbitrary callback registry supplies no request provenance');
   const browser = 'web/calendar.ts';
   const preview = 'web/preview.ts';
   const barrel = source('web/public.ts', 'export { show as paint, carry as displayName } from "./preview";');

@@ -1,4 +1,4 @@
-/* Runtime models for Express request data and node-postgres statement text. */
+/* Runtime models for Express request data and database statement text. */
 import ts from 'typescript';
 import { globalName, importOrigin, initializer, member, reassigned, unwrap, valueDeclaration } from './uranus-ts-symbols.ts';
 
@@ -8,7 +8,14 @@ const CHANNELS = new Set(['params', 'query', 'body', 'headers']);
 const PROTOTYPE = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf', 'hasOwnProperty']);
 
 type LibraryExport = { package: string; name: string };
-type Instance = 'pg-pool' | 'pg-client' | 'express-router' | 'express-route';
+interface MysqlHandle {
+  driver: 'mysql' | 'mysql2';
+  pool: boolean;
+  promise: boolean;
+  defaultFormat: boolean;
+  defaultPromise: boolean;
+}
+type Instance = 'pg-pool' | 'pg-client' | 'express-router' | 'express-route' | MysqlHandle;
 interface Reference { symbol: ts.Symbol; path: readonly string[] }
 interface Changes { writes: Set<string>; escapes: Set<string> }
 const changesByFile = new WeakMap<ts.SourceFile, ReadonlyMap<ts.Symbol, Changes>>();
@@ -111,12 +118,55 @@ function library(expression: ts.Expression, checker: ts.TypeChecker, depth = 0):
   return init ? library(init, checker, depth + 1) : null;
 }
 
+/* Both drivers permit a connection-level queryFormat hook which replaces the
+ * statement sent by query(). mysql2.execute() prepares the SQL separately. */
+function defaultMysqlOption(config: ts.Expression | undefined, name: string): boolean {
+  if (!config) return true;
+  const node = unwrap(config);
+  if (ts.isStringLiteralLike(node)) return true;
+  return ts.isObjectLiteralExpression(node) && node.properties.every(prop =>
+    (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) &&
+    (ts.isIdentifier(prop.name) || ts.isStringLiteralLike(prop.name)) &&
+    prop.name.text !== '__proto__' && prop.name.text !== name);
+}
+
+function mysqlFactory(call: ts.CallExpression, factory: LibraryExport | null, awaited: boolean): MysqlHandle | null {
+  if (!factory || (factory.name !== 'createConnection' && factory.name !== 'createPool')) return null;
+  const promise = factory.package === 'mysql2/promise';
+  if (!promise && factory.package !== 'mysql' && factory.package !== 'mysql2') return null;
+  const pool = factory.name === 'createPool';
+  // Only the promise driver's connection factory returns a promise of a handle.
+  const defaultPromise = defaultMysqlOption(call.arguments[0], 'Promise');
+  if (promise && ((!pool && !awaited) || !defaultPromise)) return null;
+  return { driver: factory.package === 'mysql' ? 'mysql' : 'mysql2', pool, promise,
+    defaultFormat: defaultMysqlOption(call.arguments[0], 'queryFormat'), defaultPromise };
+}
+
+function mysqlHandle(role: Instance | null): role is MysqlHandle { return role !== null && typeof role === 'object'; }
+
+function hasDriverFormat(receiver: ts.Expression, checker: ts.TypeChecker, core: readonly string[] = []): boolean {
+  return intact(receiver, [...core, 'format'], checker) && intact(receiver, [...core, 'config', 'queryFormat'], checker) &&
+    intact(receiver, [...core, 'config', 'connectionConfig', 'queryFormat'], checker);
+}
+
 function instance(expression: ts.Expression, checker: ts.TypeChecker, depth = 0): Instance | null {
   if (depth > MAX_ALIASES) return null;
   const node = unwrap(expression);
   if (ts.isIdentifier(node)) {
     const decl = valueDeclaration(node, checker);
-    const init = decl && !reassigned(decl, checker) && initializer(decl);
+    if (!decl || reassigned(decl, checker)) return null;
+    if (ts.isParameter(decl)) {
+      const cb = decl.parent;
+      const call = cb.parent;
+      if ((!ts.isFunctionExpression(cb) && !ts.isArrowFunction(cb)) || cb.parameters[1] !== decl || decl.dotDotDotToken ||
+          !ts.isCallExpression(call) || call.arguments.length !== 1 || call.arguments[0] !== cb) return null;
+      const method = member(call.expression, checker);
+      if (method?.name !== 'getConnection' || !intact(method.base, ['getConnection'], checker)) return null;
+      const role = instance(method.base, checker, depth + 1);
+      return mysqlHandle(role) && role.pool && !role.promise ? { ...role, pool: false,
+        defaultFormat: role.defaultFormat && hasDriverFormat(method.base, checker) } : null;
+    }
+    const init = initializer(decl);
     return init ? instance(init, checker, depth + 1) : null;
   }
   if (ts.isNewExpression(node)) {
@@ -129,14 +179,31 @@ function instance(expression: ts.Expression, checker: ts.TypeChecker, depth = 0)
   if (ts.isCallExpression(node)) {
     const factory = library(node.expression, checker);
     if (factory?.package === 'express' && ['default', 'Router', 'module'].includes(factory.name)) return 'express-router';
-    const method = member(node.expression);
+    const mysql = mysqlFactory(node, factory, false);
+    if (mysql) return mysql;
+    const method = member(node.expression, checker);
+    if (method?.name === 'promise' && !node.arguments.length && intact(method.base, ['promise'], checker)) {
+      const role = instance(method.base, checker, depth + 1);
+      if (mysqlHandle(role) && role.driver === 'mysql2' && !role.promise && role.defaultPromise &&
+          intact(method.base, ['config', 'Promise'], checker) && intact(method.base, ['query'], checker) &&
+          intact(method.base, ['execute'], checker)) return { ...role, promise: true,
+            defaultFormat: role.defaultFormat && hasDriverFormat(method.base, checker) };
+    }
     if (method?.name === 'route' && staticPath(node.arguments[0]) && intact(method.base, ['route'], checker) &&
         instance(method.base, checker, depth + 1) === 'express-router') return 'express-route';
   }
   if (ts.isAwaitExpression(node)) {
     const call = unwrap(node.expression);
-    if (ts.isCallExpression(call) && !call.arguments.length) {
-      const method = member(call.expression);
+    if (!ts.isCallExpression(call)) return null;
+    const mysql = mysqlFactory(call, library(call.expression, checker), true);
+    if (mysql) return mysql;
+    if (!call.arguments.length) {
+      const method = member(call.expression, checker);
+      if (method?.name === 'getConnection' && intact(method.base, ['getConnection'], checker)) {
+        const role = instance(method.base, checker, depth + 1);
+        if (mysqlHandle(role) && role.pool && role.promise) return { ...role, pool: false,
+          defaultFormat: role.defaultFormat && hasDriverFormat(method.base, checker) };
+      }
       if (method?.name === 'connect' && intact(method.base, ['connect'], checker) && instance(method.base, checker, depth + 1) === 'pg-pool') return 'pg-client';
     }
   }
@@ -147,19 +214,30 @@ function staticPath(expr: ts.Expression | undefined): boolean {
   return !!expr && ((ts.isStringLiteralLike(expr) && expr.text.startsWith('/')) || ts.isRegularExpressionLiteral(expr));
 }
 
-function requestHandler(decl: ts.Declaration | undefined, checker: ts.TypeChecker): boolean {
-  if (!decl || !ts.isParameter(decl) || !ts.isIdentifier(decl.name) || decl.dotDotDotToken || reassigned(decl, checker)) return false;
-  const fn = decl.parent;
-  if ((!ts.isFunctionExpression(fn) && !ts.isArrowFunction(fn)) || fn.parameters[0] !== decl || fn.parameters.length > 3) return false;
-  const call = fn.parent;
-  if (!ts.isCallExpression(call)) return false;
-  const slot = call.arguments.indexOf(fn), method = member(call.expression);
-  if (slot < 0 || !method || !METHODS.has(method.name) || !intact(method.base, [method.name], checker)) return false;
+export function firstExpressHandler(call: ts.CallExpression, checker: ts.TypeChecker): number | undefined {
+  const method = member(call.expression);
+  if (!method || !METHODS.has(method.name) || !intact(method.base, [method.name], checker)) return undefined;
   const role = instance(method.base, checker);
-  return role === 'express-route' || (role === 'express-router' && slot > 0 && staticPath(call.arguments[0]));
+  if (role === 'express-route') return 0;
+  if (role === 'express-router' && staticPath(call.arguments[0])) return 1;
+  return undefined;
 }
 
-export function semanticRequestInput(expression: ts.Expression, checker: ts.TypeChecker): boolean {
+function requestHandler(decl: ts.Declaration | undefined, checker: ts.TypeChecker,
+  registered?: (parameter: ts.ParameterDeclaration) => boolean): 'inline' | 'registered' | false {
+  if (!decl || !ts.isParameter(decl) || !ts.isIdentifier(decl.name) || decl.dotDotDotToken || reassigned(decl, checker)) return false;
+  const fn = decl.parent;
+  if (fn.parameters[0] !== decl || fn.parameters.length > 3) return false;
+  if (registered?.(decl)) return 'registered';
+  if (!ts.isFunctionExpression(fn) && !ts.isArrowFunction(fn)) return false;
+  const call = fn.parent;
+  if (!ts.isCallExpression(call)) return false;
+  const start = firstExpressHandler(call, checker);
+  return start !== undefined && call.arguments.indexOf(fn) >= start ? 'inline' : false;
+}
+
+export function semanticRequestInput(expression: ts.Expression, checker: ts.TypeChecker,
+  registered?: (parameter: ts.ParameterDeclaration) => boolean): 'inline' | 'registered' | false {
   const node = unwrap(expression);
   const getter = ts.isCallExpression(node) ? member(node.expression) : null;
   if (ts.isCallExpression(node) && (!getter || !['get', 'header'].includes(getter.name) || node.arguments.length !== 1 ||
@@ -167,30 +245,41 @@ export function semanticRequestInput(expression: ts.Expression, checker: ts.Type
   if (!getter && !member(node)) return false;
   const value = getter?.base ?? node;
   const ref = reference(value, checker);
-  if (!ref || !requestHandler(ref.symbol.valueDeclaration, checker)) return false;
-  if (getter) return !ref.path.length && intact(value, [getter.name], checker);
+  if (!ref) return false;
+  const source = requestHandler(ref.symbol.valueDeclaration, checker, registered);
+  if (!source) return false;
+  if (getter) return !ref.path.length && intact(value, [getter.name], checker) && source;
   const [channel] = ref.path;
   if (!channel || !intact(node, [], checker)) return false;
-  if (ref.path.length === 1) return ['url', 'originalUrl', 'path', 'hostname'].includes(channel);
-  return ref.path.length === 2 && CHANNELS.has(channel) && !PROTOTYPE.has(ref.path[1] ?? '');
+  if (ref.path.length === 1) return ['url', 'originalUrl', 'path', 'hostname'].includes(channel) && source;
+  return ref.path.length === 2 && CHANNELS.has(channel) && !PROTOTYPE.has(ref.path[1] ?? '') && source;
 }
 
-/* The pg API accepts statement text as its first argument or its config.text
- * property. A custom submit object has its own execution semantics. Spreads,
- * accessors and computed names cannot prove which text the driver receives. */
+/* Only a driver's statement argument is parsed as SQL. Values in a separate
+ * argument or an options.values array have no bearing on this evidence. */
 export function semanticSqlSink(node: ts.Node, checker: ts.TypeChecker): ts.Expression | null {
   if (!ts.isCallExpression(node)) return null;
-  const method = member(node.expression), first = node.arguments[0];
-  if (!first || ts.isSpreadElement(first) || method?.name !== 'query' || !intact(method.base, ['query'], checker)) return null;
+  const method = member(node.expression, checker), first = node.arguments[0];
+  if (!first || ts.isSpreadElement(first) || !method || (method.name !== 'query' && method.name !== 'execute') ||
+      !intact(method.base, [method.name], checker)) return null;
   const receiver = instance(method.base, checker);
-  if (receiver !== 'pg-client' && receiver !== 'pg-pool') return null;
+  const mysql = mysqlHandle(receiver);
+  if (mysql) {
+    if (method.name === 'execute' && receiver.driver !== 'mysql2') return null;
+    const core = receiver.promise ? [receiver.pool ? 'pool' : 'connection'] : [];
+    if (receiver.promise && (!intact(method.base, ['Promise'], checker) || !intact(method.base, [...core, method.name], checker))) return null;
+    if (receiver.pool && !intact(method.base, [...core, 'getConnection'], checker)) return null;
+    if (method.name === 'query' && (!receiver.defaultFormat || !hasDriverFormat(method.base, checker, core))) return null;
+  } else if ((receiver !== 'pg-client' && receiver !== 'pg-pool') || method.name !== 'query') return null;
   const argument = unwrap(first);
   if (!ts.isObjectLiteralExpression(argument)) return argument;
+  const key = mysql ? 'sql' : 'text';
   let text: ts.Expression | null = null;
   for (const prop of argument.properties) {
     if ((!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) ||
-        (!ts.isIdentifier(prop.name) && !ts.isStringLiteralLike(prop.name)) || ['__proto__', 'submit'].includes(prop.name.text)) return null;
-    if (prop.name.text === 'text') text = ts.isPropertyAssignment(prop) ? prop.initializer : prop.name;
+        (!ts.isIdentifier(prop.name) && !ts.isStringLiteralLike(prop.name)) || prop.name.text === '__proto__' ||
+        (!mysql && prop.name.text === 'submit')) return null;
+    if (prop.name.text === key) text = ts.isPropertyAssignment(prop) ? prop.initializer : prop.name;
   }
   return text;
 }

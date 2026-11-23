@@ -69,6 +69,54 @@ function checkSemanticMethods(analyse) {
   const mutations = changed.findings.filter(finding => finding.rule === 'SEC-002' && finding.path === path);
   assert(!mutations.some(finding => finding.line === 3), 'a replaced parser cannot establish a parser sink');
   assert(mutations.some(finding => finding.line === 6 && finding.verdict === 'confirmed'), 'an unrelated object can have a write method');
+
+  const computed = { path: 'app/field.ts', text: [
+    'const field = "in" + "ner" + "HT" + "ML";',
+    'const method = "set" + "HT" + "ML" + "Un" + "safe";',
+    'const notice = window.location.hash;',
+    'document.body[field]! = notice;',
+    '((document.body[method] as (message: string) => void))(notice);',
+    '(document.body[method] satisfies (message: string) => void)(notice);',
+    'document.body // a line comment ending with =',
+    '[method] /* trivia */ !(notice);',
+    'document.body[field]! = "fixed";'
+  ].join('\n') };
+  const named = { path: 'outside/known.ts', text: 'document.body.innerHTML = "fixed";' };
+  const arrays = Array.from({ length: 32 }, (_, i) => ({ path: 'arrays/data' + i + '.ts',
+    text: 'const numbers: number[] = [1, 2, 3]; export const first = numbers[0];' }));
+  for (const files of [[computed], [computed, named, ...arrays]]) {
+    const checked = analyse({ files });
+    const results = checked.findings.filter(f => f.rule === 'SEC-002' && f.path === computed.path);
+    assert.deepEqual(results.filter(f => f.verdict === 'confirmed').map(f => f.line).sort((a, b) => a - b), [4, 5, 6, 8]);
+    assert(!results.some(f => f.line === 9));
+    assert.equal(checked.engine.traced.semantic.complete, true);
+    assert.equal(checked.engine.traced.semantic.files, files.length === 1 ? 1 : 2);
+  }
+
+  const binder = { path: 'app/present.ts', text: [
+    'const op = "set" + "HT" + "ML" + "Un" + "safe";',
+    'const bindKey = "b" + "ind";',
+    'const piece = document.body[op];',
+    'export const show = piece[bindKey](document.body);'
+  ].join('\n') };
+  const consumer = { path: 'app/route.ts', text: [
+    'import { show } from "./present.js";',
+    'show(window.location.hash);'
+  ].join('\n') };
+  const imported = analyse({ files: [consumer, binder, ...arrays] });
+  assert(imported.findings.some(f => f.rule === 'SEC-002' && f.path === consumer.path && f.line === 2 && f.verdict === 'confirmed'),
+    'the caller of a computed bound method is admitted through an emitted-js import');
+
+  const possible = Array.from({ length: 200 }, (_, i) => ({ path: 'a/possible' + i + '.ts',
+    text: 'export function first(values: string[], index: number) { return values[index]; }' }));
+  const renderer = { path: 'z/alerts.ts', text: 'export function display(value: string) { document.body.innerHTML = value; }' };
+  const caller = { path: 'z/route.ts', text: 'import { display } from "./alerts.js"; display(window.location.hash);' };
+  const capped = analyse({ files: [...possible, renderer, caller] });
+  const visible = capped.findings.find(f => f.rule === 'SEC-002' && f.path === renderer.path);
+  assert(visible?.trace?.some(step => step.role === 'entrypoint' && step.path === caller.path), 'named roots and their callers precede weak candidates');
+  assert.equal(capped.engine.traced.semantic.files, 192);
+  assert.equal(capped.engine.traced.semantic.skippedFiles, 10);
+  assert.equal(capped.engine.traced.semantic.complete, false);
 }
 
 module.exports = { checkSemanticMethods };

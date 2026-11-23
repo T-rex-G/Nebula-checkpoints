@@ -1,6 +1,7 @@
 /* An isolated compiler project for repository source already selected by the audit. */
 import { posix } from 'node:path';
 import ts from 'typescript';
+import { hasNamedSemanticSink } from './uranus-ts-candidates.ts';
 
 export interface SemanticSource {
   readonly path: string;
@@ -97,25 +98,27 @@ function typeOnlyReference(literal: ts.StringLiteralLike): boolean {
 /* A sink may live in an exported helper whose caller supplies the value. Read
  * only import specifiers to find reverse edges; createProgram follows forward
  * edges from the admitted roots. Unindexed input is explicit coverage loss. */
-function callerRoots(roots: string[], sources: ReadonlyMap<string, SourceText>, ordered: readonly string[],
-  stop: () => boolean, skipped: Set<string>): string[] {
+function callerRoots(primary: readonly string[], possible: readonly string[], sources: ReadonlyMap<string, SourceText>,
+  ordered: readonly string[], stop: () => boolean, unindexed: Set<string>): string[] {
   const callers = new Map<string, Set<string>>();
-  const found = new Set(roots);
+  const primarySet = new Set(primary);
   let indexBytes = 0, indexed = 0;
   for (const path of ordered) {
     if (stop()) break;
     const file = sources.get(path);
-    if (!file) continue;
-    const bytes = file.text.length > MAX_FILE_BYTES ? Infinity : Buffer.byteLength(file.text, 'utf8');
+    if (!file || primarySet.has(path)) continue;
+    if (file.text.length > MAX_FILE_BYTES) { unindexed.add(path); continue; }
+    // An already-prioritized root cannot extend its own reverse closure. For
+    // other files without a possible relative module specifier there is no
+    // reverse edge to index, including files admitted as computed candidates.
+    if (!/['"`]\.|\\/.test(file.text)) continue;
+    const bytes = Buffer.byteLength(file.text, 'utf8');
     if (indexed >= MAX_INDEX_FILES || bytes > MAX_FILE_BYTES || indexBytes + bytes > MAX_INDEX_BYTES) {
-      skipped.add(path);
+      unindexed.add(path);
       continue;
     }
     indexed++;
     indexBytes += bytes;
-    // An edge ending at an admitted caller cannot grow the reverse closure.
-    // A relative specifier starts with a literal dot or uses a character escape.
-    if (found.has(path) || !/['"`]\.|\\/.test(file.text)) continue;
     for (const ref of ts.preProcessFile(file.text, true, true).importedFiles) {
       const target = localModule(ref.fileName, path, sources)?.resolvedFileName;
       if (!target) continue;
@@ -124,12 +127,16 @@ function callerRoots(roots: string[], sources: ReadonlyMap<string, SourceText>, 
       from.add(path);
     }
   }
-  const selected = [...roots];
-  for (let i = 0; i < selected.length && !stop(); i++) {
-    for (const path of callers.get(selected[i] ?? '') ?? []) {
-      if (found.has(path)) continue;
-      found.add(path);
-      selected.push(path);
+  const found = new Set<string>();
+  const selected: string[] = [];
+  function add(path: string): void {
+    if (!found.has(path)) { found.add(path); selected.push(path); }
+  }
+  for (const seeds of [primary, possible]) {
+    const start = selected.length;
+    for (const path of seeds) add(path);
+    for (let i = start; i < selected.length && !stop(); i++) {
+      for (const path of callers.get(selected[i] ?? '') ?? []) add(path);
     }
   }
   return selected;
@@ -163,12 +170,16 @@ export function buildSemanticProject(
 ): SemanticProject {
   const sources = new Map<string, SourceText>();
   const skipped = new Set<string>();
+  const unindexed = new Set<string>();
   const unresolved = new Set<string>();
   const parsed = new Map<string, ts.SourceFile>();
   const paths = new Map<ts.SourceFile, string>();
   let interrupted = false, totalBytes = 0, totalNodes = 0, attempts = 0, inspected = 0, seedCount = 0;
   const interruptedNow = (): boolean => (interrupted ||= stop());
   function result(checker: ts.TypeChecker | null): SemanticProject {
+    // A forward dependency or known seed may still be admitted even when the
+    // reverse index ran out. Count only unseen possible callers as coverage loss.
+    for (const path of unindexed) if (!parsed.has(path)) skipped.add(path);
     return { files: checker ? [...parsed.values()] : [], checker,
       pathOf: node => paths.get(ts.isSourceFile(node) ? node : node.getSourceFile()) ?? '',
       incomplete: interrupted || skipped.size > 0 || unresolved.size > 0,
@@ -189,13 +200,19 @@ export function buildSemanticProject(
     } else if (!skipped.has(key)) sources.set(key, { path: file.path, text: file.text });
   }
   const ordered = [...sources.keys()].sort();
-  const seeds = ordered.filter(key => {
+  const primary: string[] = [], possible: string[] = [];
+  for (const key of ordered) {
+    if (interruptedNow()) break;
     const file = sources.get(key);
-    return file !== undefined && (!isRoot || isRoot(file));
-  });
-  seedCount = seeds.length;
+    if (file && (!isRoot || isRoot(file))) {
+      if (!isRoot || hasNamedSemanticSink(file.text)) primary.push(key);
+      else possible.push(key);
+    }
+  }
+  seedCount = primary.length + possible.length;
   if (!seedCount || interrupted) return result(null);
-  const roots = isRoot && seedCount < ordered.length ? callerRoots(seeds, sources, ordered, interruptedNow, skipped) : seeds;
+  const roots = isRoot && (seedCount < ordered.length || (primary.length > 0 && possible.length > 0))
+    ? callerRoots(primary, possible, sources, ordered, interruptedNow, unindexed) : [...primary, ...possible];
   if (interrupted) return result(null);
   const keyOf = (name: string) => name.startsWith('/') ? name.slice(1) : name;
   const host: ts.CompilerHost = {

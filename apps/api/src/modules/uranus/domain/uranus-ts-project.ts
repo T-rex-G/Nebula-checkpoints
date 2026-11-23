@@ -99,7 +99,7 @@ function typeOnlyReference(literal: ts.StringLiteralLike): boolean {
  * only import specifiers to find reverse edges; createProgram follows forward
  * edges from the admitted roots. Unindexed input is explicit coverage loss. */
 function callerRoots(primary: readonly string[], possible: readonly string[], sources: ReadonlyMap<string, SourceText>,
-  ordered: readonly string[], stop: () => boolean, unindexed: Set<string>): string[] {
+  ordered: readonly string[], stop: () => boolean, unindexed: Set<string>): { names: string[]; priorityCount: number } {
   const callers = new Map<string, Set<string>>();
   const primarySet = new Set(primary);
   let indexBytes = 0, indexed = 0;
@@ -129,6 +129,7 @@ function callerRoots(primary: readonly string[], possible: readonly string[], so
   }
   const found = new Set<string>();
   const selected: string[] = [];
+  let priorityCount = 0;
   function add(path: string): void {
     if (!found.has(path)) { found.add(path); selected.push(path); }
   }
@@ -138,8 +139,9 @@ function callerRoots(primary: readonly string[], possible: readonly string[], so
     for (let i = start; i < selected.length && !stop(); i++) {
       for (const path of callers.get(selected[i] ?? '') ?? []) add(path);
     }
+    if (seeds === primary) priorityCount = selected.length;
   }
-  return selected;
+  return { names: selected, priorityCount };
 }
 
 /* Inspect iteratively. A maliciously nested expression must not get into a
@@ -212,7 +214,8 @@ export function buildSemanticProject(
   seedCount = primary.length + possible.length;
   if (!seedCount || interrupted) return result(null);
   const roots = isRoot && (seedCount < ordered.length || (primary.length > 0 && possible.length > 0))
-    ? callerRoots(primary, possible, sources, ordered, interruptedNow, unindexed) : [...primary, ...possible];
+    ? callerRoots(primary, possible, sources, ordered, interruptedNow, unindexed)
+    : { names: [...primary, ...possible], priorityCount: primary.length };
   if (interrupted) return result(null);
   const keyOf = (name: string) => name.startsWith('/') ? name.slice(1) : name;
   const host: ts.CompilerHost = {
@@ -263,7 +266,14 @@ export function buildSemanticProject(
     }
   };
   try {
-    const program = ts.createProgram(roots, options, host);
+    if (isRoot && roots.priorityCount > 1 && roots.priorityCount < ordered.length) {
+      // A program normally follows each root's imports before opening its next
+      // root. Admit named operations and their callers first. Both passes share
+      // the same bounded SourceFile cache; only the final program is bound.
+      ts.createProgram(roots.names.slice(0, roots.priorityCount), { ...options, noResolve: true }, host);
+      if (interruptedNow()) return result(null);
+    }
+    const program = ts.createProgram(roots.names, options, host);
     if (!parsed.size || interruptedNow()) return result(null);
     const checker = program.getTypeChecker();
     return result(interruptedNow() ? null : checker);

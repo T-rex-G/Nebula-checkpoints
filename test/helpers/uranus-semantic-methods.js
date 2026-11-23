@@ -109,13 +109,15 @@ function checkSemanticMethods(analyse) {
 
   const possible = Array.from({ length: 200 }, (_, i) => ({ path: 'a/possible' + i + '.ts',
     text: 'export function first(values: string[], index: number) { return values[index]; }' }));
+  const imports = possible.map(file => 'import "../' + file.path.replace(/\.ts$/, '.js') + '";');
+  const shell = { path: 'z/00-shell.ts', text: [...imports, 'document.body.innerHTML = "fixed";'].join('\n') };
   const renderer = { path: 'z/alerts.ts', text: 'export function display(value: string) { document.body.innerHTML = value; }' };
   const caller = { path: 'z/route.ts', text: 'import { display } from "./alerts.js"; display(window.location.hash);' };
-  const capped = analyse({ files: [...possible, renderer, caller] });
+  const capped = analyse({ files: [...possible, shell, renderer, caller] });
   const visible = capped.findings.find(f => f.rule === 'SEC-002' && f.path === renderer.path);
   assert(visible?.trace?.some(step => step.role === 'entrypoint' && step.path === caller.path), 'named roots and their callers precede weak candidates');
   assert.equal(capped.engine.traced.semantic.files, 192);
-  assert.equal(capped.engine.traced.semantic.skippedFiles, 10);
+  assert.equal(capped.engine.traced.semantic.skippedFiles, 11);
   assert.equal(capped.engine.traced.semantic.complete, false);
 }
 

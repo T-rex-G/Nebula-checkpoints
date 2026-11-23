@@ -84,6 +84,7 @@ import { createSecurityScan } from '../features/safeguards/security-scan.ts';
 import { createWorkspace } from '../features/workbench/workspace.ts';
 import { createSiteCheck } from '../features/parallax/site-check.ts';
 import { AUDIT_POLL, blankAuditView, createAuditController, transientAuditError as isTransientAudit } from '../features/uranus/audit-controller.ts';
+import { createAuditHistory } from '../features/uranus/audit-history-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1421,9 +1422,6 @@ function toggleProtect(p) { return safety.toggleProtect(p); }
  * what has been published about the branch's packages since the latest.
  */
 let auditView = blankAuditView();
-let auditHistoryRequest = 0;
-let auditHistoryArmTimer = 0;
-let auditWatchTimer = 0;
 /*
  * The deployed-site check sits beside it, bound to the repository rather than
  * the branch: the address typed (or the repository's declared homepage) is
@@ -1506,8 +1504,8 @@ const audit = createAuditController({
   epoch: () => state.uiEpoch,
   provider: () => (state.me && state.me.provider) || 'github',
   view: { get: () => auditView, set: view => { auditView = view; } },
-  forgetHistory: () => { auditHistoryRequest++; clearTimeout(auditHistoryArmTimer); },
-  forgetWatch: () => clearTimeout(auditWatchTimer),
+  forgetHistory: () => auditHistory.forget(),
+  forgetWatch: () => auditHistory.forgetWatch(),
   decision: feature => CapabilityUI.decision(feature),
   screen: {
     render: (view, handlers) => AuditScreen.render($('#auditRoot'), view, handlers),
@@ -1517,10 +1515,10 @@ const audit = createAuditController({
   shown: () => Boolean($('#tab-audit')?.classList.contains('active')),
   site: { link: () => auditSiteLink(), open: options => openParallax(options) },
   history: {
-    load: () => loadAuditHistory(),
-    watch: options => checkAuditWatch(options),
-    detail: id => loadAuditDetail(id),
-    clear: () => clearAuditHistory(),
+    load: () => auditHistory.load(),
+    watch: options => auditHistory.watch(options),
+    detail: id => auditHistory.detail(id),
+    clear: () => auditHistory.clear(),
     reveal: id => {
       const details = document.querySelector(`#auditRoot details[data-audit-id="${CSS.escape(id)}"]`);
       if (details) details.scrollIntoView({ block: 'center', behavior: document.documentElement.dataset.motion === 'off' ? 'auto' : 'smooth' });
@@ -1738,115 +1736,25 @@ $('#settingsBtnSite') && $('#settingsBtnSite').addEventListener('click', openSet
 function transientAuditError(error) { return isTransientAudit(error, isOfflineError); }
 function runAudit() { return audit.run(); }
 /*
- * The kept audits of this branch, then the watch over the latest. Each answer
- * is dropped if the repository, the branch or the account changed while it
- * was in flight, so one repository's history never paints another's page.
+ * The kept audits of the branch open, read with the team's decisions, the
+ * clocks and the watch over the latest; a kept audit's findings; and the
+ * history cleared on a second press (features/uranus/audit-history-controller.ts).
+ * Every answer lands in the view drawn for the repository, branch and session
+ * it was asked in, and a read let go of never leaves the page waiting on it.
  */
-function auditHistoryScope() {
-  const request = ++auditHistoryRequest;
-  const key = auditKey();
-  const epoch = state.uiEpoch;
-  return { current: () => request === auditHistoryRequest && epoch === state.uiEpoch && key === auditKey() && auditView.key === key, base: `/api/repo/${wPath()}/code-audit`, ref: encodeURIComponent(state.work.branch) };
-}
+const auditHistory = createAuditHistory({
+  api: (path, options) => api(path, options),
+  work: () => state.work,
+  epoch: () => state.uiEpoch,
+  key: () => audit.key(),
+  view: () => auditView,
+  repaint: () => repaintAudit(),
+  toast: (message, kind) => toast(message, kind),
+  later: (run, ms) => setTimeout(run, ms),
+  cancel: timer => clearTimeout(timer),
+  now: () => Date.now()
+});
 function repaintAudit() { audit.repaint(); }
-async function loadAuditHistory() {
-  if (!state.work) return;
-  const scope = auditHistoryScope();
-  auditView.history = auditView.history.status === 'ready' ? { ...auditView.history, refreshing: true } : { status: 'loading' };
-  try {
-    const listed = await api(`${scope.base}/history?ref=${scope.ref}`);
-    if (!scope.current()) return;
-    if (!listed || listed.available === false) {
-      auditView.history = { status: 'unavailable' };
-      auditView.watch = { status: 'unavailable' };
-      return repaintAudit();
-    }
-    auditView.history = { status: 'ready', audits: Array.isArray(listed.audits) ? listed.audits : [], branches: Array.isArray(listed.branches) ? listed.branches : [] };
-    repaintAudit();
-    /* The team's decisions and the clocks come with the history: both are read from what the server keeps. */
-    const others = [loadAuditTriage(scope)];
-    if (auditView.history.audits.length) others.push(loadAuditMetrics(scope));
-    else auditView.metrics = { status: 'idle' };
-    if (auditView.history.audits.length) await checkAuditWatch({ scope });
-    else { auditView.watch = { status: 'none' }; repaintAudit(); }
-    await Promise.all(others);
-  } catch (error) {
-    if (!scope.current()) return;
-    auditView.history = { status: 'error', error: error.message || 'The audit history could not be read.' };
-    repaintAudit();
-  }
-}
-const WATCH_STALE_MS = 6 * 60 * 60 * 1000;
-async function checkAuditWatch({ force = false, scope = null } = {}) {
-  if (!state.work || auditView.watch.status === 'checking') return;
-  const own = scope || auditHistoryScope();
-  const latest = auditView.history.status === 'ready' && auditView.history.audits[0];
-  if (!latest) return;
-  const last = latest.watch ? Date.parse(latest.watch.checkedAt) : 0;
-  /* Only a check that will reach OSV says so; one the server answers from what it kept is quiet. */
-  const willAsk = force || !last || Date.now() - last >= WATCH_STALE_MS;
-  auditView.watch = { ...auditView.watch, status: willAsk ? 'checking' : auditView.watch.data ? 'ready' : 'loading' };
-  if (willAsk) repaintAudit();
-  try {
-    const answer = await api(`${own.base}/watch?ref=${own.ref}${force ? '&refresh=1' : ''}`);
-    if (!own.current()) return;
-    if (!answer || answer.available === false || !answer.audit) {
-      auditView.watch = { status: 'none' };
-      return repaintAudit();
-    }
-    auditView.watch = { status: 'ready', data: answer };
-    /* "Check now" is held for a few minutes after a check; the page redraws when it is offered again. */
-    clearTimeout(auditWatchTimer);
-    const wait = Date.parse(answer.checkableAt) - Date.now();
-    if (Number.isFinite(wait) && wait > 0 && wait < 30 * 60 * 1000) auditWatchTimer = setTimeout(() => { if (own.current()) repaintAudit(); }, wait + 50);
-    /* The history row carries the same check, so the two never disagree about when it was. */
-    const row = auditView.history.status === 'ready' && auditView.history.audits.find(audit => audit.id === answer.audit.id);
-    if (row && answer.audit.watch) row.watch = answer.audit.watch;
-    if (answer.fresh && Array.isArray(answer.alerts) && answer.alerts.length) {
-      toast(`${answer.alerts.length} new ${answer.alerts.length === 1 ? 'item' : 'items'} for ${state.work.repo} since its last audit`, 'ok');
-    }
-  } catch (error) {
-    if (!own.current()) return;
-    auditView.watch = { ...auditView.watch, status: 'error', error: error.status === 429 ? 'Checked moments ago. Try again in a few minutes.' : 'The watch could not be checked. Nothing is marked new, and nothing is marked clear.' };
-  }
-  repaintAudit();
-}
-/*
- * The team's decisions about this repository's findings. A reader who is not
- * one of its collaborators -- anyone reading a public repository -- is told
- * nothing about them and offered no way to make one.
- */
-async function loadAuditTriage(scope) {
-  const view = auditView;
-  if (view.triage.status === 'ready' || view.triage.status === 'loading') return;
-  view.triage = { status: 'loading' };
-  try {
-    const answer = await api(`${scope.base}/triage`);
-    if (!scope.current() || view !== auditView) return;
-    view.triage = answer && answer.available !== false
-      ? { status: 'ready', canDecide: answer.canDecide === true, vocabulary: answer.vocabulary || null, decisions: Array.isArray(answer.decisions) ? answer.decisions : [] }
-      : { status: 'unavailable' };
-  } catch (error) {
-    if (!scope.current() || view !== auditView) return;
-    view.triage = { status: error.code === 'GOVERNANCE_COLLABORATORS_ONLY' || error.status === 403 ? 'forbidden' : 'error' };
-  }
-  repaintAudit();
-}
-/* Where the branch stands against its clocks, and how long fixing has taken. */
-async function loadAuditMetrics(scope = auditHistoryScope()) {
-  const view = auditView;
-  view.metrics = { ...view.metrics, status: 'loading' };
-  repaintAudit();
-  try {
-    const answer = await api(`${scope.base}/metrics?ref=${scope.ref}`);
-    if (!scope.current() || view !== auditView) return;
-    view.metrics = answer && answer.available !== false ? { status: 'ready', data: answer } : { status: 'unavailable' };
-  } catch (error) {
-    if (!scope.current() || view !== auditView) return;
-    view.metrics = { status: 'error', error: 'The clocks could not be read.' };
-  }
-  repaintAudit();
-}
 /*
  * After a decision the page re-scores what it shows with the engine's own
  * scoring on the server, so the grade, the fix-first list and the ledger
@@ -1957,7 +1865,7 @@ async function triageAuditFinding(finding) {
     toast(decision.disposition === 'false-positive' ? 'Recorded as a false positive' : `Risk accepted until ${auditDay(decision.expiresAt)}`, 'ok');
     if (view === auditView) {
       paintAudit();
-      loadAuditMetrics();
+      auditHistory.metrics();
     }
   } catch (error) {
     toast(error.message || 'The decision could not be recorded.', 'err');
@@ -1981,7 +1889,7 @@ async function reopenAuditFinding(finding) {
     toast('Reopened: the finding counts again', 'ok');
     if (view === auditView) {
       paintAudit();
-      loadAuditMetrics();
+      auditHistory.metrics();
     }
   } catch (error) {
     if (error.code === 'CODE_AUDIT_TRIAGE_NOT_FOUND') toast('That decision was already taken back', 'ok');
@@ -2013,55 +1921,6 @@ async function showTriageHistory(finding) {
   } catch (error) {
     toast(error.message || 'The decisions could not be read.', 'err');
   }
-}
-async function loadAuditDetail(id) {
-  if (!state.work) return;
-  const known = auditView.historyDetail.get(id);
-  if (known && known.status === 'loading') return;
-  if (known && known.status === 'ready') return repaintAudit();
-  const view = auditView;
-  const base = `/api/repo/${wPath()}/code-audit`;
-  view.historyDetail.set(id, { status: 'loading' });
-  repaintAudit();
-  try {
-    const found = await api(`${base}/history/${encodeURIComponent(id)}`);
-    if (view !== auditView) return;
-    view.historyDetail.set(id, { status: 'ready', findings: Array.isArray(found.findings) ? found.findings : [] });
-  } catch (error) {
-    if (view !== auditView) return;
-    view.historyDetail.set(id, { status: 'error', error: error.code === 'CODE_AUDIT_NOT_FOUND' ? 'This audit is no longer kept.' : 'This audit could not be read.' });
-  }
-  repaintAudit();
-}
-/* Armed like every other irreversible control: the first press says what the second will do. */
-async function clearAuditHistory() {
-  if (!state.work || auditView.history.status !== 'ready') return;
-  if (!auditView.historyArmed) {
-    auditView.historyArmed = true;
-    clearTimeout(auditHistoryArmTimer);
-    auditHistoryArmTimer = setTimeout(() => { auditView.historyArmed = false; repaintAudit(); }, 5000);
-    return repaintAudit();
-  }
-  clearTimeout(auditHistoryArmTimer);
-  auditView.historyArmed = false;
-  const view = auditView;
-  view.history = { ...view.history, clearing: true };
-  repaintAudit();
-  try {
-    const body = await api(`/api/repo/${wPath()}/code-audit/history/clear`, { method: 'POST', body: { confirm: 'clear-audit-history' } });
-    if (view !== auditView) return;
-    auditHistoryRequest++;
-    view.history = { status: 'ready', audits: [], branches: [] };
-    view.watch = { status: 'none' };
-    view.historyOpen = new Set();
-    view.historyDetail = new Map();
-    toast(`Cleared ${Number(body && body.cleared) || 0} kept ${Number(body && body.cleared) === 1 ? 'audit' : 'audits'} of ${state.work.repo}`, 'ok');
-  } catch (error) {
-    if (view !== auditView) return;
-    view.history = { ...view.history, clearing: false };
-    toast(error.message || 'The audit history could not be cleared.', 'err');
-  }
-  repaintAudit();
 }
 async function openAuditFinding(finding) {
   if (!finding || !finding.path) return;

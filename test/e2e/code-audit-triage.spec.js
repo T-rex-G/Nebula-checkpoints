@@ -46,10 +46,14 @@ test('a reviewer marks a finding a false positive, reads back who decided, and r
   await dialog.getByRole('radio', { name: /False positive/ }).check();
   await dialog.getByLabel('Reason').selectOption('validated');
   await expect(dialog.locator('#triageDaysWrap')).toBeHidden();
+  const clocks = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/repo/sandbox/demo/code-audit/metrics') clocks.push(request.url()); });
   await dialog.getByRole('button', { name: 'Record decision' }).click();
 
   await expect(ui.status(page, 'Notifications')).toContainText('Recorded as a false positive');
   await expect(openItem(pane, SQL)).toHaveCount(0);
+  /* The clocks are read again: the decision changed what counts against them. */
+  await expect.poll(() => clocks.length).toBe(1);
   const triaged = pane.locator('.audit-waived', { hasText: 'Triaged by the team' });
   await expect(triaged).toContainText('1');
   await triaged.locator('summary').first().click();

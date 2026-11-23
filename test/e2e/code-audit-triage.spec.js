@@ -240,3 +240,23 @@ test('a pull request whose audit is incomplete says why, and what clears it', as
   await expect(page.locator('#prGate')).toHaveAttribute('data-state', 'hold');
   await expect(page.locator('#prGate')).toContainText('Part of this audit could not be completed, so there may be more than this.');
 });
+
+/* Auditing the head again, from the gate: the audit opens on the pull request's branch and audits it, not the branch that was open. */
+test('Audit this head audits the pull request\u2019s head on the Audit tab', async ({ page }) => {
+  const legacy = kept([]);
+  legacy.audit = { ...legacy.audit, analysisComplete: null };
+  const unrecorded = evaluateMergeGate({ headSha: HEAD, head: legacy, base: null, decisions: new Map(), now });
+  const asked = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/repo/sandbox/demo/code-audit' && !url.searchParams.get('run')) asked.push(url.searchParams.get('ref'));
+  });
+  await openPull(page, { available: true, pull: { number: 90, head: 'feature/long', base: 'main', headSha: HEAD, fork: false, open: true },
+    gate: unrecorded, enforcement: { available: true, policies: [] } });
+  await page.evaluate(() => { document.querySelector('#branchSelect').add(new Option('feature/long', 'feature/long')); });
+  await page.locator('#prList .list-item').first().click();
+  await page.locator('#prGate').getByRole('button', { name: 'Audit this head' }).click();
+  await expect(page.locator('#tab-audit')).toHaveClass(/active/);
+  await expect.poll(() => asked).toEqual(['feature/long']);
+  await expect(page.locator('#branchSelect')).toHaveValue('feature/long');
+});

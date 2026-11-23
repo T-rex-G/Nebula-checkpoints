@@ -83,6 +83,7 @@ import { createRepositoryExports } from '../features/safeguards/repository-expor
 import { createSecurityScan } from '../features/safeguards/security-scan.ts';
 import { createWorkspace } from '../features/workbench/workspace.ts';
 import { createSiteCheck } from '../features/parallax/site-check.ts';
+import { AUDIT_POLL, blankAuditView, createAuditController, transientAuditError as isTransientAudit } from '../features/uranus/audit-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1419,15 +1420,7 @@ function toggleProtect(p) { return safety.toggleProtect(p); }
  * identity ran of the branch, which of them is open and what each kept, and
  * what has been published about the branch's packages since the latest.
  */
-function blankAuditView(key = '') {
-  return {
-    key, status: 'idle', result: null, diff: null, error: '', progress: null, filter: null, severity: null, verdict: null, exploit: null, owasp: null, query: '', limit: 0,
-    history: { status: 'idle' }, watch: { status: 'idle' }, historyOpen: new Set(), historyDetail: new Map(), historyArmed: false,
-    triage: { status: 'idle' }, metrics: { status: 'idle' }
-  };
-}
 let auditView = blankAuditView();
-let auditRequest = 0;
 let auditHistoryRequest = 0;
 let auditHistoryArmTimer = 0;
 let auditWatchTimer = 0;
@@ -1437,9 +1430,7 @@ let auditWatchTimer = 0;
  * remembered per repository as an origin, and the last check's fingerprints
  * per origin, both under the audit prefix the account purge removes.
  */
-function auditKey() {
-  return state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : '';
-}
+function auditKey() { return audit.key(); }
 /*
  * The deployed-site check (features/parallax/site-check.ts): the Website
  * page for any address, and the link to it on a repository's audit, drawn
@@ -1493,14 +1484,7 @@ const siteCheck = createSiteCheck({
 });
 function auditSiteLink() { return siteCheck.link(); }
 function openParallax(options) { siteCheck.open(options); }
-function clearAuditState() {
-  auditRequest++;
-  auditHistoryRequest++;
-  clearTimeout(auditHistoryArmTimer);
-  clearTimeout(auditWatchTimer);
-  auditView = blankAuditView();
-  AuditScreen.clear($('#auditRoot'));
-}
+function clearAuditState() { audit.clear(); }
 /* A fix prompt onto the clipboard; true once it is there, so the button that asked can say so. */
 async function copyPrompt(text) {
   try {
@@ -1511,114 +1495,52 @@ async function copyPrompt(text) {
     return false;
   }
 }
-/* The audit read again for the branch open: its history, or the view drawn afresh when it was another's. */
-function rereadAudit() {
-  if (auditView.key !== auditKey()) { paintAudit(); return; }
-  if (state.work && CapabilityUI.decision('code-audit').status === 'Supported') loadAuditHistory();
-}
-function paintAudit() {
-  const root = $('#auditRoot');
-  if (!root) return;
-  if (auditView.key !== auditKey()) {
-    auditHistoryRequest++;
-    clearTimeout(auditHistoryArmTimer);
-    auditView = blankAuditView(auditKey());
-  }
-  const repository = CapabilityUI.decision('code-audit');
-  if (repository.status === 'Supported' && auditView.history.status === 'idle' && state.work) loadAuditHistory();
-  AuditScreen.render(root, {
-    ...auditView,
-    unavailable: repository.status === 'Supported' ? null : repository.reason,
-    site: CapabilityUI.decision('site-check').status === 'Supported' ? auditSiteLink() : null
-  }, {
-    onSiteOpen: options => openParallax(options),
-    onRun: runAudit,
-    onWatchCheck: () => checkAuditWatch({ force: true }),
-    /* A redraw restores open rows, which fires toggle again: only a change the reader made is acted on. */
-    onHistoryToggle: (id, open) => {
-      if (open === auditView.historyOpen.has(id)) return;
-      if (open) auditView.historyOpen.add(id); else auditView.historyOpen.delete(id);
-      if (open) loadAuditDetail(id); else repaintAudit();
-    },
-    onHistoryOpen: (id, options = {}) => {
-      auditView.historyOpen.add(id);
-      loadAuditDetail(id);
-      if (options.reveal) {
-        const details = document.querySelector(`#auditRoot details[data-audit-id="${CSS.escape(id)}"]`);
-        if (details) details.scrollIntoView({ block: 'center', behavior: document.documentElement.dataset.motion === 'off' ? 'auto' : 'smooth' });
-      }
-    },
-    onHistoryClear: clearAuditHistory,
-    /* A kept audit exported on its own, from what it kept: the rule, place and package of each finding, never code. */
-    onHistoryExport: (id, kind) => {
-      const detail = auditView.historyDetail.get(id);
-      const audit = ((auditView.history && auditView.history.audits) || []).find(item => item.id === id);
-      if (!state.work || !audit || !detail || detail.status !== 'ready') return;
-      const findings = detail.findings || [];
-      const base = `${state.work.repo}-audit-${String(audit.auditedAt).slice(0, 10)}-${String(audit.commitSha).slice(0, 7)}`;
-      if (kind === 'sarif') {
-        const provider = (state.me && state.me.provider) || 'github';
-        const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, AuditReports.keptSarif(audit, findings, { repositoryUri }), 'application/sarif+json');
-      }
-      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.keptCsv(audit, findings), 'text/csv');
-      dlFile(`${base}.md`, AuditReports.keptBrief(audit, findings, `${state.work.owner}/${state.work.repo} (${audit.ref})`), 'text/markdown');
-    },
-    onTriage: finding => triageAuditFinding(finding),
-    onReopen: finding => reopenAuditFinding(finding),
-    onTriageHistory: finding => showTriageHistory(finding),
-    onFilter: filter => { auditView.filter = filter; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.owasp = null; auditView.limit = 0; paintAudit(); },
-    onOwasp: owasp => { auditView.owasp = owasp; auditView.severity = null; auditView.verdict = null; auditView.exploit = null; auditView.limit = 0; paintAudit(); },
-    onSeverity: severity => { auditView.severity = severity; auditView.limit = 0; paintAudit(); },
-    onVerdict: verdict => { auditView.verdict = verdict; auditView.limit = 0; paintAudit(); },
-    onExploit: exploit => { auditView.exploit = exploit === 'kev' ? 'kev' : null; auditView.limit = 0; paintAudit(); },
-    /* A finding opened from Fix first or Dependency risk that the list is not showing: clear what hides it, and page to it. */
-    onReveal: id => {
-      const findings = (auditView.result && auditView.result.findings) || [];
-      const at = findings.findIndex(finding => finding.id === id);
-      if (at < 0) return;
-      const inScope = finding => (!auditView.filter || finding.category === auditView.filter)
-        && (!auditView.owasp || String((finding.standards && finding.standards.owasp) || '').startsWith(`${auditView.owasp}:`));
-      if (!inScope(findings[at])) { auditView.filter = null; auditView.owasp = null; }
-      auditView.severity = null;
-      auditView.verdict = null;
-      auditView.exploit = null;
-      auditView.query = '';
-      auditView.limit = Math.max(auditView.limit || 0, findings.filter(inScope).findIndex(finding => finding.id === id) + 1);
-      paintAudit();
-    },
-    onQuery: query => { auditView.query = String(query || '').slice(0, 120); auditView.limit = 0; paintAudit(); },
-    onMore: limit => { auditView.limit = limit; paintAudit(); },
-    onOpen: finding => openAuditFinding(finding),
-    onCopy: finding => copyPrompt(finding.prompt),
-    onCopyAll: async () => {
-      try { await navigator.clipboard.writeText(AuditReports.allPrompts(auditView.result)); toast('Every fix prompt copied', 'ok'); }
-      catch { toast('The clipboard is not available here', 'err'); }
-    },
-    onExport: kind => {
-      const result = auditView.result;
-      const site = auditSiteLink().result;
-      if (!result && !site) return;
-      const label = `${state.work.owner}/${state.work.repo} (${state.work.branch})`;
-      const day = String((result && result.auditedAt) || (site && site.checkedAt) || new Date().toISOString()).slice(0, 10);
-      const base = `${state.work.repo}-audit-${day}`;
-      if (kind === 'sarif') {
-        const provider = (state.me && state.me.provider) || 'github';
-        const repositoryUri = provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '';
-        return dlFile(`${base}.sarif`, AuditReports.sarif(result, site, { ref: state.work.branch, repositoryUri }), 'application/sarif+json');
-      }
-      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.csv(result, site, auditView.diff), 'text/csv');
-      if ((kind === 'cyclonedx' || kind === 'spdx') && result) {
-        const provider = (state.me && state.me.provider) || 'github';
-        const meta = { name: `${state.work.owner}/${state.work.repo}`, ref: state.work.branch, repositoryUri: provider === 'github' ? `https://github.com/${state.work.owner}/${state.work.repo}` : '' };
-        return kind === 'cyclonedx'
-          ? dlFile(`${state.work.repo}-sbom-${day}.cdx.json`, AuditSbom.cyclonedx(result, meta), 'application/vnd.cyclonedx+json')
-          : dlFile(`${state.work.repo}-sbom-${day}.spdx.json`, AuditSbom.spdx(result, meta), 'application/spdx+json');
-      }
-      dlFile(`${base}.md`, AuditReports.brief(result, label, site), 'text/markdown');
+/*
+ * The repository audit's page (features/uranus/audit-controller.ts): its view
+ * for the branch open, its controls and exports, and an audit run. The view
+ * is the page's until its history, watch and triage move there too.
+ */
+const audit = createAuditController({
+  api: path => api(path),
+  work: () => state.work,
+  epoch: () => state.uiEpoch,
+  provider: () => (state.me && state.me.provider) || 'github',
+  view: { get: () => auditView, set: view => { auditView = view; } },
+  forgetHistory: () => { auditHistoryRequest++; clearTimeout(auditHistoryArmTimer); },
+  forgetWatch: () => clearTimeout(auditWatchTimer),
+  decision: feature => CapabilityUI.decision(feature),
+  screen: {
+    render: (view, handlers) => AuditScreen.render($('#auditRoot'), view, handlers),
+    clear: () => AuditScreen.clear($('#auditRoot')),
+    present: () => Boolean($('#auditRoot'))
+  },
+  shown: () => Boolean($('#tab-audit')?.classList.contains('active')),
+  site: { link: () => auditSiteLink(), open: options => openParallax(options) },
+  history: {
+    load: () => loadAuditHistory(),
+    watch: options => checkAuditWatch(options),
+    detail: id => loadAuditDetail(id),
+    clear: () => clearAuditHistory(),
+    reveal: id => {
+      const details = document.querySelector(`#auditRoot details[data-audit-id="${CSS.escape(id)}"]`);
+      if (details) details.scrollIntoView({ block: 'center', behavior: document.documentElement.dataset.motion === 'off' ? 'auto' : 'smooth' });
     }
-  });
-}
+  },
+  triage: { decide: finding => triageAuditFinding(finding), reopen: finding => reopenAuditFinding(finding), history: finding => showTriageHistory(finding) },
+  openFinding: finding => openAuditFinding(finding),
+  copyPrompt: text => copyPrompt(text),
+  copyText: text => navigator.clipboard.writeText(text),
+  toast: (message, kind) => toast(message, kind),
+  download: (name, text, type) => dlFile(name, text, type),
+  reports: AuditReports,
+  sbom: AuditSbom,
+  memory: AuditMemory,
+  offline: error => isOfflineError(error),
+  pause: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  now: () => Date.now()
+});
+function rereadAudit() { audit.reread(); }
+function paintAudit() { audit.paint(); }
 function clearSiteScanState() { siteCheck.clear(); }
 function showSiteScan() { siteCheck.show(); }
 $('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
@@ -1813,71 +1735,8 @@ $('#settingsBtnSite') && $('#settingsBtnSite').addEventListener('click', openSet
  * -- the audit carries on server-side meanwhile -- and a run the server no
  * longer holds (it restarted) is started once more before giving up.
  */
-const AUDIT_POLL = Object.freeze({ firstMs: 1200, maxMs: 5000, growth: 1.35, transientTries: 6 });
-function transientAuditError(error) {
-  if (!error) return false;
-  if (error.edge && [429, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527].includes(error.status)) return true;
-  return !error.status && isOfflineError(error);
-}
-async function runAudit() {
-  if (!state.work || auditView.status === 'running') return;
-  const request = ++auditRequest;
-  const key = auditKey();
-  const epoch = state.uiEpoch;
-  const current = () => request === auditRequest && epoch === state.uiEpoch && key === auditKey();
-  const base = `/api/repo/${wPath()}/code-audit?ref=${encodeURIComponent(state.work.branch)}`;
-  auditView = { ...auditView, key, status: 'running', error: '', progress: null };
-  paintAudit();
-  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const shown = () => $('#tab-audit')?.classList.contains('active');
-  try {
-    let answer = await api(base);
-    let wait = AUDIT_POLL.firstMs;
-    let misses = 0;
-    let restarted = false;
-    while (answer && answer.state === 'running') {
-      if (!current()) return;
-      auditView.progress = answer;
-      if (shown()) paintAudit();
-      await pause(wait);
-      if (!current()) return;
-      try {
-        answer = await api(`${base}&run=${encodeURIComponent(answer.run)}`);
-        misses = 0;
-        wait = Math.min(AUDIT_POLL.maxMs, Math.round(wait * AUDIT_POLL.growth));
-      } catch (error) {
-        if (error.code === 'AUDIT_RUN_GONE' && !restarted) {
-          restarted = true;
-          answer = await api(base);
-          continue;
-        }
-        if (!transientAuditError(error) || ++misses > AUDIT_POLL.transientTries) throw error;
-        wait = Math.min(AUDIT_POLL.maxMs * 2, Math.max(wait, (error.retryAfter || 0) * 1000, AUDIT_POLL.firstMs) * 1.5);
-      }
-    }
-    if (!current()) return;
-    const result = answer;
-    const repoKey = `${state.work.owner}/${state.work.repo}`;
-    const previous = AuditMemory.readPrevious(repoKey);
-    AuditMemory.remember(repoKey, result);
-    /*
-     * The server compared this audit with the last one it kept of the branch;
-     * this browser's own fingerprints are only the fallback for a server that
-     * keeps no history.
-     */
-    const kept = result.history && result.history.saved === true ? result.history : null;
-    const diff = kept
-      ? (Array.isArray(kept.newIds) ? { previousAt: kept.previousAt || null, newIds: new Set(kept.newIds), resolved: Number.isSafeInteger(kept.resolved) ? kept.resolved : null } : null)
-      : AuditMemory.diff(result, previous);
-    auditView = { ...blankAuditView(key), history: auditView.history, watch: auditView.watch, historyOpen: auditView.historyOpen, historyDetail: auditView.historyDetail, triage: auditView.triage, metrics: auditView.metrics, status: 'done', result, diff };
-    if (kept) loadAuditHistory();
-  } catch (error) {
-    if (!current()) return;
-    const unreachable = !error.status && isOfflineError(error);
-    auditView = { ...auditView, status: 'error', progress: null, error: unreachable ? 'The server could not be reached. Check the connection, then try again.' : error.message || 'The audit could not be completed.' };
-  }
-  if (shown()) paintAudit();
-}
+function transientAuditError(error) { return isTransientAudit(error, isOfflineError); }
+function runAudit() { return audit.run(); }
 /*
  * The kept audits of this branch, then the watch over the latest. Each answer
  * is dropped if the repository, the branch or the account changed while it
@@ -1889,9 +1748,7 @@ function auditHistoryScope() {
   const epoch = state.uiEpoch;
   return { current: () => request === auditHistoryRequest && epoch === state.uiEpoch && key === auditKey() && auditView.key === key, base: `/api/repo/${wPath()}/code-audit`, ref: encodeURIComponent(state.work.branch) };
 }
-function repaintAudit() {
-  if ($('#tab-audit')?.classList.contains('active')) paintAudit();
-}
+function repaintAudit() { audit.repaint(); }
 async function loadAuditHistory() {
   if (!state.work) return;
   const scope = auditHistoryScope();

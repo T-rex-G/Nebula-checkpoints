@@ -13,7 +13,7 @@ const reasonField = (rows: number): string => `<label class="field-label" for="g
 /* Evidence shown as it was sent, for reading. */
 export const jsonBody = (value: unknown): string => `<pre class="mono gov-json-view">${json(value)}</pre>`;
 
-export const CREATE_POLICY_BODY = `<label class="field-label" for="govPolicyKey">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" spellcheck="false">
+export const CREATE_POLICY_BODY = `<label class="field-label" for="govPolicyKey">Stable policy key</label><input id="govPolicyKey" type="text" placeholder="release-safety" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="field-label" for="govPolicyName">Name</label><input id="govPolicyName" type="text" placeholder="Release safety">
       <label class="field-label" for="govPolicyDescription">Description</label><textarea id="govPolicyDescription" rows="4" placeholder="What this policy protects"></textarea>
       <p class="hint">Creating a policy does not create, submit or activate a version.</p>`;
@@ -59,7 +59,7 @@ export function baselineBody(baseline: unknown, template: unknown): string {
   const ready = field(field(baseline, 'readiness'), 'status') === 'ready';
   const policyKey = String(field(baseline, 'templateId') || 'baseline').replace(/[^a-z0-9._-]+/gi, '-').toLowerCase();
   return `<div class="gov-banner ${ready ? 'ok' : 'warn'}"><strong>${ready ? 'Repository facts complete' : 'Review incomplete repository facts'}</strong></div>
-      <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escapeAttribute(policyKey)}" spellcheck="false">
+      <label class="field-label" for="govBaselineKey">Policy key</label><input id="govBaselineKey" type="text" value="${escapeAttribute(policyKey)}" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="field-label" for="govBaselineName">Policy name</label><input id="govBaselineName" type="text" value="${escapeAttribute(field(template, 'name') || 'Repository baseline')}">
       ${baselineSummary(baseline)}
       <pre class="mono gov-json-view">${json(baseline)}</pre>`;
@@ -85,8 +85,8 @@ export function activationBody(said: string | null): string {
 /* An exception asked for on the branch open, expiring when `expires` (a local date and time) says unless changed. */
 export function exceptionBody(branch: unknown, expires: string): string {
   return `<label class="field-label" for="govExceptionKind">Kind</label><select id="govExceptionKind"><option value="exception">Exception (deny rules)</option><option value="waiver">Waiver (approval rules)</option></select>
-      <label class="field-label" for="govExceptionAction">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" spellcheck="false">
-      <label class="field-label" for="govExceptionRules">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" spellcheck="false">
+      <label class="field-label" for="govExceptionAction">Registered mutation action</label><input id="govExceptionAction" type="text" placeholder="file.write" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label class="field-label" for="govExceptionRules">Rule IDs (comma separated)</label><input id="govExceptionRules" type="text" placeholder="protected-main-write" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="field-label" for="govExceptionTarget">Exact mutation target (JSON)</label><textarea id="govExceptionTarget" rows="6" class="mono" spellcheck="false">${json({ branch })}</textarea>
       <label class="field-label" for="govExceptionExpires">Expires</label><input id="govExceptionExpires" type="datetime-local" value="${escapeAttribute(expires)}">
       <label class="field-label" for="govExceptionReason">Reason</label><textarea id="govExceptionReason" rows="5"></textarea>
@@ -138,5 +138,5 @@ export function resetBody(name: string, total: unknown, running: unknown): strin
         <li>Every policy can be restored afterwards from Archived policies.</li>
       </ul>
       ${reasonField(3)}
-      <label class="field-label" for="govResetConfirm">Type <span class="mono">${escapeHtml(name)}</span> to confirm</label><input id="govResetConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="${escapeAttribute(name)}">`;
+      <label class="field-label" for="govResetConfirm">Type <span class="mono">${escapeHtml(name)}</span> to confirm</label><input id="govResetConfirm" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${escapeAttribute(name)}">`;
 }

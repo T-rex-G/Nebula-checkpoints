@@ -993,7 +993,7 @@ async function createRepositoryFlow() {
   const ok = await modal({
     title: 'New repository',
     bodyHTML: `
-      <label class="field-label" for="nrName">Name</label><input id="nrName" type="text" placeholder="my-nebula" spellcheck="false">
+      <label class="field-label" for="nrName">Name</label><input id="nrName" type="text" placeholder="my-nebula" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="field-label" for="nrDesc">Description</label><input id="nrDesc" type="text" placeholder="Optional">
       <label class="check"><input type="checkbox" id="nrPriv" checked> Private</label>`,
     okText: 'Create'
@@ -2804,7 +2804,7 @@ $('#renameFileBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'Rename / move file',
     bodyHTML: `<label class="field-label" for="rnTo">New path</label>
-      <input id="rnTo" type="text" value="${esc(state.file.path)}" spellcheck="false">
+      <input id="rnTo" type="text" value="${escAttr(state.file.path)}" autocapitalize="off" autocorrect="off" spellcheck="false">
       <p class="hint">Works for files of any size — the blob is re-linked, not re-uploaded.</p>`,
     okText: 'Rename ✦'
   });
@@ -2846,7 +2846,7 @@ $('#newFileBtn').addEventListener('click', async () => {
   const epoch = state.uiEpoch;
   const ok = await modal({
     title: 'New file',
-    bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" spellcheck="false">
+    bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" autocapitalize="off" autocorrect="off" spellcheck="false">
       <p class="hint">Creates an empty file in your staged changes. Review the diff, repository and branch before committing; nothing is sent yet.</p>`,
     okText: 'Stage file'
   });
@@ -4552,7 +4552,7 @@ $('#newReleaseBtn').addEventListener('click', async () => {
   const ok = await modal({
     title: 'New release',
     bodyHTML: `
-      <label class="field-label" for="relTag">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" spellcheck="false">
+      <label class="field-label" for="relTag">Tag</label><input id="relTag" type="text" placeholder="v1.0.0" autocapitalize="off" autocorrect="off" spellcheck="false">
       <label class="field-label" for="relName">Title</label><input id="relName" type="text" placeholder="Defaults to tag" spellcheck="false">
       <label class="field-label" for="relBody">Notes</label><textarea id="relBody" placeholder="What changed?"></textarea>
       <label class="check"><input type="checkbox" id="relPre"> Pre-release</label>
@@ -4987,7 +4987,7 @@ async function timeMachine(kind, sha, msg) {
         title: 'Restore from this commit',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Bring back a file or a whole folder <b>as it was at</b> <b class="mono">${short}</b>, without touching anything else. Perfect for un-deleting.</p>
           <label class="field-label" for="tmPath">Path to restore <span class="muted">(e.g. <span class="mono">public</span> or <span class="mono">src/app.js</span>)</span></label>
-          <input id="tmPath" type="text" spellcheck="false" autocomplete="off">`,
+          <input id="tmPath" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`,
         okText: 'Restore path ✦'
       });
       if (!ok) return;
@@ -5002,7 +5002,7 @@ async function timeMachine(kind, sha, msg) {
         title: 'Hard reset — destructive',
         bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Moves <b>${esc(br)}</b> back to <b class="mono">${short}</b> and <b style="color:var(--red)">erases every later commit from this branch</b> — they vanish from its history. Use Revert or Restore instead unless you truly need history rewritten.</p>
           <label class="field-label" for="tmReset">Type the branch name <b class="mono">${esc(br)}</b> to confirm</label>
-          <input id="tmReset" type="text" spellcheck="false" autocomplete="off">`,
+          <input id="tmReset" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">`,
         okText: 'Hard reset', danger: true
       });
       if (!ok) return;

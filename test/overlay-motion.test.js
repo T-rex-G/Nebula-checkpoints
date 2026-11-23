@@ -1634,6 +1634,10 @@ check('every exact-match confirmation declines the phone keyboard', () => {
     drawn.push(require('../apps/web/src/features/safeguards/safeguards-view.ts').screenHTML({ key: 'octo/demo', branch: 'main', readOnly: false, freeze: false, global: true, locks: [], snapshotAt: null, ago: () => '' }));
     const all = drawn.join('\n');
     for (const id of ['recConfirm', 'mvDirTo', 'delFolderName', 'drName', 'sgProtectPattern']) declines(id, all.match(new RegExp(`<input id="${id}"[^>]*>`)));
+    /* Governance's keys, rule names and reset confirmation, as its dialogs draw them. */
+    const governance = require('../apps/web/src/features/governance/governance-dialogs.ts');
+    const asked = [governance.CREATE_POLICY_BODY, governance.baselineBody({ templateId: 'audit-gate' }, {}), governance.exceptionBody('main', '2026-11-30T12:00'), governance.resetBody('acme/demo', 2, 1)].join('\n');
+    for (const id of ['govPolicyKey', 'govBaselineKey', 'govExceptionAction', 'govExceptionRules', 'govResetConfirm']) declines(id, asked.match(new RegExp(`<input id="${id}"[^>]*>`)));
   })();
 });
 

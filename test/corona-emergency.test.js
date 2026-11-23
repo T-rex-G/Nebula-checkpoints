@@ -6,6 +6,13 @@ const path = require('path');
 const vm = require('vm');
 const { createAccountBoundary } = require('../apps/web/src/features/access/account-boundary.ts');
 
+/* Whether the FREEZE field, as the confirmation dialog drew it, declines autocorrect and autocapitalise. */
+function freezeDeclinesKeyboard(effects) {
+  const dialog = effects.find(([kind, request]) => kind === 'modal' && request.title === 'Activate Emergency Shield');
+  const field = dialog && dialog[1].bodyHTML.match(/<input id="neuralEmergencyConfirm"[^>]*>/);
+  return Boolean(field) && ['autocorrect="off"', 'autocapitalize="off"', 'spellcheck="false"'].every(attribute => field[0].includes(attribute));
+}
+
 const root = path.join(__dirname, '..');
 const neural = fs.readFileSync(path.join(root, 'apps/web/src/visualizations/neural.js'), 'utf8');
 
@@ -128,7 +135,8 @@ function browser(options = {}) {
   assert.strictEqual(incident.manifestId, 'incident-id');
   assert.strictEqual(incident.snapshot.owner, 'incident-owner');
   assert(success.effects.some(([kind, filename]) => kind === 'download' && filename.startsWith('nebulaverse-emergency-incident-owner-incident-repo-')));
-  assert(success.effects.some(([kind, dialog]) => kind === 'modal' && dialog.title === 'Emergency containment active'));
+  assert(success.effects.some(([kind, dialog]) => kind === 'modal' && dialog.title === 'Emergency containment active') && freezeDeclinesKeyboard(success.effects),
+    'containment is said once done, and FREEZE, typed exactly, is asked in a field that declines what a phone keyboard would correct or capitalise');
   assert(success.effects.some(([kind]) => kind === 'reload'), 'reload reconstructs the current authorized session after the purge');
   assert.strictEqual(success.button.disabled, false);
 

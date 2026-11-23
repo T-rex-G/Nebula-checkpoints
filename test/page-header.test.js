@@ -256,7 +256,8 @@ check('a branch is created from the one shown and switched to, with its shield a
   const done = h.header.createBranch();
   assert.deepStrictEqual(h.log, [['modal', 'New branch', 'Create branch']]);
   assert.ok(h.dialog.request.bodyHTML.includes('Created from <b>&lt;main&gt;&amp;</b>'));
-  assert.ok(h.dialog.request.bodyHTML.includes('<input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">'));
+  assert.ok(h.dialog.request.bodyHTML.includes('<input id="nbName" type="text" placeholder="feature/starlight" autocapitalize="off" autocorrect="off" spellcheck="false">'),
+    'a branch name is typed exactly: its field declines what a phone keyboard would correct or capitalise');
   h.name = '  feature/x  ';
   /* A branch changed while the dialog was open: it is created from the one the dialog named. */
   h.state.work.branch = 'dev';

@@ -125,7 +125,7 @@ export function createRepositoryHeader(deps: HeaderDeps): RepositoryHeader {
     const from = field(work, 'branch');
     const ok = await deps.modal({
       title: 'New branch',
-      bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" spellcheck="false">
+      bodyHTML: `<label class="field-label" for="nbName">Branch name</label><input id="nbName" type="text" placeholder="feature/starlight" autocapitalize="off" autocorrect="off" spellcheck="false">
       <p class="hint">Created from <b>${escapeHtml(from)}</b></p>`,
       okText: 'Create branch'
     });

@@ -1719,7 +1719,7 @@ const neuralGraph = (() => {
     const ok = await modal({
       title: 'Activate Emergency Shield', danger: true, okText: 'Contain incident',
       bodyHTML: `<div class="neural-report-banner"><b>Activate containment for ${nEsc(repository)}.</b><p>Nebulaverse-X captures repository references and a file manifest, enables read-only mode, freezes synchronization, revokes other database-backed sessions and records tamper-evident evidence. These steps can complete separately; an interrupted request may leave controls active.</p></div>
-        <label class="field-label">Type <span class="mono">FREEZE</span> to confirm</label><input id="neuralEmergencyConfirm" type="text" autocomplete="off" spellcheck="false" placeholder="FREEZE">
+        <label class="field-label">Type <span class="mono">FREEZE</span> to confirm</label><input id="neuralEmergencyConfirm" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="FREEZE">
         <p class="hint">This is a Recovery Snapshot Lite and incident manifest. It is not a complete off-platform mirror of Git and LFS objects.</p>`
     });
     if (!ok || state.uiEpoch !== operation.epoch) return;

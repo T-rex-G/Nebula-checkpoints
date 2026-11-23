@@ -182,20 +182,25 @@ for (const [label, feature] of [
   assert(command.includes(`feature: '${feature}'`), `command ${label} must name ${feature}`);
 }
 
-for (const [id, feature] of Object.entries({
-  sgSnap: 'recovery',
-  sgRecover: 'recovery',
-  sgActivity: 'governance',
-  sgScan: 'dependency-audit',
-  sgEvidence: 'governance'
-})) {
-  assert(app.includes(`id="${id}" data-feature="${feature}"`) || app.includes(`{ id: '${id}', feature: '${feature}',`),
-    `dynamic safeguard #${id} must map to ${feature}`);
+/* Each Safeguards tile names the capability that gates it (features/safeguards/safeguards-view.ts). */
+{
+  const { TILES } = require('../apps/web/src/features/safeguards/safeguards-view.ts');
+  const named = Object.fromEntries(TILES.map(tile => [tile.id, tile.feature]));
+  for (const [id, feature] of Object.entries({
+    sgSnap: 'recovery',
+    sgRecover: 'recovery',
+    sgActivity: 'governance',
+    sgScan: 'dependency-audit',
+    sgEvidence: 'governance'
+  })) assert.strictEqual(named[id], feature, `dynamic safeguard #${id} must map to ${feature}`);
 }
 assert(app.includes('data-rerun data-feature="workflows.rerun"'),
   'dynamic workflow rerun must declare its capability');
-assert(app.includes("CapabilityUI.apply(root)"),
-  'dynamic safeguard controls must receive capability state');
+/*
+ * The Safeguards screen gates its controls by capability as it draws them:
+ * test/page-safeguards.test.js checks the gate runs in the same turn as the
+ * markup, and test/e2e/safeguards.spec.js that a tile held back is not drawn.
+ */
 assert(app.includes('CapabilityUI.apply(acts)'),
   'dynamic workflow controls must receive capability state');
 

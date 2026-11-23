@@ -22,7 +22,7 @@
 const assert = require('node:assert/strict');
 const { sourceReads } = require('./helpers/source-reads');
 
-const RECORDED = 321;
+const RECORDED = 319;
 
 /* A path that names the page's source, written whole or as path.join's segments. */
 const PAGE_PATH = new RegExp([

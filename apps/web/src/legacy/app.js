@@ -6,6 +6,7 @@ import * as codeowners from '../../../../packages/contracts/src/codeowners.ts';
 import * as uploadPlanning from '../../../../packages/contracts/src/upload-planning.ts';
 import * as findingsInbox from '../features/findings/findings-model.ts';
 import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
+import { createFindingsInbox } from '../features/findings/findings-controller.ts';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import CodeMirror from '../components/code-editor.ts';
@@ -840,8 +841,8 @@ const posture = createPosture({
   capability: name => CapabilityUI.decision(name).status,
   paintBoundary: boundary => paintBoundary($('#navBoundary'), boundary),
   renderPulse: () => renderWorkspacePulse(),
-  clearFindings: () => clearFindings(),
-  invalidateFindings: () => { findingsState.at = 0; },
+  clearFindings: () => findings.clear(),
+  invalidateFindings: () => findings.invalidate(),
   clearPullBoard: () => pullBoard.clear(),
   section: () => $('#wpPostureSection'),
   host: () => $('#wpPosture .wp-body'),
@@ -1541,7 +1542,7 @@ function showSiteScan() { siteCheck.show(); }
 $('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
 $('#findingsHomeBtn') && $('#findingsHomeBtn').addEventListener('click', () => showOverview());
 $('#settingsBtnFindings') && $('#settingsBtnFindings').addEventListener('click', openSettings);
-$('#findingsRefresh') && $('#findingsRefresh').addEventListener('click', () => { void loadFindings(true); });
+$('#findingsRefresh') && $('#findingsRefresh').addEventListener('click', () => { void findings.load(true); });
 
 /* ================= FINDINGS INBOX =================
  * Every open finding across the workspace (features/findings), read
@@ -1550,178 +1551,46 @@ $('#findingsRefresh') && $('#findingsRefresh').addEventListener('click', () => {
  * screen. Decisions go through each repository's own triage route, one finding
  * at a time, so the permissions are the audit screen's own.
  */
-const findingsState = {
-  inbox: null, filters: null, selected: new Map(), expanded: new Set(), owners: new Map(),
-  disposition: 'accepted-risk', progress: '', request: 0, at: 0, deciding: false
-};
-function findingsOffered() {
-  return CapabilityUI.decision('findings.inbox').status === 'Supported';
-}
-function findingsFiltersFromHash() {
-  const route = currentRoute();
-  return findingsInbox.parseFilters(route.kind === 'findings' ? route.query : '');
-}
-function writeFindingsHash() {
-  const route = { kind: 'findings', query: findingsInbox.serializeFilters(findingsState.filters) };
-  routes.wrote(route);
-  writeRoute(route);
-}
-function clearFindings() {
-  findingsState.request++;
-  findingsState.inbox = null;
-  findingsState.selected.clear();
-  findingsState.expanded.clear();
-  findingsState.owners.clear();
-  findingsState.at = 0;
-  findingsState.progress = '';
-}
-function findingOwners(item) {
-  const rules = findingsState.owners.get(`${item.owner}/${item.repo}`.toLowerCase());
-  return Array.isArray(rules) ? codeowners.ownersOf(rules, item.path) : [];
-}
-function loadFindingOwners(items) {
-  const wanted = new Map();
-  for (const item of items) {
-    const key = `${item.owner}/${item.repo}`.toLowerCase();
-    if (!findingsState.owners.has(key) && !wanted.has(key)) wanted.set(key, item);
-  }
-  for (const [key, item] of wanted) {
-    findingsState.owners.set(key, 'pending');
-    const request = findingsState.request;
-    api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/codeowners`)
-      .then(answer => codeowners.revive(answer && answer.rules), () => [])
-      .then(rules => {
-        if (request !== findingsState.request) return;
-        findingsState.owners.set(key, rules);
-        if (pages.current() === 'findings') paintFindings();
-      });
-  }
-}
-function paintFindings(options = {}) {
-  const root = $('#findingsRoot');
-  if (!root) return;
-  const focused = document.activeElement;
-  const keepSearch = options.keepFocus && focused && focused.classList && focused.classList.contains('fi-search');
-  const caret = keepSearch ? focused.selectionStart : null;
-  const view = findingsInbox.model(findingsState.inbox, findingsState.filters, {
-    labelOf: item => (item.source === 'exposure' ? exposureRuleLabel(item.rule) : item.rule),
-    ownersOf: findingOwners
-  });
-  renderFindingsInbox(root, view, findingsState, {
-    filter: (patch, opts = {}) => {
-      findingsState.filters = { ...findingsState.filters, ...patch };
-      writeFindingsHash();
-      paintFindings(opts);
+const findings = createFindingsInbox({
+  api: (path, options) => api(path, options),
+  identity: () => state.me,
+  epoch: () => state.uiEpoch,
+  offered: () => CapabilityUI.decision('findings.inbox').status === 'Supported',
+  explain: () => CapabilityUI.explain('findings.inbox'),
+  toast: (message, kind) => toast(message, kind),
+  showPage: () => showPage('findings'),
+  showing: () => pages.current() === 'findings',
+  writeRoute: filters => {
+    const route = { kind: 'findings', query: findingsInbox.serializeFilters(filters) };
+    routes.wrote(route);
+    writeRoute(route);
+  },
+  parseFilters: query => findingsInbox.parseFilters(query),
+  model: (inbox, filters, options) => findingsInbox.model(inbox, filters, options),
+  present: () => Boolean($('#findingsRoot')),
+  render: (view, inboxState, actions) => renderFindingsInbox($('#findingsRoot'), view, inboxState, actions),
+  focus: {
+    search: () => {
+      const focused = document.activeElement;
+      return focused && focused.classList && focused.classList.contains('fi-search') ? { caret: focused.selectionStart } : null;
     },
-    select: (item, on) => {
-      if (on) findingsState.selected.set(item.key, item);
-      else findingsState.selected.delete(item.key);
-      paintFindings();
-    },
-    clearSelection: () => { findingsState.selected.clear(); findingsState.progress = ''; paintFindings(); },
-    expand: (item, open) => { if (open) findingsState.expanded.add(item.key); else findingsState.expanded.delete(item.key); },
-    events: (item, host) => { void showFindingDecisions(item, host); },
-    open: item => { void openRepositoryTool(item.owner, item.repo, item.source === 'exposure' ? 'exposure' : 'audit'); },
-    decide: decision => { void decideFindings(decision); }
-  });
-  if (keepSearch) {
-    const search = root.querySelector('.fi-search');
-    if (search) { search.focus(); if (caret !== null) search.setSelectionRange(caret, caret); }
-  }
-  if (view.state === 'ready') loadFindingOwners(view.shown);
-}
-async function showFindingDecisions(item, host) {
-  if (!host || host.dataset.loaded === 'true') return;
-  host.dataset.loaded = 'true';
-  try {
-    const answer = await api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/code-audit/findings/${encodeURIComponent(item.id)}/triage-events`);
-    const events = Array.isArray(answer.events) ? answer.events : [];
-    host.textContent = '';
-    if (!events.length) {
-      host.appendChild(Object.assign(document.createElement('p'), { textContent: 'Nobody has decided anything about this finding.' }));
-      return;
+    restore: caret => {
+      const search = $('#findingsRoot .fi-search');
+      if (search) { search.focus(); if (caret !== null) search.setSelectionRange(caret, caret); }
     }
-    const list = document.createElement('ol');
-    list.className = 'fi-timeline';
-    for (const event of events) {
-      const entry = document.createElement('li');
-      const when = document.createElement('time');
-      when.className = 'fi-when';
-      when.dateTime = event.at || '';
-      when.textContent = auditDay(event.at);
-      const what = document.createElement('span');
-      what.textContent = `${event.event === 'reopened' ? 'Reopened' : (TRIAGE_EVENT_WORD[event.disposition] || 'Decided')} by ${event.actor}${event.reason ? ` — ${String(event.reason).replace(/-/g, ' ')}` : ''}`;
-      entry.append(when, what);
-      list.appendChild(entry);
-    }
-    host.appendChild(list);
-  } catch {
-    host.dataset.loaded = '';
-    host.textContent = '';
-    host.appendChild(Object.assign(document.createElement('p'), { textContent: 'The team\u2019s decisions about this finding could not be read here.' }));
-  }
-}
-async function decideFindings(decision) {
-  if (findingsState.deciding || !findingsState.selected.size) return;
-  findingsState.deciding = true;
-  const items = [...findingsState.selected.values()];
-  let done = 0;
-  const failed = [];
-  for (const item of items) {
-    findingsState.progress = `Deciding ${done + 1} of ${items.length}…`;
-    paintFindings();
-    try {
-      await api(`/api/repo/${encodeURIComponent(item.owner)}/${encodeURIComponent(item.repo)}/code-audit/findings/${encodeURIComponent(item.id)}/triage`, {
-        method: 'POST',
-        body: { rule: item.rule, disposition: decision.disposition, reason: decision.reason, ...(decision.expiresInDays ? { expiresInDays: decision.expiresInDays } : {}) }
-      });
-      done += 1;
-      findingsState.selected.delete(item.key);
-    } catch (error) {
-      failed.push(`${item.owner}/${item.repo}: ${error.message || 'refused'}`);
-    }
-  }
-  findingsState.deciding = false;
-  findingsState.progress = failed.length
-    ? `${done} decided; ${failed.length} could not be: ${failed.slice(0, 3).join('; ')}${failed.length > 3 ? '…' : ''}`
-    : `${done} decided.`;
-  if (done) {
-    toast(`${done} ${done === 1 ? 'finding' : 'findings'} decided`, 'ok');
-    invalidatePosture();
-    await loadFindings(true);
-  } else paintFindings();
-}
-async function loadFindings(force) {
-  if (!state.me || !findingsOffered()) return;
-  if (!force && findingsState.inbox && Date.now() - findingsState.at < POSTURE_TTL_MS) { paintFindings(); return; }
-  const request = ++findingsState.request;
-  const epoch = state.uiEpoch;
-  const identity = state.me;
-  const stale = () => request !== findingsState.request || epoch !== state.uiEpoch || identity !== state.me;
-  findingsState.at = Date.now();
-  if (!findingsState.inbox) paintFindings();
-  try {
-    const inbox = await api('/api/workspace/findings');
-    if (stale()) return;
-    findingsState.inbox = inbox && typeof inbox === 'object' ? inbox : { available: false, reason: 'unreadable' };
-    /* What was decided elsewhere, or is no longer listed, cannot stay selected. */
-    const keys = new Set((findingsState.inbox.findings || []).filter(item => !item.decision).map(item => item.key));
-    for (const key of [...findingsState.selected.keys()]) if (!keys.has(key)) findingsState.selected.delete(key);
-  } catch (error) {
-    if (stale()) return;
-    findingsState.at = 0;
-    findingsState.inbox = { available: false, reason: isOfflineError(error) ? 'offline' : 'unreadable' };
-  }
-  paintFindings();
-}
-function showFindings(filters) {
-  if (!findingsOffered()) return toast(CapabilityUI.explain('findings.inbox'), 'err');
-  findingsState.filters = filters || findingsState.filters || findingsInbox.parseFilters('');
-  showPage('findings');
-  writeFindingsHash();
-  paintFindings();
-  void loadFindings();
-}
+  },
+  codeowners,
+  exposureLabel: rule => exposureRuleLabel(rule),
+  openTool: (owner, repo, tool) => openRepositoryTool(owner, repo, tool),
+  invalidatePosture: () => invalidatePosture(),
+  offline: error => isOfflineError(error),
+  day: at => auditDay(at),
+  decisionWord: disposition => TRIAGE_EVENT_WORD[disposition],
+  now: () => Date.now(),
+  keepMs: POSTURE_TTL_MS
+});
+function findingsOffered() { return findings.offered(); }
+function showFindings(filters) { findings.show(filters); }
 $('#settingsBtnSite') && $('#settingsBtnSite').addEventListener('click', openSettings);
 /*
  * An audit is a job on the server: the first request starts it and answers

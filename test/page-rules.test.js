@@ -451,12 +451,9 @@ module.exports = { violations };
  * until it is read and added.
  */
 const HANDOFFS = Object.freeze({
-  'AuditReports.brief <- work': 'writes a report from the repository label, a string',
-  'AuditReports.csv <- work': 'writes rows from the audit and site readings; the branch is a string',
   'AuditReports.sarif <- work': 'reads the ref and repository address, strings, into a new document',
   'AuditSbom.cyclonedx <- work': 'reads the name and ref, strings, into a new document',
   'AuditSbom.spdx <- work': 'reads the name and ref, strings, into a new document',
-  'AuditScreen.render <- work': 'draws the audit from what it is handed and keeps nothing of it; the repository is read only by the page\'s own handlers, which it calls back',
   'CapabilityUI.load <- me': 'is handed the provider and authority, which are strings',
   'CodeMirror <- settings': 'takes the editor options, strings, numbers and flags, and keeps a copy of its own',
   'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',

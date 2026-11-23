@@ -82,6 +82,7 @@ import { createSnapshotRecovery } from '../features/safeguards/snapshot-recovery
 import { createRepositoryExports } from '../features/safeguards/repository-exports.ts';
 import { createSecurityScan } from '../features/safeguards/security-scan.ts';
 import { createWorkspace } from '../features/workbench/workspace.ts';
+import { createSiteCheck } from '../features/parallax/site-check.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1439,46 +1440,59 @@ let auditWatchTimer = 0;
 function auditKey() {
   return state.work ? `${state.work.owner}/${state.work.repo}@${state.work.branch}` : '';
 }
-function siteKey() {
-  return state.work ? `${state.work.owner}/${state.work.repo}` : '';
-}
-function siteUrlStorageKey() {
-  return `${AuditMemory.STORE_PREFIX}site-url:${siteKey().toLowerCase()}`;
-}
 /*
- * The deployed site an audit shows. Site checks run on the Website page
- * alone; the audit names this repository's address -- the one last checked
- * for it, else its declared homepage -- and the Website page's latest result
- * for that address, which its exports carry.
+ * The deployed-site check (features/parallax/site-check.ts): the Website
+ * page for any address, and the link to it on a repository's audit, drawn
+ * again when a check ends.
  */
-let siteScanView = null;
-let siteScanRequest = 0;
-function siteOriginOf(address) {
-  try {
-    const url = new URL(String(address || '').trim());
-    return url.protocol === 'https:' ? url.origin : null;
-  } catch { return null; }
-}
-function auditSiteLink() {
-  let remembered = '';
-  try { remembered = localStorage.getItem(siteUrlStorageKey()) || ''; } catch {}
-  const declared = state.work && state.work.homepage || '';
-  const url = remembered || declared;
-  const origin = siteOriginOf(url);
-  const scan = siteScanView;
-  const result = origin && scan && scan.result && scan.result.origin === origin ? scan.result : null;
-  const running = Boolean(origin && scan && scan.status === 'running' && siteOriginOf(scan.url) === origin);
-  return { link: true, url, suggested: !remembered && Boolean(declared), result, status: running ? 'running' : result ? 'done' : 'idle' };
-}
-function openParallax({ check = false } = {}) {
-  const link = auditSiteLink();
-  if (!siteScanView) siteScanView = blankSiteScan();
-  if (siteScanView.status !== 'running') {
-    siteScanView = { ...siteScanView, url: link.url || siteScanView.url, suggested: link.suggested, error: '', from: siteKey(), fromAudit: auditKey() };
-  }
-  showSiteScan();
-  if (check && link.url && siteScanView.status !== 'running') runStandaloneSiteCheck(link.url);
-}
+const siteCheck = createSiteCheck({
+  api: path => api(path),
+  work: () => state.work,
+  epoch: () => state.uiEpoch,
+  stored: name => { try { return localStorage.getItem(name); } catch { return null; } },
+  store: (name, value) => localStorage.setItem(name, value),
+  memory: {
+    prefix: AuditMemory.STORE_PREFIX,
+    readPrevious: key => AuditMemory.readPrevious(key),
+    remember: (key, value) => AuditMemory.remember(key, value),
+    diff: (result, previous) => AuditMemory.diff(result, previous)
+  },
+  decision: () => CapabilityUI.decision('site-check'),
+  screen: {
+    render: (view, handlers) => AuditScreen.renderSiteScan($('#siteRoot'), view, handlers),
+    refuse: reason => {
+      const root = $('#siteRoot');
+      if (!root) return;
+      AuditScreen.clear(root);
+      const note = document.createElement('p');
+      note.className = 'audit-lede audit-muted';
+      note.textContent = reason;
+      root.appendChild(note);
+    },
+    clear: () => AuditScreen.clear($('#siteRoot'))
+  },
+  rendered: { mount: () => RenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile }), dispose: () => RenderedAudit.dispose($('#renderedAuditRoot')) },
+  page: () => pages.current(),
+  showPage: name => showPage(name),
+  showAudit: () => { showPage('work'); switchTab('audit'); },
+  repaintAudit: () => repaintAudit(),
+  copyPrompt: text => copyPrompt(text),
+  copyText: text => navigator.clipboard.writeText(text),
+  prompts: result => AuditReports.allPrompts(result),
+  toast: (message, kind) => toast(message, kind),
+  download: (name, text, type) => dlFile(name, text, type),
+  reports: {
+    sarif: (result, site, meta) => AuditReports.sarif(result, site, meta),
+    csv: (result, site, diff) => AuditReports.csv(result, site, diff),
+    brief: (result, label, site) => AuditReports.brief(result, label, site)
+  },
+  transient: error => transientAuditError(error),
+  transientTries: () => AUDIT_POLL.transientTries,
+  pause: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  now: () => Date.now()
+});
+function auditSiteLink() { return siteCheck.link(); }
+function openParallax(options) { siteCheck.open(options); }
 function clearAuditState() {
   auditRequest++;
   auditHistoryRequest++;
@@ -1605,122 +1619,8 @@ function paintAudit() {
     }
   });
 }
-/*
- * A site check is a job on the server, as an audit is: the first request
- * starts it and answers with a run id, and this asks after it -- quickly, a
- * check takes seconds -- hearing the stage each time, until the result is
- * there. A poll lost to the network or the edge is asked again.
- */
-async function pollSiteCheck(path, { current, onProgress }) {
-  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  let answer = await api(path);
-  let misses = 0;
-  let wait = 700;
-  while (answer && answer.state === 'running') {
-    if (!current()) return null;
-    onProgress(answer);
-    await pause(wait);
-    if (!current()) return null;
-    try {
-      answer = await api(`${path}&run=${encodeURIComponent(answer.run)}`);
-      misses = 0;
-      wait = Math.min(2000, Math.round(wait * 1.25));
-    } catch (error) {
-      if (!transientAuditError(error) || ++misses > AUDIT_POLL.transientTries) throw error;
-      wait = Math.min(4000, Math.max(wait, (error.retryAfter || 0) * 1000) * 1.5);
-    }
-  }
-  return current() ? answer : null;
-}
-/*
- * The site check on its own page, for any address: no repository, the same
- * engine and card. The address typed is remembered under the audit prefix the
- * account purge removes, and so are the last check's fingerprints.
- */
-const SITE_SCAN_URL = () => `${AuditMemory.STORE_PREFIX}site-url:standalone`;
-function blankSiteScan() {
-  let url = '';
-  try { url = localStorage.getItem(SITE_SCAN_URL()) || ''; } catch {}
-  return { status: 'idle', url, suggested: false, result: null, diff: null, error: '', progress: null };
-}
-function clearSiteScanState() {
-  RenderedAudit.dispose($('#renderedAuditRoot'));
-  siteScanRequest++;
-  siteScanView = null;
-  AuditScreen.clear($('#siteRoot'));
-}
-function showSiteScan() {
-  showPage('site');
-  paintSiteScan();
-}
-function paintSiteScan() {
-  const root = $('#siteRoot');
-  if (!root) return;
-  if (!siteScanView) siteScanView = blankSiteScan();
-  const decision = CapabilityUI.decision('site-check');
-  if (decision.status !== 'Supported') {
-    RenderedAudit.dispose($('#renderedAuditRoot'));
-    AuditScreen.clear(root);
-    const note = document.createElement('p');
-    note.className = 'audit-lede audit-muted';
-    note.textContent = decision.reason;
-    root.appendChild(note);
-    return;
-  }
-  RenderedAudit.mount($('#renderedAuditRoot'), { api, download: dlFile });
-  const from = siteScanView.from && siteScanView.from === siteKey() ? siteScanView.from : null;
-  AuditScreen.renderSiteScan(root, { ...siteScanView, from }, {
-    onSiteBack: from ? () => { showPage('work'); switchTab('audit'); } : null,
-    onSiteInput: value => { siteScanView.url = value; },
-    onSiteCheck: runStandaloneSiteCheck,
-    onSiteCopyAll: async () => {
-      try { await navigator.clipboard.writeText(AuditReports.allPrompts(siteScanView.result)); toast('Every site fix prompt copied', 'ok'); }
-      catch { toast('The clipboard is not available here', 'err'); }
-    },
-    onCopy: finding => copyPrompt(finding.prompt),
-    onExport: kind => {
-      const site = siteScanView.result;
-      if (!site) return;
-      const host = site.origin.replace(/^https:\/\//, '');
-      const base = `${host}-site-check-${String(site.checkedAt || new Date().toISOString()).slice(0, 10)}`;
-      if (kind === 'sarif') return dlFile(`${base}.sarif`, AuditReports.sarif(null, site, {}), 'application/sarif+json');
-      if (kind === 'csv') return dlFile(`${base}.csv`, AuditReports.csv(null, site, null), 'text/csv');
-      dlFile(`${base}.md`, AuditReports.brief(null, host, site), 'text/markdown');
-    }
-  });
-}
-async function runStandaloneSiteCheck(address) {
-  if (!siteScanView || siteScanView.status === 'running') return;
-  const request = ++siteScanRequest;
-  const epoch = state.uiEpoch;
-  const current = () => request === siteScanRequest && epoch === state.uiEpoch;
-  siteScanView = { ...siteScanView, url: String(address || '').trim(), status: 'running', error: '', progress: null };
-  paintSiteScan();
-  try {
-    const result = await pollSiteCheck(`/api/site-check?url=${encodeURIComponent(siteScanView.url)}`, {
-      current,
-      onProgress: progress => {
-        siteScanView.progress = progress;
-        paintSiteScan();
-      }
-    });
-    if (!result || !current()) return;
-    const from = siteScanView.from || null;
-    try {
-      localStorage.setItem(SITE_SCAN_URL(), result.origin);
-      /* Checked for a repository: its audit names this address from now on. */
-      if (from) localStorage.setItem(`${AuditMemory.STORE_PREFIX}site-url:${from.toLowerCase()}`, result.origin);
-    } catch {}
-    const fingerprints = `site:${result.origin}`;
-    const previous = AuditMemory.readPrevious(fingerprints);
-    AuditMemory.remember(fingerprints, { ...result, auditedAt: result.checkedAt });
-    siteScanView = { status: 'done', url: result.origin, suggested: false, result, diff: AuditMemory.diff(result, previous), error: '', progress: null, from };
-  } catch (error) {
-    if (!current()) return;
-    siteScanView = { ...siteScanView, status: 'error', error: error.message || 'The site could not be checked.', progress: null };
-  }
-  if (pages.current() === 'site') paintSiteScan();
-}
+function clearSiteScanState() { siteCheck.clear(); }
+function showSiteScan() { siteCheck.show(); }
 $('#siteHomeBtn') && $('#siteHomeBtn').addEventListener('click', () => showOverview());
 $('#findingsHomeBtn') && $('#findingsHomeBtn').addEventListener('click', () => showOverview());
 $('#settingsBtnFindings') && $('#settingsBtnFindings').addEventListener('click', openSettings);
@@ -3324,11 +3224,7 @@ $$('.nv-rail-item').forEach(item => item.addEventListener('click', () => {
   if (target === 'overview') return showOverview();
   if (target === 'repos') return showPage('repos');
   if (target === 'findings') return showFindings();
-  if (target === 'site') {
-    /* Reached from the rail, the page is for any address rather than the repository an audit sent it. */
-    if (siteScanView && siteScanView.status !== 'running') siteScanView = { ...siteScanView, from: null };
-    return showSiteScan();
-  }
+  if (target === 'site') return siteCheck.openFromRail();
   /* A repository still opening is the one the tool is for: it lands there once it answers. */
   if (!state.work && state.opening) {
     const opening = repositoryOpener.generation();

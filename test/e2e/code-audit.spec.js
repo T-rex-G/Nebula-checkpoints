@@ -263,11 +263,19 @@ test('a fix prompt is copied, the button says so for a moment, and a refused cli
 
 test('a finding opens its file in the editor at its line', async ({ page }) => {
   const pane = await openAudit(page);
+  const source = "const cors = require('cors');\napp.use(cors({ origin: '*' }));\napp.listen(3000);\n";
+  await page.route(url => new URL(url).pathname === '/api/repo/sandbox/demo/file' && new URL(url).searchParams.get('path') === 'server.js',
+    route => route.fulfill({ json: { path: 'server.js', sha: 'f'.repeat(40), size: source.length, content: Buffer.from(source).toString('base64') } }));
   await pane.getByRole('button', { name: 'Audit this branch' }).click();
   const cors = pane.locator('.audit-item', { hasText: 'CORS lets any origin' });
   await cors.locator('summary').click();
   await cors.getByRole('button', { name: /Open server\.js:2/ }).click();
   await expect(page.locator('#tab-editor')).toBeVisible();
+  /* At its line: the editor's cursor on line 2, counted from 1. */
+  await expect.poll(() => page.evaluate(() => {
+    const editor = document.querySelector('#tab-editor .CodeMirror');
+    return editor && editor.CodeMirror ? editor.CodeMirror.getCursor().line + 1 : null;
+  })).toBe(2);
 });
 
 /*

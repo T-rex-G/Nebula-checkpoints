@@ -85,6 +85,7 @@ import { createWorkspace } from '../features/workbench/workspace.ts';
 import { createSiteCheck } from '../features/parallax/site-check.ts';
 import { AUDIT_POLL, blankAuditView, createAuditController, transientAuditError as isTransientAudit } from '../features/uranus/audit-controller.ts';
 import { createAuditHistory } from '../features/uranus/audit-history-controller.ts';
+import { TRIAGE_EVENT_WORD, auditDay, auditMoment, createAuditTriage } from '../features/uranus/audit-triage-controller.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1524,8 +1525,8 @@ const audit = createAuditController({
       if (details) details.scrollIntoView({ block: 'center', behavior: document.documentElement.dataset.motion === 'off' ? 'auto' : 'smooth' });
     }
   },
-  triage: { decide: finding => triageAuditFinding(finding), reopen: finding => reopenAuditFinding(finding), history: finding => showTriageHistory(finding) },
-  openFinding: finding => openAuditFinding(finding),
+  triage: { decide: finding => auditTriage.decide(finding), reopen: finding => auditTriage.reopen(finding), history: finding => auditTriage.history(finding) },
+  openFinding: finding => auditTriage.open(finding),
   copyPrompt: text => copyPrompt(text),
   copyText: text => navigator.clipboard.writeText(text),
   toast: (message, kind) => toast(message, kind),
@@ -1756,184 +1757,28 @@ const auditHistory = createAuditHistory({
 });
 function repaintAudit() { audit.repaint(); }
 /*
- * After a decision the page re-scores what it shows with the engine's own
- * scoring on the server, so the grade, the fix-first list and the ledger
- * read as the next audit will, without keeping a second copy of the rules
- * here. A scoring that fails leaves the grade as it was and says so.
+ * The team's decisions about the audit's findings, made from the audit, the
+ * audit re-scored after each, and a finding opened in the editor
+ * (features/uranus/audit-triage-controller.ts): each for the audit it was
+ * made from.
  */
-async function rescoreAudit(view) {
-  const result = view.result;
-  if (!result) return;
-  const findings = result.findings.map(finding => {
-    const detail = finding.detail || {};
-    return {
-      id: finding.id, rule: finding.rule, category: finding.category, severity: finding.severity, verdict: finding.verdict,
-      open: Boolean(finding.reach && finding.reach.auth === 'open'),
-      exploited: Boolean(detail.intel && detail.intel.exploited),
-      tier: detail.usage && detail.usage.tier ? detail.usage.tier : null,
-      risk: detail.risk && Number.isFinite(detail.risk.score) ? detail.risk.score : null,
-      direct: detail.direct === true
-    };
-  });
-  try {
-    const scored = await api('/api/code-audit/score', { method: 'POST', body: { findings } });
-    if (view !== auditView || !scored) return;
-    const counts = new Map((scored.ledger || []).map(entry => [entry.id, entry]));
-    view.result = {
-      ...result,
-      score: scored.score, grade: scored.grade, capped: scored.capped, capReason: scored.capReason,
-      categories: Array.isArray(scored.categories) ? scored.categories : result.categories,
-      priorities: Array.isArray(scored.priorities) ? scored.priorities : result.priorities,
-      ledger: Array.isArray(result.ledger) ? result.ledger.map(entry => counts.has(entry.id) ? { ...entry, confirmed: counts.get(entry.id).confirmed, toConfirm: counts.get(entry.id).toConfirm } : entry) : result.ledger
-    };
-  } catch {
-    if (view === auditView) toast('The grade will reflect this decision on the next audit', 'ok');
-  }
-}
-/* A day and a moment the way the audit says them everywhere: Jan 2, 2027 and Oct 4, 2026, 5:25 PM. */
-function auditDay(at) {
-  const date = new Date(at);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-function auditMoment(at) {
-  const date = new Date(at);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
-function triageDays(days) {
-  return auditDay(Date.now() + days * 24 * 60 * 60 * 1000);
-}
-function triageReasonOptions(vocabulary, disposition) {
-  return vocabulary.reasons.filter(reason => reason.disposition === disposition && /^[a-z-]{2,40}$/.test(reason.id))
-    .map((reason, index) => `<option value="${reason.id}"${index === 0 ? ' selected' : ''}>${esc(reason.label)}</option>`).join('');
-}
-async function triageAuditFinding(finding) {
-  const view = auditView;
-  const vocabulary = view.triage && view.triage.vocabulary;
-  if (!finding || !view.result || !vocabulary || !Array.isArray(vocabulary.dispositions) || !Array.isArray(vocabulary.reasons)) return;
-  const dispositions = vocabulary.dispositions.filter(item => /^[a-z-]{2,40}$/.test(item.id));
-  const days = vocabulary.acceptDays || { choices: [30, 90, 180], default: 90 };
-  const where = finding.path ? `${finding.path}${finding.line ? `:${finding.line}` : ''}` : finding.where || 'whole repository';
-  const ok = await modal({
-    title: 'Triage this finding',
-    okText: 'Record decision',
-    bodyHTML: `
-      <p class="triage-target"><b>${esc(finding.title)}</b><span class="mono">${esc(where)} · ${esc(finding.rule)}</span></p>
-      <fieldset class="triage-field">
-        <legend class="field-label">Decision</legend>
-        <div class="triage-options">${dispositions.map((item, index) => `
-          <label class="triage-option"><input type="radio" name="triageDisposition" value="${item.id}"${index === 0 ? ' checked' : ''}>
-            <span class="triage-option-text"><b>${esc(item.label)}</b><small>${esc(item.hint || '')}</small></span></label>`).join('')}
-        </div>
-      </fieldset>
-      <label class="field-label" for="triageReason">Reason</label>
-      <select id="triageReason">${triageReasonOptions(vocabulary, dispositions[0] ? dispositions[0].id : '')}</select>
-      <div id="triageDaysWrap" hidden>
-        <label class="field-label" for="triageDays">Accept until</label>
-        <select id="triageDays">${(days.choices || []).filter(Number.isInteger).map(choice => `<option value="${choice}"${choice === days.default ? ' selected' : ''}>${choice} days, until ${esc(triageDays(choice))}</option>`).join('')}</select>
-      </div>
-      <p class="hint triage-hint">Recorded with your name and shared with the repository’s collaborators. It leaves the grade and the merge gate, stays listed with its reason, and anyone with reviewer access can reopen it.</p>`,
-    onOpen: body => {
-      const sync = () => {
-        const chosen = body.querySelector('input[name="triageDisposition"]:checked');
-        const disposition = chosen ? chosen.value : '';
-        body.querySelector('#triageReason').innerHTML = triageReasonOptions(vocabulary, disposition);
-        body.querySelector('#triageDaysWrap').hidden = disposition !== 'accepted-risk';
-      };
-      for (const input of body.querySelectorAll('input[name="triageDisposition"]')) input.addEventListener('change', sync);
-    }
-  });
-  if (!ok || view !== auditView) return;
-  const chosen = document.querySelector('#modalBody input[name="triageDisposition"]:checked');
-  const disposition = chosen ? chosen.value : '';
-  const reason = ($('#triageReason') || {}).value || '';
-  const expiresInDays = disposition === 'accepted-risk' ? Number(($('#triageDays') || {}).value) : undefined;
-  try {
-    const answer = await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/triage`, {
-      method: 'POST', body: { rule: finding.rule, disposition, reason, ...(expiresInDays ? { expiresInDays } : {}) }
-    });
-    if (view !== auditView || !view.result) return;
-    const decision = answer.decision;
-    const result = view.result;
-    const { triage: lapsed, clock, ...rest } = result.findings.find(item => item.id === finding.id) || finding;
-    view.result = {
-      ...result,
-      findings: result.findings.filter(item => item.id !== finding.id),
-      suppressed: [...(result.suppressed || []), { ...rest, suppression: { triage: { disposition: decision.disposition, reason: decision.reason, decidedBy: decision.decidedBy, decidedAt: decision.decidedAt, expiresAt: decision.expiresAt } } }]
-    };
-    if (view.triage.status === 'ready') view.triage.decisions = [decision, ...view.triage.decisions.filter(item => item.findingId !== decision.findingId)];
-    await rescoreAudit(view);
-    toast(decision.disposition === 'false-positive' ? 'Recorded as a false positive' : `Risk accepted until ${auditDay(decision.expiresAt)}`, 'ok');
-    if (view === auditView) {
-      paintAudit();
-      auditHistory.metrics();
-    }
-  } catch (error) {
-    toast(error.message || 'The decision could not be recorded.', 'err');
-  }
-}
-async function reopenAuditFinding(finding) {
-  const view = auditView;
-  if (!finding || !view.result) return;
-  try {
-    await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/reopen`, { method: 'POST', body: {} });
-    if (view !== auditView || !view.result) return;
-    const result = view.result;
-    const { suppression, ...open } = (result.suppressed || []).find(item => item.id === finding.id) || finding;
-    view.result = {
-      ...result,
-      suppressed: (result.suppressed || []).filter(item => item.id !== finding.id),
-      findings: [...result.findings, open]
-    };
-    if (view.triage.status === 'ready') view.triage.decisions = view.triage.decisions.filter(item => item.findingId !== finding.id);
-    await rescoreAudit(view);
-    toast('Reopened: the finding counts again', 'ok');
-    if (view === auditView) {
-      paintAudit();
-      auditHistory.metrics();
-    }
-  } catch (error) {
-    if (error.code === 'CODE_AUDIT_TRIAGE_NOT_FOUND') toast('That decision was already taken back', 'ok');
-    else toast(error.message || 'The finding could not be reopened.', 'err');
-  }
-}
-const TRIAGE_EVENT_WORD = Object.freeze({ 'false-positive': 'Marked a false positive', 'accepted-risk': 'Accepted the risk' });
-async function showTriageHistory(finding) {
-  if (!finding) return;
-  try {
-    const answer = await api(`/api/repo/${wPath()}/code-audit/findings/${encodeURIComponent(finding.id)}/triage-events`);
-    const vocabulary = auditView.triage && auditView.triage.vocabulary;
-    const label = id => {
-      const found = vocabulary && Array.isArray(vocabulary.reasons) ? vocabulary.reasons.find(reason => reason.id === id) : null;
-      return found ? found.label : String(id || '');
-    };
-    const events = Array.isArray(answer.events) ? answer.events : [];
-    await modal({
-      title: 'Decisions about this finding',
-      okText: 'Done',
-      cancel: false,
-      bodyHTML: `<p class="triage-target"><b>${esc(finding.title)}</b><span class="mono">${esc(finding.rule)}</span></p>
-        ${events.length ? `<ol class="triage-events">${events.map(event => `
-          <li class="triage-event" data-event="${event.event === 'reopened' ? 'reopened' : 'decided'}">
-            <span class="triage-event-what">${event.event === 'reopened' ? 'Reopened' : esc(TRIAGE_EVENT_WORD[event.disposition] || 'Decided')}${event.reason ? ` — ${esc(label(event.reason))}` : ''}${event.expiresAt ? `, until ${esc(auditDay(event.expiresAt))}` : ''}</span>
-            <span class="triage-event-who">${esc(event.actor)} · <time datetime="${esc(event.at)}">${esc(auditMoment(event.at))}</time></span>
-          </li>`).join('')}</ol>` : '<p class="hint">No decisions recorded.</p>'}`
-    });
-  } catch (error) {
-    toast(error.message || 'The decisions could not be read.', 'err');
-  }
-}
-async function openAuditFinding(finding) {
-  if (!finding || !finding.path) return;
-  switchTab('editor');
-  await openFile(finding.path);
-  if (finding.line && state.cm) {
-    const line = Math.max(0, finding.line - 1);
-    state.cm.setCursor({ line, ch: 0 });
-    state.cm.scrollIntoView({ line, ch: 0 }, 120);
-    state.cm.focus();
-  }
-}
-
+const auditTriage = createAuditTriage({
+  api: (path, options) => api(path, options),
+  work: () => state.work,
+  view: () => auditView,
+  modal: request => modal(request),
+  chosen: () => {
+    const picked = document.querySelector('#modalBody input[name="triageDisposition"]:checked');
+    return { disposition: picked ? picked.value : '', reason: ($('#triageReason') || {}).value || '', days: ($('#triageDays') || {}).value || '' };
+  },
+  paint: () => paintAudit(),
+  metrics: () => auditHistory.metrics(),
+  toast: (message, kind) => toast(message, kind),
+  now: () => Date.now(),
+  showEditor: () => switchTab('editor'),
+  openFile: path => openFile(path),
+  editor: () => state.cm || null
+});
 /*
  * A recovery snapshot taken, and branches restored from one
  * (features/safeguards/snapshot-recovery.ts): each for the repository it was

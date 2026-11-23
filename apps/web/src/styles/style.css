@@ -1321,6 +1321,9 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 .tree-indent{margin-left:15px;border-left:1px solid var(--glass-border);padding-left:6px}
 .tree-size{margin-left:auto;font-size:.68rem;color:var(--muted)}
 .ti-name{overflow:hidden;text-overflow:ellipsis}
+/* What the tree says rather than lists -- an empty repository, a failure, no matches -- is read, not pressed: it wraps, and nothing marks it as a row to press. */
+.tree-item.tree-note{cursor:default;white-space:normal;color:var(--muted);animation:none}
+.tree-item.tree-note:hover{background:none;color:var(--muted)}
 
 .main-pane{display:flex;flex-direction:column;min-height:0;min-width:0}
 /*

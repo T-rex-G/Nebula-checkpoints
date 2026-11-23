@@ -71,7 +71,7 @@ import { DISPOSITION_WORDS as EXPOSURE_DISPOSITION_WORDS, historyPreferred, rule
 import { createExposure } from '../features/exposure/exposure-controller.ts';
 import { createExposureView } from '../features/exposure/exposure-view.ts';
 import { bindExposureControls } from '../features/exposure/exposure-controls.ts';
-import { TREE_ICON, createFileTree } from '../features/workbench/file-tree.ts';
+import { createFileTree } from '../features/workbench/file-tree.ts';
 import { createItemMenu } from '../features/workbench/item-menu.ts';
 import { createSafety } from '../features/safeguards/safety-controller.ts';
 import { createSafeguards } from '../features/safeguards/safeguards-screen.ts';
@@ -1368,6 +1368,7 @@ const fileTree = createFileTree({
   size: bytes => fmtSize(bytes),
   attachMenu: (row, entry) => itemMenu.attach(row, entry),
   openFile: path => openFile(path),
+  find: words => { state.pendingFind = words; },
   closeDrawer: () => closeDrawer()
 });
 function loadTree(dirPath, host, isRoot) { return fileTree.load(dirPath, host, isRoot); }
@@ -2446,25 +2447,12 @@ function moveFolderFlow(dirPath) { return folderFlows.move(dirPath); }
 function deleteFolderFlow(dirPath) { return folderFlows.remove(dirPath); }
 function deleteRepoFlow() { return repositoryDeletion.remove(); }
 
-/* ---------------- code search ---------------- */
-$('#codeSearch').addEventListener('keydown', async e => {
-  if (e.key !== 'Enter') return;
-  const q = e.target.value.trim();
-  const host = $('#tree');
-  if (!q) return loadTree('', host, true);
-  host.innerHTML = '<div class="skeleton" style="height:120px"></div>';
-  try {
-    const hits = await api(`/api/repo/${wPath()}/search?q=${encodeURIComponent(q)}`);
-    host.innerHTML = hits.length ? '' : '<div class="tree-item">No matches — use Refresh to restore the tree</div>';
-    hits.forEach(h => {
-      const row = document.createElement('div');
-      row.className = 'tree-item';
-      row.innerHTML = `<span class="ti-icon">${TREE_ICON.hit}</span><span class="ti-name"></span>`;
-      row.querySelector('.ti-name').textContent = h.path;
-      row.addEventListener('click', () => { state.pendingFind = q; openFile(h.path); closeDrawer(); });
-      host.appendChild(row);
-    });
-  } catch (e2) { host.innerHTML = `<div class="tree-item">⚠ ${esc(e2.message)}</div>`; }
+/*
+ * Code search (features/workbench/file-tree.ts): the paths whose contents
+ * match, in the tree's place, each opening its file with the words to find.
+ */
+$('#codeSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fileTree.search(e.target.value, $('#tree'));
 });
 
 /* ---------------- editor ---------------- */

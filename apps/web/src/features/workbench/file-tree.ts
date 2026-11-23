@@ -9,7 +9,13 @@
  * or branch was opened, or after the tree was read again from the top, is
  * dropped rather than drawn over the tree now shown. An answer that is not a
  * list of entries is a failure, not an empty repository. A name is drawn as
- * text, never as markup.
+ * text, never as markup. What the tree says rather than lists -- an empty
+ * repository, a failure, no matches -- is a note, not a row to press.
+ *
+ * Code search draws the paths whose contents match in the tree's place, each
+ * opening its file with the words to find. It takes the tree's place as a
+ * root reading does, so whichever was asked last is drawn. The provider
+ * searches the default branch alone, and on another branch the list says so.
  *
  * The marks are drawn rather than typed, on the same 24 box as every other
  * icon: stroked, no fill. A folder's chevron points right and is turned by
@@ -64,6 +70,8 @@ export interface FileTreeDeps {
   /* The long-press and right-click menu, attached before the row's own press. */
   readonly attachMenu: (row: TreeNode, entry: TreeEntry) => void;
   readonly openFile: (path: unknown) => unknown;
+  /* The words a file opened from a search is to find. */
+  readonly find: (words: string) => void;
   readonly closeDrawer: () => void;
 }
 
@@ -72,9 +80,13 @@ export interface FileTree {
   load(dirPath: string, host: TreeNode, isRoot: boolean): Promise<void>;
   /* The editor's resting state: something to pick, an empty repository, or somebody else's. */
   markEmpty(bare: boolean): void;
+  /* The paths whose contents match the words, in the tree's place; no words reads the tree again. */
+  search(words: string, host: TreeNode): Promise<void>;
 }
 
 export const UNREADABLE = 'The repository\u2019s files could not be read.';
+export const SEARCH_UNREADABLE = 'The search could not be read.';
+const note = (html: string): string => `<div class="tree-item tree-note">${html}</div>`;
 
 export function createFileTree(deps: FileTreeDeps): FileTree {
   let generation = 0;
@@ -139,16 +151,53 @@ export function createFileTree(deps: FileTreeDeps): FileTree {
       entries.forEach((entry, index) => { frag.appendChild(row(entry, index)); });
       if (isRoot) host.innerHTML = '';
       host.appendChild(frag);
-      if (isRoot && !entries.length) host.innerHTML = '<div class="tree-item">Empty repository</div>';
+      if (isRoot && !entries.length) host.innerHTML = note('Empty repository');
       /*
        * The editor's resting state follows the tree: "Pick a file" is true with
        * files, and an instruction that cannot be carried out without them.
        */
       if (isRoot) markEmpty(!entries.length);
     } catch (error) {
-      if (isRoot && current()) host.innerHTML = `<div class="tree-item">\u26a0 ${escapeHtml(field(error, 'message'))}</div>`;
+      if (isRoot && current()) host.innerHTML = note(`\u26a0 ${escapeHtml(field(error, 'message'))}`);
     }
   }
 
-  return { load, markEmpty };
+  async function search(words: string, host: TreeNode): Promise<void> {
+    const query = words.trim();
+    if (!query) return load('', host, true);
+    const work = deps.work();
+    const branch = field(work, 'branch');
+    const mine = ++generation;
+    const current = (): boolean => mine === generation && deps.work() === work && field(work, 'branch') === branch;
+    host.innerHTML = '<div class="skeleton" style="height:120px"></div>';
+    try {
+      const answer = await deps.api(`/api/repo/${String(field(work, 'owner'))}/${String(field(work, 'repo'))}/search?q=${encodeURIComponent(query)}`);
+      if (!current()) return;
+      if (!Array.isArray(answer)) throw new Error(SEARCH_UNREADABLE);
+      const paths = answer.map(hit => field(hit, 'path')).filter((path): path is string => typeof path === 'string' && Boolean(path));
+      if (!paths.length) { host.innerHTML = note('No matches \u2014 use Refresh to restore the tree'); return; }
+      const searched = field(work, 'default_branch');
+      host.innerHTML = typeof searched === 'string' && searched && searched !== branch
+        ? note(`Matches on ${escapeHtml(searched)}, the branch the provider searches`)
+        : '';
+      paths.forEach((path, index) => {
+        const node = deps.doc.createElement('div');
+        node.className = 'tree-item';
+        node.style.animationDelay = Math.min(index * 20, 240) + 'ms';
+        node.innerHTML = `<span class="ti-icon">${TREE_ICON.hit}</span><span class="ti-name"></span>`;
+        const name = node.querySelector('.ti-name');
+        if (name) name.textContent = path;
+        node.addEventListener('click', () => {
+          deps.find(query);
+          deps.openFile(path);
+          deps.closeDrawer();
+        });
+        host.appendChild(node);
+      });
+    } catch (error) {
+      if (current()) host.innerHTML = note(`\u26a0 ${escapeHtml(field(error, 'message'))}`);
+    }
+  }
+
+  return { load, markEmpty, search };
 }

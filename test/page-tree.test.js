@@ -12,7 +12,7 @@
  */
 
 const assert = require('assert');
-const { createFileTree, TREE_ICON, UNREADABLE } = require('../apps/web/src/features/workbench/file-tree.ts');
+const { createFileTree, TREE_ICON, UNREADABLE, SEARCH_UNREADABLE } = require('../apps/web/src/features/workbench/file-tree.ts');
 const { createItemMenu, UNREAD_ANSWER } = require('../apps/web/src/features/workbench/item-menu.ts');
 
 const checks = [];
@@ -56,7 +56,7 @@ function treeSetup({ visiting = false, missing = [] } = {}) {
   const host = new Node('div');
   const parts = {};
   for (const cls of ['editor-empty-pick', 'editor-empty-bare', 'editor-empty-visitor']) if (!missing.includes(cls)) { parts[`.${cls}`] = new Node('div'); }
-  const page = { work: { owner: 'octo', repo: 'r p', branch: 'feat/x' } };
+  const page = { work: { owner: 'octo', repo: 'r p', branch: 'feat/x', default_branch: 'feat/x' } };
   const tree = createFileTree({
     doc: { createElement: tag => new Node(tag), createDocumentFragment: () => Object.assign(new Node('#f'), { fragment: true }) },
     $: sel => parts[sel] || null,
@@ -67,6 +67,7 @@ function treeSetup({ visiting = false, missing = [] } = {}) {
     size: bytes => `${bytes}B`,
     attachMenu: (row, entry) => { log.push(['menu', entry.name, row.listeners.length]); },
     openFile: path => log.push(['open', path]),
+    find: words => log.push(['find', words]),
     closeDrawer: () => log.push(['drawer'])
   });
   const answer = async (value, at = 0) => { pending.splice(at, 1)[0].resolve(value); await flush(); };
@@ -107,7 +108,7 @@ check('an empty repository says so, and tells a visitor what there is rather tha
     const done = t.tree.load('', t.host, true);
     await t.answer([]);
     await done;
-    assert.strictEqual(t.host.innerHTML, '<div class="tree-item">Empty repository</div>');
+    assert.strictEqual(t.host.innerHTML, '<div class="tree-item tree-note">Empty repository</div>');
     assert.deepStrictEqual([t.parts['.editor-empty-pick'].hidden, t.parts['.editor-empty-bare'].hidden, t.parts['.editor-empty-visitor'].hidden], [true, bare, visitor]);
   }
   const partial = treeSetup({ missing: ['editor-empty-visitor'] });
@@ -183,18 +184,98 @@ check('an answer that is not a list is a failure; a failure is said as text at t
     const done = t.tree.load('', t.host, true);
     await t.answer(value);
     await done;
-    assert.strictEqual(t.host.innerHTML, `<div class="tree-item">\u26a0 ${UNREADABLE.replace('\u2019', '\u2019')}</div>`, JSON.stringify(value));
+    assert.strictEqual(t.host.innerHTML, `<div class="tree-item tree-note">\u26a0 ${UNREADABLE.replace('\u2019', '\u2019')}</div>`, JSON.stringify(value));
     assert.strictEqual(t.parts['.editor-empty-pick'].hidden, false, 'not drawn as an empty repository');
   }
   const t = treeSetup();
   void t.tree.load('', t.host, true);
   await t.refuse(new Error('<i>no</i> & more'));
-  assert.strictEqual(t.host.innerHTML, '<div class="tree-item">\u26a0 &lt;i&gt;no&lt;/i&gt; &amp; more</div>');
+  assert.strictEqual(t.host.innerHTML, '<div class="tree-item tree-note">\u26a0 &lt;i&gt;no&lt;/i&gt; &amp; more</div>');
   const sub = new Node('div');
   void t.tree.load('src', sub, false);
   await t.refuse(new Error('quiet'));
   assert.deepStrictEqual([sub.html, sub.children.length], [null, 0]);
   await assert.doesNotReject(async () => { const n = treeSetup(); const d = n.tree.load('', n.host, true); await n.answer([null]); await d; });
+});
+
+check('a search draws the matching paths as text in the tree\u2019s place, each opening its file with the words to find', async () => {
+  const t = treeSetup();
+  const done = t.tree.search('  a&b <c>  ', t.host);
+  assert.strictEqual(t.host.innerHTML, '<div class="skeleton" style="height:120px"></div>');
+  assert.deepStrictEqual(t.log, [['api', '/api/repo/octo/r p/search?q=a%26b%20%3Cc%3E']]);
+  await t.answer([{ name: 'x', path: 'src/<b>x</b>.js' }, { path: 'docs/a b.md' }, { name: 'nopath' }, null, { path: 7 }, { path: '' }]);
+  await done;
+  const rows = t.rows();
+  assert.deepStrictEqual(rows.map(row => row.querySelector('.ti-name').textContent), ['src/<b>x</b>.js', 'docs/a b.md'], 'paths as text; an entry without one left out');
+  assert.ok(rows.every(row => row.className === 'tree-item' && row.html.includes(TREE_ICON.hit)));
+  assert.strictEqual(t.host.html, '', 'on the branch the provider searches, nothing is said first');
+  t.log.length = 0;
+  rows[1].fire('click');
+  assert.deepStrictEqual(t.log, [['find', 'a&b <c>'], ['open', 'docs/a b.md'], ['drawer']]);
+});
+
+check('on another branch the matches say they are the default branch\u2019s; none, or no words, say so or read the tree', async () => {
+  const t = treeSetup();
+  t.page.work.default_branch = '<main>';
+  const done = t.tree.search('needle', t.host);
+  await t.answer([{ path: 'a.js' }]);
+  await done;
+  assert.strictEqual(t.host.html, '<div class="tree-item tree-note">Matches on &lt;main&gt;, the branch the provider searches</div>');
+  assert.deepStrictEqual(t.rows().map(row => row.className), ['tree-item']);
+  for (const hits of [[], [{ name: 'x' }]]) {
+    const none = treeSetup();
+    none.page.work.default_branch = 'main';
+    const searching = none.tree.search('needle', none.host);
+    await none.answer(hits);
+    await searching;
+    assert.strictEqual(none.host.innerHTML, '<div class="tree-item tree-note">No matches \u2014 use Refresh to restore the tree</div>', JSON.stringify(hits));
+  }
+  const blank = treeSetup();
+  blank.host.innerHTML = '<div class="tree-item">old match</div>';
+  const reading = blank.tree.search('   ', blank.host);
+  assert.deepStrictEqual(blank.log, [['api', '/api/repo/octo/r p/tree?ref=feat%2Fx&path=']]);
+  assert.strictEqual(blank.host.innerHTML, '<div class="skeleton" style="height:160px"></div>', 'no words read the tree from the top, in the matches\u2019 place');
+  await blank.answer([]);
+  await reading;
+  assert.strictEqual(blank.host.innerHTML, '<div class="tree-item tree-note">Empty repository</div>');
+});
+
+check('a search that cannot be read, or fails, says so as text; one answered after another repository, branch, reading or search is dropped', async () => {
+  for (const value of [null, {}, 'x', 7, { items: [] }]) {
+    const t = treeSetup();
+    const done = t.tree.search('q', t.host);
+    await t.answer(value);
+    await done;
+    assert.strictEqual(t.host.innerHTML, `<div class="tree-item tree-note">\u26a0 ${SEARCH_UNREADABLE}</div>`, JSON.stringify(value));
+  }
+  const failed = treeSetup();
+  void failed.tree.search('q', failed.host);
+  await failed.refuse(new Error('<i>Validation Failed</i>'));
+  assert.strictEqual(failed.host.innerHTML, '<div class="tree-item tree-note">\u26a0 &lt;i&gt;Validation Failed&lt;/i&gt;</div>');
+  for (const move of [
+    t => { t.page.work = { owner: 'z', repo: 'z', branch: 'main' }; },
+    t => { t.page.work.branch = 'dev'; },
+    t => { void t.tree.load('', t.host, true); },
+    t => { void t.tree.search('other', t.host); }
+  ]) {
+    for (const ending of ['answer', 'refuse']) {
+      const t = treeSetup();
+      void t.tree.search('q', t.host);
+      move(t);
+      const drawn = t.host.innerHTML;
+      if (ending === 'answer') await t.answer([{ path: 'stale.js' }]); else await t.refuse(new Error('stale'));
+      assert.strictEqual(t.host.innerHTML, drawn, String(move) + ending);
+      assert.ok(!t.host.innerHTML.includes('stale'), String(move) + ending);
+    }
+  }
+  /* A root reading asked before a search, answered after it, is dropped too. */
+  const t = treeSetup();
+  void t.tree.load('', t.host, true);
+  void t.tree.search('q', t.host);
+  await t.answer([{ name: 'old.js', path: 'old.js', type: 'file' }], 0);
+  assert.strictEqual(t.host.innerHTML, '<div class="skeleton" style="height:120px"></div>');
+  await t.answer([{ path: 'hit.js' }], 0);
+  assert.deepStrictEqual(t.rows().map(row => row.querySelector('.ti-name').textContent), ['hit.js']);
 });
 
 function menuSetup({ isProtected = path => String(path).endsWith('.env'), noBody = false } = {}) {

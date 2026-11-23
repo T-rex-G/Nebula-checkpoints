@@ -730,6 +730,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     } finally { active.delete(node); }
   }
 
-  return { read: (expression: ts.Expression) => read(expression), reachable: (node: ts.Node) => !!feasible(control.facts(node), empty, 0),
+  return { read: (expression: ts.Expression) => read(expression), guards: (node: ts.Node) => control.facts(node).tests,
+    reachable: (node: ts.Node) => !!feasible(control.facts(node), empty, 0),
     limited: () => limited || interrupted };
 }

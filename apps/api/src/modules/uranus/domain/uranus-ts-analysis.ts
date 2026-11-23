@@ -1,7 +1,8 @@
-/* Bounded semantic evidence for JavaScript and TypeScript rendering and database calls. */
+/* Bounded semantic evidence for JavaScript and TypeScript rendering and server-side calls. */
 import ts from 'typescript';
-import { mayContainMarkupSink, mayContainSemanticSink } from './uranus-ts-candidates.ts';
+import { mayContainMarkupSink, mayContainSemanticSink, mayUseNodeFilesystem } from './uranus-ts-candidates.ts';
 import { isOrdinaryHtmlReceiver, semanticSink } from './uranus-ts-framework.ts';
+import { filesystemPaths, fixedPathChoice } from './uranus-ts-filesystem.ts';
 import { buildSemanticProject } from './uranus-ts-project.ts';
 import { semanticSqlSink } from './uranus-ts-sql.ts';
 import { globalName, member, unwrap } from './uranus-ts-symbols.ts';
@@ -9,7 +10,7 @@ import { createSemanticReader, type SemanticValue } from './uranus-ts-values.ts'
 import type { FlowFile, FlowRecord, TracedFlowRecord } from './uranus-flow.ts';
 import type { Step } from './uranus-cfamily.ts';
 
-export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document';
+export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document' | 'path-boundary';
 export interface SemanticStats {
   files: number;
   nodes: number;
@@ -80,7 +81,7 @@ function browserRoot(node: ts.Node): ts.Identifier | null {
   return ts.isIdentifier(root) && ['window', 'document', 'globalThis', 'self'].includes(root.text) ? root : null;
 }
 
-function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom', label: string,
+function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom' | 'path', label: string,
   blocker: SemanticReason | null, pathOf: (node: ts.Node) => string): FlowRecord | null {
   if (value.kind !== 'input' || !value.origin) return null;
   const origin = value.origin;
@@ -96,7 +97,7 @@ function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 
   trace.push({ path, line, role: 'sink', note: label });
   const valueReason = value.reason === 'declared-input' || value.reason === 'unverified-tag' ? value.reason : null;
   const reason = blocker ?? valueReason ?? (value.conditional ? 'conditional' : null);
-  return { rule: kind === 'sql' ? 'SEC-001' : 'SEC-002', kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
+  return { rule: { sql: 'SEC-001', dom: 'SEC-002', path: 'SEC-022' }[kind], kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
     source: 'a modeled application input', verdict: reason ? 'needs-validation' : 'confirmed',
     blocker: reason ? { reason } : null, trace, viaHelper: trace.some(step => step.path !== path) ? 'file' : null };
 }
@@ -127,6 +128,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     let visited = 0, interrupted = false;
     for (const file of project.files) {
       const path = project.pathOf(file);
+      const filesystem = mayUseNodeFilesystem(file.text);
       const reports = reported.get(path) ?? new Set<string>();
       let truncated = false;
       function admit(rule: string, line: number): boolean {
@@ -178,6 +180,20 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
           const at = lineOf(nameOfSite(node));
           const flow = traced(values().read(sql), path, at, 'sql', 'used as database statement text', null, project.pathOf);
           if (flow && admit('SEC-001', at)) analyzed.push(flow);
+        }
+        if (filesystem && ts.isCallExpression(node)) {
+          let unresolved = false;
+          for (const argument of filesystemPaths(node, checker)) {
+            const reader = values();
+            if (!reader.reachable(node)) break;
+            const value = reader.read(argument);
+            if (value.kind === 'literal' || value.kind === 'scalar' || fixedPathChoice(argument, reader.guards(node), checker)) continue;
+            const at = lineOf(nameOfSite(node));
+            const flow = traced(value, path, at, 'path', 'selects a Node filesystem pathname', 'path-boundary', project.pathOf);
+            if (!flow) unresolved = true;
+            else if (admit('SEC-022', at)) analyzed.push(flow);
+          }
+          if (unresolved) stats.unresolvedOperations++;
         }
         ts.forEachChild(node, visitNode);
       };

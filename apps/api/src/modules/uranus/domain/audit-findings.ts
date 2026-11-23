@@ -242,6 +242,11 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'path-boundary':
+      return {
+        blocker: 'Application input selects a filesystem pathname. The permitted directory or set of filenames needs verification.',
+        check: 'Review the accepted filenames and check that the resolved path stays inside the authorized directory.'
+      };
     case 'detached-document':
       return {
         blocker: 'The HTML parser creates a detached document. A rendering use has yet to be established.',

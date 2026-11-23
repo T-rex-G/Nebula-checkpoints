@@ -77,6 +77,30 @@ test('real branch heads and parent SHAs produce factual commit edges', async () 
   assert(h.ui.state.edges.some(e=>e.source==='commit:'+sha&&e.target==='commit:'+'c'.repeat(40)&&e.type==='parent commit'));
 });
 
+test('another branch chosen while the map is read is read for that branch; the last one\'s answer is dropped', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const h = harness({ api: (url, data) => (url.includes('/activity?') && url.includes('ref=feature') ? gate.then(() => data.activity) : undefined) });
+  const first = h.ui.refresh();
+  await new Promise(setImmediate);
+  assert.equal(h.ui.state.loading, true);
+  h.c.state.work.branch = 'dev';
+  const second = h.ui.refresh();
+  release();
+  await Promise.all([first, second]);
+  assert(h.requests.some(url => url.includes('/activity?days=30&ref=dev')), 'the branch chosen is read');
+  assert.equal(h.ui.state.loadedKey, 'acme/demo@dev');
+  assert.equal(h.ui.state.loading, false);
+  /* The same branch read twice at once is read once. */
+  let open; const held = new Promise(resolve => { open = resolve; });
+  const again = harness({ api: (url, data) => (url.includes('/activity?') ? held.then(() => data.activity) : undefined) });
+  const one = again.ui.refresh();
+  await new Promise(setImmediate);
+  await again.ui.refresh();
+  open();
+  await one;
+  assert.equal(again.requests.filter(url => url.includes('/activity?')).length, 1);
+});
+
 test('a failed later catch-up page cannot advance past discarded events', async () => {
   let phase='initial';
   const h=harness({api:url=>{

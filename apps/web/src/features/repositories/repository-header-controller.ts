@@ -48,6 +48,8 @@ export interface HeaderDeps {
   readonly reloadView: () => void;
   /* The commits from their first page, read again when they are shown. */
   readonly resetCommits: () => void;
+  /* Another branch shown: the tool open drawn for it, when it belongs to a branch. */
+  readonly branchChanged: () => void;
   readonly refreshRate: () => void;
   readonly saveRoute: () => void;
 }
@@ -116,6 +118,7 @@ export function createRepositoryHeader(deps: HeaderDeps): RepositoryHeader {
     deps.closeFile();
     deps.reloadTree();
     deps.resetCommits();
+    deps.branchChanged();
     deps.saveRoute();
   }
 
@@ -144,8 +147,20 @@ export function createRepositoryHeader(deps: HeaderDeps): RepositoryHeader {
           select.appendChild(option);
         }
         deps.branchSelect().value = name;
+        /*
+         * Made from the branch the dialog named. When another was chosen while
+         * it was open, what is on screen is that one's, not the new branch's:
+         * it is read again, as for any branch chosen.
+         */
+        const moved = field(work, 'branch') !== from;
         deps.mutateWork(open => { open.branch = name; });
         refreshShield();
+        if (moved) {
+          deps.closeFile();
+          deps.reloadTree();
+          deps.resetCommits();
+        }
+        deps.branchChanged();
         deps.saveRoute();
       }
       deps.toast(`Branch ${name} created \u2726`, 'ok');

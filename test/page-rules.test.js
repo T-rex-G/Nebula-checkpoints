@@ -459,7 +459,6 @@ const HANDOFFS = Object.freeze({
   'AuditScreen.render <- work': 'draws the audit from what it is handed and keeps nothing of it; the repository is read only by the page\'s own handlers, which it calls back',
   'CapabilityUI.load <- me': 'is handed the provider and authority, which are strings',
   'CodeMirror <- settings': 'takes the editor options, strings, numbers and flags, and keeps a copy of its own',
-  'CodeMirror.findModeByFileName <- file': 'reads the file\'s path, a string',
   'addNode <- me': 'takes the reader\'s login, a string, as the label of the demonstration\'s identity node',
   'buildNeuralGraph <- work': 'reads the owner, repository and branch, strings, into nodes of the graph\'s own',
   'greeting <- me': 'reads the reader\'s name or login, strings, into the overview\'s greeting (features/overview/overview-core.ts)',

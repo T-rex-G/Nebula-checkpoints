@@ -13,9 +13,15 @@ const path = require('path');
 const { createGovernance } = require('../apps/web/src/features/governance/governance-actions.ts');
 const app = fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'src', 'legacy', 'app.js'), 'utf8');
 
-/* The page wires it: the tab reads the twin when it is first shown, and opening a repository clears the last one's governance before anything else. */
+/* The page wires it: the tab reads the twin when it is first shown. */
 assert(app.includes("if (name === 'governance') loadGovernanceTwin()"), 'Governance tab must lazy-load the read model');
-assert(/function resetRepositoryViews\(\) \{\s*clearGovernanceState\(\);/.test(app), 'opening a repository must clear prior governance state before assigning the new repository');
+/*
+ * Opening a repository clears the last one's governance, first of its views,
+ * before the new one is named: the workspace clears each view in order
+ * (features/workbench/workspace.ts, test/page-workspace.test.js), the opener
+ * does so before anything else (test/page-opener.test.js), and the
+ * governance browser tests fail without it (test/e2e/governance-lifecycle.spec.js).
+ */
 /* Governance is either Supported and whole, or not rendered and refused by the server; there is no view-only middle state. */
 assert(!app.includes('GOVERNANCE_EXPERIMENTAL_VIEW_ACTIONS') && !app.includes('applyGovernanceCapabilityBoundary'),
   'the experimental view-only governance path is gone');

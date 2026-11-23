@@ -120,6 +120,7 @@ function harness({ work = { owner: 'octo', repo: 'repo', branch: 'main', default
     reloadTree: () => log.push(['tree']),
     reloadView: () => log.push(['view']),
     resetCommits: () => log.push(['commits']),
+    branchChanged: () => log.push(['branch']),
     refreshRate: () => log.push(['rate']),
     saveRoute: () => log.push(['route'])
   });
@@ -241,7 +242,7 @@ check('a branch chosen is held, shielded, and read from the top with its commits
   h.header.changeBranch('main');
   assert.strictEqual(h.state.work.branch, 'main');
   assert.strictEqual(h.shield.hidden, false);
-  assert.deepStrictEqual(h.log, [['mutate'], ['closeFile'], ['tree'], ['commits'], ['route']]);
+  assert.deepStrictEqual(h.log, [['mutate'], ['closeFile'], ['tree'], ['commits'], ['branch'], ['route']], 'the tool open drawn for the branch before its address is kept');
   h.header.changeBranch('dev');
   assert.strictEqual(h.shield.hidden, true);
   h.haveShield = false;
@@ -264,6 +265,7 @@ check('a branch is created from the one shown and switched to, with its shield a
   h.dialog.resolve(true);
   await flush();
   assert.deepStrictEqual(h.log[1], ['api', '/api/repo/octo/repo/branches', { method: 'POST', body: { name: 'feature/x', from: '<main>&' } }]);
+  h.state.work.branch = '<main>&';
   h.pending.shift().resolve({ sha: 'abc' });
   await done;
   assert.deepStrictEqual(h.state.work.branches.slice(-1), [{ name: 'feature/x', sha: 'abc' }]);
@@ -271,7 +273,19 @@ check('a branch is created from the one shown and switched to, with its shield a
   assert.strictEqual(h.branchEl.value, 'feature/x');
   assert.strictEqual(h.state.work.branch, 'feature/x');
   assert.strictEqual(h.shield.hidden, true, 'the new branch is not the protected one it came from');
-  assert.deepStrictEqual(h.log.slice(2), [['mutate'], ['mutate'], ['route'], ['toast', 'Branch feature/x created \u2726', 'ok'], ['drawer']]);
+  assert.deepStrictEqual(h.log.slice(2), [['mutate'], ['mutate'], ['branch'], ['route'], ['toast', 'Branch feature/x created \u2726', 'ok'], ['drawer']],
+    'made from the branch on screen, what is shown is the new branch\'s already: only the tool open is drawn for it');
+  /* Another branch chosen while the dialog was open: what is on screen is that one's, and is read again for the new branch. */
+  const moved = harness();
+  const making = moved.header.createBranch();
+  moved.name = 'feature/y';
+  moved.dialog.resolve(true);
+  await flush();
+  moved.state.work.branch = 'dev';
+  moved.pending.shift().resolve({ sha: 'abc' });
+  await making;
+  assert.strictEqual(moved.state.work.branch, 'feature/y');
+  assert.deepStrictEqual(moved.log.slice(2), [['mutate'], ['mutate'], ['closeFile'], ['tree'], ['commits'], ['branch'], ['route'], ['toast', 'Branch feature/y created \u2726', 'ok'], ['drawer']]);
   const shaless = harness();
   const made = shaless.header.createBranch();
   shaless.dialog.resolve(true);

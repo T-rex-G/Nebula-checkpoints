@@ -39,6 +39,8 @@ const neuralGraph = (() => {
     active: false,
     loadedKey: '',
     loading: false,
+    /* The repository and branch the reading on its way is for. */
+    loadingKey: '',
     mode: 'security',
     paused: false,
     /* Whether the reader has moved the camera since the graph was last
@@ -142,25 +144,31 @@ const neuralGraph = (() => {
   let generation = 0;
 
   async function load(force = false) {
-    if (!state || !state.work || NVN.loading) return;
+    if (!state || !state.work) return;
+    const key = repoKey();
+    /*
+     * Another repository, or another branch: the last map goes before this
+     * one is drawn, and so does a reading of the last one still on its way --
+     * waited for, it would be dropped on arrival and this one never read.
+     */
+    if ((NVN.loadedKey && NVN.loadedKey !== key) || (NVN.loading && NVN.loadingKey !== key)) reset();
+    if (NVN.loading) return;
     /* Catching up defers a reload; a catch-up that has failed does not, so Refresh still reads the map again. */
     if (NVN.catchUpBusy || (NVN.active && !NVN.catchUpError && NVN.data && NVN.data.intelligence && NVN.data.intelligence.hasMore)) {
       NVN.reloadPending = true;
       if (!NVN.catchUpBusy) catchUpIntelligence();
       return;
     }
-    const key = repoKey();
     if (!force && NVN.loadedKey === key && NVN.nodes.length) {
       resize(); renderInspector(NVN.selected); ensureLiveStream();
       catchUpIntelligence(); updateVisibleCount(); return;
     }
-    /* Another repository, or another branch: the last map goes before this one is drawn. */
-    if (NVN.loadedKey && NVN.loadedKey !== key) reset();
     const mine = generation;
     const controller = new AbortController();
     NVN.loadController = controller;
     const read = path => api(path, { signal: controller.signal });
     NVN.loading = true;
+    NVN.loadingKey = key;
     const loading = document.getElementById('neuralLoading');
     const empty = document.getElementById('neuralEmpty');
     /* The full-stage "Mapping…" cover is for the first load only. A refresh

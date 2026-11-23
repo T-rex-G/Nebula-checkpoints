@@ -81,6 +81,7 @@ import { createRepositoryDeletion } from '../features/repositories/repository-de
 import { createSnapshotRecovery } from '../features/safeguards/snapshot-recovery.ts';
 import { createRepositoryExports } from '../features/safeguards/repository-exports.ts';
 import { createSecurityScan } from '../features/safeguards/security-scan.ts';
+import { createWorkspace } from '../features/workbench/workspace.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
 import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
@@ -1015,19 +1016,45 @@ async function createRepositoryFlow() {
 
 /* ================= WORKSPACE ================= */
 /*
- * Everything on screen that belongs to one repository, cleared together when
- * another is opened -- before the first await, so no section is drawn with
- * the last repository's findings under the new one's name, and every request
- * still in flight for it (an audit poll, a scan status, a graph load, a
- * branch-rule read) lands on a view that is no longer its own and is dropped.
+ * The workspace (features/workbench/workspace.ts). Everything on screen that
+ * belongs to one repository is cleared together when another is opened --
+ * before the first await, so no section is drawn with the last repository's
+ * findings under the new one's name, and every request still in flight for
+ * it (an audit poll, a scan status, a graph load, a branch-rule read) lands
+ * on a view that is no longer its own and is dropped. Refresh reads the tool
+ * open again, and another branch draws again the tools that belong to one.
  */
-function resetRepositoryViews() {
-  clearGovernanceState();
-  clearExposureState();
-  clearAuditState();
-  safeguards.reset();
-  if (neural) neural.reset();
-}
+const workspace = createWorkspace({
+  tab: () => currentTab(),
+  views: [
+    () => clearGovernanceState(),
+    () => clearExposureState(),
+    () => clearAuditState(),
+    () => safeguards.reset(),
+    () => { if (neural) neural.reset(); }
+  ],
+  tree: { forgetIndex: () => { state.fileIndex = null; }, load: () => loadTree('', $('#tree'), true) },
+  commits: { reset: () => { state.commitsPage = 1; $('#commitList').innerHTML = ''; }, load: () => loadCommits(true) },
+  reread: {
+    pulls: () => loadPRs(),
+    issues: () => loadIssues(),
+    releases: () => loadReleases(),
+    actions: () => loadActions(),
+    governance: () => loadGovernanceTwin(true),
+    safeguards: () => renderSafeguards({ fresh: true }),
+    exposure: () => loadExposure(),
+    audit: () => rereadAudit(),
+    neural: () => { if (neural) neural.refresh(); }
+  },
+  redraw: {
+    safeguards: () => renderSafeguards(),
+    audit: () => paintAudit(),
+    neural: () => { if (neural) neural.refresh(); }
+  },
+  file: () => state.file,
+  openFile: path => openFile(path)
+});
+function resetRepositoryViews() { workspace.resetViews(); }
 /*
  * A repository opened into the workbench (features/repositories/repository-opener.ts):
  * the last one let go of first, named as typed then as the provider spells it,
@@ -1143,6 +1170,7 @@ const repositoryHeader = createRepositoryHeader({
   reloadTree: () => reloadTree(),
   reloadView: () => reloadView(),
   resetCommits: () => resetCommits(),
+  branchChanged: () => workspace.branchChanged(),
   refreshRate: () => refreshRate(),
   saveRoute: () => saveRoute()
 });
@@ -1152,34 +1180,11 @@ function refreshShield() { repositoryHeader.refreshShield(); }
 function downloadZip() { repositoryHeader.downloadZip(); }
 function fillBranchSelect(select, names, selected) { fillBranches(document, select, names, selected); }
 function branchProtected(name) { return isProtectedBranch(state.work, name); }
-/* The file tree read again from the top, its index let go of. */
-function reloadTree() {
-  state.fileIndex = null;
-  loadTree('', $('#tree'), true);
-}
-/* The commits from their first page, read again when they are shown. */
-function resetCommits() {
-  state.commitsPage = 1;
-  $('#commitList').innerHTML = '';
-  if (currentTab() === 'commits') loadCommits(true);
-}
-/* The tool open, read again by Refresh. */
-function reloadView() {
-  const t = currentTab();
-  if (t === 'commits') resetCommits();
-  else if (t === 'pulls') loadPRs();
-  else if (t === 'issues') loadIssues();
-  else if (t === 'releases') loadReleases();
-  else if (t === 'actions') loadActions();
-  else if (t === 'governance') loadGovernanceTwin(true);
-  else if (t === 'safeguards') renderSafeguards({ fresh: true });
-  else if (t === 'editor' && state.file && !state.file.binary && !state.file.dirty) openFile(state.file.path);
-}
+function reloadTree() { workspace.reloadTree(); }
+function resetCommits() { workspace.resetCommits(); }
+function reloadView() { workspace.reloadView(); }
 $('#syncBtn').addEventListener('click', () => repositoryHeader.sync());
-$('#branchSelect').addEventListener('change', e => {
-  repositoryHeader.changeBranch(e.target.value);
-  if (currentTab() === 'safeguards') renderSafeguards();
-});
+$('#branchSelect').addEventListener('change', e => repositoryHeader.changeBranch(e.target.value));
 $('#newBranchBtn').addEventListener('click', () => repositoryHeader.createBranch());
 $('#refreshTreeBtn').addEventListener('click', () => reloadTree());
 $('#zipBtn').addEventListener('click', () => downloadZip());
@@ -1490,6 +1495,11 @@ async function copyPrompt(text) {
     toast('The clipboard is not available here', 'err');
     return false;
   }
+}
+/* The audit read again for the branch open: its history, or the view drawn afresh when it was another's. */
+function rereadAudit() {
+  if (auditView.key !== auditKey()) { paintAudit(); return; }
+  if (state.work && CapabilityUI.decision('code-audit').status === 'Supported') loadAuditHistory();
 }
 function paintAudit() {
   const root = $('#auditRoot');

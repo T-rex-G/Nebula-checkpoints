@@ -3,8 +3,9 @@
  *
  * The recent list is names only, at most five, under the nv_recent: prefix
  * the account boundary's purge removes. Somebody else's repository is
- * remembered as such, so a picker for the reader's own leaves it out. A
- * storage that refuses keeps no list, and nothing is lost.
+ * remembered as such, so a picker for the reader's own leaves it out, and a
+ * deleted one is forgotten. A storage that refuses keeps no list, and
+ * nothing is lost.
  */
 import { REPO_PART } from './repository-reference.ts';
 
@@ -36,6 +37,15 @@ export function rememberRepository(storage: () => RecentStorage, owner: string, 
     const rest = recentRepositories(storage).filter(item => `${item.owner}/${item.name}`.toLowerCase() !== `${owner}/${name}`.toLowerCase());
     storage().setItem(RECENT_REPOSITORIES, JSON.stringify([visitor ? { owner, name, visitor: true } : { owner, name }, ...rest].slice(0, RECENT_LIMIT)));
   } catch { /* private mode: no recent list, and nothing is lost */ }
+}
+
+/* A repository that is gone, forgotten from the list whatever its case; the rest kept as they were. */
+export function forgetRepository(storage: () => RecentStorage, owner: string, name: string): void {
+  try {
+    const kept = recentRepositories(storage);
+    const rest = kept.filter(item => `${item.owner}/${item.name}`.toLowerCase() !== `${owner}/${name}`.toLowerCase());
+    if (rest.length !== kept.length) storage().setItem(RECENT_REPOSITORIES, JSON.stringify(rest));
+  } catch { /* private mode: no recent list to forget it from */ }
 }
 
 /* Somebody else's repository, by the permission the provider reports: open read-only, and nothing offers to change it. */

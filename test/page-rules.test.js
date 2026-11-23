@@ -472,6 +472,7 @@ const HANDOFFS = Object.freeze({
   'paintCoreLine <- me': 'reads only whether there is a reader, into the core\'s line (features/overview/overview-core.ts)',
   'paintCoreState <- me': 'reads the provider, a string, into whether the rail claims a connection (features/overview/overview-core.ts)',
   'readOfflineRepos <- me': 'reads the offline cache scope, a string, to find the reader\'s offline list in storage',
+  'stepUp.send <- file': 'spreads the request options it is handed, whose body guardedWrite may have built from a file\'s path, content and sha, into a new request, and changes neither (features/security/step-up.ts)',
   'stepUp.send <- work': 'puts the scope it is handed, the owner\'s and repository\'s names, into the step-up request as they are, and asks with the path (features/security/step-up.ts)',
   'summarize <- work': 'reads the owner and repository, strings, to find the repository\'s protected files (graph-summary.ts)',
   'takeSafePassage <- file': 'reads the file\'s content, message and sha, strings, into the route\'s requests (features/governance/safe-passage.ts)',

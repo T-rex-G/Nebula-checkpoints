@@ -76,8 +76,10 @@ import { createItemMenu } from '../features/workbench/item-menu.ts';
 import { createSafety } from '../features/safeguards/safety-controller.ts';
 import { createSafeguards } from '../features/safeguards/safeguards-screen.ts';
 import { createFileIndex } from '../features/workbench/file-index.ts';
+import { createFolderFlows } from '../features/workbench/folder-flows.ts';
+import { createRepositoryDeletion } from '../features/repositories/repository-deletion.ts';
 import { nameRepository } from '../features/repositories/repository-header.ts';
-import { VISITOR_TABS, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
+import { VISITOR_TABS, forgetRepository, recentRepositories as readRecentRepositories } from '../features/repositories/recent-repositories.ts';
 import { createActivityFeed } from '../features/overview/activity-feed-controller.ts';
 import { paintBoundary } from '../features/overview/boundary-line.ts';
 
@@ -2515,83 +2517,36 @@ function openSafeguards() {
   switchTab('safeguards');
 }
 function renderSafeguards(options) { return safeguards.render(options); }
-async function moveFolderFlow(dirPath) {
-  const ok = await modal({
-    title: 'Rename / move folder',
-    bodyHTML: `<p class="hint">Every file under <b class="mono">${esc(dirPath)}/</b> moves in one atomic commit.</p>
-      <label class="set-label" for="mvDirTo" style="margin-top:8px">New path</label>
-      <input id="mvDirTo" type="text" value="${esc(dirPath)}" autocomplete="off" spellcheck="false" style="width:100%">
-      <p class="hint" style="margin-top:6px">Rename in place (<span class="mono">docs</span> → <span class="mono">guides</span>) or move deeper (<span class="mono">assets/logos</span>).</p>`,
-    okText: 'Move ✦'
-  });
-  if (!ok) return;
-  const to = $('#mvDirTo') ? $('#mvDirTo').value.trim().replace(/^\/+|\/+$/g, '') : '';
-  if (!to || to === dirPath) return;
-  try {
-    const out = await api(`/api/repo/${wPath()}/move-dir`, {
-      method: 'POST',
-      body: guardedWrite({ from: dirPath, to, branch: state.work.branch, message: `Move ${dirPath} -> ${to}` })
-    });
-    rememberHead(out.commit);
-    toast(`${out.moved} file${out.moved > 1 ? 's' : ''} moved to ${to}/ ✦`, 'ok');
-    loadTree('', $('#tree'), true);
-  } catch (e) { toast(e.message, 'err'); }
-}
-async function deleteFolderFlow(dirPath) {
-  let victims = [];
-  try {
-    const out = await api(`/api/repo/${wPath()}/files?ref=${encodeURIComponent(state.work.branch)}`);
-    victims = out.files.filter(p => p.startsWith(dirPath + '/'));
-  } catch (e) { return toast(e.message, 'err'); }
-  if (!victims.length) return toast('That folder has no files', 'err');
-  const leaf = dirPath.split('/').pop();
-  const ok = await modal({
-    title: 'Delete folder',
-    bodyHTML: `<p style="font-size:.9rem;line-height:1.6">This deletes <b>${victims.length} file${victims.length > 1 ? 's' : ''}</b> under <b class="mono">${esc(dirPath)}/</b> from <b>${esc(state.work.branch)}</b> in ${Math.ceil(victims.length / 100)} commit${victims.length > 100 ? 's' : ''}.</p>
-      <label class="field-label" for="delFolderName">Type <b class="mono">${esc(leaf)}</b> to confirm</label><input id="delFolderName" type="text" autocomplete="off" spellcheck="false">`,
-    okText: 'Delete folder', danger: true
-  });
-  if (!ok) return;
-  if (($('#delFolderName') ? $('#delFolderName').value : '').trim() !== leaf) return toast('Name mismatch — aborted', 'err');
-  try {
-    for (let i = 0; i < victims.length; i += 100) {
-      const out = await api(`/api/repo/${wPath()}/batch`, {
-        method: 'POST',
-        body: guardedWrite({ branch: state.work.branch, message: `Delete ${dirPath}/ via ${NV_PRODUCT_NAME}`, ops: victims.slice(i, i + 100).map(p => ({ op: 'delete', path: p })) })
-      });
-      rememberHead(out.commit);
-    }
-    toast(`Folder ${leaf}/ deleted ✦`, 'ok');
-    state.fileIndex = null; loadTree('', $('#tree'), true);
-  } catch (e) { toast(e.message, 'err'); }
-}
-async function deleteRepoFlow() {
-  const accountScope = state.me && state.me.offlineCacheScope;
-  const owner = state.work.owner;
-  const repo = state.work.repo;
-  const fullName = `${owner}/${repo}`;
-  const ok = await modal({
-    title: 'Delete repository',
-    bodyHTML: `<p style="font-size:.9rem;line-height:1.6"><b>${esc(wPath())}</b> will be permanently deleted on GitHub — code, history, issues, releases. <b>This cannot be undone.</b></p>
-      <label class="field-label" for="drName">Type <b class="mono">${esc(fullName)}</b> to confirm</label><input id="drName" type="text" autocomplete="off" spellcheck="false">`,
-    okText: 'Delete forever', danger: true
-  });
-  if (!ok) return;
-  if (($('#drName') ? $('#drName').value : '').trim() !== fullName) return toast('Name mismatch — aborted', 'err');
-  if (wPath() !== fullName || !state.me || state.me.offlineCacheScope !== accountScope) return toast('Account or repository changed — reopen deletion confirmation.', 'err');
-  try {
-    const deleted = await stepUpApi('repository.delete', {
-      owner, repo
-    }, `/api/repo/${fullName}`, { method: 'DELETE', body: { confirmation: fullName } }, `Delete repository ${fullName}`);
-    if (!deleted) return;
-    toast('Repository deleted', 'ok');
-    showPage('repos'); loadRepos(true);
-  } catch (e) {
-    if (e.message && /403|admin|delete_repo|forbidden/i.test(e.message) && !e.nextAction)
-      e.nextAction = 'For OAuth, use Accounts → Allow repository deletion on GitHub. For a personal token, reconnect with repository deletion permission.';
-    presentError(e);
-  }
-}
+/*
+ * A folder moved or deleted from its menu (features/workbench/folder-flows.ts),
+ * and the repository deleted (features/repositories/repository-deletion.ts):
+ * each for the repository and branch it was asked on.
+ */
+const folderFlows = createFolderFlows({
+  api: (path, options) => api(path, options),
+  work: () => state.work,
+  modal: options => modal(options),
+  value: selector => { const input = $(selector); return input ? input.value : null; },
+  toast: (message, kind) => toast(message, kind),
+  remember: (work, branch, commit) => { if (state.work === work) rememberHead(commit, branch); },
+  reloadTree: () => reloadTree(),
+  productName: NV_PRODUCT_NAME
+});
+const repositoryDeletion = createRepositoryDeletion({
+  work: () => state.work,
+  me: () => state.me,
+  modal: options => modal(options),
+  value: selector => { const input = $(selector); return input ? input.value : null; },
+  toast: (message, kind) => toast(message, kind),
+  stepUp: (action, scope, path, options, label) => stepUpApi(action, scope, path, options, label),
+  present: error => presentError(error),
+  forget: (owner, repo) => forgetRepository(() => localStorage, owner, repo),
+  showRepositories: () => showPage('repos'),
+  loadRepositories: () => loadRepos(true)
+});
+function moveFolderFlow(dirPath) { return folderFlows.move(dirPath); }
+function deleteFolderFlow(dirPath) { return folderFlows.remove(dirPath); }
+function deleteRepoFlow() { return repositoryDeletion.remove(); }
 
 /* ---------------- code search ---------------- */
 $('#codeSearch').addEventListener('keydown', async e => {

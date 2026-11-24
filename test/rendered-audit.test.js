@@ -2,9 +2,8 @@
 
 const assert = require('node:assert/strict');
 const express = require('express');
-const { renderedUrl, displayUrl, auditRenderedSite } = require('../src/rendered-site-audit');
-const { registerRenderedAudit } = require('../src/routes/rendered-audit');
-const { runRenderedSite, killProcessTree } = require('../src/rendered-site-runner');
+const { renderedUrl, displayUrl, auditRenderedSite, runRenderedSite, killProcessTree } = require('../apps/api/src/modules/parallax/index.ts').renderedAudit;
+const { registerParallaxRoutes } = require('../apps/api/src/modules/parallax/index.ts');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 
@@ -45,6 +44,49 @@ const fs = require('node:fs');
   } }), error => error.code === 'RENDERED_AUDIT_UNAVAILABLE' && !error.message.includes('synthetic'));
   await assert.rejects(runRenderedSite({ url: 'https://example.com', executablePath: '/nonexistent/nv-test-browser' }), error => error.code === 'RENDERED_AUDIT_UNAVAILABLE');
 
+  /*
+   * A resource's content encoding is a response header, so it may be any
+   * text. An encoding named `constructor` used to find what every object
+   * inherits: the body was handed to the browser undecoded, with its encoding
+   * header taken away, as if it had been decoded; `__proto__` failed the
+   * request as a fetch error. Each is refused, as every encoding the audit
+   * cannot decode is.
+   */
+  for (const encoding of ['constructor', '__proto__', 'compress']) {
+    const outcomes = [];
+    const scripted = async () => ({
+      close: async () => {},
+      newContext: async () => {
+        let intercept = null;
+        return {
+          routeWebSocket: async () => {}, route: async (_pattern, handler) => { intercept = handler; }, on: () => {}, addInitScript: async () => {}, close: async () => {},
+          newPage: async () => ({
+            on: () => {}, url: () => 'https://example.com/', mainFrame: () => ({}),
+            goto: async () => {
+              outcomes.push(await new Promise(resolve => intercept({
+                request: () => ({ url: () => 'https://example.com/app.js', method: () => 'GET' }),
+                abort: async reason => resolve(`aborted: ${reason}`),
+                fulfill: async response => resolve(`fulfilled: ${response.status}`)
+              })));
+              return null;
+            }
+          })
+        };
+      }
+    });
+    const report = auditRenderedSite({ url: 'https://example.com', launch: scripted,
+      transport: async () => ({ statusCode: 200, headers: { 'content-encoding': encoding }, body: Buffer.from('payload') }) });
+    await assert.rejects(report, error => error.code === 'RENDERED_PAGE_UNAVAILABLE');
+    assert.deepStrictEqual(outcomes, ['aborted: blockedbyclient'], `${encoding} is refused as an unsupported encoding`);
+  }
+
+  /* The worker entry starts only in a child with a parent to answer: loaded anywhere else, it listens for nothing. */
+  {
+    const before = [process.listenerCount('message'), process.listenerCount('disconnect')];
+    await import('../apps/api/src/modules/parallax/application/rendered-worker.ts');
+    assert.deepStrictEqual([process.listenerCount('message'), process.listenerCount('disconnect')], before);
+  }
+
   const app = express(); app.use(express.json());
   let launches = 0;
   let aborted = false;
@@ -53,11 +95,11 @@ const fs = require('node:fs');
     if (!req.headers['x-test-identity']) return res.status(401).json({ code: 'AUTH_REQUIRED' });
     req.gh = req.headers['x-test-identity']; next();
   };
-  const jobs = registerRenderedAudit(app, { enabled: true, executablePath: process.execPath,
-    providerSessionAccess: access, capabilityAccess: name => {
+  const { rendered: jobs, site: siteJobs } = registerParallaxRoutes(app, { renderedEnabled: true, executablePath: process.execPath,
+    providerSessionAccess: access, alphaRepositoryAccess: (_req, _res, next) => next(), capabilityAccess: name => {
       assert.equal(name, 'site-check');
       return (req, res, next) => req.headers['x-test-deny'] ? res.status(403).end() : next();
-    }, auth: (_req, _res, next) => next(), identityKey: who => who,
+    }, auth: (_req, _res, next) => next(), viewer: req => req.gh,
     fail: (res, error) => res.status(error.status || 500).json({ code: error.code, error: error.message }),
     runner: ({ signal, url, onProgress }) => {
       launches++; onProgress({ stage: 'mobile' });
@@ -104,5 +146,5 @@ const fs = require('node:fs');
     assert.equal(done.status, 200); assert.deepEqual(await done.json(), report);
     jobs.close(); assert.equal(jobs.size(), 0);
     console.log('Rendered audit route, identity, cancellation and isolation tests passed');
-  } finally { jobs.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { jobs.close(); siteJobs.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

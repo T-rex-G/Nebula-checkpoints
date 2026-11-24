@@ -75,7 +75,7 @@ test('required alpha screens have no critical or serious axe violations', async 
   await ui.button(ui.dialog(page, 'Evidence package exported'), 'Done').click();
 
   await (await ui.action(page, 'Command palette')).focus();
-  await page.evaluate(() => { void openSettings(); });
+  await (await ui.action(page, 'Settings')).click();
   await expect(page.locator('[data-alpha-privacy-action="disconnect"]')).toBeVisible();
   await expect(page.locator('[data-alpha-privacy-action="delete"]')).toBeVisible();
   await expectNoHighImpactViolations(page, 'disconnect and delete controls');
@@ -195,27 +195,16 @@ test('keyboard-only tester path exposes visible focus and status announcements',
 
 test('dialogs contain focus, restore it, and trust states do not depend on color', async ({ page }) => {
   await openConnectedRepository(page, { mutation: 'blocked' });
-  const trigger = await ui.action(page, 'Command palette');
-  await trigger.focus();
-  await page.evaluate(() => { void openSettings(); });
+  /*
+   * Focus goes back to what opened the dialog: Settings itself, or on a phone
+   * the dock it was chosen from, which takes focus back as its menu closes.
+   */
+  const trigger = await ui.actionAnchor(page, 'Settings');
+  await (await ui.action(page, 'Settings')).click();
+  await expect(ui.dialog(page, 'Settings')).toBeVisible();
   await page.locator('#modalOk').focus();
   await page.keyboard.press('Tab');
   await expect.poll(() => page.evaluate(() => document.querySelector('#modal').contains(document.activeElement))).toBe(true);
-  await page.keyboard.press('Escape');
-  await expect(trigger).toBeFocused();
-
-  await page.evaluate(() => window.NebulaTrustUI.presentError({
-    code: 'MUTATION_BLOCKED',
-    message: 'The controlled action was blocked by policy.',
-    correlationId: 'fixture-focus-restoration',
-    safeState: 'The sandbox repository remains unchanged.',
-    nextAction: 'Review the policy decision.'
-  }));
-  const dialog = page.locator('.trust-error-dialog');
-  await expect(dialog).toBeVisible();
-  await page.locator('.trust-error-close').focus();
-  await page.keyboard.press('Tab');
-  await expect.poll(() => page.evaluate(() => document.querySelector('.trust-error-dialog').contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
@@ -229,6 +218,76 @@ test('dialogs contain focus, restore it, and trust states do not depend on color
     await expect(evidence).not.toHaveText('');
     await expect(evidence.locator('.trust-evidence-icon svg')).toHaveCount(1);
   }
+});
+
+/*
+ * A request the server refuses is answered with the error dialog. It holds
+ * focus while it is open -- Tab stays inside it -- and gives focus back to the
+ * control the reader pressed when it is dismissed.
+ */
+test('the error dialog holds focus and gives it back to the control that was pressed', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'error' });
+  await page.goto('/');
+  const repos = await ui.enterRepositories(page);
+  const open = ui.button(repos, /^Open repository /).first();
+  await open.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.locator('.trust-error-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Safe state now');
+  /* It takes focus as it opens: a keyboard reader is in the dialog, not behind it. */
+  await expect(page.locator('.trust-error-close')).toBeFocused();
+  await page.locator('.trust-error-close').focus();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => document.querySelector('.trust-error-dialog').contains(document.activeElement))).toBe(true);
+  /* And the other way round: Shift+Tab from its first control comes round to its last, not out to the page behind. */
+  await page.getByRole('dialog', { name: 'The action was not completed' }).getByRole('button', { name: 'Copy', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('.trust-error-close')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
+});
+
+/*
+ * A second failure while the first is still on screen replaces its dialog.
+ * Focus was on the first dialog's Close button, which goes with it, so the
+ * second recorded nothing to return to and dismissing it left a keyboard
+ * reader at the top of the page. It returns where the first would have: to
+ * the control the reader was on when the first failure arrived.
+ */
+test('a dialog that replaces another gives focus back where the first would have', async ({ page }) => {
+  await openConnectedRepository(page);
+  const held = [];
+  await page.route('**/api/repo/sandbox/demo/star', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    const call = held.length + 1;
+    await new Promise(resolve => { held.push(resolve); });
+    return route.fulfill({
+      status: 503,
+      json: { error: `Star request ${call} was refused.`, code: 'PROVIDER_UNAVAILABLE', correlationId: `fixture-star-${call}` }
+    });
+  });
+  await runFromPalette(page, 'Star / unstar');
+  await runFromPalette(page, 'Star / unstar');
+  await expect.poll(() => held.length).toBe(2);
+  /* Where the reader is now: the control the palette gave focus back to. */
+  expect(await page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) return false;
+    active.setAttribute('data-focus-origin', '');
+    return true;
+  })).toBe(true);
+  const dialog = page.getByRole('dialog', { name: 'The action was not completed' });
+  held[1]();
+  await expect(dialog).toContainText('Star request 2 was refused.');
+  await expect(page.locator('.trust-error-close')).toBeFocused();
+  held[0]();
+  await expect(dialog).toContainText('Star request 1 was refused.');
+  await expect(page.locator('.trust-error-dialog')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.trust-error-dialog')).toHaveCount(0);
+  await expect(page.locator('[data-focus-origin]')).toBeFocused();
 });
 
 test('reduced motion, 320 CSS-pixel reflow, and mobile navigation remain usable', async ({ page }) => {

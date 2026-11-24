@@ -12,7 +12,7 @@
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
 const { mockMediumRepo } = require('./medium-repo-fixtures');
-const { evaluateMergeGate } = require('../../src/code-audit-triage');
+const { evaluateMergeGate } = require('../../apps/api/src/modules/uranus/index.ts').auditTriage;
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
@@ -46,10 +46,14 @@ test('a reviewer marks a finding a false positive, reads back who decided, and r
   await dialog.getByRole('radio', { name: /False positive/ }).check();
   await dialog.getByLabel('Reason').selectOption('validated');
   await expect(dialog.locator('#triageDaysWrap')).toBeHidden();
+  const clocks = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/repo/sandbox/demo/code-audit/metrics') clocks.push(request.url()); });
   await dialog.getByRole('button', { name: 'Record decision' }).click();
 
   await expect(ui.status(page, 'Notifications')).toContainText('Recorded as a false positive');
   await expect(openItem(pane, SQL)).toHaveCount(0);
+  /* The clocks are read again: the decision changed what counts against them. */
+  await expect.poll(() => clocks.length).toBe(1);
   const triaged = pane.locator('.audit-waived', { hasText: 'Triaged by the team' });
   await expect(triaged).toContainText('1');
   await triaged.locator('summary').first().click();
@@ -239,4 +243,24 @@ test('a pull request whose audit is incomplete says why, and what clears it', as
   await page.locator('#prList .list-item').first().click();
   await expect(page.locator('#prGate')).toHaveAttribute('data-state', 'hold');
   await expect(page.locator('#prGate')).toContainText('Part of this audit could not be completed, so there may be more than this.');
+});
+
+/* Auditing the head again, from the gate: the audit opens on the pull request's branch and audits it, not the branch that was open. */
+test('Audit this head audits the pull request\u2019s head on the Audit tab', async ({ page }) => {
+  const legacy = kept([]);
+  legacy.audit = { ...legacy.audit, analysisComplete: null };
+  const unrecorded = evaluateMergeGate({ headSha: HEAD, head: legacy, base: null, decisions: new Map(), now });
+  const asked = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/repo/sandbox/demo/code-audit' && !url.searchParams.get('run')) asked.push(url.searchParams.get('ref'));
+  });
+  await openPull(page, { available: true, pull: { number: 90, head: 'feature/long', base: 'main', headSha: HEAD, fork: false, open: true },
+    gate: unrecorded, enforcement: { available: true, policies: [] } });
+  await page.evaluate(() => { document.querySelector('#branchSelect').add(new Option('feature/long', 'feature/long')); });
+  await page.locator('#prList .list-item').first().click();
+  await page.locator('#prGate').getByRole('button', { name: 'Audit this head' }).click();
+  await expect(page.locator('#tab-audit')).toHaveClass(/active/);
+  await expect.poll(() => asked).toEqual(['feature/long']);
+  await expect(page.locator('#branchSelect')).toHaveValue('feature/long');
 });

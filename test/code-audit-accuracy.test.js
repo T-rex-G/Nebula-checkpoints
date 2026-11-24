@@ -2,10 +2,9 @@
 
 /* Accuracy regressions use the real scanner/watch/store with synthetic provider responses. */
 const assert = require('node:assert/strict');
-const audit = require('../src/code-audit');
-const { watchComponents, LIMITS: WATCH_LIMITS } = require('../src/code-audit-watch');
-const { CodeAuditHistory } = require('../src/code-audit-history');
-const { KEV_URL, createIntelCache } = require('../src/exploit-intel');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { auditWatch: { watchComponents, LIMITS: WATCH_LIMITS }, auditHistory: { CodeAuditHistory } } = require('../apps/api/src/modules/uranus/index.ts');
+const { KEV_URL, createIntelCache } = audit;
 
 const base = [{ path: 'README.md', text: '# fixture' }];
 function readerFor(files) {

@@ -18,7 +18,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations, verifyMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const { verifyAlphaPrivacyPurge } = require('./alpha-privacy-purge-postgres');
 
 const DIRECTORY = path.join(__dirname, '..', 'db', 'migrations');

@@ -7,7 +7,14 @@ const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const ROOT = path.resolve(__dirname, '..');
-const neural = fs.readFileSync(path.join(ROOT, 'public/neural.js'), 'utf8');
+const { loadPageModule } = require('./helpers/page-module');
+/*
+ * The module runs as written. What it imports from the workbench is the
+ * harness's stand-in for each name; the rest of the page is the context below.
+ */
+const WORKBENCH = ['state', 'api', 'toast', 'exposureRuleLabel', 'EXPOSURE_DISPOSITION_WORDS', 'modal', 'securityScanFlow',
+  'exportActivityFlow', 'openFile', 'switchTab', 'recoveryFlow', 'openSafeguards', 'setSafety', 'stepUpApi', 'dlFile',
+  'currentTab', 'purgeLocalData'];
 const now = '2026-10-08T10:00:00.000Z';
 const sha = 'a'.repeat(40);
 function harness(custom = {}) {
@@ -42,8 +49,12 @@ function harness(custom = {}) {
     api:async (url,options={})=>{requests.push(url);if(custom.api){const got=custom.api(url,data,options);if(got!==undefined)return await got;} const key=Object.keys(data).find(k=>url===k||url.includes(`/acme/demo/${k}`));if(!key)throw new Error('Unexpected '+url);return data[key];}
   };
   c.window.matchMedia=c.matchMedia;
-  vm.runInNewContext(neural,c,{filename:`${ROOT}/public/neural.js`});
-  return {c,ui:c.window.NebulaNeural,elements,streams,requests,warnings,data,timers,listeners};
+  /* The workbench's purge, and the page's reload: recorded when a test asks, inert otherwise. */
+  c.purgeLocalData = custom.purgeLocalData || (async () => {});
+  c.location = { reload: custom.reload || no };
+  const workbench = Object.fromEntries(WORKBENCH.map(name => [name, c[name]]));
+  const ui = loadPageModule('apps/web/src/visualizations/neural.js', c, { imports: { '../legacy/app.js': workbench } }).default;
+  return {c,ui,elements,streams,requests,warnings,data,timers,listeners};
 }
 async function settleCatchup(h){for(let i=0;i<40;i++){await new Promise(setImmediate);if(!h.ui.state.catchUpBusy)return;}throw new Error('Catch-up stuck');}
 
@@ -64,6 +75,30 @@ test('real branch heads and parent SHAs produce factual commit edges', async () 
   await h.ui.refresh();
   assert(h.ui.state.edges.some(e=>e.source==='branch:feature'&&e.target==='commit:'+sha&&e.type==='head commit'));
   assert(h.ui.state.edges.some(e=>e.source==='commit:'+sha&&e.target==='commit:'+'c'.repeat(40)&&e.type==='parent commit'));
+});
+
+test('another branch chosen while the map is read is read for that branch; the last one\'s answer is dropped', async () => {
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const h = harness({ api: (url, data) => (url.includes('/activity?') && url.includes('ref=feature') ? gate.then(() => data.activity) : undefined) });
+  const first = h.ui.refresh();
+  await new Promise(setImmediate);
+  assert.equal(h.ui.state.loading, true);
+  h.c.state.work.branch = 'dev';
+  const second = h.ui.refresh();
+  release();
+  await Promise.all([first, second]);
+  assert(h.requests.some(url => url.includes('/activity?days=30&ref=dev')), 'the branch chosen is read');
+  assert.equal(h.ui.state.loadedKey, 'acme/demo@dev');
+  assert.equal(h.ui.state.loading, false);
+  /* The same branch read twice at once is read once. */
+  let open; const held = new Promise(resolve => { open = resolve; });
+  const again = harness({ api: (url, data) => (url.includes('/activity?') ? held.then(() => data.activity) : undefined) });
+  const one = again.ui.refresh();
+  await new Promise(setImmediate);
+  await again.ui.refresh();
+  open();
+  await one;
+  assert.equal(again.requests.filter(url => url.includes('/activity?')).length, 1);
 });
 
 test('a failed later catch-up page cannot advance past discarded events', async () => {
@@ -93,6 +128,26 @@ test('a refresh after event history failed reloads the map instead of retrying t
   const before=snapshots();
   await h.ui.refresh();await settleCatchup(h);
   assert.equal(snapshots(),before+1,'Refresh reads the topology again');
+});
+
+test('a refresh pressed while a failing catch-up is in flight reads the map as soon as the attempt fails', async () => {
+  let fail = null;
+  const h=harness({api:url=>{
+    if(!url.includes('/intelligence/events'))return undefined;
+    if(url.includes('after='))return new Promise((resolve,reject)=>{fail=()=>reject(new Error('history unavailable'));});
+    return {available:true,events:[],cursor:'cursor0',hasMore:true};
+  }});
+  h.ui.state.active=true;await h.ui.refresh();h.streams[0].handlers.ready();
+  for(let turn=0;turn<20&&!fail;turn++)await new Promise(setImmediate);
+  assert.equal(h.ui.state.catchUpBusy,true,'the catch-up is reading the history');
+  const snapshots=()=>h.requests.filter(url=>url.includes('/refs-snapshot')).length;
+  const before=snapshots();
+  await h.ui.refresh();
+  assert.equal(snapshots(),before,'a Refresh waits for the attempt in flight');
+  fail();await settleCatchup(h);
+  for(let turn=0;turn<20&&snapshots()===before;turn++)await new Promise(setImmediate);
+  assert.equal(snapshots(),before+1,'and reads the map as soon as it fails, not after every retry');
+  assert.equal(h.timers.size,0,'with no retry left waiting behind it');
 });
 
 test('catch-up pagination budget remains explicit and schedules bounded continuation', async () => {
@@ -158,19 +213,17 @@ test('reset aborts map reads and late responses cannot populate a new repository
 });
 
 test('browser API forwards caller cancellation to fetch', async () => {
-  const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
-  const start = app.indexOf('async function api(');
-  const end = app.indexOf('\n}\n', start) + 2;
-  const context = {
-    offlineHeadersForPath: () => ({}),
+  /* The page's one transport (platform/transport.ts), as the page makes it. */
+  const { createTransport } = require('../apps/web/src/platform/transport.ts');
+  const transport = createTransport({
     fetch: (_url, options) => {
       assert(options.signal, 'the actual shared API adapter must pass the caller signal');
       return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
-    }
-  };
-  vm.runInNewContext(app.slice(start, end), context);
+    },
+    identity: () => null, storage: () => null, now: () => Date.now(), onBranchChanged() {}, onAlphaEnded: async () => {}
+  });
   const controller = new AbortController();
-  const pending = context.api('/api/repo/acme/demo/activity', { signal: controller.signal });
+  const pending = transport.api('/api/repo/acme/demo/activity', { signal: controller.signal });
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
 });
@@ -195,6 +248,22 @@ test('callbacks from a closed stream cannot affect the current repository', asyn
   await new Promise(setImmediate);
   assert.equal(h.requests.length,requests);assert.equal(h.timers.size,0);
   assert.equal(h.ui.state.liveStatus,'disconnected');
+});
+
+/*
+ * A session revoked from another device or tab arrives on the live stream.
+ * What this browser kept for the session is purged before the page reloads,
+ * so the reload cannot start from anything the revoked session left.
+ */
+test('a session revoked elsewhere purges what this browser kept before the page reloads', async () => {
+  const order = [];
+  const h = harness({ purgeLocalData: async full => { order.push(`purge:${full}`); }, reload: () => order.push('reload') });
+  h.ui.state.active = true; await h.ui.refresh();
+  const stream = h.streams[0];
+  assert.equal(typeof stream.handlers['session-revoked'], 'function', 'the stream listens for its session being revoked');
+  await stream.handlers['session-revoked']();
+  assert.deepEqual(order, ['purge:true', 'reload']);
+  assert(stream.closed, 'the revoked session\'s stream is closed before the reload');
 });
 
 test('returning from a hidden tab restarts its cancelled first map load', async () => {

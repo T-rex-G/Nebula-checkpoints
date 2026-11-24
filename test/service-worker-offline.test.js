@@ -28,8 +28,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
-const policySource = fs.readFileSync(path.join(root, 'public', 'offline-cache-policy.js'), 'utf8');
-const workerSource = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
+/* The worker as served: built, with the cache policy bundled into it. */
+const workerSource = fs.readFileSync(path.join(root, 'dist', 'web', 'sw.js'), 'utf8');
+assert.ok(!/importScripts\(/.test(workerSource), 'the built worker carries its policy; it loads no script at run time');
 
 function loadWorker({ fetchImpl }) {
   const listeners = new Map();
@@ -57,7 +58,6 @@ function loadWorker({ fetchImpl }) {
     Headers: globalThis.Headers,
     URL: globalThis.URL,
     console,
-    importScripts() { vm.runInContext(policySource, contextObject); }
   };
   const contextObject = vm.createContext(context);
   vm.runInContext(workerSource, contextObject);

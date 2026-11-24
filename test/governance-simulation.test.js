@@ -1,12 +1,12 @@
 'use strict';
 const assert = require('assert');
 let simulation = {};
-try { simulation = require('../src/governance-simulation'); } catch {}
+try { simulation = require('../apps/api/src/modules/kepler/index.ts'); } catch {}
 for (const name of ['GovernanceSimulationError', 'normalizeSimulationRequest', 'evaluatePolicyDocument', 'simulatePolicyImpact']) {
   assert(simulation[name], `${name} must be implemented`);
 }
 const { normalizeSimulationRequest, evaluatePolicyDocument, simulatePolicyImpact } = simulation;
-const { policyDocumentHash } = require('../src/governance-model');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 
 const requestA = normalizeSimulationRequest({
   schemaVersion: 1,

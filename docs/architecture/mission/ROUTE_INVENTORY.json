@@ -1,0 +1,2328 @@
+{
+ "schemaVersion": 1,
+ "baseline": "3bf017a8cdb11e8ef86af7ff857add9b61b6f242",
+ "total": 195,
+ "byOwner": {
+  "platform": 17,
+  "identity-access": 27,
+  "posture": 4,
+  "workbench": 45,
+  "kepler": 50,
+  "quasar": 12,
+  "corona": 15,
+  "pulsar": 7,
+  "uranus": 12,
+  "parallax": 6
+ },
+ "routes": [
+  {
+   "method": "GET",
+   "path": "/healthz",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/readyz",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/.well-known/security.txt",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/robots.txt",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/apple-touch-icon.png",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/apple-touch-icon-precomposed.png",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/vendor/*",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "POST",
+   "path": "/hooks/github/:hookId",
+   "owner": "platform",
+   "guards": [
+    "express.raw({ type: 'application/json', limit: '2mb' })"
+   ],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/index.html",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/sw.js",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": true
+  },
+  {
+   "method": "GET",
+   "path": "/api/alpha/status",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/alpha/redeem",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/alpha/end",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/login",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/accounts",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/accounts/switch-idx",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/accounts/remove",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/accounts/switch",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/config",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/capabilities",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/account/capabilities",
+   "owner": "platform",
+   "guards": [
+    "providerSessionAccess"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/github-app/connect",
+   "owner": "identity-access",
+   "guards": [
+    "requireGithubAppFeature",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/github-app/oauth/callback",
+   "owner": "identity-access",
+   "guards": [
+    "requireGithubAppFeature"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/github-app/setup",
+   "owner": "identity-access",
+   "guards": [
+    "requireGithubAppFeature"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/github-app/status",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/github-app/refresh",
+   "owner": "identity-access",
+   "guards": [
+    "requireGithubAppFeature",
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/github-app/disconnect",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/security/scanner-status",
+   "owner": "identity-access",
+   "guards": [
+    "auth",
+    "capabilityAccess('upload-security')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/security/csrf",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/security/step-up",
+   "owner": "identity-access",
+   "guards": [
+    "providerSessionAccess",
+    "alphaStepUpRepositoryAccess",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/oauth/login",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/oauth/callback",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/alpha/privacy",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/alpha/feedback",
+   "owner": "identity-access",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/logout",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/alpha/providers/disconnect-all",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/alpha/delete",
+   "owner": "identity-access",
+   "guards": [
+    "alphaDeletionConfirmation",
+    "alphaDeletionAuthentication"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/me",
+   "owner": "identity-access",
+   "guards": [
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/rate",
+   "owner": "platform",
+   "guards": [
+    "auth",
+    "capabilityAccess('rate.read')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/workspace/posture",
+   "owner": "posture",
+   "guards": [
+    "providerSessionAccess",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/workspace/security-posture",
+   "owner": "posture",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('workspace.posture')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/workspace/findings",
+   "owner": "posture",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('findings.inbox')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/codeowners",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/templates",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/templates/:templateId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/baselines/generate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "capabilityAccess('branches.read')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/digital-twin",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/notifications/preferences",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/governance/notifications/preferences",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.notification.preferences.update')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/notifications",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/notifications/read",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.notification.read')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/webhooks",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/webhooks",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.update')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId/rotate-secret",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.rotate')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.webhook.delete')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/webhooks/:webhookId/deliveries",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exports",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')",
+    "governanceMutationContext('governance.audit.export.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports/:exportId/verify",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exports/:exportId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/decisions/verify",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/decisions",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.policy.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/validate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.update')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/validate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId/submit",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.submit')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/simulate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/review",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/reviewers/me",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('governance.reviewer.assign')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/decisions",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('governance.approval.decide')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/exceptions",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.exception.request')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId/decision",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.exception.decide')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/scans",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.scan.request')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/clear",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.history.clear')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId/cancel",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('exposure.scan.cancel')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/scans/:scanId/observations",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/verify",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.credential.verify')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/verifications",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/probe-readability",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.readability.probe')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/readability-probes",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/exposure/findings/:fingerprint/accept-risk",
+   "owner": "quasar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('exposure.scan')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('exposure.finding.accept-risk')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/exceptions/:exceptionId/revoke",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.exception.revoke')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/activations",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/activate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.activate')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/rollback",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.rollback')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/governance/archive",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/deactivate",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('activator')",
+    "governanceMutationContext('governance.policy.deactivate')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/archive",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.policy.archive')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/restore",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.policy.restore')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/drafts/:draftId",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.draft.discard')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/policies/:policyId/versions/:versionId/withdraw",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('author')",
+    "governanceMutationContext('governance.version.withdraw')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/governance/reset",
+   "owner": "kepler",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth",
+    "governanceAccess('administrator')",
+    "governanceMutationContext('governance.reset')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repos",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryListAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repos",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('repository.create')",
+    "repositoryCreationAccess",
+    "auth",
+    "mutationContext('repository.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.delete')",
+    "repositoryDeletionConfirmation",
+    "auth",
+    "mutationContext('repository.delete')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/zip",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/branches",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('branches.write')",
+    "auth",
+    "mutationContext('branch.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/branches/:name",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('branches.write')",
+    "auth",
+    "mutationContext('branch.delete')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/compare",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/tree",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('tree.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/files",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('tree.read')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/file",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/raw",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/file",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.write')",
+    "auth",
+    "mutationContext('file.write')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/file",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.delete')",
+    "auth",
+    "mutationContext('file.delete')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/rename",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.rename')",
+    "auth",
+    "mutationContext('file.rename')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/batch",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('file.batch')",
+    "auth",
+    "mutationContext('file.batch')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/commits",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/commit/:sha",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/revert",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.revert')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.restore')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-paths",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('commit.restore-paths')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/snapshot",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/reset",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('branch.reset')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/search",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('search')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/pulls",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/pulls/:num",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/pulls",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/pulls/:num/merge",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.merge')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/issues",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/issues/:num",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/issues",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/issues/:num/comments",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.comment')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PATCH",
+   "path": "/api/repo/:owner/:repo/issues/:num",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('issues.write')",
+    "auth",
+    "mutationContext('issue.update')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/notifications",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('notifications')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/star",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "PUT",
+   "path": "/api/repo/:owner/:repo/star",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.write')",
+    "auth",
+    "mutationContext('repository.star')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/star",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('stars.write')",
+    "auth",
+    "mutationContext('repository.unstar')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/pulls/:num/reviews",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('pulls.write')",
+    "auth",
+    "mutationContext('pull.review')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/actions/:runId/jobs",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/actions/:runId/rerun",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.rerun')",
+    "auth",
+    "mutationContext('workflow.rerun')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/search",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('global-search')",
+    "githubSearchAccess",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/actions",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('workflows.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/releases",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('releases.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/releases",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('releases.write')",
+    "auth",
+    "mutationContext('release.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/blob",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('native-push')",
+    "capabilityAccess('upload-security')",
+    "auth",
+    "mutationContext('git.blob.create')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/upload",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('native-push')",
+    "capabilityAccess('upload-security')",
+    "capabilityAccessWhen('lfs', req => normalizeTransportChoice(req.query.lfs) === 'lfs')",
+    "auth",
+    "mutationContext('file.upload')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/move-dir",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('folder.move')",
+    "auth",
+    "mutationContext('directory.move')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/safety",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/safety",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaSafetyMutationAccess",
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/refs-snapshot",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/snapshot-compare",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-preview",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/signed-snapshot",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/emergency-manifest",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/signed-snapshots",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/restore-refs",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "auth",
+    "mutationContext('recovery.restore-refs')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/activity",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/activity/recent",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryListAccess",
+    "capabilityAccess('repository.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/access-surface",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('access-surface')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/history",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/history/:auditId",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/watch",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/history/clear",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)",
+    "governanceMutationContext('code-audit.history.clear')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/triage",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/triage",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('code-audit.finding.triage')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/reopen",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reviewer')",
+    "governanceMutationContext('code-audit.finding.reopen')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/findings/:findingId/triage-events",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/code-audit/score",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('code-audit')",
+    "accountAuth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/metrics",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "auditHistoryAvailable",
+    "governanceAccess('reader', OWN_WORK)"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/code-audit/gate",
+   "owner": "uranus",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('code-audit')",
+    "auth",
+    "governanceAccess('reader')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/site-rendered/status",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/site-rendered",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/site-rendered",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/site-rendered",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/site-check",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/site-check",
+   "owner": "parallax",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('site-check')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/branch-protection",
+   "owner": "posture",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('recovery')",
+    "capabilityAccess('branches.read')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/audit-deps",
+   "owner": "workbench",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('dependency-audit')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/live-events/status",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/repo/:owner/:repo/live-events/connect",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth",
+    "mutationContext('webhook.connect')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "DELETE",
+   "path": "/api/repo/:owner/:repo/live-events",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth",
+    "mutationContext('webhook.disconnect')"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/intelligence/events",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/live-events/stream",
+   "owner": "pulsar",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('live-events')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/repo/:owner/:repo/evidence",
+   "owner": "corona",
+   "guards": [
+    "providerSessionAccess",
+    "alphaRepositoryAccess",
+    "capabilityAccess('governance')",
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/security/sessions",
+   "owner": "identity-access",
+   "guards": [
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "POST",
+   "path": "/api/security/revoke-others",
+   "owner": "identity-access",
+   "guards": [
+    "auth"
+   ],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "/api/version",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  },
+  {
+   "method": "GET",
+   "path": "*",
+   "owner": "platform",
+   "guards": [],
+   "beforeAlphaBoundary": false
+  }
+ ]
+}

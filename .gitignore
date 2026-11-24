@@ -1,4 +1,6 @@
 node_modules/
+# Build output: produced by npm run build, attested by digest, never committed.
+dist/
 .env
 .env.*
 !.env.example

@@ -120,7 +120,8 @@ async function focusAndConfirm(expect, locator) {
  */
 async function actionEntryPoints(page, name) {
   const direct = page.getByRole('button', { name, exact: true });
-  const dock = page.getByRole('button', { name: /actions$/i });
+  /* The dock is named for the screen it serves ("Workspace actions"); the workbench's own "Actions" tab is not it. */
+  const dock = page.getByRole('button', { name: /^\S+ actions$/i });
   /* showPage activates the screen before painting the dock two frames later.
    * An immediate isVisible() check during that gap mistakes "not ready yet"
    * for "desktop layout" and returns an action that stays hidden on mobile.
@@ -252,6 +253,54 @@ async function enterRepositories(page) {
   return repos;
 }
 
+/*
+ * A repository section, opened the way a reader opens it: from the tab bar
+ * where the screen has one, and on a phone from the bottom navigation, or
+ * from its More sheet for the sections the navigation has no room for. A
+ * section the deployment does not offer is not reached by any of them, so a
+ * journey that asks for one fails rather than reaching past the interface.
+ */
+async function openTab(page, name) {
+  const tab = page.locator(`#deskTabs .tab[data-tab="${name}"]`);
+  if (await tab.isVisible()) return tab.click();
+  const nav = page.locator(`#bottomNav [data-nav="${name}"]`);
+  if (await nav.isVisible()) return nav.click();
+  await page.locator('#bottomNav [data-nav="more"]').click();
+  await page.locator(`#sheet .sheet-item[data-act="${name}"]`).click();
+}
+
+/*
+ * A screen reached from the rail: standing chrome on a desk, a drawer on a
+ * phone opened from the bar of the screen that is showing.
+ */
+async function rail(page, name) {
+  const item = page.locator(`#navRail [data-rail="${name}"]`);
+  if (!(await item.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await item.click();
+}
+
+/* A file of the open repository, opened the way a reader opens one by name: from the command palette. */
+async function openFileByName(page, file) {
+  await (await action(page, 'Command palette')).click();
+  await page.locator('#paletteInput').fill(file);
+  await page.locator('#paletteList .pal-item')
+    .filter({ has: page.locator('span.mono').getByText(file, { exact: true }) })
+    .first().click();
+}
+
+/*
+ * What the read-only probe shows of one source of the interface's state
+ * (ADR-092): a frozen copy, or null before that source exists. The probe is
+ * there only when the page was opened under the harness marker, which
+ * `underHarness` sets before the page's first script.
+ */
+async function underHarness(page) {
+  await page.addInitScript(() => { window.__NV_HARNESS__ = true; });
+}
+function probe(page, source) {
+  return page.evaluate(name => window.__NV_PROBE__.read(name), source);
+}
+
 module.exports = Object.freeze({
   PRODUCT_NAME,
   SCREENS,
@@ -272,5 +321,10 @@ module.exports = Object.freeze({
   status,
   trust,
   trustArticle,
-  openTrustDetail
+  openTrustDetail,
+  openTab,
+  openFileByName,
+  rail,
+  underHarness,
+  probe
 });

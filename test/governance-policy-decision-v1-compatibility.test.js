@@ -2,8 +2,8 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const fixture = require('./fixtures/governance-policy-decision-v1.json');
-const { normalizePolicyDecision } = require('../src/governance-enforcement');
-const { stableJson } = require('../src/governance-model');
+const { normalizePolicyDecision } = require('../apps/api/src/modules/kepler/index.ts');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 
 const normalized = normalizePolicyDecision(fixture.decision, fixture.descriptor);
 assert.strictEqual(normalized.engineVersion, 1, 'pre-Task-14 decisions must retain engine version 1');

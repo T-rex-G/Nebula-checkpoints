@@ -23,13 +23,10 @@ const path = require('path');
 
 const {
   COVERAGE, DISPOSITIONS, EXPOSURE_CONFIG_VERSION, SCAN_STATES, SKIPPED_REASONS, TERMINAL_STATES
-} = require('../src/exposure-store');
+} = require('../apps/api/src/modules/quasar/index.ts');
 
 const sql = fs.readFileSync(
   path.join(__dirname, '..', 'db', 'migrations', '022_exposure_scans.sql'), 'utf8'
-);
-const storeSource = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'exposure-store.js'), 'utf8'
 );
 
 /* ---- The tables exist and the store's vocabulary is the schema's ------- */
@@ -179,84 +176,16 @@ assert.match(sql, /PRIMARY KEY \(provider, authority, owner_login, repo_name, fi
 
 /* ---- What the store must never do ------------------------------------- */
 
-/* Location evidence is not rewritten by a later verification or decision.
- * While a scan owns its lease, its aggregate history count is reconciled from
- * a unique sighting ledger. Replay safety and fencing are tested in real PG. */
-const observationUpdates = [...storeSource.matchAll(/UPDATE nv_exposure_observations[\s\S]*?`/g)]
-  .map(match => match[0]);
-assert.strictEqual(observationUpdates.length, 1, 'only the deduplicated count is updated');
-assert.match(observationUpdates[0], /^UPDATE nv_exposure_observations SET history_commits=\(/);
-assert.match(observationUpdates[0], /SELECT count\(\*\)::integer FROM nv_exposure_history_sightings/);
-assert.match(observationUpdates[0], /WHERE scan_id=\$1 AND fingerprint=\$2`$/);
-assert.strictEqual(
-  /DELETE FROM nv_exposure_observations/.test(storeSource), false,
-  'observations leave with their scan, by cascade, and not otherwise'
-);
-
 /*
- * Every row that leaves the store is built field by field. Spreading a row
- * would publish whatever the schema grows next, which is exactly the leak this
- * whole design is about.
+ * Held over the store's syntax tree by test/module-rules.test.js, since no
+ * request can show a statement that is never run: location evidence is not
+ * rewritten -- an observation changes only to reconcile its deduplicated
+ * history count from the sighting ledger, and is deleted only with its scan,
+ * by cascade; every row leaves the store field by field, never spread; and
+ * every statement that reaches a scan or a finding carries the identity, the
+ * worker's claim, or is one of five stated exceptions. Replay safety and
+ * fencing are asked of a real PostgreSQL server by test/exposure-store.test.js.
  */
-assert.strictEqual(
-  /\.\.\.row\b/.test(storeSource), false,
-  'a serializer must name its columns: spreading a row publishes the next one added'
-);
-
-/*
- * And every statement that reads or writes a scan or a finding carries the
- * identity boundary, the claim token, or is one of the three that deliberately
- * does not -- named here so that adding a fourth is a decision rather than an
- * omission.
- *
- * The count is asserted too. A scan of a source file that found nothing would
- * pass every assertion in this block.
- */
-{
-  const statements = [...storeSource.matchAll(/`([^`]*nv_exposure[^`]*)`/g)].map(match => match[1]);
-  assert(statements.length >= 12, `the statement scan must find statements: ${statements.length}`);
-
-  const unscoped = [];
-  for (const statement of statements) {
-    const normalized = statement.replace(/\s+/g, ' ').trim();
-    const touchesOwned = /nv_exposure_scans|nv_exposure_findings/.test(normalized);
-    if (!touchesOwned) continue;
-
-    const carriesIdentity = /identity_key/.test(normalized);
-    const carriesClaim = /claim_owner=\$/.test(normalized);
-    /*
-     * The three exceptions, each for a stated reason.
-     *
-     * The claim query picks up work for whoever asks and cannot be scoped to
-     * an identity: a worker is not a tenant. The parent lookup runs inside
-     * `concludeRemovedFromTree`, whose first statement already matched the
-     * scan on its identity, and re-checking would be re-checking. The sweep is
-     * retention, which is time-scoped by design and must not depend on anybody
-     * being signed in.
-     */
-    const declaredException = /FOR UPDATE SKIP LOCKED/.test(normalized)
-      || /SELECT \* FROM nv_exposure_scans WHERE scan_id=\$1$/.test(normalized)
-      || /DELETE FROM nv_exposure_scans WHERE ctid IN/.test(normalized)
-      || /UPDATE nv_exposure_findings AS finding/.test(normalized)
-      /*
-       * The disposition move inside `recordVerification`. Its transaction's
-       * first statement selects the finding FOR UPDATE on the identity, so
-       * this statement runs only for a row already proven to belong to the
-       * caller -- and repeating the identity here would be re-checking a lock
-       * we are holding. Listed rather than pattern-matched so a fifth
-       * exception has to be argued for.
-       */
-      || /UPDATE nv_exposure_findings SET disposition='credential-rejected'/.test(normalized);
-
-    if (!carriesIdentity && !carriesClaim && !declaredException) {
-      unscoped.push(normalized.slice(0, 90));
-    }
-  }
-  assert.deepStrictEqual(
-    unscoped, [],
-    `a statement reaches a scan or finding without an identity, a claim, or a stated exception:\n${unscoped.join('\n')}`
-  );
-}
 
 /* ---- Verification attempts are append-only, like observations --------- */
 
@@ -296,14 +225,7 @@ assert.strictEqual(
     'no column may hold a response body'
   );
 
-  assert.strictEqual(
-    /UPDATE nv_exposure_verifications/.test(storeSource), false,
-    'an attempt is evidence; editing one loses what was true at that moment'
-  );
-  assert.strictEqual(
-    /DELETE FROM nv_exposure_verifications/.test(storeSource), false,
-    'attempts leave with their finding, by cascade, and not otherwise'
-  );
+  /* An attempt is never edited, and leaves only with its finding, by cascade: test/module-rules.test.js's. */
 }
 
 /* ---- Readability probes are append-only too ---------------------------- */
@@ -351,56 +273,19 @@ assert.strictEqual(
     'no column may hold a response body'
   );
 
-  assert.strictEqual(
-    /UPDATE nv_exposure_readability_probes/.test(storeSource), false,
-    'a probe is evidence; editing one loses what was true at that moment'
-  );
-  assert.strictEqual(
-    /DELETE FROM nv_exposure_readability_probes/.test(storeSource), false,
-    'probes leave with their finding, by cascade, and not otherwise'
-  );
+  /* Nor is a probe, and recording one moves no finding: test/module-rules.test.js's. */
 
   /*
-   * And the store does not infer a disposition from a probe. A readable table
-   * is not the credential being live and a denied one is not the exposure
-   * ending, so a probe that moved a finding would be inventing a fact.
+   * The store does not infer a disposition from a probe: a readable table is
+   * not the credential being live, and a denied one is not the exposure ending.
    */
-  const probeMethod = storeSource.slice(
-    storeSource.indexOf('async recordReadabilityProbe('),
-    storeSource.indexOf('async listReadabilityProbes(')
-  );
-  assert(probeMethod.length > 400, 'the probe method slice must cover the method');
-  assert.strictEqual(
-    /UPDATE nv_exposure_findings/.test(probeMethod), false,
-    'what the anonymous role can reach says nothing about whether this key still works'
-  );
 }
 
 /*
- * The purge path has to know about these tables. A privacy promise that
- * forgets a table is a privacy promise that does not hold, and the existing
- * purge is the only place in the server that makes it -- so this asserts the
- * extension rather than trusting that somebody remembered.
+ * The tester purge deletes a tester's exposure scans and findings by identity,
+ * and their observations, verifications and probes go with them by cascade:
+ * asked of a real PostgreSQL server by test/alpha-privacy-purge-postgres.js.
+ * That nothing else deletes the evidence rows is test/module-rules.test.js's.
  */
-{
-  const privacySource = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'alpha-privacy-store.js'), 'utf8'
-  );
-  for (const table of ['nv_exposure_scans', 'nv_exposure_findings']) {
-    assert(
-      new RegExp(`DELETE FROM ${table} WHERE identity_key=ANY`).test(privacySource),
-      `the tester purge must delete ${table} by identity key, like every other table it owns`
-    );
-  }
-  /*
-   * Observations are not listed, and that is correct rather than an omission:
-   * they cascade from the scan. Asserted so that somebody adding a third
-   * DELETE has to think about why.
-   */
-  assert.strictEqual(
-    /DELETE FROM nv_exposure_observations/.test(privacySource), false,
-    'observations cascade from their scan; a second delete would be a second owner of the same rows'
-  );
-}
 
 console.log('exposure persistence contract tests passed');

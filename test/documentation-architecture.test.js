@@ -19,9 +19,11 @@ const LIFECYCLES = new Set([
   'historical',
   'development-record'
 ]);
+/* dist/ holds builds derived from the tree (the compiled server copies the documents), never documents of its own. */
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.cache',
+  'dist',
   'node_modules',
   'playwright-report',
   'test-results',

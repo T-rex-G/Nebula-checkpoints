@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const path = require('path');
-const { stableJson } = require('./governance-model');
+const { stableJson } = require('../packages/contracts/src/canonical-json.ts');
 
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;

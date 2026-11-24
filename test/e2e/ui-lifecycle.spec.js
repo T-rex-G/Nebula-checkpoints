@@ -39,7 +39,11 @@ test('late notification response cannot restore a purged account badge', async (
   });
   await page.goto('/');
   await request.promise;
-  await page.evaluate(() => window.NebulaPwa.purgePrivateData(true));
+  /* The reader clears this browser's data from Settings while the read is on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const response = page.waitForResponse('**/api/notifications');
   release.resolve();
   await settleResponse(page, response);
@@ -242,6 +246,38 @@ test('a skipped native page transition still navigates without an unhandled reje
   await expect.poll(() => page.evaluate(() => window.skippedTransitions)).toBeGreaterThan(0);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   expect(failures).toEqual([]);
+});
+
+/*
+ * A dismissed dialog leaves through the exit the stylesheet draws, and is
+ * hidden only once that exit is over: the overlay rules the workbench builds
+ * its dialogs from (test/overlay-motion.test.js) are the rules the page runs.
+ * With motion off there is no exit, and the dialog is gone at once.
+ */
+test('a dismissed dialog leaves through its exit, and is hidden once the exit is over', async ({ page }) => {
+  await boot(page);
+  await ui.button(page, 'Accounts').click();
+  await expect(ui.dialog(page, 'Accounts')).toBeVisible();
+  await page.locator('#modal').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
+  const leaving = await page.evaluate(() => {
+    document.getElementById('modalClose').click();
+    const scrim = document.getElementById('scrim');
+    return { closing: scrim.hasAttribute('data-closing'), hidden: scrim.hidden, exits: scrim.getAnimations({ subtree: true }).length };
+  });
+  expect(leaving).toEqual({ closing: true, hidden: false, exits: expect.any(Number) });
+  expect(leaving.exits).toBeGreaterThan(0);
+  await expect(page.locator('#scrim')).toBeHidden();
+  await expect(page.locator('#scrim')).not.toHaveAttribute('data-closing', '');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await ui.button(page, 'Accounts').click();
+  await expect(ui.dialog(page, 'Accounts')).toBeVisible();
+  const cut = await page.evaluate(() => {
+    document.getElementById('modalClose').click();
+    const scrim = document.getElementById('scrim');
+    return { closing: scrim.hasAttribute('data-closing'), hidden: scrim.hidden };
+  });
+  expect(cut).toEqual({ closing: false, hidden: true });
 });
 
 test('each popup opening animates, including replacement and reopening during dismissal', async ({ page }) => {

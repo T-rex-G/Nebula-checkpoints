@@ -13,8 +13,8 @@ const {
   validateRunnerRestoreAttestation
 } = require('../ci/run-hosted-alpha17-validation');
 const { signRunnerRestoreAttestation } = require('../ci/alpha17-restore-attestation');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { loadMigrations } = require('../src/migrations');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 const LATEST_MIGRATION = loadMigrations(path.join(__dirname, '..', 'db', 'migrations')).at(-1).id;
 
 const SUBJECT = 'a'.repeat(64);

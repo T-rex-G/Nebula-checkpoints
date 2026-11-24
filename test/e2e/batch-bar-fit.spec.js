@@ -42,7 +42,7 @@ async function revealBatchBar(page) {
   await ui.enterRepositories(page);
   await page.locator('.repo-card').first().click();
   await page.locator('#page-work.active').waitFor();
-  await page.evaluate(() => { if (window.switchTab) window.switchTab('upload'); });
+  await ui.openTab(page, 'upload');
   await page.locator('#uploadMode [data-v="batch"]').click();
   await page.locator('#filePicker').waitFor({ state: 'attached' });
   await page.locator('#filePicker').setInputFiles(QUEUED.map(name => ({

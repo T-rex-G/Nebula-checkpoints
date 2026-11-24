@@ -6,7 +6,6 @@ const {
   DEFAULT_NOTIFICATION_EVENT_TYPES,
   normalizeNotificationPreferences,
   normalizeWebhookDefinition,
-  isPublicAddress,
   normalizeWebhookDestination,
   deriveWebhookSigningSecret,
   signWebhookPayload,
@@ -14,7 +13,8 @@ const {
   buildGovernanceEvent,
   buildSignedEvidenceExport,
   verifySignedEvidenceExport
-} = require('../src/governance-delivery');
+} = require('../apps/api/src/modules/kepler/index.ts');
+const { isPublicAddress } = require('../apps/api/src/platform/network/public-address.ts');
 
 const scope = { provider: 'github', authority: 'github.com', owner: 'Acme', repo: 'Widget', scopeKey: 'github:github.com:acme/widget' };
 const secret = 's'.repeat(64);
@@ -106,4 +106,20 @@ const csvExport = buildSignedEvidenceExport({
 });
 assert(csvExport.content.includes("'=danger"), 'CSV must prefix formula-like cells');
 assert(verifySignedEvidenceExport(csvExport, secret).valid);
+
+/* An export holds at most a thousand events: that many are signed, one more is refused rather than cut. */
+{
+  const events = count => Array.from({ length: count }, (_, index) => buildGovernanceEvent({
+    eventSeq: index + 1, sourceKind: 'lifecycle', sourceSeq: index + 1, sourceId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    eventType: 'policy.activated', occurredAt: '2026-07-23T00:00:00.000Z', scope, actorLogin: 'auditor',
+    policyId: '44444444-4444-4444-8444-444444444444', versionId: '55555555-5555-4555-8555-555555555555',
+    subject: { activationId: '66666666-6666-4666-8666-666666666666', action: 'activate' }, evidence: {}
+  }));
+  const exported = count => buildSignedEvidenceExport({
+    exportId: '99999999-9999-4999-8999-999999999999', generatedAt: '2026-07-23T00:03:00.000Z', scope, actorLogin: 'auditor',
+    events: events(count), format: 'json', secret
+  });
+  assert.strictEqual(exported(1000).manifest.recordCount, 1000);
+  assert.throws(() => exported(1001), error => error.code === 'GOVERNANCE_EXPORT_LIMIT' && error.status === 413);
+}
 console.log('governance delivery model tests passed');

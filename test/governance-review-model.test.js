@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { computeGovernanceReviewState } = require('../src/governance-model');
+const { computeGovernanceReviewState } = require('../apps/api/src/modules/kepler/index.ts');
 assert.strictEqual(typeof computeGovernanceReviewState, 'function', 'review state helper must exist');
 const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
 const assignments = [

@@ -1,6 +1,7 @@
 'use strict';
 
 const { test, expect } = require('@playwright/test');
+const ui = require('./semantic');
 const { mockTask20Api, openRepository } = require('./task20-fixtures');
 
 test.use({ serviceWorkers: 'block' });
@@ -100,7 +101,9 @@ function anonKeyFinding(overrides = {}) {
 
 async function mockExposure(page, {
   findings = [], scanState = null, acceptStatus = 201, probe = null, probeStatus = 201,
-  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201
+  verifications = {}, probes = {}, history = [], reports = {}, clearStatus = 201, verifyStatus = 201,
+  /* The refusals the server sends: governanceAccess('administrator') guards both checks. */
+  probeRefusal = { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
 } = {}) {
   const state = { requests: [], verifyBodies: [], scanBodies: [], acceptCalls: [], probeBodies: [],
     currentScan: scanState || scan({ state: 'queued', coverage: 'unknown', finishedAt: null }),
@@ -150,10 +153,7 @@ async function mockExposure(page, {
     if (url.pathname.endsWith('/probe-readability') && request.method() === 'POST') {
       state.probeBodies.push(request.postDataJSON());
       if (probeStatus !== 201) {
-        return route.fulfill({
-          status: probeStatus,
-          json: { error: 'No project reference was found beside that key', code: 'EXPOSURE_PROBE_NO_PROJECT' }
-        });
+        return route.fulfill({ status: probeStatus, json: probeRefusal });
       }
       return route.fulfill({
         status: 201,
@@ -194,6 +194,12 @@ async function mockExposure(page, {
     }
     if (url.pathname.endsWith('/verify') && request.method() === 'POST') {
       state.verifyBodies.push(request.postDataJSON());
+      if (verifyStatus !== 201) {
+        return route.fulfill({
+          status: verifyStatus,
+          json: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+        });
+      }
       return route.fulfill({
         status: 201,
         json: {
@@ -374,6 +380,9 @@ test('history is included unless the reader turns it off, and the choice is reme
   await page.reload();
   await openExposure(page);
   await expect(page.locator('#exposureHistoryToggle')).not.toBeChecked();
+  await page.locator('#exposureScanBtn').click();
+  await expect.poll(() => state.scanBodies.length).toBe(2);
+  expect(state.scanBodies[1].history).toBe(false);
 });
 
 test('a finding says when it is only in history, inside an archive, or encoded', async ({ page }) => {
@@ -436,6 +445,8 @@ test('findings narrow by severity, status, place and words, and export without t
 
   /* Export carries the displayable path and the status, never the credential or the raw path. */
   await tools.getByRole('button', { name: 'Export', exact: true }).click();
+  /* A credential scan has no bill of materials and no brief: the menu offers the two files it has. */
+  await expect(page.getByRole('menuitem')).toHaveText([/^SARIF 2\.1\.0/, /^CSV/]);
   const csvDownload = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Export CSV' }).click();
   const csv = require('fs').readFileSync(await (await csvDownload).path(), 'utf8');
@@ -490,7 +501,11 @@ test('a late status response cannot restore a cleared repository scan', async ({
   await openExposure(page);
   await page.locator('#exposureScanBtn').click();
   await page.waitForRequest(request => request.method() === 'GET' && /\/exposure\/scans\//.test(request.url()));
-  await page.evaluate(() => window.clearExposureState());
+  /* The reader clears this browser's data while the scan's status is still on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const response = page.waitForResponse(url => /\/exposure\/scans\//.test(url.url()));
   release();
   await response;
@@ -655,6 +670,38 @@ test('a refusal to accept says it is the role, not that something went wrong', a
   /* The finding is unchanged: a refused acceptance must not look accepted. */
   await expect(page.locator('.exposure-item').first()).toHaveAttribute('data-disposition', 'open');
   await expect(page.locator('.exposure-item-provenance')).toHaveCount(0);
+});
+
+test('a refusal to check a credential says it is the role, not that something went wrong', async ({ page }) => {
+  /* The same role as accepting: the server sends GOVERNANCE_ROLE_REQUIRED, and the reader is told who can do it. */
+  await mockExposure(page, { findings: [finding()], verifyStatus: 403 });
+  await openExposure(page);
+  await expandFindings(page);
+
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await verify.click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('#exposureProofLine')).not.toContainText(/could not be checked/i);
+  await expect(page.locator('.exposure-item-liveness')).toHaveCount(0);
+});
+
+test('a refusal to ask a project says it is the role, not that something went wrong', async ({ page }) => {
+  await mockExposure(page, {
+    findings: [anonKeyFinding()], probeStatus: 403,
+    probeRefusal: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' }
+  });
+  await openExposure(page);
+  await expandFindings(page);
+
+  await page.locator('.exposure-probe-input[data-field="relation"]').fill('profiles');
+  await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
+  await page.locator('.exposure-probe').click();
+  await page.locator('.exposure-probe').click();
+
+  await expect(page.locator('#exposureProofLine')).toContainText(/governance administrator/i);
+  await expect(page.locator('.exposure-item-readability')).toHaveCount(0);
 });
 
 test('an anonymous key is not reported as a leak, and asks the question instead', async ({ page }) => {
@@ -926,10 +973,18 @@ test('a finding says its whole path and line, even on a phone', async ({ page })
 /* ---- History: every scan, by time, each opening into its report --------- */
 
 test('scan history is grouped by day, newest first, and each scan opens into its report', async ({ page }) => {
-  const now = Date.now();
-  const today = new Date(now);
-  const earlierToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 30);
-  const threeDaysAgo = new Date(now - 3 * 86_400_000);
+  /*
+   * The page names a day by its own clock, so it is given the instant the
+   * scans are dated from, and held there. Dated by the runner's clock alone, a
+   * run that crossed midnight between building the scans and drawing them read
+   * today's scans as "Yesterday". The morning scan falls halfway between
+   * midnight and that instant, so it is earlier the same day at any hour.
+   */
+  const today = new Date();
+  await page.clock.setFixedTime(today);
+  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const earlierToday = new Date(midnight + Math.floor((today.getTime() - midnight) / 2));
+  const threeDaysAgo = new Date(today.getTime() - 3 * 86_400_000);
   const latest = historyScan({
     scanId: '90000000-0000-4000-8000-00000000000a', createdAt: today.toISOString(),
     state: 'complete', coverage: 'complete', findingCount: 2, severityCounts: { critical: 2, serious: 0, warning: 0 }
@@ -1118,6 +1173,12 @@ test('the screen is operable from the keyboard and announces changes', async ({ 
 test('both themes and a 320px screen keep it readable', async ({ page }) => {
   await mockExposure(page, { findings: [finding()] });
   await openExposure(page);
+  /*
+   * The tab is shown before its findings arrive. Read straight after it
+   * opened, the finding was not there yet whenever the scan answered a little
+   * late, and the check failed on an element it never waited for.
+   */
+  await expect(page.locator('.exposure-item-consequence').first()).toBeAttached();
 
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
@@ -1162,12 +1223,187 @@ test('switching repository does not leave the previous findings on screen', asyn
   await openExposure(page);
   await expect(page.locator('.exposure-item')).toHaveCount(1);
 
-  await page.evaluate(() => window.clearExposureState());
   /*
-   * Whether or not the helper is reachable from here, the guarantee is that
-   * findings belong to one repository and one identity: leaving them up after
-   * a switch would show somebody another repository's exposures.
+   * Findings belong to one repository and one identity: leaving them up after
+   * a switch would show somebody another repository's exposures. The other
+   * repository is opened by its address, and holds its answer back, so what
+   * is on screen meanwhile can only be what the switch left.
    */
-  const stale = await page.evaluate(() => document.querySelectorAll('.exposure-item').length);
-  expect(stale).toBe(0);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/repo/acme/other', async route => {
+    await held;
+    return route.fulfill({ json: { full_name: 'acme/other', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: 'c'.repeat(40) }] } });
+  });
+  await page.route('**/api/repo/acme/other/**', route => route.fulfill({ json: [] }));
+  await page.evaluate(() => { location.hash = '#/acme/other@main/exposure'; });
+  await expect(page.locator('#workRepoName')).toHaveText('acme/other');
+  await expect(page.locator('.exposure-item')).toHaveCount(0);
+  release();
+});
+
+/*
+ * A narrowed view of a paged list is asked of the server, filters and all:
+ * the server holds the findings the page has not loaded.
+ */
+test('a narrowed paged list asks the server for that view', async ({ page }) => {
+  await mockExposure(page, { scanState: scan() });
+  const asked = [];
+  await page.route(url => url.pathname === '/api/repo/acme/demo/exposure/findings', route => {
+    asked.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: { findings: [finding()], verifications: {}, probes: {}, total: 3, counts: { all: 3, bySeverity: { critical: 1, warning: 2 }, byDisposition: { open: 3 } }, nextCursor: null } });
+  });
+  await openExposure(page);
+  await expect(page.locator('#exposureShown')).toContainText('1 of 3 matching findings loaded');
+  await page.locator('.exposure-segments .audit-segment[data-value="critical"]').click();
+  await expect.poll(() => asked.some(query => query.severity === 'critical')).toBe(true);
+  await page.locator('#exposureStatusFilter').selectOption('open');
+  await expect.poll(() => asked.some(query => query.severity === 'critical' && query.status === 'open')).toBe(true);
+});
+
+/*
+ * A scan canceled is canceled everywhere it is shown. The proof card used to
+ * say "Canceled" while the history beside it still called the same scan "In
+ * progress", until the page was reloaded.
+ */
+test('a canceled scan is canceled in the history too', async ({ page }) => {
+  await mockExposure(page, { findings: [] });
+  await openExposure(page);
+  await page.getByRole('button', { name: /Scan this branch/i }).click();
+  const entry = page.locator('.exposure-scan[data-scan-id="90000000-0000-4000-8000-000000000001"]');
+  await expect(entry.locator('.exposure-scan-counts')).toHaveText('In progress');
+  await page.getByRole('button', { name: /Cancel scan/i }).click();
+  await expect(page.locator('#exposureState')).toHaveAttribute('data-state', 'canceled');
+  await expect(entry.locator('.exposure-scan-state')).toHaveAttribute('data-state', 'canceled');
+  await expect(entry.locator('.exposure-scan-counts')).toHaveText('No results');
+});
+
+/*
+ * An answer about one repository is not said on another. A refused check
+ * that came back after the reader had opened a second repository used to be
+ * announced on the second one's screen, as though it were about that one.
+ */
+test('a refusal that arrives after another repository is opened is not said there', async ({ page }) => {
+  await mockExposure(page, { findings: [finding()], verifyStatus: 403 });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route(url => /\/exposure\/findings\/[^/]+\/verify$/.test(url.pathname), async route => {
+    await held;
+    return route.fulfill({ status: 403, json: { error: 'The administrator governance role is required', code: 'GOVERNANCE_ROLE_REQUIRED' } });
+  });
+  await openExposure(page);
+  await expandFindings(page);
+  const verify = page.locator('.exposure-verify').first();
+  await verify.click();
+  await verify.click();
+
+  await page.route('**/api/repo/acme/other', route => route.fulfill({ json: { full_name: 'acme/other', private: true, default_branch: 'main', branches: [{ name: 'main', protected: false, sha: 'c'.repeat(40) }] } }));
+  await page.route('**/api/repo/acme/other/**', route => route.fulfill({ json: [] }));
+  await page.evaluate(() => { location.hash = '#/acme/other@main/exposure'; });
+  await expect(page.locator('#workRepoName')).toHaveText('acme/other');
+  await expect(page.locator('#tab-exposure')).toBeVisible();
+
+  const answered = page.waitForResponse(response => /\/verify$/.test(new URL(response.url()).pathname));
+  release();
+  await answered;
+  await page.waitForTimeout(300);
+  await expect(page.locator('#exposureLive')).not.toContainText(/governance administrator/i);
+  await expect(page.locator('#exposureProofLine')).not.toContainText(/governance administrator/i);
+});
+
+/*
+ * A word the server never sent is shown as itself. The screen once looked
+ * every state, coverage and decision up by any name a table answers to, so a
+ * scan in the state `constructor` read as the page's own code, and a probe
+ * whose columns came as one name rather than a list stopped the whole screen
+ * drawing.
+ */
+test('a name the server never sent is shown as itself, and columns that are not a list are none', async ({ page }) => {
+  const recent = new Date(Date.now() - 60000).toISOString();
+  const later = new Date(Date.now() + 3600000).toISOString();
+  await mockExposure(page, {
+    scanState: scan({ state: 'constructor', coverage: 'toString', skippedReason: 'constructor' }),
+    findings: [finding({ disposition: 'toString' }), anonKeyFinding()],
+    history: [historyScan({ state: 'constructor', coverage: 'toString' })],
+    probes: {
+      ['b'.repeat(64)]: { probeId: 'p-1', fingerprint: 'b'.repeat(64), state: 'denied', relation: 'profiles', projection: 'id', observedAt: recent, freshnessDeadline: later, narration: 'Refused.' }
+    }
+  });
+  await openExposure(page);
+  await expect(page.locator('#exposureState')).toHaveText('constructor');
+  await expect(page.locator('#exposureCoverage')).toHaveText('toString');
+  await expect(page.locator('#exposureCaveat')).toBeHidden();
+  await expandFindings(page);
+  const odd = page.locator('.exposure-item[data-disposition="toString"]');
+  await expect(odd.locator('.exposure-item-status')).toHaveText('toString');
+  await expect(odd.locator('.exposure-item-disposition')).toHaveText('Status: toString');
+  await expect(page.locator('.exposure-item-readability')).toHaveText('Refused. Asked: profiles ().');
+  await expect(page.locator('.exposure-scan-state').first()).toHaveText('constructor');
+  await expect(page.locator('#tab-exposure')).not.toContainText(/native code|function /);
+});
+
+/* Opening the last closed finding by hand makes the open-all control say it will close them all. */
+test('opening every finding by hand turns the open-all control into close-all', async ({ page }) => {
+  await mockExposure(page, { scanState: scan(), findings: [finding()] });
+  await openExposure(page);
+  const toggle = page.locator('#exposureExpandAllBtn');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.exposure-item-summary').first().click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toContainText('Collapse all');
+  await page.locator('.exposure-item-summary').first().click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+/* A paged list loads its next page when asked, from where the last one ended. */
+test('a paged list loads its next page from where the last one ended', async ({ page }) => {
+  await mockExposure(page, { scanState: scan() });
+  const asked = [];
+  await page.route(url => url.pathname === '/api/repo/acme/demo/exposure/findings', route => {
+    const query = Object.fromEntries(new URL(route.request().url()).searchParams);
+    asked.push(query);
+    const second = query.cursor === 'page-2';
+    return route.fulfill({ json: { findings: [finding({ fingerprint: (second ? 'e' : 'f').repeat(64), path: second ? 'b.js' : 'a.js' })], verifications: {}, probes: {},
+      total: 2, counts: { all: 2, bySeverity: { critical: 2 }, byDisposition: { open: 2 } }, nextCursor: second ? null : 'page-2' } });
+  });
+  await openExposure(page);
+  const more = page.locator('#exposureLoadMore');
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect.poll(() => asked.some(query => query.cursor === 'page-2')).toBe(true);
+  await expect(page.locator('#exposureShown')).toContainText('2 of 2 matching findings loaded');
+  await expect(more).toBeHidden();
+});
+
+/*
+ * A typed question is kept under its own finding. The readability fields
+ * were once kept under whatever a finding's fingerprint answered to, so one
+ * named `__proto__` wrote the typed table into every object on the page.
+ */
+test('a question typed for a finding is kept under that finding and reaches no other object', async ({ page }) => {
+  await mockExposure(page, { findings: [anonKeyFinding({ fingerprint: '__proto__' })] });
+  await openExposure(page);
+  await expandFindings(page);
+  const table = page.locator('.exposure-probe-input[data-field="relation"]');
+  await table.fill('profiles');
+  await page.locator('.exposure-probe-input[data-field="columns"]').fill('id');
+  expect(await page.evaluate(() => [({}).relation, ({}).columns, Object.relation])).toEqual([null, null, null].map(() => undefined));
+  await page.locator('#exposureExpandAllBtn').click();
+  await expandFindings(page);
+  await expect(table).toHaveValue('profiles');
+});
+
+/*
+ * A check goes to the finding pressed. A fingerprint was put into the check's
+ * address as it came, so one carrying a slash or a dot segment sent the
+ * check, the acceptance or the question to another address.
+ */
+test('a check goes to the finding pressed, whatever its fingerprint holds', async ({ page }) => {
+  const state = await mockExposure(page, { findings: [finding({ fingerprint: 'x/../y' })] });
+  await openExposure(page);
+  await expandFindings(page);
+  const verify = page.locator('.exposure-verify');
+  await verify.click();
+  await verify.click();
+  await expect.poll(() => state.requests.filter(line => line.startsWith('POST'))).toEqual(['POST /api/repo/acme/demo/exposure/findings/x%2F..%2Fy/verify']);
 });

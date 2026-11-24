@@ -7,6 +7,8 @@ const { defineConfig, devices } = require('@playwright/test');
 // PostgreSQL or either browser is a failure, never a successful skipped gate.
 module.exports = defineConfig({
   testDir: './test/integration',
+  /* The server's TypeScript loads natively, as in the main suite (playwright.config.js). */
+  build: { external: ['**/apps/**', '**/packages/**'] },
   testMatch: '**/*.spec.js',
   fullyParallel: false,
   workers: 1,

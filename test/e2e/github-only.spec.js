@@ -34,6 +34,31 @@ test('sign-in offers GitHub token and configured OAuth without a provider or cus
   expect(logins).toEqual([{ token: 'fixture-github-credential', provider: 'github' }]);
 });
 
+/*
+ * Deleting a repository needs a wider GitHub grant than signing in. An
+ * account that signed in with OAuth is offered that grant from Accounts, but
+ * only while the deployment offers OAuth at all: /api/config says so, and
+ * without it the link would lead to a sign-in route that is not there.
+ */
+for (const oauth of [true, false]) {
+  test(`Accounts ${oauth ? 'offers' : 'does not offer'} the repository-deletion grant when OAuth is ${oauth ? 'on' : 'off'}`, async ({ page }) => {
+    await mockPublicAlphaApi(page, { access: 'active' });
+    await page.route('**/api/config', route => route.fulfill({ json: {
+      oauth, uploadMaxMb: 25, gitDataMaxMb: 16, nativePushMaxMb: 16, contentsMaxMb: 25
+    } }));
+    await page.route('**/api/accounts', route => route.fulfill({ json: { active: 0, accounts: [
+      { login: 'alpha-tester', provider: 'github', authMethod: 'oauth' }
+    ] } }));
+    await page.goto('/');
+    await ui.button(page, 'Accounts').click();
+    const accounts = ui.dialog(page, 'Accounts');
+    await expect(accounts.locator('.acct-row')).toHaveCount(1);
+    const grant = accounts.getByRole('link', { name: 'Allow repository deletion on GitHub' });
+    if (oauth) await expect(grant).toHaveAttribute('href', '/api/oauth/login?permission=repository-delete');
+    else await expect(grant).toHaveCount(0);
+  });
+}
+
 test('retired identities are listed only to be removed, and switching keeps the GitHub account index', async ({ page }) => {
   await mockPublicAlphaApi(page, { access: 'active' });
   await page.route('**/api/accounts', route => route.fulfill({ json: { active: 1, accounts: [

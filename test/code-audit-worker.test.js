@@ -9,8 +9,8 @@
 
 const assert = require('assert');
 const { EventEmitter } = require('events');
-const { analyse } = require('../src/code-audit');
-const { analyseOffThread, scanOffThread, BUDGET } = require('../src/code-audit-worker');
+const { analyse } = require('../apps/api/src/modules/uranus/index.ts');
+const { analyseOffThread, scanOffThread, BUDGET } = require('../apps/api/src/modules/uranus/index.ts').auditWorker;
 
 const I = '$';
 const files = [
@@ -166,7 +166,7 @@ function fakeWorker(behaviour) {
 
   /* ---- The whole audit, as the server runs it: stages in order, analysis on the worker ------------ */
   {
-    const { auditRepository } = require('../src/code-audit');
+    const { auditRepository } = require('../apps/api/src/modules/uranus/index.ts');
     const blobs = new Map(files.map((file, index) => [`sha-${index}`, file.text]));
     const reader = {
       resolveCommit: async () => ({ commitSha: 'c'.repeat(40), ref: 'main' }),

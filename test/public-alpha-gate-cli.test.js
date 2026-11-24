@@ -9,8 +9,8 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const { createArtifactVerifier, parseArgs } = require('../scripts/public-alpha-gate');
 const { createPassFixture } = require('./helpers/public-alpha-pass-fixture');
-const { computeReleaseFingerprint } = require('../src/release-fingerprint');
-const { loadMigrations } = require('../src/migrations');
+const { computeReleaseFingerprint } = require('../apps/api/src/platform/release/release-fingerprint.ts');
+const { loadMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 assert.deepStrictEqual(parseArgs(['plan']), { command: 'plan' });
 assert.deepStrictEqual(parseArgs(['verify', '/tmp/evidence.json']), {

@@ -86,10 +86,11 @@ assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), subjectHash: s
 assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), commandHash: sha256('echo pass') }, options), /commandHash/);
 assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), artifacts: [] }, options), /artifact file/);
 assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), artifacts: [{ path: '../escape.json', sha256: sha256('x') }] }, options), /relative POSIX|traversal|staging\/evidence/);
-assert.throws(() => normalizeEvidenceRecord(pass(CHECKS[0]), { now: NOW, expectedSubjectHash: SUBJECT_HASH }), /verifyArtifact/);
+assert.throws(() => normalizeEvidenceRecord(pass(CHECKS[0]), { now: NOW, expectedSubjectHash: SUBJECT_HASH }), /^TypeError: verifyArtifact is required when evidence contains artifacts$/);
 assert.throws(() => normalizeEvidenceRecord(pass(CHECKS[0]), { ...options, verifyArtifact: () => false }), /artifact verification failed/);
 assert.throws(() => normalizeEvidenceRecord({ ...pass(CHECKS[0]), subjectHash: '0'.repeat(64) }, { ...options, expectedSubjectHash: '0'.repeat(64) }), /non-zero/);
-assert.throws(() => evaluateStagingGate(CHECKS.map(pass), { now: NOW, verifyArtifact }), /expectedSubjectHash/);
+assert.throws(() => evaluateStagingGate(CHECKS.map(pass), { now: NOW, verifyArtifact }), /^TypeError: expectedSubjectHash is required$/);
+assert.throws(() => normalizeEvidenceRecord(pass(CHECKS[0]), { now: NOW, verifyArtifact }), /^TypeError: expectedSubjectHash is required$/);
 assert.throws(() => createBlockedEvidencePlan({ now: NOW }), /subjectHash/);
 
 console.log('staging validation tests passed');

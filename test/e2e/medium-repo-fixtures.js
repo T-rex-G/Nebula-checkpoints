@@ -35,6 +35,8 @@ const sha = n => n.toString(16).padStart(8, '0').repeat(5);
 
 function contentOf(file) {
   if (file === LONG_FILE) return Array.from({ length: LONG_FILE_LINES }, (_, i) => `const line${i} = ${i}; // line ${i + 1}`).join('\n');
+  /* A document whose author wrote markup as well as Markdown, for the preview to render inert. */
+  if (file === HOSTILE_DOCUMENT) return `# Security\n\nHow this repository is kept safe.\n\n${HOSTILE}\n`;
   return `// ${file}\n${Array.from({ length: 40 }, (_, i) => `export const value${i} = ${i};`).join('\n')}\n`;
 }
 
@@ -57,6 +59,7 @@ function treeFor(dir) {
  * should see rendered, and markup a hostile author could write, which must
  * arrive inert.
  */
+const HOSTILE_DOCUMENT = 'docs/security.md';
 const HOSTILE = [
   '<script>window.__mdPwned = "script"</script>',
   '<img src="x" onerror="window.__mdPwned = \'onerror\'">',
@@ -134,4 +137,4 @@ async function mockMediumRepo(page) {
   });
 }
 
-module.exports = { mockMediumRepo, FILES, LONG_FILE, LONG_FILE_LINES };
+module.exports = { mockMediumRepo, FILES, LONG_FILE, LONG_FILE_LINES, HOSTILE_DOCUMENT };

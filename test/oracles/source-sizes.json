@@ -1,0 +1,13 @@
+{
+ "limit": 800,
+ "files": {
+  "apps/api/src/modules/uranus/domain/uranus-flow.ts": {
+   "lines": 2521,
+   "reason": "engine"
+  },
+  "apps/api/src/modules/uranus/domain/uranus-cfamily.ts": {
+   "lines": 2139,
+   "reason": "engine"
+  }
+ }
+}

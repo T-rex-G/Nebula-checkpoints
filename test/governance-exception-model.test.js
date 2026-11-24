@@ -4,7 +4,7 @@ const {
   normalizeExceptionRequest,
   computeExceptionState,
   applyPolicyExceptions
-} = require('../src/governance-exceptions');
+} = require('../apps/api/src/modules/kepler/index.ts');
 
 const now = new Date('2026-07-22T19:00:00.000Z');
 const document = {

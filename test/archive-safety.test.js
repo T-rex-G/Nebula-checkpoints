@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const { normalizeZipPath, validateArchiveEntries, crc32, DEFAULT_LIMITS } = require('../public/archive-safety');
+const { normalizeZipPath, validateArchiveEntries, crc32, DEFAULT_LIMITS } = require('../apps/web/src/features/workbench/archive-safety.ts');
 
 assert.strictEqual(normalizeZipPath('project/src/app.js'), 'project/src/app.js');
 assert.strictEqual(normalizeZipPath('folder\\nested\\file.txt'), 'folder/nested/file.txt');
@@ -40,5 +40,27 @@ assert.throws(() => validateArchiveEntries(
 assert.throws(() => validateArchiveEntries([
   { name: 'script.sh', method: 99, compressedSize: 1, uncompressedSize: 1 }
 ]), /compression method/i);
+
+/* Each refusal says which it is, by a code the intake and the reader's message tell apart. */
+function refuses(run, code) {
+  assert.throws(run, error => error instanceof Error && error.code === code, `expected ${code}`);
+}
+refuses(() => normalizeZipPath('../secret.txt'), 'ZIP_UNSAFE_PATH');
+refuses(() => normalizeZipPath('/absolute.txt'), 'ZIP_UNSAFE_PATH');
+refuses(() => normalizeZipPath('folder/'), 'ZIP_DIRECTORY_ENTRY');
+refuses(() => validateArchiveEntries('not a list'), 'ZIP_INVALID_ENTRIES');
+refuses(() => validateArchiveEntries([{ name: 'a', method: 0, compressedSize: -1, uncompressedSize: 1 }]), 'ZIP_INVALID_SIZE');
+refuses(() => validateArchiveEntries([{ name: 'a', method: 3, compressedSize: 1, uncompressedSize: 1 }]), 'ZIP_UNSUPPORTED_METHOD');
+refuses(() => validateArchiveEntries([{ name: 'a', method: 0, compressedSize: 20, uncompressedSize: 20 }], { maxFileUncompressed: 10 }), 'ZIP_FILE_TOO_LARGE');
+refuses(() => validateArchiveEntries([{ name: 'a', method: 8, compressedSize: 1, uncompressedSize: 1000 }], { maxCompressionRatio: 100 }), 'ZIP_COMPRESSION_RATIO');
+refuses(() => validateArchiveEntries(Array.from({ length: 3 }, (_, i) => ({ name: `${i}`, method: 0, compressedSize: 1, uncompressedSize: 1 })), { maxEntries: 2 }), 'ZIP_TOO_MANY_FILES');
+refuses(() => validateArchiveEntries([
+  { name: 'a', method: 0, compressedSize: 8, uncompressedSize: 8 }, { name: 'b', method: 0, compressedSize: 8, uncompressedSize: 8 }
+], { maxTotalUncompressed: 10 }), 'ZIP_TOTAL_TOO_LARGE');
+/* Two names that differ only in case are one file on a case-insensitive disk: refused as a duplicate. */
+refuses(() => validateArchiveEntries([
+  { name: 'docs/README.md', method: 0, compressedSize: 1, uncompressedSize: 1 },
+  { name: 'docs/readme.md', method: 0, compressedSize: 1, uncompressedSize: 1 }
+]), 'ZIP_DUPLICATE_PATH');
 
 console.log('archive safety tests passed');

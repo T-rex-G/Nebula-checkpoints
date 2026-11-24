@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
 const crypto = require('crypto');
-const { createGovernanceApiService } = require('../src/governance-api');
+const { createGovernanceApiService } = require('../apps/api/src/modules/kepler/index.ts');
 const scope = { provider: 'github', owner: 'Acme', repo: 'Demo' };
 const key = value => crypto.createHash('sha256').update(value).digest('hex');
 const reviewerKey = key('reviewer');

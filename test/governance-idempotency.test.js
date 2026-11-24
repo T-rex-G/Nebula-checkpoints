@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { GovernanceStore } = require('../src/governance-store');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
 
 class ScriptedClient {
   constructor(steps) { this.steps = [...steps]; this.calls = []; this.released = false; }

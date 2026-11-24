@@ -1,16 +1,18 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
+const { freePort } = require('./helpers/free-port');
 const { withLifetime } = require('./fixtures/local-session');
 
 const assert = require('assert');
 const crypto = require('crypto');
 const path = require('path');
 const { spawn } = require('child_process');
-const { createGithubAppState } = require('../src/github-app');
-const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
+const { createGithubAppState } = require('../apps/api/src/modules/github-provider/index.ts');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
 
 const root = path.resolve(__dirname, '..');
-const port = 30100 + Math.floor(Math.random() * 500);
+const port = freePort();
 const sessionSecret = 'github-app-configured-test-secret-0123456789abcdef-0123456789abcdef';
 const snapKey = 'github-app-configured-snapshot-secret-fedcba9876543210-fedcba9876543210';
 /* The server derives a purpose-specific key per construction; mirror those
@@ -34,7 +36,7 @@ const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }
 const privateKeyBase64 = Buffer.from(privateKey.export({ type: 'pkcs8', format: 'pem' })).toString('base64');
 const clientSecret = 'configured-server-client-secret';
 const webhookSecret = 'configured-server-webhook-secret';
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: root,
   env: {
     ...process.env,

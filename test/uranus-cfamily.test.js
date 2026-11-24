@@ -12,10 +12,9 @@
  */
 
 const assert = require('assert');
-const { analyseCFamily, lex, functionsOf } = require('../src/uranus-cfamily');
-const { analyseFlows } = require('../src/uranus-flow');
-const { analyseSurface, reachOf } = require('../src/uranus-surface');
-const audit = require('../src/code-audit');
+const audit = require('../apps/api/src/modules/uranus/index.ts');
+const { analyseCFamily, lex, functionsOf } = audit.cfamily;
+const { analyseFlows, analyseSurface, reachOf } = audit;
 
 /* The line a fragment of a fixture is on, so expectations read as code, not numbers. */
 function at(text, fragment, nth = 1) {
@@ -690,7 +689,7 @@ func user(w http.ResponseWriter, r *http.Request) {
   /* the XXE rule is filed under its weakness */
   const rule = result.findings.length ? audit.RULES['SEC-034'] : null;
   assert(rule && rule.category === 'code');
-  const standards = require('../src/security-standards').standardsFor('SEC-034');
+  const standards = require('../apps/api/src/modules/posture/index.ts').standardsFor('SEC-034');
   assert.strictEqual(standards.cwe, 'CWE-611');
   assert.strictEqual(standards.owasp, 'A02:2025');
 }
@@ -725,6 +724,44 @@ func user(w http.ResponseWriter, r *http.Request) {
     const took = Date.now() - started;
     assert(took < 2500, `${name}: ${took} ms -- a crafted file must not make the tracer quadratic`);
   }
+}
+
+/* ---- A sanitiser clears a value for its own context, and for no other ------------- */
+{
+  const php = body => one('app/index.php', `<?php\n${body}\n`);
+  const go = body => one('main.go', `package main\n\nimport (\n\t"database/sql"\n\t"fmt"\n\t"html"\n\t"net/http"\n\t"net/url"\n\t"os/exec"\n\t"path/filepath"\n)\n\nvar db *sql.DB\n\n${body}\n`);
+  const java = body => one('src/main/java/app/C.java', `package app;\n\nimport org.springframework.web.bind.annotation.*;\nimport java.net.URLEncoder;\n\n@RestController\npublic class C {\n${body}\n}\n`);
+
+  const escaped = fires('PHP: escaped HTML in SQL', php("$n = htmlspecialchars($_GET['name']);\n$r = mysqli_query($db, \"SELECT * FROM users WHERE name = '\" . $n . \"'\");"), ['SEC-001@app/index.php:3']);
+  assert(escaped.flows[0].trace.some(step => /sanitised by htmlspecialchars for one context/.test(step.note)), 'the trace names the sanitiser');
+  fires('PHP: a URL component in a shell command', php("$n = urlencode($_GET['name']);\nsystem('convert ' . $n);"), ['SEC-011@app/index.php:3']);
+  fires('PHP: a bare file name in SQL', php("$n = basename($_GET['name']);\n$r = mysqli_query($db, \"SELECT * FROM f WHERE name = '$n'\");"), ['SEC-001@app/index.php:3']);
+  fires('PHP: a shell argument in SQL', php("$n = escapeshellarg($_GET['name']);\n$r = mysqli_query($db, 'SELECT * FROM f WHERE name = ' . $n);"), ['SEC-001@app/index.php:3']);
+  fires('PHP: SQL escaping in a page', php("$n = addslashes($_GET['name']);\necho '<h1>' . $n . '</h1>';"), ['SEC-033@app/index.php:3']);
+  fires('PHP: WordPress text sanitising in SQL', php("$n = sanitize_text_field($_GET['name']);\n$wpdb->query(\"SELECT * FROM wp_users WHERE user_login = '$n'\");"), ['SEC-001@app/index.php:3']);
+  fires('PHP: an escaped value joined to one that is not', php("$n = htmlspecialchars($_GET['name']) . $_GET['title'];\necho '<h1>' . $n . '</h1>';"), ['SEC-033@app/index.php:3']);
+  fires('PHP: one that is not, joined to an escaped value', php("$n = $_GET['title'] . htmlspecialchars($_GET['name']);\necho '<h1>' . $n . '</h1>';"), ['SEC-033@app/index.php:3']);
+  quiet('PHP: escaped HTML in a page', php("$n = htmlspecialchars($_GET['name']);\necho '<h1>' . $n . '</h1>';"));
+  quiet('PHP: a shell argument in a shell command', php("$n = escapeshellarg($_GET['name']);\nsystem('convert ' . $n);"));
+  quiet('PHP: SQL escaping in SQL', php("$n = mysqli_real_escape_string($db, $_GET['name']);\n$r = mysqli_query($db, \"SELECT * FROM users WHERE name = '\" . $n . \"'\");"));
+  quiet('PHP: a number in SQL', php("$n = intval($_GET['id']);\n$r = mysqli_query($db, 'SELECT * FROM users WHERE id = ' . $n);"));
+  quiet('PHP: a bare file name in a path', php("$n = basename($_GET['f']);\nreadfile('/srv/up/' . $n);"));
+
+  const handler = body => `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`;
+  fires('Go: escaped HTML in SQL', go(handler("\tn := html.EscapeString(r.URL.Query().Get(\"name\"))\n\tdb.Query(\"SELECT * FROM users WHERE name = '\" + n + \"'\")")), ['SEC-001@main.go:17']);
+  fires('Go: a URL component in a shell command', go(handler("\tn := url.QueryEscape(r.URL.Query().Get(\"name\"))\n\texec.Command(\"sh\", \"-c\", \"convert \"+n).Run()")), ['SEC-011@main.go:17']);
+  fires('Go: a bare file name in SQL', go(handler("\tn := filepath.Base(r.URL.Query().Get(\"name\"))\n\tdb.Query(fmt.Sprintf(\"SELECT * FROM f WHERE name = '%s'\", n))")), ['SEC-001@main.go:17']);
+  quiet('Go: escaped HTML in a page', go(handler("\tn := html.EscapeString(r.URL.Query().Get(\"name\"))\n\tfmt.Fprintf(w, \"<h1>%s</h1>\", n)")));
+  quiet('Go: a number in SQL', go(handler("\tn, _ := strconv.Atoi(r.URL.Query().Get(\"id\"))\n\tdb.Query(fmt.Sprintf(\"SELECT * FROM f WHERE id = %d\", n))")));
+  quiet('Go: a bare file name in a path', go(handler("\tn := filepath.Base(r.URL.Query().Get(\"name\"))\n\thttp.ServeFile(w, r, filepath.Join(\"/srv/up\", n))")));
+
+  const route = body => `  @GetMapping("/u")\n  public String u(@RequestParam String name) throws Exception {\n${body}\n  }`;
+  fires('Java: escaped HTML in SQL', java(route("    String n = StringEscapeUtils.escapeHtml4(name);\n    jdbc.queryForList(\"SELECT * FROM users WHERE name = '\" + n + \"'\");\n    return \"ok\";")), ['SEC-001@src/main/java/app/C.java:11']);
+  fires('Java: a URL component in a shell command', java(route("    String n = URLEncoder.encode(name, \"UTF-8\");\n    Runtime.getRuntime().exec(\"sh -c convert \" + n);\n    return \"ok\";")), ['SEC-011@src/main/java/app/C.java:11']);
+  fires('Java: cleaned markup in SQL', java(route("    String n = Jsoup.clean(name, Safelist.basic());\n    jdbc.queryForList(\"SELECT * FROM users WHERE name = '\" + n + \"'\");\n    return \"ok\";")), ['SEC-001@src/main/java/app/C.java:11']);
+  quiet('Java: escaped HTML in a page', java(route("    return \"<h1>\" + StringEscapeUtils.escapeHtml4(name) + \"</h1>\";")));
+  quiet('Java: an encoder that is not the URL encoder, as before', java(route("    String n = passwordEncoder.encode(name);\n    jdbc.queryForList(\"SELECT * FROM users WHERE hash = '\" + n + \"'\");\n    return \"ok\";")));
+  quiet('Java: a number in SQL', java(route("    int n = Integer.parseInt(name);\n    jdbc.queryForList(\"SELECT * FROM users WHERE id = \" + n);\n    return \"ok\";")));
 }
 
 console.log('uranus go, java and php tests passed');

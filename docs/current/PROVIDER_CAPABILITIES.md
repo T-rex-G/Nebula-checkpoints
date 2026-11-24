@@ -228,13 +228,42 @@ early exit) quiets the flow inside what it guards, and what was built from the
 checked value is settled with it. Calls are followed through helpers of
 helpers, a parent class's methods, a typed field's class (an injected Spring
 service and the one class implementing its interface, a Laravel controller's
-service), and a Go method of a name only one type defines. The engine is
-measured on a corpus of 138 cases in JavaScript, TypeScript, Python, Go, Java
-and PHP: 100% precision and 98% recall. Each case is a small application whose
+service), and a Go method of a name only one type defines. In JavaScript,
+TypeScript and Python a call is followed to the function it names wherever the
+repository defines it: a method of a class or an object, through the instance
+or the injected field that names it, a module that exports an instance, a
+re-export, and a module imported under an alias; a statement built in one
+function and run by another is a flow where it is run, a query or a page a
+function builds and returns is still built when it comes back, a response
+handed to a helper is still the response, and a callback is handed the value
+it is run over. The engine is
+measured on a corpus of 337 cases in JavaScript, TypeScript, Python, Go, Java
+and PHP: 92% precision and 100% recall. Each case is a small application whose
 own comments say what must be found and where, run through the whole audit
-(`node scripts/uranus-benchmark.js`); the one miss it records, a function the
-caller names and the code calls, is written down rather than left out, and the
-unit suite fails if any case regresses. A finding
+(`node scripts/uranus-benchmark.js`); its sixteen false alarms are written down
+rather than left out, and the unit suite fails if any case regresses. Every
+one of the sixteen is a pattern lead to confirm, never a confirmed finding: two
+on a value an allow-list replace or a shell quoter had already made safe, nine
+on a statement a helper builds from a parameter that no caller in the
+repository hands a request's value -- a constant, a parsed number, or no call
+at all -- and five on a value every branch left constant, or a key that holds
+a constant read beside one that holds the request's value; in each the trace
+is quiet and the line rule cannot know it. These figures are the engine's own
+corpus, labelled by the hands that wrote the engine. Labels written by others
+are in [the Uranus qualification](../qualification/URANUS_QUALIFICATION.md):
+the OWASP Benchmark for Java and Python, scored by its own expected results.
+A guarded
+endpoint that fetches a record by a caller's id is a lead to confirm unless the
+handler ties the record to the caller: the caller named where the record is
+asked for, in a condition, or a call that asks a policy, or a route only a role
+may reach. A user id in a log line, an audit row, the reply or the data written
+is not a tie. A handler that hands the caller's id to a service of the
+repository (JavaScript, TypeScript or Python) is read through that service's
+body, one call deep, when the name has one definition; the caller handed to the
+service is a tie. A sanitiser clears a value only for the sinks its context covers:
+escaped HTML still reaches SQL and the shell, a URL component still ends a SQL
+string, and a function of this repository that is only named like a sanitiser
+is read by its body. A finding
 is `confirmed` when the file states it or the whole path was traced, and `to
 confirm` when one decisive fact is out of reach; a lead names that fact and the
 local check that settles it, weighs half, and is exported to SARIF as a note to

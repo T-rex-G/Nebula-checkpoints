@@ -3,7 +3,7 @@ const assert = require('assert');
 const {
   alphaRetentionPolicy, alphaActorLabel, sanitizeFeedback,
   buildSupportBundle, providerRevocationGuidance
-} = require('../src/alpha-privacy');
+} = require('../apps/api/src/modules/identity-access/index.ts');
 
 assert.deepStrictEqual(alphaRetentionPolicy(), {
   alphaSessionsDays: 7,

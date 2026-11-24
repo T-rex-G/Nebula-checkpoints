@@ -31,6 +31,9 @@ async function secondRepository(page) {
 }
 
 test('another repository opens onto clean sections, never the last one’s audit', async ({ page }) => {
+  /* Each section is taken down by its own component, so nothing is torn from under it: the page throws nothing. */
+  const failures = [];
+  page.on('pageerror', error => failures.push(String(error)));
   await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
   await page.goto('/#/sandbox/demo@main/audit');
   const pane = page.locator('#tab-audit');
@@ -53,6 +56,7 @@ test('another repository opens onto clean sections, never the last one’s audit
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', 'Not audited');
   await expect(pane).not.toContainText('critical issue');
   await expect(pane.locator('.audit-findings')).toHaveCount(0);
+  expect(failures).toEqual([]);
 });
 
 test('an audit still being followed for the last repository never lands on the new one', async ({ page }) => {
@@ -78,4 +82,69 @@ test('an audit still being followed for the last repository never lands on the n
   await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', 'Not audited');
   await expect(pane).not.toContainText('critical issue');
   await expect(pane.getByRole('button', { name: 'Audit this branch' })).toBeEnabled();
+});
+
+/*
+ * A repository opened from the list arrives on its editor, with its address
+ * saved, and the comparison set up between its default branch and another.
+ */
+test('a repository opened from the list arrives on its editor, its address saved and its comparison set apart', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.route(/\/api\/repo\/sandbox\/demo(\?.*)?$/, route => route.fulfill({ json: {
+    full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: '', permission: 'admin',
+    branches: [{ name: 'main', protected: false, sha: 'a'.repeat(40) }, { name: 'feature/x', protected: false, sha: 'b'.repeat(40) }]
+  } }));
+  await page.goto('/');
+  await page.locator('#ovGoRepos').click();
+  await page.locator('#repoGrid .repo-card').filter({ hasText: 'demo' }).first().click();
+  await expect(page.locator('#tab-editor')).toBeVisible();
+  await expect(page.locator('#workRepoName')).toHaveText('sandbox/demo');
+  await expect(page).toHaveURL(/#\/sandbox\/demo@main/);
+  await expect(page.locator('#cmpBase')).toHaveValue('main');
+  await expect(page.locator('#cmpHead')).toHaveValue('feature/x');
+  await expect(page.locator('#workPrivateBadge')).toBeVisible();
+  await expect(page.locator('#workVisitorBadge')).toBeHidden();
+  await expect(page.locator('body')).not.toHaveClass(/repo-visitor/);
+});
+
+/*
+ * A repository opened from the list arrives on its editor, whatever tool the
+ * last one was showing.
+ */
+test('a repository opened from the list arrives on its editor, whatever tool was open before', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  await page.goto('/#/sandbox/demo@main/audit');
+  await expect(page.locator('#tab-audit')).toBeVisible();
+  await page.locator('.nv-rail-item[data-rail="repos"]').dispatchEvent('click');
+  await page.locator('#repoGrid .repo-card').filter({ hasText: 'demo' }).first().click();
+  await expect(page.locator('#tab-editor')).toBeVisible();
+  await expect(page.locator('#tab-audit')).toBeHidden();
+});
+
+/*
+ * A tool chosen from the rail while a repository is still opening is for that
+ * repository: when another is opened before it answers, the choice is not
+ * carried to the other one.
+ */
+test('a tool chosen while a repository opens is not carried to another opened meanwhile', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active', repositoryState: 'current' });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let holding = true;
+  await page.route(/\/api\/repo\/sandbox\/demo(\?.*)?$/, async route => { if (holding) await gate; return route.fallback(); });
+  await page.goto('/');
+  await page.locator('#ovGoRepos').click();
+  await page.locator('#repoGrid .repo-card').filter({ hasText: 'demo' }).first().click();
+  await page.locator('.nv-rail-item[data-rail="audit"]').dispatchEvent('click');
+  const other = await secondRepository(page);
+  other();
+  await page.evaluate(() => { location.hash = '#/sandbox/other@main/editor'; });
+  await expect(page.locator('#workRepoName')).toHaveText('sandbox/other');
+  await expect(page.locator('#tab-editor')).toBeVisible();
+  holding = false;
+  release();
+  await page.waitForTimeout(600);
+  await expect(page.locator('#workRepoName')).toHaveText('sandbox/other');
+  await expect(page.locator('#tab-editor')).toBeVisible();
+  await expect(page.locator('#tab-audit')).toBeHidden();
 });

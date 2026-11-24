@@ -14,7 +14,7 @@
 const assert = require('assert');
 const {
   GUARD_KINDS, MAX_SWEEP_BATCH, SingleUseStore, SingleUseStoreError, guardKeyFor
-} = require('../src/single-use-store');
+} = require('../apps/api/src/platform/rate-limit/single-use-store.ts');
 
 const SECOND = 1000;
 

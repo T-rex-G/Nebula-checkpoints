@@ -14,16 +14,17 @@
  *     there.
  */
 
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const crypto = require('crypto');
 const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Client } = require('pg');
-const { loadMigrations, runMigrations } = require('../src/migrations');
-const { hashJson } = require('../src/intelligence');
-const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../src/key-derivation');
-const { createCsrfToken } = require('../src/security-foundation');
+const { loadMigrations, runMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
+const { hashJson } = require('../apps/api/src/platform/values/stable-hash.ts');
+const { KEY_PURPOSES, deriveKey, deriveSecret } = require('../apps/api/src/platform/crypto/key-derivation.ts');
+const { createCsrfToken } = require('../apps/api/src/platform/authorization/security-foundation.ts');
 
 const root = path.join(__dirname, '..');
 const adminUrl = process.env.NV_TEST_DATABASE_URL;
@@ -92,9 +93,9 @@ async function main() {
     created = true;
     client = new Client({ connectionString: databaseUrl.toString() });
     await client.connect();
-    await runMigrations(client, loadMigrations(path.join(root, 'db/migrations')));
+    await runMigrations(client, { directory: path.join(root, 'db/migrations') });
     const port = await freePort();
-    child = spawn(process.execPath, ['-r', './test/fixtures/github-account-operations-fetch.js', 'server.js'], {
+    child = spawn(process.execPath, ['-r', './test/fixtures/github-account-operations-fetch.js', serverEntry()], {
       cwd: root,
       env: {
         ...process.env, NODE_ENV: 'test', PORT: String(port), SESSION_SECRET: secret,

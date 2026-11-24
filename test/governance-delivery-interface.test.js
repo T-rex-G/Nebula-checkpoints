@@ -1,9 +1,7 @@
 'use strict';
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-const ui = require('../public/governance-ui');
-const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const { markup } = require('./helpers/governance-view');
+const { createGovernance } = require('../apps/web/src/features/governance/governance-actions.ts');
 const twin = {
   schemaVersion: 1,
   scope: { owner: 'Acme', repo: 'Demo' },
@@ -19,7 +17,7 @@ const access = {
   capabilities: { read: true, author: true, review: true, activate: true, administer: true },
   evidence: { status: 'current', expiresAt: '2099-01-01T00:00:00.000Z' }
 };
-const html = ui.renderGovernanceInterface({
+const html = markup({
   digitalTwin: twin, access,
   delivery: {
     preferences: { enabled: true, eventTypes: ['policy.activated'], lastReadSeq: 1 },
@@ -33,12 +31,37 @@ assert(html.includes('Create signed export'));
 assert(html.includes('Administrative webhooks'));
 assert(!html.includes('<script>x</script>') && html.includes('&lt;script&gt;x&lt;/script&gt;'));
 assert(!html.includes('<img src=x onerror=1>'));
-for (const symbol of ['loadGovernanceDelivery', 'editGovernanceNotificationPreferences', 'createGovernanceEvidenceExport', 'createGovernanceWebhook', 'rotateGovernanceWebhook', 'deleteGovernanceWebhook']) {
-  assert(app.includes(`function ${symbol}`) || app.includes(`async function ${symbol}`), `missing ${symbol}`);
-}
-assert(app.includes('/notifications?limit=50&afterSeq=0'));
-assert(app.includes('/exports?limit=50'));
-assert(app.includes("state.governance.access.capabilities.administer === true"), 'webhooks must load only for administrators');
-assert(app.includes('This secret is shown once and cannot be recovered.'));
-assert(!app.includes("localStorage.setItem('governance") && !app.includes('nv_governance_delivery'));
-console.log('governance delivery interface tests passed');
+/*
+ * The delivery the screen draws is read by the module: notifications from the
+ * start and exports a bounded page at a time, webhooks only for an
+ * administrator, a new or rotated signing secret shown once with its warning,
+ * and none of it kept in the browser's storage.
+ */
+(async () => {
+  for (const administer of [true, false]) {
+    const asked = [];
+    const stored = [];
+    const shown = [];
+    const state = { work: { owner: 'Acme', repo: 'Demo' }, governance: { access: { capabilities: { administer } }, delivery: {} } };
+    const governance = createGovernance({
+      state, mutate: change => change(state.governance),
+      api: async (url, init = {}) => { asked.push(`${init.method || 'GET'} ${url}`); return /webhooks$/.test(url) && init.method === 'POST' ? { signingSecret: 'once' } : {}; },
+      modal: async request => { shown.push(request); return true; }, toast() {}, stepUp: async () => null,
+      $: selector => ({ '#govWebhookName': { value: 'hook' }, '#govWebhookUrl': { value: 'https://hooks.example.com/x' }, '#govWebhookTypes': { value: 'policy.activated' } })[selector] || null,
+      doc: { createElement: () => ({}), body: { appendChild() {} }, activeElement: null },
+      storage: () => ({ getItem: () => null, setItem: (key, value) => stored.push([key, value]) }),
+      draw() {}, requestAnimationFrame: run => run(), setTimeout: () => 0, clearTimeout() {}, now: () => 0, randomId: () => 'id', cssEscape: value => value
+    });
+    await governance.handlers['delivery-refresh']({ dataset: {} });
+    const base = '/api/repo/Acme/Demo/governance';
+    assert.deepStrictEqual(asked, [`GET ${base}/notifications?limit=50&afterSeq=0`, `GET ${base}/notifications/preferences`, `GET ${base}/exports?limit=50`, ...(administer ? [`GET ${base}/webhooks`] : [])],
+      administer ? 'an administrator reads the webhooks too' : 'webhooks must load only for administrators');
+    if (administer) {
+      await governance.handlers['create-webhook']({ dataset: {} });
+      const secret = shown.find(request => request.title === 'Webhook signing secret \u2014 save now');
+      assert(secret && secret.bodyHTML.includes('once') && secret.bodyHTML.includes('This secret is shown once and cannot be recovered.'));
+    }
+    assert.deepStrictEqual(stored, [], 'governance evidence must not be persisted in browser storage');
+  }
+  console.log('governance delivery interface tests passed');
+})().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

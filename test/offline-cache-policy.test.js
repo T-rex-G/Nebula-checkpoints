@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('assert');
-const policy = require('../public/offline-cache-policy');
+const policy = require('../packages/contracts/src/offline-cache-policy.ts');
 
 assert.strictEqual(policy.TTL_MS, 24 * 60 * 60 * 1000);
 assert.strictEqual(policy.MAX_ENTRIES, 100);
@@ -72,19 +72,64 @@ assert.strictEqual(policy.cacheNameForScope('bad'), '');
 assert.strictEqual(policy.isFresh(Date.now() - policy.TTL_MS + 1000, Date.now()), true);
 assert.strictEqual(policy.isFresh(Date.now() - policy.TTL_MS - 1000, Date.now()), false);
 
-const swSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'sw.js'), 'utf8');
+const swSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps', 'web', 'src', 'offline', 'sw.js'), 'utf8');
 assert(swSource.includes("key === 'nv-api-perm'"), 'service worker must delete the legacy shared private cache during activation');
 assert(swSource.includes("key === 'nv-api'"), 'service worker must delete the earlier unscoped API cache during activation');
 assert(swSource.includes('POLICY.responseMatchesBinding(response.headers, decision)'),
   'service worker must require a server-verified response binding before caching');
-const serverSource = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-const offlineBoundaryStart = serverSource.indexOf('/* Private offline reads are opt-in');
-const offlineBoundaryEnd = serverSource.indexOf('/* Browser request boundary', offlineBoundaryStart);
-assert(offlineBoundaryStart >= 0 && offlineBoundaryEnd > offlineBoundaryStart,
-  'server must retain the bounded private offline response middleware');
-const offlineBoundary = serverSource.slice(offlineBoundaryStart, offlineBoundaryEnd);
-assert(offlineBoundary.includes("res.setHeader('Cache-Control', 'no-store')"));
-assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Scope', binding.scope)"));
-assert(offlineBoundary.includes("res.setHeader('X-NV-Offline-Repo', binding.repoKey)"));
-assert(serverSource.includes("decision.scope !== expectedScope || decision.repoKey !== expectedRepoKey"));
+{
+  /* The server's no-store step, which decides the binding once the status line is known. */
+  const { apiNoStore } = require('../apps/api/src/http/pipeline/index.ts');
+  const headers = new Map();
+  const res = {
+    statusCode: 200,
+    setHeader(name, value) { headers.set(name.toLowerCase(), value); },
+    removeHeader(name) { headers.delete(name.toLowerCase()); },
+    vary() {},
+    writeHead() { return this; }
+  };
+  apiNoStore(() => ({ scope: 'scope-value', repoKey: 'github:o/r' }))({}, res, () => {});
+  assert.strictEqual(headers.get('cache-control'), 'no-store', 'an API answer is no-store until it is known to be a bound 200');
+  res.writeHead(200);
+  assert.strictEqual(headers.get('x-nv-offline-scope'), 'scope-value');
+  assert.strictEqual(headers.get('x-nv-offline-repo'), 'github:o/r');
+  res.writeHead(404);
+  assert.strictEqual(headers.get('cache-control'), 'no-store');
+  assert.strictEqual(headers.get('x-nv-offline-scope'), undefined);
+  /* That the composed server binds an answer to the offline cache only for the account and repository asked for is test/composition-postgres.test.js's. */
+}
+/* The binding is the session's own security's to decide, holding the scope and the repository both to the request's own: test/session-security.test.js's. */
+
+/*
+ * Every read the server registers, decided: the sixteen a reader browses
+ * offline are kept in the account's private cache, and every other is sent
+ * to the network only -- sessions, security, governance, evidence, snapshots,
+ * archives, audits and live events among them. Read from the route policy, so
+ * a new read route is decided here before it ships.
+ */
+{
+  const { locations } = require('./oracles/route-policy');
+  const CACHED = new Set([
+    '/api/repos', '/api/repo/:owner/:repo', '/api/repo/:owner/:repo/compare', '/api/repo/:owner/:repo/tree', '/api/repo/:owner/:repo/files',
+    '/api/repo/:owner/:repo/file', '/api/repo/:owner/:repo/commits', '/api/repo/:owner/:repo/commit/:sha', '/api/repo/:owner/:repo/search',
+    '/api/repo/:owner/:repo/pulls', '/api/repo/:owner/:repo/pulls/:num', '/api/repo/:owner/:repo/issues', '/api/repo/:owner/:repo/issues/:num',
+    '/api/repo/:owner/:repo/actions/:runId/jobs', '/api/repo/:owner/:repo/actions', '/api/repo/:owner/:repo/releases'
+  ]);
+  const reads = locations(require('path').resolve(__dirname, '..')).filter(entry => entry.kind === 'route' && entry.method === 'GET' && entry.path.startsWith('/api/'));
+  assert(reads.length > 80, `the route policy lists ${reads.length} reads`);
+  for (const { path: routePath } of reads) {
+    const concrete = routePath.replace(/:owner/g, 'acme').replace(/:repo/g, 'demo').replace(/:[A-Za-z]+/g, '1');
+    assert.strictEqual(classify(concrete).mode, CACHED.has(routePath) ? 'private-cache' : 'network-only', routePath);
+  }
+  assert.deepStrictEqual([...CACHED].filter(routePath => !reads.some(entry => entry.path === routePath)), [], 'every kept read is a route');
+
+  /* A repository, or an owner, named after a route that is never kept is cached like any other. */
+  for (const name of ['governance', 'evidence', 'raw', 'zip', 'star', 'restore', 'snapshot', 'activity', 'intelligence', 'live-events', 'access-surface']) {
+    for (const routePath of [`/api/repo/acme/${name}`, `/api/repo/acme/${name}/tree`, `/api/repo/${name}/demo/commits`, `/api/repo/${name}/${name}/issues/7`]) {
+      assert.strictEqual(classify(routePath).mode, 'private-cache', routePath);
+    }
+    assert.strictEqual(classify(`/api/repo/acme/demo/tree/${name}`).mode, 'network-only', `${name}, named past the repository, is never kept`);
+  }
+  assert.strictEqual(classify('/api/repo/acme/governance/governance/policies').mode, 'network-only');
+}
 console.log('offline cache policy tests passed');

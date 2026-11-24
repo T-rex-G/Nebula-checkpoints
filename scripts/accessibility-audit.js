@@ -25,6 +25,7 @@ const path = require('path');
 const { chromium } = require('@playwright/test');
 const AxeBuilder = require('@axe-core/playwright').default;
 const { mockPublicAlphaApi } = require('../test/e2e/public-alpha-fixtures');
+const ui = require('../test/e2e/semantic');
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
@@ -182,7 +183,7 @@ async function reflowFindings(page, where) {
 /*
  * Let the WebGL pieces mount.
  *
- * nebula-visuals.js treats a software rasteriser as no renderer at all --
+ * visuals-loader.ts treats a software rasteriser as no renderer at all --
  * deliberately, because these shader-heavy full-viewport pieces starve the
  * interface on a CPU. Under SwiftShader that means the 3D mark and the galaxy
  * never mount, so this audit was scanning two screens with their largest
@@ -241,13 +242,8 @@ async function main() {
         findings.push(...await targetFindings(page, label('overview')));
         findings.push(...await focusFindings(page, label('overview')));
 
-        /*
-         * Moved by the application's own page switch rather than by clicking
-         * the rail: the rail does not exist below 900px, where the bottom
-         * navigation carries these destinations instead, so a rail click is a
-         * desktop-only path and this audit has to walk both.
-         */
-        await page.evaluate(() => window.showPage('repos'));
+        /* Reached the way a reader reaches it, on a desk and on a phone alike. */
+        await ui.enterRepositories(page);
         await page.getByRole('main', { name: 'Your galaxies' }).waitFor({ state: 'visible' });
         await page.waitForTimeout(6000);
         findings.push(...await coverageFindings(page, label('repositories'), { tag: 'nebula-galaxy', label: 'The galaxy' }));
@@ -268,12 +264,10 @@ async function main() {
         await page.waitForTimeout(900);
 
         for (const tab of WORKBENCH_TABS) {
-          const opened = await page.evaluate(name => {
-            if (typeof window.switchTab !== 'function') return false;
-            window.switchTab(name);
-            const pane = document.querySelector(`#tab-${name}`);
-            return !!(pane && pane.classList.contains('active'));
-          }, tab);
+          /* Opened from the tab bar, or on a phone from the navigation and its More sheet. */
+          const opened = await ui.openTab(page, tab)
+            .then(() => page.locator(`#tab-${tab}.active`).waitFor({ timeout: 5000 }))
+            .then(() => true, () => false);
           if (!opened) {
             findings.push({
               kind: 'coverage', where: label(`work/${tab}`), impact: 'unknown',
@@ -288,7 +282,7 @@ async function main() {
           findings.push(...await targetFindings(page, label(`work/${tab}`)));
         }
 
-        await page.evaluate(() => window.showSiteScan());
+        await ui.rail(page, 'site');
         await page.locator('#page-site.active').waitFor();
         // Measure the settled page, not a frame of its 240 ms opacity entrance.
         await page.locator('#page-site.active').evaluate(async node => {
@@ -296,7 +290,10 @@ async function main() {
         });
         findings.push(...await axeFindings(page, label('website')));
         findings.push(...await targetFindings(page, label('website')));
-        await page.evaluate(() => { window.showPage('work'); window.switchTab('editor'); });
+        /* Back to the open repository by one of its tools on the rail, then to its editor. */
+        await ui.rail(page, 'audit');
+        await page.locator('#page-work.active').waitFor();
+        await ui.openTab(page, 'editor');
 
         /* 1.4.10: the narrowest width the standard actually asks for. */
         await page.setViewportSize({ width: 320, height: 560 });

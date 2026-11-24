@@ -10,9 +10,10 @@ discarded and a version that never ran can be withdrawn. None of these edits a
 record of something that already happened: each one appends to the governance
 ledger, and the audit chain still verifies afterwards.
 
-The implementation lives in `src/governance-store.js` (one transaction per
-operation), `src/governance-api.js` (roles and input), and
-`db/migrations/028_governance_lifecycle.sql`. The behaviour below is exercised
+The implementation lives in the Kepler module: its store,
+`apps/api/src/modules/kepler/persistence/governance-store.ts` (one transaction
+per operation), its service, `apps/api/src/modules/kepler/application/governance-api.ts`
+(roles and input), and `db/migrations/028_governance_lifecycle.sql`. The behaviour below is exercised
 against a real PostgreSQL server by `test/governance-lifecycle-postgres.test.js`.
 
 ## The operations

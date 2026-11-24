@@ -259,19 +259,36 @@ try {
   fs.mkdirSync(path.join(archiveRoot, 'scripts'));
   fs.mkdirSync(path.join(archiveRoot, 'config'));
   fs.mkdirSync(path.join(archiveRoot, 'docs', 'current'), { recursive: true });
+  fs.mkdirSync(path.join(archiveRoot, 'packages', 'contracts', 'src'), { recursive: true });
   for (const relative of [
     'package.json',
     'WORK_CONTINUITY.json',
     'src/work-continuity.js',
     'src/capability-registry.js',
-    'src/github-account-operations.js',
-    'src/alpha-access.js',
+    /* Account operations and the repository scope parser are server modules, an ES-module scope each reached through its index. */
+    'apps/package.json',
+    'apps/api/src/modules/github-provider',
+    'apps/api/src/modules/identity-access',
+    'apps/api/src/platform/persistence/queryable.ts',
+    /* GitHub's answers about references are read with the platform's field helpers. */
+    'apps/api/src/platform/values/fields.ts',
+    /* Identity and access's index also carries its HTTP routes, which read text, the single-use guard and the security foundation. */
+    'apps/api/src/platform/values/text.ts',
+    /* Its accounts' identity keys are digests of their canonical JSON. */
+    'apps/api/src/platform/values/stable-hash.ts',
+    'apps/api/src/platform/crypto/hmac.ts',
+    'apps/api/src/platform/rate-limit/single-use-store.ts',
+    'apps/api/src/platform/authorization/security-foundation.ts',
+    /* The capability document's guard and the security foundation's assurance levels are shared contracts, one package in its own module scope. */
+    'packages/package.json',
+    'packages/contracts/src',
     'config/public-alpha-capabilities.json',
     'scripts/generate-continuity-docs.js',
     'docs/current/PROJECT_STATE.md',
     'docs/current/CONTINUATION_PROMPT.md'
   ]) {
-    fs.copyFileSync(path.join(root, relative), path.join(archiveRoot, relative));
+    fs.mkdirSync(path.dirname(path.join(archiveRoot, relative)), { recursive: true });
+    fs.cpSync(path.join(root, relative), path.join(archiveRoot, relative), { recursive: true });
   }
   const archiveCheck = execFileSync(
     process.execPath,

@@ -23,8 +23,6 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 
 const {
   DETECTION_ENGINE_VERSION,
@@ -36,8 +34,8 @@ const {
   detectInHunks,
   detectInText,
   sanitizeCandidate
-} = require('../src/exposure-detection');
-const { parsePatch } = require('../src/exposure-reader');
+} = require('../apps/api/src/modules/quasar/index.ts');
+const { parsePatch } = require('../apps/api/src/modules/quasar/index.ts').exposureReader;
 
 /* Split prefixes: this file is scanned by the gate it is testing. */
 const TOKEN_A = `gh${'p'}_${'A'.repeat(36)}`;
@@ -397,7 +395,7 @@ function rulesFor(text) {
   assert(Number.isInteger(DETECTION_ENGINE_VERSION) && DETECTION_ENGINE_VERSION >= 1);
   assert(Number.isInteger(RULES_VERSION) && RULES_VERSION >= 1);
 
-  const { RULES } = require('../src/secret-scanner');
+  const { RULES } = require('../apps/api/src/platform/release/secret-scanner.ts');
   /*
    * The gate's rules and the scan's own, in that order and in one digest. A
    * scan's identity depends on every rule it ran, so a rule added here has to
@@ -405,17 +403,15 @@ function rulesFor(text) {
    * digest covering only half of them would let the scan-only half change
    * silently.
    */
-  const { EXPOSURE_RULES, PATH_RULES } = require('../src/exposure-detection');
+  const { EXPOSURE_RULES, PATH_RULES } = require('../apps/api/src/modules/quasar/index.ts');
   /* And the path rules, which decide findings as surely as a pattern does. */
   const parts = [...RULES, ...EXPOSURE_RULES]
     .map(rule => `${rule.rule}\u0000${rule.regex.source}\u0000${rule.regex.flags}`);
   for (const rule of PATH_RULES) parts.push(`${rule.rule}\u0000${rule.extensions.join(',')}`);
   const digest = crypto.createHash('sha256').update(parts.join('\u0001')).digest('hex');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'exposure-detection.js'), 'utf8');
-  assert(
-    source.includes(digest),
-    `the rule set changed without RULES_VERSION moving: record ${digest} and raise the version`
-  );
+  const { RULES_DIGEST } = require('../apps/api/src/modules/quasar/domain/exposure-detection.ts');
+  assert.strictEqual(digest, RULES_DIGEST,
+    `the rule set changed without RULES_VERSION moving: record ${digest} as RULES_DIGEST and raise the version`);
 }
 
 /* ---- Encoded credentials ------------------------------------------------- */

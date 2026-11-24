@@ -4,10 +4,10 @@
 // Database pagination and watch preservation run in the PostgreSQL gates.
 const assert = require('node:assert/strict');
 const repo = require('node:path').join(__dirname, '..');
-const { detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require(repo + '/src/exposure-detection');
-const { createExposureRunner } = require(repo + '/src/exposure-worker');
-const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require(repo + '/src/exposure-findings');
-const { EXPOSURE_CONFIG_VERSION } = require(repo + '/src/exposure-store');
+const { detectInText, RULES_VERSION, DETECTION_ENGINE_VERSION } = require(repo + '/apps/api/src/modules/quasar/index.ts');
+const { createExposureRunner } = require(repo + '/apps/api/src/modules/quasar/index.ts');
+const { fingerprintKeyId, FINGERPRINT_KEY_VERSION } = require(repo + '/apps/api/src/modules/quasar/index.ts');
+const { EXPOSURE_CONFIG_VERSION } = require(repo + '/apps/api/src/modules/quasar/index.ts');
 
 const key = Buffer.alloc(32, 17);
 const scope = { provider: 'github', authority: 'github.com', owner: 'fixture', repo: 'fixture' };

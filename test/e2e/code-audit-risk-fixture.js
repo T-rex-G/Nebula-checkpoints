@@ -9,7 +9,7 @@
  * entries FIRST and CISA publish for those CVEs.
  */
 
-const { analyse } = require('../../src/code-audit');
+const { analyse } = require('../../apps/api/src/modules/uranus/index.ts');
 
 function riskyResult() {
   const lock = {

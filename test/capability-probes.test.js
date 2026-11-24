@@ -14,6 +14,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { createProviderFetchFixture, FIXTURE_CREDENTIALS } = require('../ci/alpha17-fixtures');
 const { runGithubValidation } = require('../ci/run-github-alpha17-validation');
+const { PROVIDER_REQUESTS, sent, scopedToRepository, moves } = require('./fixtures/provider-requests');
 
 const RUN_ID = 'run-4096';
 const NOW = '2026-09-26T12:00:00.000Z';
@@ -445,70 +446,52 @@ const PREFIX = `nvx-alpha17-${RUN_ID}`;
   /*
    * ---- The probes send what the product sends -------------------------------
    *
-   * A probe that reached the provider by another route would prove GitHub works
-   * and leave the product's route unproven while the registry said otherwise.
-   * These hold each probe to the route it earns a claim for.
+   * A probe that reached the provider by another request would prove GitHub
+   * works and leave the product's request unproven while the registry said
+   * otherwise. Every request a whole qualification run sends is recorded here,
+   * and each capability's request is held to the table the product's routes
+   * are held to as well (test/fixtures/provider-requests.js; the product's side
+   * in test/workbench-collaboration-routes.test.js and
+   * test/workbench-repository-routes.test.js).
    */
   {
-    const fs = require('fs');
-    const path = require('path');
-    const { scopedCodeQuery } = require('../src/github-account-operations');
-    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-    const harness = fs.readFileSync(path.join(__dirname, '..', 'ci', 'run-github-alpha17-validation.js'), 'utf8');
-    const route = (method, routePath) => {
-      const start = server.indexOf(`app.${method}('${routePath}'`);
-      assert(start >= 0, `missing ${method.toUpperCase()} ${routePath}`);
-      return server.slice(start, server.indexOf('\n});', start));
-    };
-
-    /* Rename: the source found a level at a time, re-linked by identity on the observed head, destination required free. */
-    const rename = route('post', '/api/repo/:owner/:repo/rename');
-    assert.match(rename, /gitTreeEntryByPath\(/);
-    assert.match(rename, /\{ path: to, sha: entry\.sha, preserveFrom: from \}/);
-    assert.match(rename, /\{ path: from, sha: null, preserveFrom: from \}/);
-    assert.match(rename, /observedHead, \{ mustNotExist: \[to\] \}/);
-    assert.match(harness, /\{ path: to, sha: sourceSha, preserveFrom: from \}/);
-    assert.match(harness, /\{ path: from, sha: null, preserveFrom: from \}/);
-
-    /* Folder move: the recursive tree of the observed head, entries forced, source removed. */
-    const move = route('post', '/api/repo/:owner/:repo/move-dir');
-    assert.match(move, /git\/trees\/\$\{ref\.object\.sha\}\?recursive=1/);
-    assert.match(move, /entries\.push\(\{ path: destinationPath, mode: e\.mode, type: e\.type, sha: e\.sha, forceMode: true \}\)/);
-    assert.match(harness, /entries\.push\(\{ path: destinationPath, mode: entry\.mode, type: entry\.type, sha: entry\.sha, forceMode: true \}\)/);
-    assert.match(move, /mustNotExist: destinations/);
-
-    /* Issues: create, comment and close with the bodies the product sends. */
-    assert.match(route('post', '/api/repo/:owner/:repo/issues'), /\/issues`, \{ method: 'POST', body: \{ title, body: body \|\| '' \} \}/);
-    assert.match(route('post', '/api/repo/:owner/:repo/issues/:num/comments'), /\/comments`, \{ method: 'POST', body: \{ body \} \}/);
-    assert.match(route('patch', '/api/repo/:owner/:repo/issues/:num'), /method: 'PATCH', body: \{ state \}/);
-
-    /* Pull requests: the merge carries the pinned head, and the review a comment event. */
-    const merge = route('put', '/api/repo/:owner/:repo/pulls/:num/merge');
-    assert.match(merge, /body: \{ merge_method: method, \.\.\.\(expected \? \{ sha: expected \} : \{\}\) \}/);
-    assert.match(merge, /error\.status === 409\) throw headMoved\(\)/);
-    assert.match(harness, /merge_method: 'merge', sha: reportedHead/);
-    assert.match(route('post', '/api/repo/:owner/:repo/pulls'), /body: \{ title, head, base, body: body \|\| '', draft: !!draft \}/);
-
-    /* Releases: the same create body, a prerelease on a branch. */
-    assert.match(route('post', '/api/repo/:owner/:repo/releases'),
-      /body: \{ tag_name: tag, name: name \|\| tag, body: body \|\| '', target_commitish: target \|\| undefined, prerelease: !!prerelease \}/);
-
-    /* Stars and re-runs: the same endpoints. */
-    assert.match(route('put', '/api/repo/:owner/:repo/star'), /`\/user\/starred\/\$\{req\.params\.owner\}\/\$\{req\.params\.repo\}`, \{ method: 'PUT' \}/);
-    assert.match(harness, /const starPath = `user\/starred\/\$\{repositoryPath\}`/);
-    assert.match(route('post', '/api/repo/:owner/:repo/actions/:runId/rerun'), /\/actions\/runs\/\$\{req\.params\.runId\}\/rerun`, \{ method: 'POST' \}/);
+    const { scopedCodeQuery } = require('../apps/api/src/modules/github-provider/index.ts');
+    const requests = [];
+    const { result } = await run(async request => {
+      requests.push(request);
+      return null;
+    });
+    assert.strictEqual(result.status, 'pass', 'the qualification run passes');
+    const api = requests.filter(request => !request.reader).map(request => ({
+      method: request.method, path: request.pathname.replace(/^\//, ''), body: request.body, search: request.search
+    }));
+    for (const expectation of PROVIDER_REQUESTS) {
+      assert(sent(expectation, api), `the probes send ${expectation.capability} as the product does: ${JSON.stringify(api.filter(request => request.method === expectation.method).map(request => [request.path, request.body && Object.keys(request.body)]))}`);
+    }
 
     /* Search: the probe's query is the one the product's guard composes. */
-    const search = route('get', '/api/repo/:owner/:repo/search');
-    assert.match(search, /scopedCodeQuery\(req\.query\.q, repository\)/);
+    const repository = environment().NV_ALPHA17_REPOSITORY;
+    const searched = api.filter(request => request.path === 'search/code').map(request => request.search.get('q'));
+    assert(searched.length > 0 && searched.every(query => scopedToRepository(query, repository)), `the probes search as the product does: ${searched}`);
     assert.strictEqual(scopedCodeQuery('nvx-alpha17-search-fixture', 'owner/name'), 'nvx-alpha17-search-fixture repo:owner/name');
-    assert.match(harness, /url\.searchParams\.set\('q', `\$\{words\} repo:\$\{repository\}`\)/);
 
-    /* Exposure: the probe runs the product's reader module, not a copy of it. */
-    assert.match(harness, /const exposureReader = require\('\.\.\/src\/exposure-reader'\);/);
-    for (const call of ['resolveCommit', 'readTree', 'readBlob', 'listCommits', 'readCommitChanges']) {
-      assert(harness.includes(`exposureReader.${call}(`), `the exposure probe must call the reader's ${call}`);
+    /* Rename and folder move: one tree on the observed head, each path written with its object and the old one removed. */
+    const trees = api.filter(request => request.method === 'POST' && /^repos\/[^/]+\/[^/]+\/git\/trees$/.test(request.path)).map(request => request.body.tree);
+    const renamed = trees.find(tree => tree.some(entry => /-batch-inline\.txt$/.test(entry.path) && entry.sha === null));
+    assert(renamed, 'the rename probe sends a tree that removes its source');
+    const from = renamed.find(entry => /-batch-inline\.txt$/.test(entry.path)).path;
+    const to = renamed.find(entry => /-tree\/nested\/inline\.txt$/.test(entry.path)).path;
+    assert(moves(renamed, from, to), `the rename probe moves ${from} to ${to} as the product does`);
+    const moved = trees.find(tree => tree.some(entry => /-moved\//.test(entry.path)));
+    assert(moved, 'the folder move probe sends a tree under its destination');
+    const sources = moved.filter(entry => entry.sha === null);
+    assert(sources.length >= 2, 'it moves more than one path');
+    for (const source of sources) {
+      assert(moves(moved, source.path, source.path.replace(/-tree\//, '-moved/')), `the folder move probe moves ${source.path} as the product does`);
     }
+
+    /* Exposure: the probe runs the product's reader module, not a copy of it: its reads say so. */
+    assert(requests.some(request => request.reader), 'the exposure probe reads through the product\'s reader');
   }
 
   const failures = (await Promise.all(pending)).filter(Boolean);

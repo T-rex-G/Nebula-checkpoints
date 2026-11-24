@@ -102,7 +102,8 @@ rejects('PUBLIC_ALPHA_VERSION_MISMATCH', ({ record }) => { record.version = '5.3
 rejects('PUBLIC_ALPHA_EVIDENCE_SUBJECT_MISMATCH', ({ record }) => { record.subjectSha256 = 'd'.repeat(64); });
 rejects('PUBLIC_ALPHA_SOURCE_COMMIT_MISMATCH', ({ record }) => { record.sourceCommit = 'e'.repeat(40); });
 rejects('PUBLIC_ALPHA_MIGRATION_MISMATCH', ({ record }) => { record.latestMigration = '014_alpha_access'; });
-for (const nodeVersion of ['22.0.0', '22.22.1']) {
+/* 22.23.1 and 22.23.4 are the pins before the October and November security releases, and are refused like any other. */
+for (const nodeVersion of ['22.0.0', '22.22.1', '22.23.1', '22.23.3', '22.23.4']) {
   rejects('PUBLIC_ALPHA_NODE_VERSION_INVALID', ({ record }) => { record.nodeVersion = nodeVersion; });
 }
 rejects('PUBLIC_ALPHA_EVIDENCE_STALE', ({ record }) => {

@@ -1,0 +1,7 @@
+# A miniature in the Benchmark layout, written for test/uranus-owasp-benchmark.test.js; nothing here is taken from the Benchmark.
+# test name, category, real vulnerability, cwe, Benchmark version: 1.2, 2016-06-1
+BenchmarkTest00001,sqli,true,89
+BenchmarkTest00002,sqli,false,89
+BenchmarkTest00003,xss,true,79
+BenchmarkTest00004,hash,true,328
+BenchmarkTest00005,sqli,true,90

@@ -849,3 +849,315 @@ cleanup policies. Secret-detection coverage remains separate from repository
 provider support. GitHub, hosted, manual accessibility and independent review
 gates still require evidence for the exact candidate. No gate is waived, and
 this PR must stay open and unmerged for another AI review.
+
+## ADR-087 — One modular monolith: React and strict TypeScript in the browser, Express and strict TypeScript on the server
+
+**Status:** Accepted owner decision, 18 October 2026 (architecture foundation mission, Revision 2).
+
+**Decision:** Nebulaverse-X stays one Node.js service with one PostgreSQL database. The browser application is React 19 with strict TypeScript, built by Vite. The server is Express 4 with strict TypeScript. The six systems (Pulsar, Kepler, Quasar, Uranus, Parallax, Corona) and the shared platform are modules of that one service, each reached only through its public index.
+
+**Reason:** The interface's cost was one mutable state object shared by four hundred functions, more than a hundred HTML string sinks and thirty order-dependent classic scripts. The server's cost was one 8,900-line file that registered every route and owned two of the six systems outright. Both are problems of structure, not of runtime: a component model with typed props, one typed store and typed module boundaries address them, while a framework change (NestJS, Fastify, Next.js) would re-prove an ordered fourteen-step security pipeline, a raw-body webhook, hand-managed SSE back-pressure and process isolation for no gain.
+
+**Consequence:** Express, CodeMirror 5 and the hosting (Render free plan with Neon) are unchanged. React owns the application chrome; the WebGL and canvas engines keep their imperative internals behind typed adapters.
+
+## ADR-088 — Server TypeScript runs natively in scoped ES-module folders, with a compiled runtime proven continuously
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** Server TypeScript runs on Node 22.23.1's built-in type stripping. The root `package.json` stays `"type": "commonjs"`. `apps/package.json` and `packages/package.json` each contain only `{"type":"module"}`, so everything under them is an ES module while every test, script, CI tool and configuration keeps running as CommonJS. Rules:
+
+- Erasable syntax only (`erasableSyntaxOnly`).
+- No top-level `await` in `apps/` or `packages/`, because a CommonJS caller cannot `require()` a graph that has one.
+- Worker and child-process entry files are named only through `apps/api/src/entrypoint.ts`.
+- A `tsc`-compiled build of the same source runs the same server checks in CI on every commit and must give the same results. `/api/version` reports which runtime is serving.
+
+The compiled tree is `dist/server`, built by `npm run build:server`. It mirrors the release tree as deployed: the server's modules are emitted as JavaScript, every other releasable file is copied except TypeScript source, and the browser build is copied in. `/api/version` reports `serverRuntime` (`native-ts` or `compiled`). A compiled server also reports `serverBuildSha256`, a digest of its tree read at startup. `releaseTreeSha256` stays the source tree's in both runtimes. The `server-compiled` CI job builds twice and requires the same digest. It then runs every test that starts the server against the compiled tree, against PostgreSQL. Those tests are found by how they start the server, not listed.
+
+**Reason:** The release fingerprint keeps meaning "the tracked tree", and tests run exactly the code production runs. A root module-type change would have broken about 373 CommonJS files at once. The compiled fallback was found broken on first trial: worker paths written as strings are not rewritten by `tsc`. So the fallback is proven, not documented.
+
+**Consequence:** Native type stripping costs 0.1–0.17 s per process start. Switching to the compiled runtime is triggered by a Node upgrade, any loader regression or a cold-start budget breach.
+
+## ADR-089 — One package: apps/api, apps/web and packages/contracts; tests, tooling, migrations and documents stay where they are
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** One `package.json`, one lockfile, one `npm ci`; no npm workspaces.
+
+- **`apps/api`:** the server.
+- **`apps/web`:** the browser application. Its static files live in `apps/web/public`.
+- **`packages/contracts`:** what the server, the page and the service worker share — identifiers, error codes, guards, the offline cache policy, upload planning and CODEOWNERS matching.
+- **`test/`, `scripts/`, `ci/`, `db/` and `docs/`** keep their locations.
+
+**Reason:** Isolation between the parts comes from project references, lint boundaries and an import-graph test, which workspaces would not add to. Moving 499 test files and the tooling would break dozens of source-reading tests, 238 hard-coded verification paths, the documentation manifest and the workflows for no runtime value.
+
+**Consequence:** A browser file used by the server moves to `packages/contracts`, never into `apps/api`.
+
+## ADR-090 — Contracts are the qualified validators, ported as typed guards
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** Every trust-boundary shape is a TypeScript type in `packages/contracts` with a hand-written guard ported from the existing validator, behaviour unchanged, plus an explicit schema version. No schema library is added.
+
+**Reason:** The existing validators carry precise error codes that tests and clients assert. Re-expressing them in a library risks moving those semantics silently.
+
+**Consequence:** A schema library may be adopted for a new boundary later; it does not replace a qualified one in passing.
+
+## ADR-091 — The served bytes are built and attested beside the source fingerprint
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** `npm run build` writes the browser application to `dist/web`. The build:
+
+- names every script, stylesheet, font and chunk by its content;
+- removes source commentary but keeps bundled libraries' licence notices, and writes `licenses.txt`;
+- ships the stylesheet as written, less comments: no CSS minifier rewrites the cascade the stylesheet's rules reason about;
+- writes the service worker's shell list and cache version from what it produced.
+
+`dist/` is never committed and never part of `releaseTreeSha256`. The server refuses to start without the build. It reports `servedAssetsSha256`, a digest of every built file, in `/api/version` beside the release fingerprint. CI builds twice and requires the same digest.
+
+The run-time comment stripper, the `?v=` asset stamp derived from the version, the hand-kept precache list and the vendored copies of npm packages are retired by this decision.
+
+**Reason:** A visitor's browser runs built bytes. Attesting only the source left what was served unnamed, and every hand-kept mechanism (stamps, lists, copies) was a place for the page and the shell to disagree.
+
+**Consequence:** The hosting build command becomes `npm ci && npm run build && npm prune --omit=dev`. That is a deployment change the owner applies, ahead of the merge, in a form that works for the code being replaced. Qualification compares both digests with the candidate's.
+
+## ADR-092 — The interface keeps today's URLs and publishes nothing on window
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:**
+
+- **Navigation:** a small typed hash router keeps every `#/owner/repo@branch/tab` address byte for byte.
+- **State:** one typed external store (`useSyncExternalStore`) replaces the shared state object. No router, state or data library is added.
+- **No globals:** in production the application defines no globals of its own. An end-to-end test compares the page's own `window` properties after boot with a blank page's.
+- **Test probe:** tests read non-secret interface state through a read-only probe. It is defined only when the test harness sets a marker before the page's first script runs, the application deletes the marker at boot, and the probe returns frozen copies of an allowlist.
+- **Transitional names:** until the probe lands, the workbench publishes twelve functions the browser suite calls by name. They are listed in one place, `apps/web/src/legacy/app.js`. The page state is not among them. Four browser tests reach it through the same harness marker the probe will use, until those tests become real interactions.
+
+**Reason:** As classic scripts, all 418 of the workbench's functions and 22 library objects (including mutators) were reachable by any script on the page, beside a live CSRF token and step-up credentials held in plain variables. ES modules end that by construction; the probe gives tests what they need and nothing an injected script could use.
+
+**Consequence:** Tests and production run the same bundle with the same `servedAssetsSha256`. No test-only build or server switch exists.
+
+**Implemented, 9 November 2026 (Phase E, E1).** The probe has landed (`apps/web/src/platform/probe.ts`): it reads and deletes the marker before any other module of the page runs, and answers frozen copies of the fields its allowlist names. The twelve transitional names and the live page state under the marker are gone; the four browser tests that reached that state are real interactions, and every module imports what it uses. `test/e2e/no-globals.spec.js` holds the page to no globals of its own.
+
+**Implemented, 9 November 2026 (Phase E, E2).** The router has landed (`apps/web/src/platform/router.ts`): every address is read and written in one place, as a typed route, and is the address the workbench wrote before, byte for byte (`test/router.test.js`). The store has landed (`apps/web/src/platform/store.ts`, `apps/web/src/platform/page-state.ts`): the workbench's `state` is a sealed view of it, each slice counts its changes, and a component renders again through `useSyncExternalStore` when, and only when, a slice it reads changes. A rule over the page's syntax tree (`test/page-rules.test.js`) refuses any in-place change of a slice outside the store's `mutate`, and holds every slice handed to another module to a reviewed list.
+
+## ADR-093 — The DOM contract is held while the interface is rebuilt
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** React components render the same element IDs, classes, ARIA roles, `data-*` attributes and accessible labels as the interface they replace. The contract was recorded from the baseline for 19 views on desktop and mobile (`test/oracles/dom-contract/`). It is compared on every run of the browser suite. A deviation passes only when it is listed with its reason in `test/oracles/dom-contract-deviations.json`.
+
+**Reason:** That contract is what the 9,342-line stylesheet, both visual presets and the browser tests are written against. Holding it keeps all three valid oracles while every line of the interface changes beneath them.
+
+**Consequence:** Restyling or restructuring the markup is a separate, later decision; this mission changes how the page is built, not what it is.
+
+## ADR-094 — Module boundaries, cycles and the route surface are enforced, not described
+
+**Status:** Accepted owner decision, 18 October 2026.
+
+**Decision:** The following are tests that fail the build:
+
+- modules import each other only through their index;
+- domain code imports no transport or persistence package;
+- no dependency cycle;
+- the browser application imports only `packages/contracts` from shared code;
+- the route policy (every middleware and route in order, each route's guard chain) and the negative-request matrix (1,011 answers across 8 caller contexts) equal their recorded baseline, except for changes listed with their reasons.
+
+They are enforced through ESLint, an import-graph test built on the TypeScript compiler, and `test/architecture-oracles.test.js`.
+
+**Reason:** An extraction that moves a protected route ahead of the alpha access boundary, or a guard below a handler, parses, type-checks and passes every functional test written for the happy path. Only a recorded surface compared mechanically catches it.
+
+**Consequence:** Every intended change to the security surface is written down beside the oracle that would otherwise refuse it.
+
+## ADR-095 — Node 22 stays the qualified runtime; Node 24 LTS is the next production target
+
+**Status:** Proposed for the owner's decision before final qualification, 18 October 2026. Amended 25 October 2026: the mission's runtime moves to Node 22.23.4, the October security release on the same line (see *Amendment* below). Amended 12 November 2026: it moves to Node 22.23.5, the November security release (see the second amendment). Node 24 remains the next production target, as recommended.
+
+**Question:** Is Node 24 LTS a better long-term production target than Node 22?
+
+**Findings:**
+
+- **Support windows** (Node.js release schedule):
+  - Node 22 is supported until 30 April 2027, about six months away.
+  - Node 24 enters maintenance on 20 October 2026 and is supported until 30 April 2028.
+  - Node 26 becomes LTS on 28 October 2026 and is supported until 30 April 2029.
+- **A security gap in the pin:** 22.23.1 predates the security release 22.23.2 (28 July 2026), which fixes ten CVEs:
+  - three high: two in http2 and one in the permission model, neither of which the service uses;
+  - medium: HTTPS identity checks on session reuse, DNS `resolveAny` replies and a zlib out-of-bounds write. The first two sit under the outbound provider transport.
+
+  The current Node 22 release is 22.23.3.
+- **What can test a runtime:**
+  - *Workspace:* Node 22.23.1 and 24.22.0 side by side (checksum-verified), PostgreSQL 16 and Chromium. There is no WebKit.
+  - *GitHub Actions:* `setup-node` installs any published version, and the runners already run JavaScript actions on Node 24. A Node 24 run of the full workflow, WebKit included, is a matrix entry. It has not been added.
+  - *Render staging:* Render installs the exact version `.nvmrc` names at build time (staging build log: "Installing Node.js version 22.23.1"), so a staging service can run any published version. Running it there is a staging deploy, a Phase R action that needs the owner's word. Both staging services still build with `npm ci --omit=dev`; any deploy of this branch needs ADR-091's build command first.
+- **Measured on Node 24.22.0** (npm 11.19.1) at `e09bfcc`, in a separate worktree:
+  - `npm ci` installs from the existing lockfile and changes nothing;
+  - the browser build is byte-identical: the same `servedAssetsSha256`;
+  - lint and every type check pass;
+  - the route policy (195 routes) and the negative matrix (1,011 answers) are equal;
+  - 245 of 246 unit programs pass. The one failure is the deliberate pin: "candidate qualification requires Node v22.23.1";
+  - the server starts and serves with no deprecation or runtime warning;
+  - 117 desktop browser tests pass, covering the DOM contract's 19 views, the offline shell, uploads, Exposure, Parallax, the golden path and runtime limits.
+- **What a move changes besides the runtime:** the version is pinned on purpose in seven places:
+  - `.nvmrc`;
+  - `engines.node`;
+  - ten workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - two contract tests.
+
+  They move together in one reviewed commit, with new qualification evidence.
+
+**Recommendation:**
+
+1. Keep 22.23.1 for this mission, as directed.
+2. Before final qualification, the owner decides on 22.23.1 → 22.23.3. It is a patch release on the same line and carries the July security fixes. Measured the same way, it passes the same gates and fails only the deliberate pin. It still changes the qualified baseline (pins and evidence move with it), so it waits for that decision.
+3. Make Node 24 LTS the next production runtime. Node 22 cannot be a long-term target: it ends in April 2027. Node 24 has a year of LTS fixes behind it and passes every gate here. Do it as its own change after this mission merges and before the end of the first quarter of 2027, in this order:
+   - the pins and the evidence rules, in one commit;
+   - the full CI on Node 24, WebKit included;
+   - a staging rehearsal on Render with `.nvmrc` at 24.
+4. Re-assess Node 26 once it has six months of LTS behind it, around April 2027, well ahead of Node 24's end in April 2028.
+
+**Not chosen:**
+
+- *Node 24 inside this mission:* it would change the qualified runtime mid-mission and mix two causes in one qualification.
+- *Node 26 now:* it is not LTS until 28 October, and a new LTS line takes the most fixes in its first months.
+
+**Amendment, 25 October 2026 — Node 22.23.4.** On 25 October the owner asked that newly disclosed runtime vulnerabilities be weighed across the migrated architecture. Node 22.23.4 (21 October) is a security release, and it moves the question past the choice between 22.23.1 and 22.23.3 recommended above:
+
+- **What 22.23.1 is missing.** It lacks the ten July fixes listed above, and also those of 22.23.4:
+  - CVE-2026-105481, the HTTP agent's data guard;
+  - CVE-2026-105482, null bytes in DNS resolve inputs;
+  - CVE-2026-106069, TLS accepting non-canonical IP addresses;
+  - CVE-2026-106073, `realpathSync` and the permission model;
+  - CVE-2026-106074, random caches across snapshots;
+  - CVE-2026-111497, the brotli decoder.
+
+  22.23.4 also brings OpenSSL 3.5.9, c-ares 1.34.9, undici 6.29.1 and the NSS 3.131.1 root certificates.
+- **Where they meet this service:**
+  - *The guarded outbound transport.* Its keep-alive HTTPS agent pools pin each name to a validated address, look names up through `dns.promises.lookup`, ask `resolveTxt` for a site's mail policy, and verify certificates on reused sessions. This is CVE-2026-105481, CVE-2026-105482, CVE-2026-106069, and the July session-reuse fix (CVE-2026-58040).
+  - *Decompression of content an attacker writes.* Exposure inflates archives found in a repository; the rendered audit decodes gzip, deflate and brotli responses. This is CVE-2026-58045 and CVE-2026-111497.
+  - *Inbound requests.* CVE-2026-58044, the request header count.
+  - Not used: http2, the permission model, snapshots.
+- **Measured on 22.23.4** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - lint and the type checks;
+  - the production audit;
+  - all 28 server tests on the compiled runtime.
+
+  The only changes are the pins.
+- **What moved, in one commit:**
+  - `.nvmrc` and `engines.node`;
+  - the eleven workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.1 and 22.23.3 by name.
+
+  No committed evidence is re-validated against the new pin. The final qualification produces new evidence on 22.23.4.
+- **What it does not change:**
+  - The production service runs the merged `3bf017a` on Node 22.23.1 until a deploy the owner approves.
+  - Recommendation 3 stands: Node 24 LTS after this mission, before the end of the first quarter of 2027.
+
+**Amendment, 12 November 2026 — Node 22.23.5.** Node 22.23.5 (11 November) is the next security release on the line. Each of its fixes was weighed against this service, from the project's advisory and the release's changelog:
+
+- **What the advisory fixes on 22.x:**
+  - CVE-2026-123864 (high): a zero-length TLS write re-enters the HTTP parser, and an HTTPS server copies its own heap into a request body;
+  - CVE-2026-123865 and CVE-2026-123866 (high), CVE-2026-123875 (medium): HTTP/2 sessions and streams;
+  - CVE-2026-123872 (high) and CVE-2026-123867 (medium): TLS servers that renegotiate or carry per-host client-certificate authorities;
+  - CVE-2026-123877 (medium): the HTTPS agent gave a request with no `ca` and one with `ca: []` the same session-cache key;
+  - CVE-2026-123871 (medium): proxy credentials in the errors for an invalid proxy URL;
+  - CVE-2026-123862 (low): zlib's `params()` after `destroy()`;
+  - CVE-2026-123829 and CVE-2026-106071 (low): the permission model.
+
+  22.23.5 also carries the fixes for four HTTP/2 issues the advisory lists for 24.x and 26.x only (CVE-2026-123863, CVE-2026-123874, CVE-2026-123828, CVE-2026-123868) and, by its changelog, for CVE-2026-123873 (low, the permission model), with llhttp 9.4.4 and SQLite 3.54.1. The advisory names llhttp among the dependencies updated for public vulnerabilities, with no CVE of its own; its update came through the project's private security repository.
+- **Where they meet this service:**
+  - *Inbound requests.* The service listens on plain HTTP behind Render's TLS edge, so the HTTPS re-entrancy needs a server it does not run; the advisory says cleartext `node:http` is not affected. llhttp parses every request the service receives. Asked the same 1,853 requests -- every byte value inside a header value, a Transfer-Encoding, a Content-Length, a chunk extension and a trailer, and the ways a proxy and a server are made to disagree on a request's length -- 22.23.4 and 22.23.5 answer each alike, so what 9.4.4 changes lies outside these shapes. The shapes that matter are now held on the real server (*The framing test*, below).
+  - *The guarded outbound transport.* Its keep-alive HTTPS agent never sets `ca`, and no request does, so every request shares one trust policy and CVE-2026-123877 has no second policy to confuse; the fix is in the agent's own keying, which the pool uses on every request.
+  - *Proxies.* Node's own proxy support is not turned on in the server; the candidate qualifier hands a proxy only to the package manager, and only a credential-free origin.
+  - *Decompression of content an attacker writes.* The service inflates gzip, deflate and brotli, but never calls `params()`.
+  - Not used: http2, TLS servers, the permission model, heap snapshots, `node:sqlite`.
+- **The framing test.** `test/http-framing-server.test.js` starts the real server, natively and compiled, and sends it 23 requests framed so that a proxy and a server could read their length two ways:
+  - a length given both as chunks and as a Content-Length, two different Content-Lengths, a signed or a negative one;
+  - chunked that is not the last coding, or is followed by a second Transfer-Encoding; an empty Transfer-Encoding, one that ends in a comma, one folded onto the line before, one with whitespace before its colon;
+  - lines ended by a bare line feed, a bare carriage return, a NUL or a control character in a header, a NUL in the path, an HTTP/1.1 request without a Host;
+  - seven malformed chunked bodies.
+
+  Each is followed, in the same write, by a request for `/healthz`. Each is refused, the connection is closed, and the request hidden behind it is never answered; the same requests framed correctly are answered, and so is the request after them. Node's lenient parser, turned on by its flag or by the server's option, and a server that no longer requires a Host, are each caught.
+- **The dependencies, asked again on 12 November.** npm's audit and an OSV query over all 296 locked versions agree: no production dependency has an advisory. The one advisory is still minimatch's (GHSA-g3hv-75wg-m249, moderate), in development tools only, on this repository's own patterns (S3). Its fix is still only in minimatch 11: readdir-glob 4.0.0 (9 November) is the first dependent to accept it, and the newest archiver (8.0.0, which requires readdir-glob 3), ESLint (10.14.0) and typescript-eslint (8.72.2) do not. Node's bundled undici (6.29.1, as in 22.23.4) and llhttp 9.4.4 have no published advisory.
+- **Verified:** the Linux archive's SHA-256 against the release's checksum list, and that list's signature against the Node.js release keys.
+- **Measured on 22.23.5** (npm 10.9.9), from a clean `npm ci` of the unchanged lockfile:
+  - the full unit gate and every verify-job gate, the PostgreSQL suites among them;
+  - the deterministic browser build;
+  - lint and the type checks;
+  - the production audit;
+  - all 36 server tests on the compiled runtime;
+  - the whole browser suite (1,092 tests: 1,034 run, 58 for the other project) on desktop and mobile.
+- **What moved, in one commit:**
+  - `.nvmrc` and `engines.node`, with the lockfile's root `engines`;
+  - the eleven workflow steps;
+  - the candidate qualifier;
+  - the qualification-evidence validator;
+  - the contract tests, which now also refuse 22.23.4 by name;
+  - the framing test, in the unit gate and on both runtimes.
+
+  No committed evidence is re-validated against the new pin. The final qualification produces new evidence on 22.23.5.
+- **What it does not change:**
+  - The production service runs `5326d2b` on Node 22.23.1 until a deploy the owner approves: without the July, October and November fixes.
+  - Recommendation 3 stands: Node 24 LTS after this mission, before the end of the first quarter of 2027.
+
+## ADR-096 — Express 4 stays the HTTP foundation of this mission; Express 5 follows it
+
+**Status:** Proposed for the owner's decision, 18 October 2026. Express 4.22.3 remains the qualified baseline of this mission.
+
+**Question:** Is Express 5 a better long-term foundation for the new HTTP architecture?
+
+**Findings:** measured with Express 5.3.0 on Node 22.23.1 at `e09bfcc`, in a separate worktree. Express 5 brings router 2.2, body-parser 2.3, path-to-regexp 8.4, send 1.2 and serve-static 2.2.
+
+- **Support:** both lines are supported with no end date set.
+  - 4.22.3 (14 September 2026) is maintained on the `latest-4` tag.
+  - Express 5 is `latest` (5.3.0, 9 October 2026), is where new work lands, and needs Node 18 or later.
+- **Routing:** 2 of the 174 distinct route paths need the new syntax:
+  - `/vendor/*` becomes `/vendor/*asset`, and the parameter is an array of segments. Phase G retires that route regardless.
+  - `*` becomes `/{*page}`.
+
+  No route uses a regular-expression path, an optional `?` parameter or an unnamed group.
+- **Middleware order and guards:** the route-policy oracle, run against the Express 5 tree, differs only in those two spellings. Every middleware, every route's guard chain and their order are identical.
+- **Security invariants:** the negative-request matrix is identical under Express 5. That is 1,011 answers, across 8 caller contexts, to callers who should be refused or limited.
+- **Removed APIs:** none in use:
+  - `req.param`;
+  - `res.redirect('back')`;
+  - `app.del`;
+  - `res.sendfile`;
+  - numeric status arguments to `res.send` and `res.json`;
+  - writes to `req.query`.
+
+  The 11 dynamic `res.status(...)` arguments are provider or job status numbers.
+- **Error handling:** Express 5 sends a rejected async handler to the error handler. Under Express 4 the rejection escapes to the process, and with no process-level handler, Node 22 ends the process.
+  - All 166 async handlers keep their awaits inside `try`.
+  - 27 run some code before their first `try`. It is mostly headers and guarded reads. The rest are calls whose inputs a guard has already established: a session lookup behind `accountAuth`, and the audit-job and live-stream registries.
+
+  The exposure is theoretical today. Express 5 removes it by construction.
+- **Query parsing:** Express 5 defaults to the simple parser, which builds no nested objects from `a[b]=`. The page sends no such parameter and the server reads none, so behaviour is unchanged, and nested-object type confusion through the query string is no longer possible.
+- **Served surface:** one change. Static JavaScript is served as `text/javascript` rather than `application/javascript`, the RFC 9239 type. `test/server-smoke.test.js` pins the old value.
+- **Dependencies:** the production tree goes from 101 to 98 packages, and both trees audit clean. The legacy path-to-regexp 0.1 line, with its regular-expression denial-of-service history (CVE-2024-45296, CVE-2024-52798), leaves the tree.
+- **Tests:** 244 of 246 unit programs pass unchanged. The two that differ are the route-policy oracle (the two spellings) and the smoke test (the MIME type). The same 117 desktop browser tests pass, the DOM contract's 19 views among them.
+
+**Recommendation:**
+
+- **Keep Express 4.22.3 for this mission.** Its security surface is the one the oracles recorded. Phase D moves every route into modules, and changing the framework under that extraction would put two causes behind every oracle difference.
+- **Adopt Express 5 as its own change after this mission merges.** It is demonstrably compatible here, and its gains are worth one more qualification, not a mid-mission swap:
+  - async errors handled by construction;
+  - a stricter query parser;
+  - a smaller tree;
+  - the line where development happens.
+
+  The change, in order:
+  1. the version;
+  2. the catch-all spelling (the vendor route is gone by then);
+  3. `text/javascript` accepted in the smoke test and recorded in the route-policy oracle's intended changes;
+  4. both oracles and the full browser suite;
+  5. a staging rehearsal.
+- **Phase D's route builder avoids Express 4-only constructs:** no unnamed `*`, no `req.params[0]`, no nested `req.query` objects. The later move then stays a version change.
+
+**Blockers:** none technical. Procedurally it needs its own qualification and the owner's word, like any change to the qualified runtime.

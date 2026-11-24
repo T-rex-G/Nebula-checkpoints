@@ -11,7 +11,7 @@
  */
 
 const assert = require('assert');
-const { RateLimitStore, RateLimitStoreError, bucketKeyFor, MAX_SWEEP_BATCH } = require('../src/rate-limit-store');
+const { RateLimitStore, RateLimitStoreError, bucketKeyFor, MAX_SWEEP_BATCH } = require('../apps/api/src/platform/rate-limit/rate-limit-store.ts');
 
 class FakeDatabase {
   constructor() {

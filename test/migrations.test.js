@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadMigrations, runMigrations, verifyMigrations } = require('../src/migrations');
+const { loadMigrations, runMigrations, verifyMigrations } = require('../apps/api/src/platform/persistence/migrations.ts');
 
 const projectMigrations = loadMigrations(path.join(__dirname, '..', 'db', 'migrations'));
 assert.strictEqual(projectMigrations.at(-1).id, '032_code_audit_analysis_coverage');
@@ -72,6 +72,18 @@ class FakeClient {
     changed: ['001_first'],
     unknown: ['999_unknown']
   });
+
+  /*
+   * Where the migrations are is always said. A list from loadMigrations in
+   * place of the options -- the slip ten tests once made -- is refused rather
+   * than read as "apply everything", and neither call touches the database.
+   */
+  for (const options of [undefined, {}, { directory: '' }, loadMigrations(dir)]) {
+    const untouched = new FakeClient();
+    await assert.rejects(() => runMigrations(untouched, options), /naming their directory/);
+    await assert.rejects(() => verifyMigrations(untouched, options), /naming their directory/);
+    assert.deepStrictEqual(untouched.calls, [], 'a refused call sends nothing');
+  }
   console.log('migration tests passed');
 })().finally(() => fs.rmSync(dir, { recursive: true, force: true })).catch(error => {
   console.error(error.stack || error);

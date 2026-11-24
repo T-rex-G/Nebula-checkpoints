@@ -1,8 +1,8 @@
 'use strict';
 const assert = require('assert');
-const { GovernanceStore } = require('../src/governance-store');
-const { normalizeMutationDescriptor } = require('../src/mutation-gateway');
-const { policyDocumentHash } = require('../src/governance-model');
+const { GovernanceStore } = require('../apps/api/src/modules/kepler/index.ts');
+const { normalizeMutationDescriptor } = require('../apps/api/src/platform/mutation-gateway/mutation-gateway.ts');
+const { policyDocumentHash } = require('../apps/api/src/modules/kepler/index.ts');
 
 class Client {
   constructor(rows) { this.rows = rows; this.calls = []; }

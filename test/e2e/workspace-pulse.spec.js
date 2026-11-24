@@ -10,17 +10,21 @@
 
 const { test, expect } = require('@playwright/test');
 const { mockPublicAlphaApi } = require('./public-alpha-fixtures');
+const { pressOn, installClock, heldReading } = require('./press');
 const ui = require('./semantic');
 
 test.use({ serviceWorkers: 'block' });
 
-async function signIn(page) {
+async function signIn(page, answer = {}, routes = async () => {}) {
   await mockPublicAlphaApi(page, {
     access: 'required',
     ready: 'ready',
     provider: 'github',
     repositoryState: 'current'
   });
+  /* Registered after the fixture's routes, so each is asked first. */
+  for (const [route, body] of Object.entries(answer)) await page.route(`**${route}`, request => request.fulfill({ json: body }));
+  await routes();
   await page.goto('/');
   await ui.secretField(page, 'One-time invitation').fill('fixture-invitation');
   await ui.checkbox(page, /I accept/).check();
@@ -75,10 +79,7 @@ test('a signed-in session lands on the overview and reports a trust score it can
    * arrives; the disclosure used to be rebuilt closed, so a reader who had
    * just opened it lost it the moment the next signal landed.
    */
-  await page.evaluate(() => {
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: document.querySelector('#wpTrust') }, Pulse.model({ repos: [] }));
-  });
+  await page.locator('#ovHomeBtn').click();
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
 
   const signals = page.getByRole('article', { name: 'Capabilities' });
@@ -112,12 +113,132 @@ test('a reading that lands as the numbers are opened leaves them open', async ({
   const open = await page.evaluate(() => {
     const host = document.querySelector('#wpTrust');
     host.querySelector('.wp-numbers summary').click();
-    const Pulse = window.NebulaWorkspacePulse;
-    Pulse.render({ trust: host }, Pulse.model({ repos: [] }));
+    /* Returning to the overview in the same task rebuilds the card, ahead of the toggle event. */
+    document.getElementById('ovHomeBtn').click();
     return host.querySelector('.wp-numbers').open;
   });
   expect(open).toBe(true);
   await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+});
+
+/*
+ * A reading can land while the reader is pressing "Show the numbers". The
+ * card used to be rebuilt under the press: the pointer went down on the old
+ * summary and came up on its replacement, so the browser delivered no click
+ * and the numbers stayed shut. The repaint now waits for the press.
+ */
+test('a reading that lands during the press on the numbers does not swallow it', async ({ page }) => {
+  await installClock(page);
+  await mockPublicAlphaApi(page, { access: 'active' });
+  const reading = await heldReading(page);
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  const summary = trust.locator('.wp-numbers summary').first();
+  await expect(summary).toBeVisible();
+  await reading.start();
+  await pressOn(page, summary);
+  await reading.land();
+  await page.mouse.up();
+  await expect(trust.getByRole('table', { name: /Trust score components/i })).toBeVisible();
+  /* The reading that waited is drawn once the press is over, and the numbers stay open in it. */
+  await expect(trust).toContainText('Private repositories');
+  await expect(trust.locator('.wp-numbers').first()).toHaveJSProperty('open', true);
+});
+
+/*
+ * Upload scanning is asked once the overview is shown. A refusal is an
+ * answer, but a request that never reached the server is not one: it is asked
+ * again the next time the overview is shown. It used to be asked once per
+ * page, and the lost request counted as the answer for the rest of it.
+ */
+test('upload scanning lost to the network is asked again when the overview is next shown', async ({ page }) => {
+  let asked = 0;
+  await signIn(page, {}, () => page.route('**/api/security/scanner-status', route => {
+    asked += 1;
+    return asked === 1 ? route.abort('internetdisconnected') : route.fallback();
+  }));
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust).toContainText('Scanner status has not loaded.');
+  await expect.poll(() => asked).toBe(1);
+  await page.locator('#ovGoRepos').click();
+  await expect(ui.screen(page, 'repos')).toBeVisible();
+  const rail = page.locator('.nv-rail-item[data-rail="overview"]');
+  if (!(await rail.isVisible())) await page.locator('.page.active .nav-menu-btn').click();
+  await rail.click();
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect.poll(() => asked).toBe(2);
+  await expect(trust).not.toContainText('Scanner status has not loaded.');
+});
+
+/*
+ * The row above the cards marks a measure it could not take: the cell says
+ * so in its class, a dash stands for the figure and the note says "Not
+ * measured". A measured nought is a reading and is drawn as one.
+ */
+test('the row above the cards marks what it could not measure, and draws a measured nought as a nought', async ({ page }) => {
+  await signIn(page, {}, async () => {
+    for (const path of ['**/api/capabilities*', '**/api/account/capabilities*']) {
+      await page.route(path, route => route.fulfill({ status: 503, json: { error: 'Capabilities are unavailable', code: 'OPERATION_FAILED' } }));
+    }
+    await page.route('**/api/repos*', route => (route.request().method() === 'GET'
+      ? route.fulfill({ json: [{ full_name: 'sandbox/demo', name: 'demo', owner: 'sandbox', private: false, language: 'JavaScript', stars: 0, forks: 0, pushed_at: new Date().toISOString() }] })
+      : route.fallback()));
+  });
+  const row = page.locator('#ovPulse');
+  await expect(row).toBeVisible();
+  const cell = label => page.locator('#ovPulseGrid .gx-pulse-cell').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) });
+  await expect(cell('Galaxies').locator('.gx-pulse-value')).toHaveText('1');
+  await expect(cell('Private').locator('.gx-pulse-value')).toHaveText('0');
+  await expect(cell('Private')).not.toHaveClass(/is-unmeasured/);
+  await expect(cell('Provider-verified')).toHaveClass(/is-unmeasured/);
+  await expect(cell('Provider-verified').locator('.gx-pulse-value')).toHaveText('\u2014');
+  await expect(cell('Provider-verified').locator('.gx-pulse-note')).toHaveText('Not measured');
+});
+
+/*
+ * The row is drawn again when a reading lands, but not under a press on the
+ * Overview: a row that changes height moves what was pressed. It waits for
+ * the press to end, like the cards below it.
+ */
+test('the row waits for a press on the Overview to end before it is drawn again', async ({ page }) => {
+  await installClock(page);
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let holding = false;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let asked = 0;
+  await page.route('**/api/workspace/posture', async route => {
+    if (!holding) return route.fallback();
+    asked += 1;
+    await held;
+    /* The posture changed meanwhile: a critical leak is open, which caps the score. */
+    return route.fulfill({ json: {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], expiresAt: '2026-12-31T00:00:00.000Z', detail: 'Fine-grained token.' },
+      recovery: { available: true, repositories: [{ owner: 'sandbox', repo: 'demo', latestAt: new Date(Date.now() - 86400000).toISOString(), points: 1 }] },
+      exposure: { available: true, repositories: [{ owner: 'sandbox', repo: 'demo', scannedAt: new Date(Date.now() - 3600000).toISOString(), partial: false, open: { critical: 1, serious: 0, warning: 0 } }] },
+      boundary: { state: 'online', database: 'ready', maintenance: false }
+    } });
+  });
+  await page.goto('/#/overview');
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  const summary = trust.locator('.wp-numbers summary').first();
+  await expect(summary).toBeVisible();
+  const score = page.locator('#ovPulseGrid .gx-pulse-cell').filter({ has: page.locator('dt', { hasText: /^Trust score$/ }) }).locator('.gx-pulse-value');
+  await expect(score).toHaveText(/^\d{1,3}$/);
+  await page.waitForLoadState('networkidle');
+  const before = await score.textContent();
+  holding = true;
+  await page.clock.fastForward(61000);
+  await page.locator('#ovHomeBtn').click();
+  await expect.poll(() => asked).toBeGreaterThan(0);
+  await pressOn(page, summary);
+  const landed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/workspace/posture');
+  release();
+  await landed;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(score, 'the row is not drawn again under the press').toHaveText(before);
+  await page.mouse.up();
+  await expect(score).not.toHaveText(before);
 });
 
 test('an open critical leak caps the score and says why', async ({ page }) => {
@@ -133,7 +254,7 @@ test('an open critical leak caps the score and says why', async ({ page }) => {
 
   const trust = page.getByRole('article', { name: 'Trust score' });
   await expect(trust).toContainText('1 leaked credential still exposed (1 critical)');
-  await expect(trust).toContainText('Held below 50 while a critical leaked credential is still exposed');
+  await expect(trust.getByText('Held below 50 while a critical leaked credential is still exposed')).toBeVisible();
   const figure = Number((await trust.locator('.wp-dial .wp-gauge-figure').first().textContent()).trim());
   expect(figure).toBeLessThanOrEqual(49);
   await expect(trust.locator('.wp-grade')).toHaveAttribute('aria-label', 'Grade F');
@@ -166,6 +287,43 @@ test('the overview never invents a figure it could not measure', async ({ page }
     expect(Number(shown)).toBeGreaterThan(0);
     expect(Number(shown)).toBeLessThanOrEqual(100);
     expect(arcs).toBe(1);
+  }
+});
+
+/*
+ * A signal with nothing to report is drawn as not measured: its dial keeps
+ * its track and draws no arc, and a dash stands where its figure goes. A
+ * zero-length arc would be a reading of zero, and "not measured" is not zero.
+ */
+test('a signal with nothing to report draws its track and no arc', async ({ page }) => {
+  /* A deployment without a database scans nothing, so leaked credentials are not measured. */
+  await signIn(page, {
+    '/api/workspace/posture': {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], detail: 'Fine-grained token limited to the repositories chosen for it.' },
+      recovery: { available: false, repositories: [] },
+      exposure: { available: false, repositories: [] },
+      boundary: { state: 'online', database: 'unavailable', maintenance: false }
+    }
+  });
+  const trust = page.getByRole('article', { name: 'Trust score' });
+  await expect(trust.locator('.wp-component').filter({ hasText: 'Leaked credentials' })).toContainText('needs the server database');
+  const dials = await trust.locator('.wp-components .wp-gauge').evaluateAll(gauges => gauges.map(gauge => ({
+    status: gauge.dataset.status,
+    arcs: gauge.querySelectorAll('.wp-gauge-arc').length,
+    tracks: gauge.querySelectorAll('.wp-gauge-track').length,
+    figure: gauge.querySelector('.wp-gauge-figure').textContent.trim(),
+    empty: gauge.querySelector('.wp-gauge-figure').classList.contains('wp-gauge-empty')
+  })));
+  expect(dials).toHaveLength(6);
+  expect(dials.some(dial => dial.status === 'unknown'), 'a signal is left unmeasured').toBe(true);
+  expect(dials.some(dial => dial.status !== 'unknown'), 'and another is measured').toBe(true);
+  for (const dial of dials) {
+    expect(dial.tracks).toBe(1);
+    if (dial.status === 'unknown') expect(dial).toMatchObject({ arcs: 0, figure: '\u2014', empty: true });
+    else {
+      expect(dial).toMatchObject({ arcs: 1, empty: false });
+      expect(dial.figure).toMatch(/^\d{1,3}$/);
+    }
   }
 });
 
@@ -260,4 +418,24 @@ test('the activity plot is drawn inside its frame, not along the edges', async (
   expect(plot.y).toBeGreaterThanOrEqual(card.y);
   expect(plot.y + plot.height).toBeLessThanOrEqual(card.y + card.height + 1);
   expect(plot.height).toBeGreaterThan(40);
+});
+
+/*
+ * A recovery point held only in this browser is one: the overview reads this
+ * browser's references beside the server's, and says which it found where.
+ */
+test('a recovery point held only in this browser is counted, and said to be held here', async ({ page }) => {
+  await signIn(page, {
+    '/api/workspace/posture': {
+      credential: { kind: 'fine-grained', rating: 0.9, scopes: [], detail: 'Fine-grained token.' },
+      recovery: { available: true, repositories: [] },
+      exposure: { available: false, repositories: [] },
+      boundary: { state: 'online', database: 'ready', maintenance: false }
+    }
+  });
+  const recovery = page.getByRole('article', { name: 'Trust score' }).locator('.wp-component').filter({ hasText: 'Recovery points' });
+  await expect(recovery).toContainText('The connected repository has no recovery point.');
+  await page.evaluate(() => localStorage.setItem('nv_snap_sandbox/demo', JSON.stringify({ sha: 'a'.repeat(40), at: new Date().toISOString() })));
+  await page.reload();
+  await expect(recovery).toContainText('The connected repository has a recovery point; 1 held only in this browser.');
 });

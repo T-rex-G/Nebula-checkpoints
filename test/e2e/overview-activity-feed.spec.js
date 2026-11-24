@@ -131,6 +131,21 @@ test('a failed request leaves a drawn card rather than a permanent loading line'
   await expect(feed(page)).not.toContainText('Reading recent activity');
 });
 
+/*
+ * An empty answer is an answer with nothing in it. It used to be drawn as
+ * the script's own error: "Recent activity could not be read: Cannot read
+ * properties of null (reading 'generatedAt')".
+ */
+test('an empty answer is said as nothing to read, never as the script\'s own error', async ({ page }) => {
+  await mockPublicAlphaApi(page, { access: 'active' });
+  await page.route('**/api/activity/recent*', route => route.fulfill({ status: 200, contentType: 'application/json', body: 'null' }));
+  await page.goto('/');
+  await expect(ui.screen(page, 'overview')).toBeVisible();
+  await expect(feed(page)).toContainText('No repositories are available to this session yet.');
+  await expect(feed(page)).not.toContainText('could not be read');
+  await expect(feed(page)).not.toContainText('Cannot read');
+});
+
 test('the feed does not displace the activity chart it sits beneath', async ({ page }) => {
   await overview(page);
   /*
@@ -184,11 +199,9 @@ test('the feed is read once per visit, not once per glance', async ({ page }) =>
   await expect(ui.screen(page, 'repos')).toBeVisible();
 
   /*
-   * Back via the rail rather than the topbar brand. #homeBtn is the obvious
-   * control and it cannot be clicked: on the repositories screen it computes
-   * to zero width, so Playwright waits for a stable, visible target forever.
-   * That is a real defect in that button and not this feed's to fix, but a
-   * test that drives it would be measuring the bug rather than the feed.
+   * Back via the rail, the one way back that every screen offers; the
+   * brand's own way back from the repositories screen is held by
+   * test/e2e/overview-core.spec.js.
    */
   const rail = page.locator('.nv-rail-item[data-rail="overview"]');
   /* The menu button on the screen that is actually showing: every page
@@ -257,7 +270,11 @@ test('privacy cleanup clears the feed and rejects a response that arrives afterw
   await page.route('**/api/activity/recent*', async route => { await pending; await route.fallback(); });
   await page.goto('/');
   await expect(feed(page)).toContainText('Reading recent activity');
-  await page.evaluate(() => window.NebulaPwa.purgePrivateData(true));
+  /* The reader clears this browser's data from Settings while the read is on its way. */
+  await (await ui.action(page, 'Settings')).click();
+  await page.locator('#clearLocalBtn').click();
+  await expect(page.locator('.toast').last()).toContainText('Offline caches and queued commits cleared');
+  await page.keyboard.press('Escape');
   const received = page.waitForResponse(response => response.url().includes('/api/activity/recent'));
   release();
   await received;
@@ -266,7 +283,66 @@ test('privacy cleanup clears the feed and rejects a response that arrives afterw
   await expect(feed(page).locator('.wp-body')).toBeEmpty();
 });
 
+/*
+ * The session ends while the reader is holding a press on the overview, just
+ * after a refreshed feed arrived. The repaint that press was holding belongs
+ * to the reader who has gone: the purge drops it, and letting go of the press
+ * draws nothing of it back into the feed the purge cleared.
+ */
+test('a session that ends during a press leaves nothing of the held feed behind', async ({ page }) => {
+  await page.clock.install();
+  await mockPublicAlphaApi(page, { access: 'active' });
+  let feedReads = 0;
+  let postureReads = 0;
+  let releaseFeed;
+  let releasePosture;
+  const feedHeld = new Promise(resolve => { releaseFeed = resolve; });
+  const postureHeld = new Promise(resolve => { releasePosture = resolve; });
+  await page.route('**/api/activity/recent*', async route => {
+    feedReads += 1;
+    if (feedReads > 1) await feedHeld;
+    return route.fallback();
+  });
+  await page.route('**/api/workspace/posture', async route => {
+    postureReads += 1;
+    if (postureReads === 1) return route.fallback();
+    await postureHeld;
+    return route.fulfill({ status: 401, json: { error: 'The alpha session has ended.', code: 'ALPHA_SESSION_EXPIRED' } });
+  });
+  await page.goto('/');
+  await expect(rows(page)).toHaveCount(2);
+  await page.waitForLoadState('networkidle');
+
+  /* A refreshed feed and a new reading of the posture, both on their way. */
+  await page.locator('#wpFeedRefresh').click();
+  await expect.poll(() => feedReads).toBe(2);
+  await page.clock.fastForward(61000);
+  await page.locator('#ovHomeBtn').click();
+  await expect.poll(() => postureReads).toBe(2);
+
+  /* The reader holds a press on the overview; the feed lands under it and waits. */
+  await page.locator('#wpTrust .wp-numbers summary').first().focus();
+  await page.keyboard.down(' ');
+  const fed = page.waitForResponse(response => response.url().includes('/api/activity/recent'));
+  releaseFeed();
+  await fed;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+  /* The session ends: the gate takes over, and what this browser held is purged. */
+  releasePosture();
+  await expect(page.locator('#page-alpha-access')).toHaveClass(/active/);
+  await expect(feed(page).locator('.wp-body')).toBeEmpty();
+
+  /* The press ends after the purge; past the grace a release waits for its click, the feed is still empty. */
+  await page.keyboard.up(' ');
+  await page.waitForTimeout(700);
+  await expect(feed(page).locator('.wp-body')).toBeEmpty();
+});
+
 test('signing in again reads a new feed instead of reusing the previous identity', async ({ page }) => {
+  /* The departing session's card is taken down whole, so the next one is drawn without an error on the way. */
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   let reads = 0;
   await mockPublicAlphaApi(page, { access: 'active' });
   await page.route('**/api/activity/recent*', async route => { reads++; await route.fallback(); });
@@ -280,6 +356,7 @@ test('signing in again reads a new feed instead of reusing the previous identity
   await expect(ui.screen(page, 'overview')).toBeVisible();
   await expect(rows(page)).toHaveCount(2);
   expect(reads).toBe(2);
+  expect(errors).toEqual([]);
 });
 
 test('the sample bounds and snapshot time are visible, including an empty inventory', async ({ page }) => {

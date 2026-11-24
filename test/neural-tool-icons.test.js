@@ -19,9 +19,9 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const markup = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
-const css = fs.readFileSync(path.join(root, 'public', 'style.css'), 'utf8');
-const neural = fs.readFileSync(path.join(root, 'public', 'neural.js'), 'utf8');
+const markup = fs.readFileSync(path.join(root, 'apps', 'web', 'index.html'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'styles', 'style.css'), 'utf8');
+const neural = fs.readFileSync(path.join(root, 'apps', 'web', 'src', 'visualizations', 'neural.js'), 'utf8');
 
 /* The buttons centre what they hold. */
 const toolRule = css.match(/\.neural-tool\{[^}]*\}/);

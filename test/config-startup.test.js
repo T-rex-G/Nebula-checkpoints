@@ -1,4 +1,5 @@
 'use strict';
+const { serverEntry } = require('./helpers/server-entry');
 const assert = require('assert');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -8,7 +9,7 @@ const {
   normalizeGovernanceRuntimeFailureMode,
   loadGithubAppConfig,
   loadAlphaAccessConfig
-} = require('../src/config');
+} = require('../apps/api/src/platform/config/config.ts');
 
 assert.strictEqual(typeof normalizeDatabaseUrl, 'function');
 assert.strictEqual(typeof normalizeGovernanceRuntimeFailureMode, 'function');
@@ -117,7 +118,7 @@ assert.strictEqual(alphaConfig.sessionAbsoluteTtlMs, 7 * 24 * 60 * 60 * 1000);
 assert.strictEqual(alphaConfig.sessionIdleTtlMs, 24 * 60 * 60 * 1000);
 assert.strictEqual(Object.isFrozen(alphaConfig), true);
 
-const child = spawn(process.execPath, ['server.js'], {
+const child = spawn(process.execPath, [serverEntry()], {
   cwd: path.resolve(__dirname, '..'),
   env: { ...process.env, NODE_ENV: 'production', SESSION_SECRET: 'short', DATABASE_URL: '', PORT: '28991' },
   stdio: ['ignore', 'pipe', 'pipe']

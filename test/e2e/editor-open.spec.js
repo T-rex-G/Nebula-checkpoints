@@ -143,3 +143,95 @@ test('a file deleted is closed', async ({ page }) => {
   await expect(page.locator('#editorEmpty')).toBeVisible();
   await expect(page.locator('#editorShell')).toBeHidden();
 });
+
+/*
+ * A draft is written a moment after the last edit. An edit made just before
+ * another file is opened, or the page is left, is kept as the draft of the
+ * file it was typed in -- not lost, and not the next file's placeholder.
+ */
+test('an edit made a moment before another file is opened keeps its draft, and the next file has none', async ({ page }) => {
+  await files(page, { slow: { 'src/b.js': 2500 } });
+  await page.goto('/#/sandbox/demo@main/editor/src/a.js');
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  await page.evaluate(() => {
+    document.querySelector('#tab-editor .CodeMirror').CodeMirror.replaceRange('// late\n', { line: 0, ch: 0 });
+    location.hash = '#/sandbox/demo@main/editor/src/b.js';
+  });
+  await expect.poll(() => editorText(page)).toBe('const b = 2;\n');
+  await page.waitForTimeout(800);
+  const drafts = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('nv_draft:')).map(([key, value]) => [key, JSON.parse(value).content])));
+  expect(drafts).toEqual({ 'nv_draft:sandbox/demo@main:src/a.js': '// late\nconst a = 1;\n' });
+  await expect(page.locator('#draftBar')).toHaveCount(0);
+});
+
+test('an edit made a moment before another branch is opened is kept as the draft of the branch it was typed on', async ({ page }) => {
+  await files(page);
+  await page.route(url => new URL(url).pathname === '/api/repo/sandbox/demo', route => (route.request().method() !== 'GET' ? route.fallback() : route.fulfill({
+    json: { full_name: 'sandbox/demo', private: true, default_branch: 'main', homepage: null, branches: [{ name: 'main', protected: false, sha: 'a'.repeat(40) }, { name: 'dev', protected: false, sha: 'b'.repeat(40) }] }
+  })));
+  await page.goto('/#/sandbox/demo@main/editor/src/a.js');
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  await expect(page.locator('#branchSelect option[value="dev"]')).toHaveCount(1);
+  await page.evaluate(() => {
+    document.querySelector('#tab-editor .CodeMirror').CodeMirror.replaceRange('// on main\n', { line: 0, ch: 0 });
+    const select = document.querySelector('#branchSelect');
+    select.value = 'dev';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(900);
+  const drafts = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([key]) => key.startsWith('nv_draft:')).map(([key, value]) => [key, JSON.parse(value).content])));
+  expect(drafts).toEqual({ 'nv_draft:sandbox/demo@main:src/a.js': '// on main\nconst a = 1;\n' });
+});
+
+test('an edit undone leaves no draft, and a burst of typing writes its draft once', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__draftWrites = 0;
+    const write = Storage.prototype.setItem;
+    Storage.prototype.setItem = function setItem(key, value) {
+      if (String(key).startsWith('nv_draft:')) window.__draftWrites += 1;
+      return write.call(this, key, value);
+    };
+  });
+  await files(page);
+  await page.goto('/#/sandbox/demo@main/editor/src/a.js');
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  await page.evaluate(() => {
+    const editor = document.querySelector('#tab-editor .CodeMirror').CodeMirror;
+    for (const letter of 'typed') editor.replaceRange(letter, { line: 0, ch: 0 });
+  });
+  await expect.poll(() => page.evaluate(() => window.__draftWrites)).toBe(1);
+  const drafts = () => page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('nv_draft:')));
+  expect(await drafts()).toEqual(['nv_draft:sandbox/demo@main:src/a.js']);
+  await page.evaluate(() => document.querySelector('#tab-editor .CodeMirror').CodeMirror.setValue('const a = 1;\n'));
+  await page.waitForTimeout(900);
+  expect(await drafts()).toEqual([]);
+  expect(await page.evaluate(() => window.__draftWrites)).toBe(1);
+});
+
+test('an edit made a moment before the reader signs out leaves no draft of theirs in the browser', async ({ page }) => {
+  await files(page);
+  await page.goto('/#/sandbox/demo@main/editor/src/a.js');
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  page.on('dialog', dialog => dialog.accept());
+  await page.evaluate(() => {
+    document.querySelector('#tab-editor .CodeMirror').CodeMirror.replaceRange('// private\n', { line: 0, ch: 0 });
+    document.querySelector('#logoutBtn').click();
+  });
+  await expect(page.locator('#page-login.active, .page.active#page-login')).toHaveCount(1);
+  await page.waitForTimeout(1200);
+  const drafts = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('nv_draft:')));
+  expect(drafts).toEqual([]);
+});
+
+test('an edit made a moment before the page is left is offered back', async ({ page }) => {
+  await files(page);
+  await page.goto('/#/sandbox/demo@main/editor/src/a.js');
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  page.on('dialog', dialog => dialog.accept());
+  await page.evaluate(() => document.querySelector('#tab-editor .CodeMirror').CodeMirror.replaceRange('// kept\n', { line: 0, ch: 0 }));
+  await page.reload();
+  await expect.poll(() => editorText(page)).toBe('const a = 1;\n');
+  await expect(page.locator('#draftBar')).toContainText('Unsaved draft from');
+  await page.locator('#draftRestore').click();
+  await expect.poll(() => editorText(page)).toBe('// kept\nconst a = 1;\n');
+});

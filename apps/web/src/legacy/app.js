@@ -8,6 +8,7 @@ import * as findingsInbox from '../features/findings/findings-model.ts';
 import { renderFindingsInbox } from '../features/findings/FindingsInbox.tsx';
 import { createFindingsInbox } from '../features/findings/findings-controller.ts';
 import { createFileOpener } from '../features/workbench/file-opener.ts';
+import { createFileActions } from '../features/workbench/file-actions.ts';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import CodeMirror from '../components/code-editor.ts';
@@ -1849,7 +1850,7 @@ const fileOpener = createFileOpener({
   mode: path => (CodeMirror.findModeByFileName ? CodeMirror.findModeByFileName(path) : null),
   decode: base64 => b64ToUtf8(base64),
   size: bytes => fmtSize(bytes),
-  file: { set: file => { state.file = file; }, mutate: change => pageStore.mutate('file', change) },
+  file: { set: file => { flushDraft(); state.file = file; }, mutate: change => pageStore.mutate('file', change) },
   ui: {
     shell: (path, markdown) => {
       $('#editorEmpty').hidden = true;
@@ -1915,182 +1916,53 @@ $('#mdPreviewBtn').addEventListener('click', () => {
   else setTimeout(() => state.cm.refresh(), 30);
 });
 
-const _protWarned = new Set();
-async function protectedCommitGate() {
-  if (!branchProtected(state.work.branch)) return true;
-  const key = `${state.work.owner}/${state.work.repo}@${state.work.branch}`;
-  if (_protWarned.has(key)) return true;
-  const ok = await modal({
-    title: 'Protected branch',
-    okText: 'Commit anyway',
-    danger: true,
-    bodyHTML: `<p class="hint"><b>${esc(state.work.branch)}</b> is protected. Direct commits may be rejected by the server — the safer path is a new branch + pull request.</p>`
-  });
-  if (ok) _protWarned.add(key);
-  return !!ok;
-}
-$('#commitFileBtn').addEventListener('click', async () => {
-  if (!(await protectedCommitGate())) return;
-  if (!state.file || state.file.binary) return;
-  const ok = await modal({
-    title: 'Commit changes',
-    bodyHTML: `<label class="field-label" for="cmMsg">Commit message</label>
-      <input id="cmMsg" type="text" value="Update ${esc(state.file.path)}" spellcheck="false">
-      <p class="hint">Committing directly to <b>${esc(state.work.branch)}</b></p>`,
-    okText: 'Commit ✦'
-  });
-  if (!ok) return;
-  /* Read while the dialog that holds it is the one on the page: the overwrite question and Safe Passage each replace it. */
-  const typedMessage = $('#cmMsg') ? $('#cmMsg').value : undefined;
-  try {
-    /* conflict check: has the file changed on GitHub since we loaded it? */
-    try {
-      const remote = await api(`/api/repo/${wPath()}/file?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(state.file.path)}`);
-      if (remote.sha && state.file.sha && remote.sha !== state.file.sha) {
-        const overwrite = await modal({
-          title: 'File changed on GitHub',
-          bodyHTML: `<p style="font-size:.9rem;line-height:1.6">Someone (or another session) committed a newer version of <b class="mono">${esc(state.file.path)}</b> after you opened it.<br><br>Overwrite it with your version, or cancel and reload the latest first?</p>`,
-          okText: 'Overwrite anyway', danger: true
-        });
-        if (!overwrite) return;
-        pageStore.mutate('file', file => { file.sha = remote.sha; });
-        await refreshRepoMetadata();
-      }
-    } catch {}
-    const out = await api(`/api/repo/${wPath()}/file`, {
-      method: 'PUT',
-      body: guardedWrite({ path: state.file.path, content: state.cm.getValue(), message: typedMessage || undefined, branch: state.work.branch, sha: state.file.sha })
-    });
-    rememberHead(out.commit);
-    pageStore.mutate('file', file => {
-      file.sha = out.sha;
-      file.dirty = false;
-    });
-    $('#commitFileBtn').disabled = true; $('#stageFileBtn').disabled = true;
-    pageStore.mutate('file', file => { file.original = state.cm.getValue(); });
-    clearDraft(state.file.path);
-    removeDraftBar();
-    toast('Committed ✦', 'ok');
-    refreshRate();
-  } catch (e) {
-    /* A refusal that needs approval carries the route to approval. Taking it
-     * puts the change on a branch of its own, so the editor is left exactly as
-     * it is: this file on this branch still differs from what is committed
-     * here, and saying otherwise would be a comfortable lie. */
-    const routed = await takeSafePassage(e, {
-      content: state.cm.getValue(),
-      message: typedMessage,
-      sha: state.file.sha
-    });
-    if (routed) return;
-    const queued = await queueCommit({
-      kind: 'put', owner: state.work.owner, repo: state.work.repo, branch: state.work.branch,
-      path: state.file.path, content: state.cm.getValue(),
-      message: typedMessage, sha: state.file.sha,
-      expectedHeadSha: currentHeadSha()
-    }, e);
-    if (queued) { pageStore.mutate('file', file => { file.dirty = false; }); $('#commitFileBtn').disabled = true; }
-    else presentError(e);
-  }
+/*
+ * A file's own actions in the editor (features/workbench/file-actions.ts):
+ * each belongs to the file it was asked for, and a commit marks committed
+ * only what it sent, so an edit made while it is out stays an edit.
+ */
+const fileActions = createFileActions({
+  api: (path, options) => api(path, options),
+  work: () => state.work,
+  epoch: () => state.uiEpoch,
+  file: () => state.file,
+  mutateFile: change => pageStore.mutate('file', change),
+  text: () => state.cm.getValue(),
+  modal: request => modal(request),
+  modalOwner: () => modalOwner(),
+  modalBody: html => { $('#modalBody').innerHTML = html; },
+  value: selector => { const input = $(selector); return input ? input.value : null; },
+  checked: selector => { const box = $(selector); return Boolean(box && box.checked); },
+  protectedBranch: name => branchProtected(name),
+  guardedWrite: body => guardedWrite(body),
+  headSha: () => currentHeadSha(),
+  rememberHead: commit => rememberHead(commit),
+  refreshMetadata: () => refreshRepoMetadata(),
+  refreshRate: () => refreshRate(),
+  drafts: {
+    clear: path => dropDraft(path),
+    keep: (path, text) => { try { localStorage.setItem(draftKey(path), JSON.stringify({ content: text, t: Date.now() })); } catch {} },
+    removeBar: () => removeDraftBar()
+  },
+  commitable: on => { $('#commitFileBtn').disabled = !on; $('#stageFileBtn').disabled = !on; },
+  safePassage: (error, change) => takeSafePassage(error, change),
+  queueCommit: (op, error) => queueCommit(op, error),
+  presentError: error => presentError(error),
+  stage: op => addStaged(op),
+  openStage: () => openStagePanel(),
+  closeDrawer: () => closeDrawer(),
+  closeFile: () => closeFile(),
+  openFile: path => openFile(path),
+  reloadTree: () => { state.fileIndex = null; loadTree('', $('#tree'), true); },
+  timeAgo: at => timeAgo(at),
+  toast: (message, kind) => toast(message, kind)
 });
-
-$('#stageFileBtn').addEventListener('click', () => {
-  if (!state.file || state.file.binary) return;
-  addStaged({ op: 'put', path: state.file.path, content: state.cm.getValue() });
-  pageStore.mutate('file', file => { file.dirty = false; });
-  $('#stageFileBtn').disabled = true;
-  clearDraft(state.file.path);
-  removeDraftBar();
-  toast(`Staged ${state.file.path}`, 'ok');
-});
-
-$('#deleteFileBtn').addEventListener('click', async () => {
-  if (!state.file || !state.file.sha) return toast('Cannot delete: metadata unavailable', 'err');
-  const choice = await modal({
-    title: 'Delete file',
-    bodyHTML: `<p style="font-size:.9rem;line-height:1.5">Delete <b class="mono">${esc(state.file.path)}</b> from <b>${esc(state.work.branch)}</b>?</p>
-      <label class="check"><input type="checkbox" id="delStage"> Stage the deletion instead of committing now</label>`,
-    okText: 'Delete', danger: true
-  });
-  if (!choice) return;
-  const stageIt = $('#delStage') && $('#delStage').checked;
-  if (stageIt) {
-    addStaged({ op: 'delete', path: state.file.path });
-    toast(`Deletion of ${state.file.path} staged`, 'ok');
-    return;
-  }
-  try {
-    const out = await api(`/api/repo/${wPath()}/file`, {
-      method: 'DELETE', body: guardedWrite({ path: state.file.path, branch: state.work.branch, sha: state.file.sha })
-    });
-    rememberHead(out.commit);
-    toast('File deleted', 'ok');
-    closeFile(); loadTree('', $('#tree'), true);
-  } catch (e) { presentError(e); }
-});
-
-$('#renameFileBtn').addEventListener('click', async () => {
-  if (!state.file) return;
-  const ok = await modal({
-    title: 'Rename / move file',
-    bodyHTML: `<label class="field-label" for="rnTo">New path</label>
-      <input id="rnTo" type="text" value="${escAttr(state.file.path)}" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <p class="hint">Works for files of any size — the blob is re-linked, not re-uploaded.</p>`,
-    okText: 'Rename ✦'
-  });
-  if (!ok) return;
-  const to = $('#rnTo').value.trim().replace(/^\/+/, '');
-  if (!to || to === state.file.path) return;
-  try {
-    const out = await api(`/api/repo/${wPath()}/rename`, {
-      method: 'POST', body: guardedWrite({ from: state.file.path, to, branch: state.work.branch })
-    });
-    rememberHead(out.commit);
-    toast(`Renamed to ${to} ✦`, 'ok');
-    state.fileIndex = null;
-    loadTree('', $('#tree'), true);
-    openFile(to);
-  } catch (e) { toast(e.message, 'err'); }
-});
-
-$('#fileHistoryBtn').addEventListener('click', async () => {
-  if (!state.file) return;
-  const p = state.file.path;
-  modal({ title: `History — ${p.split('/').pop()}`, okText: 'Close',
-    bodyHTML: '<div class="skeleton" style="height:80px"></div>' });
-  const ownsModal = modalOwner();
-  try {
-    const commits = await api(`/api/repo/${wPath()}/commits?ref=${encodeURIComponent(state.work.branch)}&path=${encodeURIComponent(p)}`);
-    if (!ownsModal()) return;
-    $('#modalBody').innerHTML = commits.length ? commits.map(c => `
-      <div class="comment">
-        <div class="comment-head"><span class="mono commit-sha">${esc(String(c.sha || '').slice(0, 7))}</span><span>${esc(c.author)}</span><span>${timeAgo(c.date)}</span></div>
-        <div class="comment-body">${esc(c.message.split('\n')[0])}</div>
-      </div>`).join('') : '<p class="hint">No history found for this path.</p>';
-  } catch (e) { if (ownsModal()) $('#modalBody').innerHTML = `<p class="hint">⚠ ${esc(e.message)}</p>`; }
-});
-
-$('#newFileBtn').addEventListener('click', async () => {
-  if (!state.work) return;
-  const scope = `${wPath()}@${state.work.branch}`;
-  const epoch = state.uiEpoch;
-  const ok = await modal({
-    title: 'New file',
-    bodyHTML: `<label class="field-label" for="nfPath">Path</label><input id="nfPath" type="text" placeholder="docs/notes.md" autocapitalize="off" autocorrect="off" spellcheck="false">
-      <p class="hint">Creates an empty file in your staged changes. Review the diff, repository and branch before committing; nothing is sent yet.</p>`,
-    okText: 'Stage file'
-  });
-  if (!ok) return;
-  if (!state.work || epoch !== state.uiEpoch || scope !== `${wPath()}@${state.work.branch}`) {
-    return toast('The repository changed. Open New file again for the intended branch.', 'err');
-  }
-  const p = $('#nfPath').value.trim().replace(/^\/+/, '');
-  if (!p) return;
-  addStaged({ op: 'put', path: p, content: '', newFile: true });
-  toast(`New file ${p} staged for review`);
-  closeDrawer();
-  openStagePanel();
-});
+$('#commitFileBtn').addEventListener('click', () => fileActions.commit());
+$('#stageFileBtn').addEventListener('click', () => fileActions.stage());
+$('#deleteFileBtn').addEventListener('click', () => fileActions.remove());
+$('#renameFileBtn').addEventListener('click', () => fileActions.rename());
+$('#fileHistoryBtn').addEventListener('click', () => fileActions.history());
+$('#newFileBtn').addEventListener('click', () => fileActions.create());
 
 /* ================= STAGED CHANGES ================= */
 function addStaged(op) {
@@ -4386,19 +4258,43 @@ window.addEventListener('resize', () => { if (!isMobile()) { $('#side').classLis
 /* ================= v3 MODULES ================= */
 
 /* ---- unsaved drafts (localStorage, per repo@branch:path) ---- */
+/*
+ * A draft is written a moment after the last edit, under the repository,
+ * branch and file it was typed in, fixed at the edit. One still waiting when
+ * another file takes that one's place, or when the page is left, is written
+ * then: written later, it took the next file's "Loading..." as that file's
+ * draft and lost the edit, and a branch or repository changed meanwhile would
+ * have had it filed under the wrong one. One for a file whose draft is
+ * cleared -- staged, committed or renamed away -- goes with it, and one
+ * still waiting when the reader signs out is never written: the sign-out
+ * has just swept the reader's drafts from this browser.
+ */
 let _draftTimer = null;
+let _draft = null;
 const draftKey = p => `nv_draft:${wPath()}@${state.work.branch}:${p}`;
+function writeDraft() {
+  const { file, key, epoch } = _draft;
+  clearTimeout(_draftTimer);
+  _draftTimer = null; _draft = null;
+  if (state.uiEpoch !== epoch) return;
+  try {
+    const content = state.cm.getValue();
+    if (content === file.original) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify({ content, t: Date.now() }));
+  } catch {}
+}
 function saveDraft() {
   clearTimeout(_draftTimer);
-  _draftTimer = setTimeout(() => {
-    if (!state.file || state.file.binary) return;
-    try {
-      const content = state.cm.getValue();
-      if (content === state.file.original) { clearDraft(state.file.path); return; }
-      localStorage.setItem(draftKey(state.file.path), JSON.stringify({ content, t: Date.now() }));
-    } catch {}
-  }, 600);
+  _draft = { file: state.file, key: draftKey(state.file.path), epoch: state.uiEpoch };
+  _draftTimer = setTimeout(writeDraft, 600);
 }
+function flushDraft() { if (_draft) writeDraft(); }
+/* A draft can be waiting only for the file open, the one whose draft is cleared. */
+function dropDraft(p) {
+  clearTimeout(_draftTimer); _draftTimer = null; _draft = null;
+  clearDraft(p);
+}
+window.addEventListener('pagehide', () => flushDraft());
 function clearDraft(p) { try { localStorage.removeItem(draftKey(p)); } catch {} }
 function removeDraftBar() { const b = $('#draftBar'); if (b) b.remove(); }
 function offerDraft(p, loadedText) {

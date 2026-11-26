@@ -231,6 +231,38 @@ function surfaceOf(files) {
   return analyseSurface({ routes, files });
 }
 {
+  // The same request, lookup and policy call. Only the use of the result changes.
+  const check = (path, policy, use, lookup = 'const row = await Item.findById(req.params.id);') => {
+    const text = [
+      "import express from 'express';", policy, 'const app = express();',
+      "app.get('/items/:id', requireAuth, async (req, res) => {",
+      lookup, use, '  return res.json(row);', '});'
+    ].join('\n');
+    return surfaceOf([{ path, text }]).raw.filter(f => f.rule === 'ACC-002')
+      .map(f => [f.path, f.line, f.verdict]);
+  };
+  const predicate = 'function canAccess(actor, row) { return row.ownerId === actor.id; }';
+  for (const path of ['server/items.js', 'server/items.ts']) {
+    const review = [[path, 4, 'needs-validation']];
+    assert.deepStrictEqual(check(path, predicate, 'canAccess(req.user, row);'), review, 'discarded ownership result');
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.status(403).end();'), []);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) logDenied();'), review, 'denial falls through');
+    assert.deepStrictEqual(check(path, 'const policy = getPolicy();', 'if (!(await policy.canAccess(req.user.id, row.ownerId))) return res.status(403).json({error: "forbidden"});'), []);
+    const early = 'if (!canAccess(req.user, req.params.id)) { res.sendStatus(403); return; }';
+    assert.deepStrictEqual(check(path, predicate, 'const row = await Item.findById(req.params.id);', early), []);
+    assert.deepStrictEqual(check(path, predicate, 'const row = await Item.findById(req.params.otherId);', early), review);
+    assert.deepStrictEqual(check(path, predicate, 'const ok = canAccess(req.user, row); if (!ok) { return res.sendStatus(403); }'), []);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) res.sendStatus(403);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'res.json(row); if (!canAccess(req.user, row)) return res.sendStatus(403);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.status(403).json(row);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.sendStatus(403); await Item.findById(req.params.otherId);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'canAccess(req.user, row);', 'const row = await Item.findOne({id: req.params.id, ownerId: req.user.id});'), []);
+    assert.deepStrictEqual(check(path, "import { canAccess } from 'missing-policy';", 'if (!canAccess(req.user, row)) return res.sendStatus(403);'), []);
+    assert.deepStrictEqual(check(path, "import { assertOwner } from 'missing-policy';", 'await assertOwner(req.user, row);'), review, 'unresolved assertion');
+  }
+}
+
+{
   const withAuth = { path: 'server/auth.js', text: "const jwt = require('jsonwebtoken');\nfunction requireAuth(req, res, next) { jwt.verify(req.headers.authorization, KEY); next(); }\nmodule.exports = { requireAuth };\n" };
   const routes = { path: 'server/routes.js', text: [
     "const router = require('express').Router();",

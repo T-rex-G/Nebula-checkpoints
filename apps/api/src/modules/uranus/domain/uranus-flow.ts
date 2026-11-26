@@ -50,7 +50,7 @@ import { analyseCFamily, CFAMILY_FILE } from './uranus-cfamily.ts';
 import { Scope, merge, type Value, type FlowValue, type Guard } from './uranus-scope.ts';
 import { CONTRACTS, SAFE, htmlTextPieces, isAllowListReplace, jsExportTransform, jsIntrinsic, jsTransformName, noteReturn, returnedThrough, sanitised, sanitising, type Returned, type Sanitising } from './uranus-sanitise.ts';
 import type { CFamilyReading, Flow, Step } from './uranus-cfamily.ts';
-import type { Route, RouteUse } from './uranus-surface.ts';
+import { expressPolicyTie, type Route, type RouteUse } from './uranus-surface.ts';
 
 /* ---- Types ------------------------------------------------------------------------ */
 
@@ -926,6 +926,12 @@ class JsWalker {
       hint.route.bodyStart = fn.bodyStart;
       hint.route.bodyEnd = fn.bodyEnd;
       hint.route.handlerLine = fn.line;
+      const body = this.tokens.slice(fn.bodyStart, fn.bodyEnd);
+      hint.route.bodyText = body.map(t => t.t === 'tpl' ? t.parts.join(' ') : t.v).join(' ');
+      if (hint.route.framework === 'express') {
+        const tie = expressPolicyTie(body, hint.route.bodyText, fn.params[0]?.[0]?.name, fn.params[1]?.[0]?.name);
+        if (tie !== undefined) hint.route.policyTied = tie;
+      }
     }
   }
 
@@ -2445,7 +2451,6 @@ function analyseLexicalFlows(files: readonly FlowFile[], sources: ReadableFile[]
     for (const route of flowCtx.routes) {
       const { bodyStart, bodyEnd, bodyStartLine, bodyEndLine } = route;
       if (flowCtx.language === 'javascript' && typeof bodyStart === 'number' && typeof bodyEnd === 'number') {
-        route.bodyText = flowCtx.tokens.slice(bodyStart, bodyEnd).map(t => (t.t === 'tpl' ? t.parts.join(' ') : t.v)).join(' ');
         route.startLine = flowCtx.tokens[bodyStart]?.line ?? route.line;
         route.endLine = flowCtx.tokens[bodyEnd]?.line ?? route.line;
       }

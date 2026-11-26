@@ -1,3 +1,5 @@
+import { matching } from './uranus-lex.ts';
+import { statementEnd, type Tokens } from './uranus-shape.ts';
 import { ownEntry } from '../../../platform/values/fields.ts';
 import type { SourceFile } from './uranus-reach.ts';
 import { serviceIndex, type ServiceIndex } from './uranus-services.ts';
@@ -99,6 +101,7 @@ export interface Route {
   middleware?: string[];
   uses?: readonly RouteUse[];
   bodyText?: string;
+  policyTied?: boolean;
   startLine?: number;
   endLine?: number;
   handlerPath?: string;
@@ -106,7 +109,7 @@ export interface Route {
 }
 
 /* The pattern a language's handlers are checked with, by own name: an inherited name is no language. */
-/* A call that asks whether this caller may touch this record: naming one anywhere is a tie to the caller. */
+/* Candidate policy spellings. Express additionally checks how the handler uses the result. */
 const POLICY_CALL = /\b(can|cannot|authorize\w*|checkPermission|hasPermission|has_perm|has_object_permission|check_object_permissions|isOwner|is_owner|assertOwner|ensureOwner|canAccess|canEdit|canView|canDelete|belongsTo|belongs_to|ownedBy|owned_by|denyAccessUnlessGranted|isGranted)\s*\(|\bGate\s*::|\b[Pp]olicy\b|\bability\b|@\s*(PreAuthorize|PostAuthorize|IsGranted)\b/;
 /* A route only a role may reach: any record by its id is that role's to read. */
 const ROLE_GUARD = /\b(require|is|ensure|check|only|verify|has)_?(admin|role|staff|superuser|moderator)\w*|\badmin_?(only|required|guard)\b|\broles?\b|\bstaff_member_required\b|\bcan:|\brole:/i;
@@ -169,8 +172,8 @@ function withoutWritten(span: string): string {
  * chain it starts, a value it is handed), in a condition, or a call that
  * asks a policy. What is written into a record is not what it is matched by.
  */
-function tiedToCaller(body: string, lookup: RegExp, extra: RegExp | null): boolean {
-  if (POLICY_CALL.test(body)) return true;
+function tiedToCaller(body: string, lookup: RegExp, extra: RegExp | null, policyTied = true): boolean {
+  if (POLICY_CALL.test(body)) return policyTied;
   const names = (span: string): boolean => OWNER_BINDING.test(span) || Boolean(extra && extra.test(span));
   /* A condition: if (...), a comparison, a Python or Go `if` with no brackets, a guard clause. */
   const conditions = /\bif\s*\(|\b(?:if|elif|unless|assert|abort_if|abort_unless)\b[^\n(]*|[^\n;]*(?:[!=]==?|\bis\s+not\b|\bnot\s+in\b)[^\n;]*/g;
@@ -193,6 +196,90 @@ function tiedToCaller(body: string, lookup: RegExp, extra: RegExp | null): boole
       const value = declared.get(word);
       if (value !== undefined && names(value)) return true;
     }
+  }
+  return false;
+}
+
+/* Only the Express route reader has the handler's token and parameter boundaries.
+ * An opaque call can return normally. Look for a rejecting branch before the
+ * record is used, or an independent owner constraint outside the call. */
+export function expressPolicyTie(tokens: Tokens, body: string, request?: string, response?: string): boolean | undefined {
+  if (!POLICY_CALL.test(body)) return undefined;
+  if (tokens.length > 2048) return false;
+  const code = tokens.map(t => t.t === 'str' ? '~' : t.t === 'tpl' || t.t === 're' ? '?' : t.v);
+  const independent = [...code];
+  for (let i = 0; i < code.length; i++) {
+    if (!POLICY_CALL.test(code[i] + ' (')) continue;
+    independent[i] = '_';
+    let open = i + 1;
+    while (code[open] === '.' || code[open] === '?.') open += 2;
+    if (code[open] === '(') {
+      const close = matching(tokens, open);
+      independent.fill('_', i, close + 1);
+      i = close;
+    }
+  }
+  if (tiedToCaller(independent.join(' '), RECORD_LOOKUP, null)) return true;
+
+  // Straight-line prefix only. A guard in a callback, after a disclosure or
+  // after a mutating lookup cannot protect an earlier use of the record.
+  let row: string | undefined;
+  let decision: string | undefined;
+  let checkedId: string | undefined;
+  const permission = (words: string[]): boolean => {
+    const open = words.indexOf('(');
+    const name = words[open - 1];
+    if (!name || name === 'cannot' || !POLICY_CALL.test(name + ' (') || words.at(-1) !== ')') return false;
+    const target = words.slice(0, open).join(' ');
+    if (!/^(?:await )?(?:[\w$]+ \. )*[\w$]+$/.test(target) || !request) return false;
+    const args = words.slice(open + 1, -1).join(' ').split(' , ');
+    const caller = (arg: string) => arg === request + ' . user' ||
+      ['id', '_id', 'sub'].some(key => arg === request + ' . user . ' + key);
+    const [left, right] = args;
+    if (args.length !== 2 || left === undefined || right === undefined) return false;
+    const subject = caller(left) ? right : caller(right) ? left : undefined;
+    if (!subject) return false;
+    if (row) return subject === row ||
+      ['ownerId', 'owner_id', 'userId', 'user_id'].some(key => subject === row + ' . ' + key);
+    if (!subject.startsWith(request + ' . params . ') || !/ \. [\w$]+$/.test(subject) || subject.split(' ').length !== 5) return false;
+    checkedId = subject;
+    return true;
+  };
+  for (let at = 0; at < code.length;) {
+    const end = statementEnd(tokens, at, tokens.length);
+    const words = code.slice(at, end);
+    if (words.at(-1) === ';') words.pop();
+    if (words[0] === 'const' && words[2] === '=') {
+      const rhs = words.slice(3);
+      if (!row && /^(?:await )?(?:[\w$]+ \. )+(?:findById|findByPk|findUnique|findFirst|findOne) \( [^();]+ \)$/.test(rhs.join(' '))) row = words[1];
+      else if (!decision && permission(rhs)) decision = words[1];
+      else break;
+    } else if (words[0] === 'if' && words[1] === '(' && words[2] === '!') {
+      const close = matching(tokens, at + 1) - at;
+      let condition = words.slice(3, close);
+      if (condition[0] === '(' && matching(tokens, at + 3) === at + close - 1) condition = condition.slice(1, -1);
+      if (!(decision && condition.length === 1 && condition[0] === decision) && !permission(condition)) break;
+      const arm = words.slice(close + 1);
+      if (arm[0] === '{' && arm.at(-1) === '}') { arm.shift(); arm.pop(); }
+      if (arm.at(-1) === ';') arm.pop();
+      // Checking this row does not authorize a second lookup by a request id.
+      let protectedEnd = end;
+      if (checkedId) {
+        protectedEnd = statementEnd(tokens, end, tokens.length);
+        const lookup = code.slice(end, protectedEnd).join(' ').replace(/ ;$/, '');
+        const byId = /^const [\w$]+ = (?:await )?(?:[\w$]+ \. )+(?:findById|findByPk) \( (.+) \)$/.exec(lookup);
+        if (byId?.[1] !== checkedId) break;
+      }
+      const rest = code.slice(protectedEnd).join(' ');
+      if (RECORD_LOOKUP.test(rest) && ID_SOURCE.test(rest)) break;
+      if (arm.join(' ') === 'return' || /^throw new [\w$]+ \( (?:~ )?\)$/.test(arm.join(' '))) return true;
+      if (arm[0] === 'return') arm.shift();
+      else if (arm.at(-1) === 'return' && arm.at(-2) === ';') arm.splice(-2);
+      else break;
+      if (arm[0] !== response) break;
+      return /^\. (?:sendStatus \( (?:401|403) \)|status \( (?:401|403) \) \. (?:end|send|json) \( (?:(?:~|\{ (?:error|message|~) : ~ \}) )?\))$/.test(arm.slice(1).join(' '));
+    } else break;
+    at = end;
   }
   return false;
 }
@@ -452,7 +539,8 @@ export function analyseSurface({ routes, files }: { routes?: readonly Route[] | 
       const hasId = ID_SOURCE.test(body) || /[:[<{]\w*id\b/i.test(label || '') || /^\s*(async\s+)?def\s+\w+\s*\([^)]*\b(\w+_id|id|pk)\b/.test(body);
       const cfamily = Boolean(languagePattern(LANGUAGE_BODY_AUTH, route.language));
       const lookup = cfamily ? CF_RECORD_LOOKUP.test(body) : RECORD_LOOKUP.test(body);
-      const owned = tiedToCaller(body, cfamily ? CF_RECORD_LOOKUP : RECORD_LOOKUP, cfamily ? CF_OWNER_BINDING : null) || ROLE_GUARD.test((route.middleware || []).join(' '));
+      const owned = tiedToCaller(body, cfamily ? CF_RECORD_LOOKUP : RECORD_LOOKUP, cfamily ? CF_OWNER_BINDING : null,
+        route.framework !== 'express' || route.policyTied === true) || ROLE_GUARD.test((route.middleware || []).join(' '));
       /* No lookup here: the caller's id may be handed to a service that makes it (JavaScript and Python). */
       const delegated = hasId && !lookup && !owned && !cfamily && lookupInService(body, label, () => (services ??= serviceIndex(all)));
       if (hasId && (lookup || delegated) && !owned && !/supabase\s*\.\s*from\s*\(/.test(body)) {

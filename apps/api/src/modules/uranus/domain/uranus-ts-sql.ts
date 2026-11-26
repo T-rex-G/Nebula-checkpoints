@@ -135,7 +135,7 @@ function requestHandler(decl: ts.Declaration | undefined, checker: ts.TypeChecke
 }
 
 export function semanticRequestInput(expression: ts.Expression, checker: ts.TypeChecker,
-  registered?: (parameter: ts.ParameterDeclaration) => boolean): 'inline' | 'registered' | false {
+  registered?: (parameter: ts.ParameterDeclaration) => boolean): { conditional: boolean; objectInput: boolean } | false {
   const node = unwrap(expression);
   const getter = ts.isCallExpression(node) ? member(node.expression) : null;
   if (ts.isCallExpression(node) && (!getter || !['get', 'header'].includes(getter.name) || node.arguments.length !== 1 ||
@@ -146,11 +146,13 @@ export function semanticRequestInput(expression: ts.Expression, checker: ts.Type
   if (!ref) return false;
   const source = requestHandler(ref.symbol.valueDeclaration, checker, registered);
   if (!source) return false;
-  if (getter) return !ref.path.length && intact(value, [getter.name], checker) && source;
+  const conditional = source === 'registered';
+  if (getter) return !ref.path.length && intact(value, [getter.name], checker) && { conditional, objectInput: false };
   const [channel] = ref.path;
   if (!channel || !intact(node, [], checker)) return false;
-  if (ref.path.length === 1) return ['url', 'originalUrl', 'path', 'hostname'].includes(channel) && source;
-  return ref.path.length === 2 && CHANNELS.has(channel) && !PROTOTYPE.has(ref.path[1] ?? '') && source;
+  if (ref.path.length === 1) return ['url', 'originalUrl', 'path', 'hostname'].includes(channel) && { conditional, objectInput: false };
+  return ref.path.length === 2 && CHANNELS.has(channel) && !PROTOTYPE.has(ref.path[1] ?? '') &&
+    { conditional, objectInput: channel === 'body' || channel === 'query' };
 }
 
 /* Only a driver's statement argument is parsed as SQL. Values in a separate

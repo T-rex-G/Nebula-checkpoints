@@ -1,3 +1,10 @@
+export const MONGO_METHODS = new Set(['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'countDocuments', 'where', 'find_one', 'update_one', 'update_many', 'delete_one', 'delete_many', 'count_documents', 'find_one_and_update']);
+
+const mongooseModule = /['"]mongoose['"]/;
+export function mayUseMongoose(text: string): boolean {
+  return mongooseModule.test(text) || text.includes('\\');
+}
+
 const MARKUP_PROPERTIES = /innerHTML|outerHTML|srcdoc|insertAdjacentHTML|setHTMLUnsafe|createContextualFragment|parseFromString|dangerouslySetInnerHTML|bypassSecurityTrustHtml/;
 
 export function mayContainMarkupSink(text: string): boolean {
@@ -23,7 +30,7 @@ export function mayUseNodeFilesystem(text: string): boolean {
 }
 
 export function hasNamedSemanticSink(text: string): boolean {
-  return MARKUP_PROPERTIES.test(text) || (filesystemModule.test(text) && filesystemOperation.test(text)) || /\b(?:write|writeln|query|execute)\b/.test(text);
+  return MARKUP_PROPERTIES.test(text) || mongooseModule.test(text) || (filesystemModule.test(text) && filesystemOperation.test(text)) || /\b(?:write|writeln|query|execute)\b/.test(text);
 }
 
 /* A computed access requires an expression before its opening bracket and a

@@ -1,6 +1,6 @@
 // Demand-driven reaching definitions and call-site return values for the bounded JS/TS project.
 import ts from 'typescript';
-import { constantTruth, controlReader, primitive, runtimeFunction, subtractGuards, type ControlFacts } from './uranus-ts-control.ts';
+import { constantTruth, controlReader, guardedComparison, primitive, runtimeFunction, subtractGuards, type ControlFacts } from './uranus-ts-control.ts';
 import { frameworkValue } from './uranus-ts-framework.ts';
 import { firstExpressHandler, semanticRequestInput } from './uranus-ts-sql.ts';
 import { member, unwrap } from './uranus-ts-symbols.ts';
@@ -11,6 +11,8 @@ export interface SemanticValue {
   readonly origin?: ts.Node;
   readonly steps?: readonly ts.Node[];
   readonly conditional?: boolean;
+  /** Runtime shape for query fields. A node witnesses an unrestricted Express field. */
+  readonly filterOperand?: ts.Node | 'primitive';
   readonly truth?: boolean;
   readonly atom?: string | number | boolean | null;
   readonly plain?: boolean;
@@ -46,6 +48,13 @@ interface Definition {
   readonly value?: SemanticValue;
 }
 type RuntimeFunction = ts.FunctionLikeDeclaration & { body: ts.ConciseBody };
+
+function scalarOperand(left: ts.Expression, right: ts.Expression): ts.Expression | undefined {
+  const type = ts.isTypeOfExpression(left) ? left : ts.isTypeOfExpression(right) ? right : undefined;
+  const tag = type === left ? right : left;
+  return type && ts.isStringLiteralLike(tag) && ['string', 'number', 'boolean', 'bigint'].includes(tag.text)
+    ? unwrap(type.expression) : undefined;
+}
 
 function through(value: SemanticValue, node: ts.Node): SemanticValue {
   const project = value.project;
@@ -120,7 +129,10 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
       const source = values.find(value => value.kind === 'input' && value.reason === 'unverified-tag') ??
         values.find(value => value.kind === 'input' && !value.conditional) ?? witness;
       const conditional = values.some(value => value.kind !== 'input' || value.conditional || value.origin !== source.origin);
-      return conditional ? { ...source, conditional: true } : source;
+      const open = values.find(v => v.filterOperand && v.filterOperand !== 'primitive');
+      const filterOperand = open?.filterOperand ?? (values.every(v => v.filterOperand === 'primitive' || v.kind === 'scalar' ||
+        v.kind === 'literal') ? 'primitive' : undefined);
+      return { ...source, conditional: source.conditional || conditional, filterOperand };
     }
     const first = values[0];
     if (values.some(value => value.project)) {
@@ -573,7 +585,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
 
   function concatenate(parts: readonly SemanticValue[], text: readonly string[] | undefined): SemanticValue {
     const source = parts.find(value => value.kind === 'input');
-    if (source) return source;
+    if (source) return { ...source, filterOperand: 'primitive' };
     if (parts.some(v => v.reason === 'unresolved-tag')) return unresolvedTag;
     if (parts.some(v => v.reason === 'unresolved-call')) return unresolvedCall;
     if (parts.some(v => v.reason === 'unresolved-member') &&
@@ -663,7 +675,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
       const id = symbol(parameter.name);
       return !!id && routeParameters.has(id) && !env.has(id);
     });
-    if (request) return { kind: 'input', origin: node, conditional: request === 'registered' };
+    if (request) return { kind: 'input', origin: node, conditional: request.conditional, filterOperand: request.objectInput ? node : undefined };
     if (ts.isObjectLiteralExpression(node)) return record(node, env);
     if (ts.isIdentifier(node)) {
       const id = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ?
@@ -675,7 +687,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
       if (!ts.isTemplateExpression(node.template)) return unresolvedTag;
       for (const span of node.template.templateSpans) {
         const part = read(span.expression, env, depth + 1);
-        if (part.kind === 'input') return through({ ...part, conditional: true, reason: 'unverified-tag' }, node);
+        if (part.kind === 'input') return through({ ...part, filterOperand: undefined, conditional: true, reason: 'unverified-tag' }, node);
       }
       return unresolvedTag;
     }
@@ -724,7 +736,12 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     if (active.has(node)) return cutoff();
     active.add(node);
     try {
-      const value = evaluate(node, env, depth);
+      let value = evaluate(node, env, depth);
+      if (value.filterOperand && value.filterOperand !== 'primitive' && ts.isIdentifier(node)) {
+        const facts = control.facts(node);
+        if (!dynamicScopes.has(facts.owner) && guardedComparison(node, facts.tests, checker, scalarOperand))
+          value = { ...value, filterOperand: 'primitive' };
+      }
       if (env === empty && !interrupted) results.set(node, value);
       return interrupted ? unknown : value;
     } finally { active.delete(node); }

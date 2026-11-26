@@ -1,8 +1,9 @@
 /* Bounded semantic evidence for JavaScript and TypeScript rendering and server-side calls. */
 import ts from 'typescript';
-import { mayContainMarkupSink, mayContainSemanticSink, mayUseNodeFilesystem } from './uranus-ts-candidates.ts';
+import { MONGO_METHODS, mayContainMarkupSink, mayContainSemanticSink, mayUseMongoose, mayUseNodeFilesystem } from './uranus-ts-candidates.ts';
 import { isOrdinaryHtmlReceiver, semanticSink } from './uranus-ts-framework.ts';
 import { filesystemPaths, fixedPathChoice } from './uranus-ts-filesystem.ts';
+import { mongooseFilter } from './uranus-ts-mongoose.ts';
 import { buildSemanticProject } from './uranus-ts-project.ts';
 import { semanticSqlSink } from './uranus-ts-sql.ts';
 import { globalName, member, unwrap } from './uranus-ts-symbols.ts';
@@ -81,7 +82,7 @@ function browserRoot(node: ts.Node): ts.Identifier | null {
   return ts.isIdentifier(root) && ['window', 'document', 'globalThis', 'self'].includes(root.text) ? root : null;
 }
 
-function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom' | 'path', label: string,
+function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom' | 'path' | 'nosql', label: string,
   blocker: SemanticReason | null, pathOf: (node: ts.Node) => string): FlowRecord | null {
   if (value.kind !== 'input' || !value.origin) return null;
   const origin = value.origin;
@@ -96,8 +97,8 @@ function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 
   }
   trace.push({ path, line, role: 'sink', note: label });
   const valueReason = value.reason === 'declared-input' || value.reason === 'unverified-tag' ? value.reason : null;
-  const reason = blocker ?? valueReason ?? (value.conditional ? 'conditional' : null);
-  return { rule: { sql: 'SEC-001', dom: 'SEC-002', path: 'SEC-022' }[kind], kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
+  const reason = (kind === 'nosql' ? 'nosql' : blocker) ?? valueReason ?? (value.conditional ? 'conditional' : null);
+  return { rule: { sql: 'SEC-001', dom: 'SEC-002', path: 'SEC-022', nosql: 'SEC-029' }[kind], kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
     source: 'a modeled application input', verdict: reason ? 'needs-validation' : 'confirmed',
     blocker: reason ? { reason } : null, trace, viaHelper: trace.some(step => step.path !== path) ? 'file' : null };
 }
@@ -108,6 +109,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
   const sites: SemanticSite[] = [], leads: SemanticLead[] = [];
   const stats: SemanticStats = { files: 0, nodes: 0, skippedFiles: 0, unresolvedImports: 0, unresolvedOperations: 0, truncatedFiles: 0, complete: false };
   const analyzed: FlowRecord[] = [];
+  const safeFilters = new Map<string, boolean>();
   const reported = new Map<string, Set<string>>();
   for (const flow of legacy) {
     let entries = reported.get(flow.path);
@@ -126,6 +128,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     let reader: ReturnType<typeof createSemanticReader> | undefined;
     const values = () => reader ??= createSemanticReader(checker, project.pathOf, stop, project.files);
     let visited = 0, interrupted = false;
+    const mongoose = project.files.some(file => mayUseMongoose(file.text));
     for (const file of project.files) {
       const path = project.pathOf(file);
       const filesystem = mayUseNodeFilesystem(file.text);
@@ -187,6 +190,20 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
             stats.unresolvedOperations++;
           }
         }
+        if (mongoose && ts.isCallExpression(node)) {
+          const method = member(node.expression, checker);
+          if (method && (MONGO_METHODS.has(method.name) || method.name === 'update')) {
+            // The lexical tracer keys each call by the line of its opening parenthesis.
+            const at = file.getLineAndCharacterOfPosition(node.arguments.pos - 1).line + 1;
+            const result = mongooseFilter(node, method.name, method.base, checker, values);
+            const key = keyOf(path, at);
+            if (reports.has('SEC-029/' + at)) safeFilters.set(key, result === 'safe' && safeFilters.get(key) !== false);
+            if (result && result !== 'safe' && admit('SEC-029', at)) {
+              const flow = traced(result, path, at, 'nosql', 'used as a field in a database query object', null, project.pathOf);
+              if (flow) analyzed.push(flow);
+            }
+          }
+        }
         if (filesystem && ts.isCallExpression(node)) {
           let unresolved = false;
           for (const argument of filesystemPaths(node, checker)) {
@@ -223,6 +240,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     analyzed.push(...line.flows);
   }
   const kept = legacy.filter(flow => {
+    if (flow.rule === 'SEC-029') return !inspected || !safeFilters.get(keyOf(flow.path, flow.line));
     if (flow.rule !== 'SEC-002') return true;
     const line = covered.get(keyOf(flow.path, flow.line));
     if (!line) return true;

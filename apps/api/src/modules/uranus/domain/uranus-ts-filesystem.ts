@@ -2,8 +2,9 @@
  * repository module, filename, or input string is evaluated by this model. */
 import ts from 'typescript';
 import { filesystemPathCount } from './uranus-ts-candidates.ts';
+import { guardedComparison } from './uranus-ts-control.ts';
 import { library } from './uranus-ts-libraries.ts';
-import { member, reassigned, unwrap } from './uranus-ts-symbols.ts';
+import { member, unwrap } from './uranus-ts-symbols.ts';
 
 /* Stream overrides, symbolic-link targets and FileHandle methods have different
  * contracts. Only plain path positions on a recognized module export qualify. */
@@ -38,31 +39,6 @@ export function filesystemPaths(call: ts.CallExpression, checker: ts.TypeChecker
  * of actual string literals. Property getters, conversions and mutable bindings
  * do not preserve this fact between the guard and the filesystem call. */
 export function fixedPathChoice(expression: ts.Expression, guards: ReadonlyMap<ts.Node, boolean>, checker: ts.TypeChecker): boolean {
-  const value = unwrap(expression);
-  if (!ts.isIdentifier(value) || !guards.size) return false;
-  const symbol = checker.getSymbolAtLocation(value);
-  const decl = symbol?.valueDeclaration;
-  if (!decl || (!ts.isVariableDeclaration(decl) && !ts.isParameter(decl)) || reassigned(decl, checker)) return false;
-  let budget = 64;
-  function restricts(condition: ts.Expression, taken: boolean): boolean {
-    if (--budget < 0) return false;
-    const node = unwrap(condition);
-    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) return restricts(node.operand, !taken);
-    if (!ts.isBinaryExpression(node)) return false;
-    const op = node.operatorToken.kind;
-    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.AmpersandAmpersandToken) {
-      // A disjunction taken (or a conjunction rejected) admits either branch.
-      if ((op === ts.SyntaxKind.BarBarToken) === taken) return restricts(node.left, taken) && restricts(node.right, taken);
-      return restricts(node.left, taken) || restricts(node.right, taken);
-    }
-    if (op !== (taken ? ts.SyntaxKind.EqualsEqualsEqualsToken : ts.SyntaxKind.ExclamationEqualsEqualsToken)) return false;
-    const left = unwrap(node.left), right = unwrap(node.right);
-    const tested = ts.isStringLiteralLike(left) ? right : ts.isStringLiteralLike(right) ? left : undefined;
-    return !!tested && ts.isIdentifier(tested) && checker.getSymbolAtLocation(tested) === symbol;
-  }
-  for (const [guard, taken] of guards) {
-    if (budget <= 0) break;
-    if (ts.isExpression(guard) && restricts(guard, taken)) return true;
-  }
-  return false;
+  return guardedComparison(expression, guards, checker, (left, right) =>
+    ts.isStringLiteralLike(left) ? right : ts.isStringLiteralLike(right) ? left : undefined);
 }

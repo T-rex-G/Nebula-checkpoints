@@ -39,7 +39,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
-import { mayContainSemanticSink } from './uranus-ts-candidates.ts';
+import { MONGO_METHODS, mayContainSemanticSink } from './uranus-ts-candidates.ts';
 import type * as Semantic from './uranus-ts-analysis.ts';
 import { lexJs, lexPython, matching, partners, splitArgs, opensWith } from './uranus-lex.ts';
 import type { LogicalLine, PlainToken, TemplateToken, Token } from './uranus-lex.ts';
@@ -331,7 +331,6 @@ const JUDGEMENT_SINKS: ReadonlySet<FlowSinkKind> = new Set<FlowSinkKind>(['nosql
 const CHILD_PROCESS = /^(node:)?child_process$/;
 const FS_MODULE = /^(node:)?fs(\/promises)?$|^fs-extra$/;
 const DB_OBJECT = /^(db|pool|client|conn|connection|knex|sequelize|sql|database|pg|mysql|sqlite|tx|trx|cursor|con|session|engine|prisma|supabase|query|dbClient|pgClient|mysqlClient|repo|repository|em|manager|dataSource|queryRunner)$/i;
-const MONGO_METHODS = new Set(['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'countDocuments', 'where', 'find_one', 'update_one', 'update_many', 'delete_one', 'delete_many', 'count_documents', 'find_one_and_update']);
 const MASS_METHODS = new Set(['create', 'insert', 'insertMany', 'insertOne', 'update', 'upsert', 'updateOne', 'save', 'build', 'findByIdAndUpdate', 'findOneAndUpdate', 'createMany', 'bulkCreate', 'insert_one', 'insert_many']);
 const MERGE_CALLS = /^(merge|mergeWith|defaultsDeep|deepMerge|deepmerge|mergeDeep|extend|assignDeep|set|setWith|unset)$/;
 const HTTP_CLIENT_ROOTS = /^(axios|got|needle|superagent|undici|ky|ofetch|\$fetch|http|https)$/;

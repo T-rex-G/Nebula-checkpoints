@@ -91,6 +91,47 @@ function express(body) {
   quiet('ordinary object update', [update('preferences', 'req.body.id')]);
 }
 
+/* A Mongoose filter interprets the runtime shape of each field independently. */
+{
+  const prefix = [
+    'import express from "express";', 'import { model } from "mongoose";',
+    'const entries = model("Entry", schema);', 'const app = express();',
+    'app.post("/records", async (incoming, res) => {'
+  ];
+  const cases = [
+    ['const code = incoming.body.code;', 'entries.deleteOne({code});', true],
+    ['let code = incoming.body.code;', 'entries.deleteOne({code: {$eq: code}});', false],
+    ['let code = incoming.body.code; if (typeof code !== "string") return;', 'entries.deleteOne({code});', false],
+    ['const code = incoming.query.code;', 'entries.countDocuments({code});', true],
+    ['const code = incoming.body.code;', 'if (typeof code === "number") entries.findOne({code});', false],
+    ['const code = incoming.body.code; if (typeof code !== "string") res.status(400);', 'entries.findOne({code});', true],
+    ['let code = incoming.body.code; if (typeof code !== "string") return; code = incoming.body.next;', 'entries.findOne({code});', true],
+    ['const code = incoming.body.code; { const code = 42; if (typeof code !== "number") return; }', 'entries.findOne({code});', true],
+    ['const code = incoming.body.code;', 'entries.findOne({key: {$eq: incoming.body.key}, code});', true],
+    ['', 'entries.findOne({key: {"$eq": incoming.body.key}, active: true});', false],
+    ['', 'entries.updateOne({active:true}, {key:incoming.body.key});', false],
+    ['const code = String(incoming.body.code);', 'entries.findOne({code});', false],
+    ['const code = `record-${incoming.query.code}`;', 'entries.findOne({code});', false],
+    ['const code = incoming.params.code;', 'entries.findOne({code});', false],
+    ['const other = {findOne(value) {return value;}}; const code = incoming.body.code;', 'other.findOne({code});', false],
+    ['', 'entries.findOne({key: {$eq: incoming.body.key}}); Legacy.find({key: incoming.body.key});', true],
+    ['const code = incoming.body.code; const selected = enabled ? "fixed" : code;', 'entries.findOne({key: selected});', true]
+  ];
+  for (const [setup, sink, expected] of cases) {
+    const path = 'server/records.js', line = prefix.length + 2;
+    const matches = flows([{path, text: [...prefix, setup, sink, '});'].join('\n')}]).filter(f => f.rule === 'SEC-029');
+    assert.deepStrictEqual(matches.map(f => [f.path, f.line, f.verdict]), expected ? [[path, line, 'needs-validation']] : [], setup + sink);
+  }
+  const typed = [...prefix, 'const code = incoming.body.code as string;', 'entries.findOne({code});', '});'].join('\n');
+  fires('erased filter field annotation', [{path: 'server/records.ts', text: typed}], ['SEC-029@server/records.ts:7']);
+  const imported = typed.replace('import { model } from "mongoose";', 'import { entries } from "./model";')
+    .replace('const entries = model("Entry", schema);', '');
+  const model = 'import mongoose from "mongoose"; export const entries = mongoose.model("Entry", schema);';
+  const split = source => [{path: 'server/records.ts', text: imported}, {path: 'server/model.ts', text: source}];
+  fires('imported Mongoose model', split(model), ['SEC-029@server/records.ts:7']);
+  quiet('replaced model method', split(model + ' entries.findOne = customSearch;'));
+}
+
 /* Only a file that actually lost a flow is reported as truncated. */
 {
   const source = count => express("app.get('/', (req, res) => {\n" + Array(count).fill("res.redirect(req.query.to);").join('\n') + "\n});");

@@ -27,7 +27,7 @@ type ImportUse = 'value' | 'type';
  * write cannot certify a platform object or a text encoder. */
 interface Writes { readonly bindings: Set<ts.Declaration>; readonly globals: Set<string>; readonly members: Map<string, Set<string>> }
 const writesByFile = new WeakMap<ts.SourceFile, Writes>();
-const platformClasses = new Set(['DOMParser', 'Document', 'HTMLDocument', 'Element', 'HTMLElement', 'ShadowRoot', 'Range', 'Function']);
+const platformClasses = new Set(['DOMParser', 'Document', 'HTMLDocument', 'Element', 'HTMLElement', 'ShadowRoot', 'Range', 'Function', 'String']);
 function receiverKey(expr: ts.Expression, checker: ts.TypeChecker, depth = 0): string {
   const node = unwrap(expr);
   if (depth < 12) {

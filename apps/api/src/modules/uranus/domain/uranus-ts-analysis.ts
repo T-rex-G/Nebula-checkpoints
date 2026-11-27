@@ -4,15 +4,16 @@ import { MONGO_METHODS, mayContainMarkupSink, mayContainSemanticSink, mayUseChil
 import { isOrdinaryHtmlReceiver, semanticSink } from './uranus-ts-framework.ts';
 import { commandCall, type CommandBlocker, type Shell } from './uranus-ts-child-process.ts';
 import { filesystemPaths, fixedPathChoice } from './uranus-ts-filesystem.ts';
+import { restrictedDirectory } from './uranus-ts-path-guard.ts';
 import { mongooseFilter } from './uranus-ts-mongoose.ts';
 import { buildSemanticProject } from './uranus-ts-project.ts';
 import { semanticSqlSink } from './uranus-ts-sql.ts';
 import { globalName, member, unwrap } from './uranus-ts-symbols.ts';
 import { createSemanticReader, type SemanticValue } from './uranus-ts-values.ts';
-import type { FlowFile, FlowRecord, ShellSites, TracedFlowRecord } from './uranus-flow.ts';
+import type { FlowFile, FlowRecord, CallSites, TracedFlowRecord } from './uranus-flow.ts';
 import type { Step } from './uranus-cfamily.ts';
 
-export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document' | 'path-boundary' | CommandBlocker;
+export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document' | 'path-boundary' | 'path-contained' | CommandBlocker;
 export interface SemanticStats {
   files: number;
   nodes: number;
@@ -104,13 +105,14 @@ function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 
     blocker: reason ? { reason } : null, trace, viaHelper: trace.some(step => step.path !== path) ? 'file' : null };
 }
 
-export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedFlowRecord[], stop: () => boolean, perFileLimit: number, shellSites: ShellSites) {
+export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedFlowRecord[], stop: () => boolean, perFileLimit: number, callSites: CallSites) {
   const lines = new Map<string, LineEvidence>();
   const shadowed = new Set<string>(), ambient = new Set<string>();
   const sites: SemanticSite[] = [], leads: SemanticLead[] = [];
   const stats: SemanticStats = { files: 0, nodes: 0, skippedFiles: 0, unresolvedImports: 0, unresolvedOperations: 0, truncatedFiles: 0, complete: false };
   const analyzed: FlowRecord[] = [];
   const shellModes = new Map<TracedFlowRecord, Shell>();
+  const replacedPaths = new Set<TracedFlowRecord>();
   const safeFilters = new Map<string, boolean>();
   const reported = new Map<string, Set<string>>();
   for (const flow of legacy) {
@@ -212,7 +214,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
           // Reconcile the executable and argv evidence at this exact call, even on a shared line.
           const offset = node.arguments.pos - 1;
           if (call && call.shell !== 'enabled') {
-            for (const flow of shellSites.get(path)?.get(offset) ?? []) shellModes.set(flow, call.shell);
+            for (const flow of callSites.get(path)?.get(offset) ?? []) if (flow.rule === 'SEC-011') shellModes.set(flow, call.shell);
           }
           const argument = call?.argument;
           if (argument) {
@@ -226,10 +228,20 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
           for (const argument of filesystemPaths(node, checker)) {
             const reader = values();
             if (!reader.reachable(node)) break;
-            const value = reader.read(argument);
-            if (value.kind === 'literal' || value.kind === 'scalar' || fixedPathChoice(argument, reader.guards(node), checker)) continue;
-            const at = lineOf(nameOfSite(node));
-            const flow = traced(value, path, at, 'path', 'selects a Node filesystem pathname', 'path-boundary', project.pathOf);
+            const value = reader.readPath(argument);
+            const guards = reader.guards(node);
+            const first = argument === node.arguments[0];
+            const previous = first && value.pathConstruction ? callSites.get(path)?.get(node.arguments.pos - 1) : undefined;
+            const contained = value.kind === 'input' && value.pathConstruction && restrictedDirectory(argument, guards, checker);
+            // The token tracer observes only the first path slot. Replace its
+            // exact call only when the compiler settles that slot.
+            if (contained || (value.pathConstruction && value.kind === 'literal')) {
+              for (const flow of previous ?? []) if (flow.rule === 'SEC-022') replacedPaths.add(flow);
+            }
+            if (value.kind === 'literal' || value.kind === 'scalar' || fixedPathChoice(argument, guards, checker)) continue;
+            const at = previous?.[0]?.line ?? lineOf(nameOfSite(node));
+            const flow = traced(value, path, at, 'path', 'selects a Node filesystem pathname',
+              contained ? 'path-contained' : 'path-boundary', project.pathOf);
             if (!flow) unresolved = true;
             else if (admit('SEC-022', at)) analyzed.push(flow);
           }
@@ -257,7 +269,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     analyzed.push(...line.flows);
   }
   const kept = legacy.filter(flow => {
-    if (inspected && shellModes.get(flow) === 'disabled') return false;
+    if (inspected && (shellModes.get(flow) === 'disabled' || replacedPaths.has(flow))) return false;
     if (flow.rule === 'SEC-029') return !inspected || !safeFilters.get(keyOf(flow.path, flow.line));
     if (flow.rule !== 'SEC-002') return true;
     const line = covered.get(keyOf(flow.path, flow.line));

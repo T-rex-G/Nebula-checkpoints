@@ -88,6 +88,96 @@ function checkSemanticFilesystem(analyse, analyseFlows) {
   const fixed = analyseFlows([file('notes.mjs', 'import { rename as mv } from "node:fs/promises";',
     'mv("reports/daily", "reports/yesterday");')]);
   assert.equal(fixed.stats.semantic.unresolvedOperations, 0);
+
+  const handler = (path, ...lines) => file(path,
+    'import express from "express"; import p from "node:path";',
+    'import { readFile as load, copyFile as copy } from "fs/promises";',
+    'const root = "/archives";',
+    'express().get("/index", (request, response) => {',
+    '  const key = request.get("x-index");',
+    ...lines, '});');
+  const paths = handler('archive/guards.ts',
+    'const target = p.resolve(root, key);',
+    'if (!target.startsWith(root)) return;',
+    'load(target);',
+    'if (!target.startsWith(root + p.sep)) response.status(400);',
+    'load(target);',
+    'if (!target.startsWith(root + p.sep)) return;',
+    'load(target);',
+    'copy(target, p.join(root, key, ".index"));',
+    'load(target); load(p.join(root, key));');
+  const relative = handler('archive/relative.ts',
+    'const target = p.resolve(root, key), rel = p.relative(root, target);',
+    'if (rel === ".." || rel.startsWith(".." + p.sep)) return;',
+    'load(target);',
+    'if (p.isAbsolute(rel)) return;',
+    'load(target);');
+  const dialects = handler('archive/dialects.ts',
+    'load(p.posix.resolve(key, "/fixed/index"));',
+    'load(p.posix.join(key, "/fixed/index"));',
+    'load(p.win32.resolve(key, "/fixed/index"));',
+    'load(p.win32.resolve(key, "C:/fixed/index"));',
+    'const other = { join(a, b) { return "index"; } };',
+    'load(other.join(root, key));',
+    'load(unknownTransform(key));',
+    'load(p.join(root, key, 10));',
+    'load(p.posix.resolve(root, key, null));',
+    'load(p.posix.resolve(null, key));');
+  const helper = file('archive/name.ts',
+    'import { join as make } from "node:path/posix";',
+    'export function archiveName(part) { return make("/archive", part); }');
+  const consumer = file('archive/copy.ts',
+    'import express from "express";',
+    'import { copyFile as copy } from "fs/promises";',
+    'import { archiveName } from "./name.js";',
+    'express().get("/copy", (request, response) => {',
+    '  const key = request.get("x-index");',
+    '  copy("template", archiveName(key));',
+    '  copy("template", archiveName("index"));',
+    '});');
+  const observed = analyse({ files: [paths, relative, dialects, helper, consumer] });
+  const disk = observed.findings.filter(f => f.rule === 'SEC-022');
+  for (const [source, expected] of [[paths, [8, 10, 12, 13, 14]], [relative, [8, 10]], [dialects, [7, 8, 15]], [consumer, [6]]]) {
+    assert.deepEqual(disk.filter(f => f.path === source.path).map(f => f.line).sort((a, b) => a - b), expected);
+  }
+  for (const finding of disk) {
+    assert.equal(finding.verdict, 'needs-validation');
+    assert.equal(finding.evidence, 'traced');
+    if ((finding.path === paths.path && finding.line === 12) || (finding.path === relative.path && finding.line === 10)) {
+      assert.match(finding.blocker, /lexical directory/i);
+      assert.match(finding.blocker, /symbolic link/i);
+    } else {
+      assert.match(finding.blocker, /permitted directory/);
+    }
+  }
+  const moved = disk.find(f => f.path === consumer.path);
+  assert(moved.trace.some(step => step.path === consumer.path && step.line === 5 && step.role === 'entrypoint'));
+  assert(moved.trace.some(step => step.path === helper.path && step.line === 2 && step.role === 'propagation'));
+
+  const legacy = file('archive/local.cjs',
+    'const fs = require("fs"); const path = require("path");',
+    'const root = "/archives";',
+    'require("express")().get("/records", (req, res) => {',
+    '  const user = req.query.name, target = path.resolve(root, user);',
+    '  fs.readFileSync(target);',
+    '  fs.readFileSync(path.posix.resolve(user, "/fixed/index"));',
+    '  fs.readFileSync(path.posix.resolve(user, "/fixed/index")); fs.readFileSync(req.query.other);',
+    '  const checked = target;',
+    '  if (!checked.startsWith(root + path.sep)) return;',
+    '  fs.readFileSync(target);',
+    '  fs.readFileSync(target); fs.readFileSync(req.query.other);',
+    '});');
+  const legacyFlows = analyseFlows([legacy]).flows.filter(f => f.rule === 'SEC-022');
+  assert.deepEqual(legacyFlows.map(f => f.line).sort((a, b) => a - b), [5, 7, 10, 11]);
+  for (const flow of legacyFlows) {
+    assert.equal(flow.verdict, flow.line === 10 ? 'needs-validation' : 'confirmed');
+    if (flow.line === 10) assert.equal(flow.blocker.reason, 'path-contained');
+    if ([7, 11].includes(flow.line)) assert.equal(flow.trace[0].line, flow.line, 'the unrelated access keeps its own source');
+  }
+
+  const dense = analyseFlows([handler('archive/many.ts', ...Array(43).fill('load(p.join(root, key));'))]);
+  assert.equal(dense.flows.filter(f => f.rule === 'SEC-022').length, 40);
+  assert.equal(dense.stats.semantic.truncatedFiles, 1);
 }
 
 module.exports = { checkSemanticFilesystem };

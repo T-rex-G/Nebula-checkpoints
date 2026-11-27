@@ -246,6 +246,11 @@ function validationText(item: RawItem): { blocker: string; check: string } {
       return { blocker: 'The effective child process shell option is unresolved.', check: 'Check the options passed to the Node call. A shell parses the executable and arguments together when shell is true or a nonempty shell path.' };
     case 'argv-shape':
       return { blocker: 'An unrestricted request field occupies the argument-vector slot.', check: 'Check whether this field can supply an array of user-controlled strings to the shell-enabled call.' };
+    case 'path-contained':
+      return {
+        blocker: 'The handler enforces a lexical directory restriction. Symbolic links and platform-specific path handling can change which file is opened.',
+        check: 'Check the deployment filesystem, directory permissions and symbolic links along the selected path.'
+      };
     case 'path-boundary':
       return {
         blocker: 'Application input selects a filesystem pathname. The permitted directory or set of filenames needs verification.',

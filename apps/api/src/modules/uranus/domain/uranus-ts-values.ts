@@ -1,6 +1,7 @@
 // Demand-driven reaching definitions and call-site return values for the bounded JS/TS project.
 import ts from 'typescript';
 import { constantTruth, controlReader, guardedComparison, primitive, runtimeFunction, subtractGuards, type ControlFacts } from './uranus-ts-control.ts';
+import { constructedPath, fixedPathChoice, pathOperation } from './uranus-ts-filesystem.ts';
 import { frameworkValue } from './uranus-ts-framework.ts';
 import { firstExpressHandler, semanticRequestInput } from './uranus-ts-sql.ts';
 import { constInitializer, member, unwrap } from './uranus-ts-symbols.ts';
@@ -11,6 +12,7 @@ export interface SemanticValue {
   readonly origin?: ts.Node;
   readonly steps?: readonly ts.Node[];
   readonly conditional?: boolean;
+  readonly pathConstruction?: true;
   /** Runtime shape for query fields. A node witnesses an unrestricted Express field. */
   readonly filterOperand?: ts.Node | 'primitive';
   readonly truth?: boolean;
@@ -110,7 +112,9 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   const argumentsMayAlias = new WeakSet<ts.Node>();
   const active = new Set<ts.Node>();
   const activeCalls = new Set<RuntimeFunction>();
-  const results = new WeakMap<ts.Expression, SemanticValue>();
+  const generalValues = new WeakMap<ts.Expression, SemanticValue>();
+  const pathValues = new WeakMap<ts.Expression, SemanticValue>();
+  let results = generalValues;
   let visits = 0, interrupted = false, limited = false;
   function visit(): boolean {
     if (interrupted) return false;
@@ -154,6 +158,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
       return values.every(value => value.reason === 'unresolved-member' || value.kind === 'literal' || value.kind === 'scalar') ? unresolvedMember : unknown;
     if (first && values.every(value => value.kind === first.kind)) {
       if (first.kind === 'literal' || first.kind === 'scalar') return { kind: first.kind,
+        pathConstruction: values.every(value => value.pathConstruction) ? true : undefined,
         truth: values.every(value => value.truth === first.truth) ? first.truth : undefined, plain: values.every(value => value.plain),
         atom: values.every(value => value.atom === first.atom) ? first.atom : undefined,
         reason: values.every(value => value.reason === first.reason) ? first.reason : undefined };
@@ -596,6 +601,18 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
   }
 
   function invocation(node: ts.CallExpression, env: Environment, depth: number): SemanticValue {
+    if (results === pathValues) {
+      const op = pathOperation(node.expression, checker);
+      if (op?.name === 'join' || op?.name === 'resolve') {
+        if (!withinLimit(node.arguments.length, MAX_DEFINITIONS) || node.arguments.some(ts.isSpreadElement)) return unresolvedCall;
+        const facts = control.facts(node);
+        const value = constructedPath(node.arguments, op.name, op.dialect, arg => {
+          const part = read(arg, env, depth + 1);
+          return part.kind === 'input' && !dynamicScopes.has(facts.owner) && fixedPathChoice(arg, facts.tests, checker) ? literal : part;
+        });
+        return through(value, node);
+      }
+    }
     const fn = target(node.expression);
     if (!fn || dynamicScopes.has(control.facts(fn).owner) || fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword) || fn.asteriskToken ||
         node.arguments.some(ts.isSpreadElement) || fn.parameters.some(p => p.dotDotDotToken || ts.isArrayBindingPattern(p.name))) return unresolvedCall;
@@ -747,6 +764,14 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     } finally { active.delete(node); }
   }
 
+  // Filesystem consumers share the same project, reaching definitions and visit
+  // budget. Separate memoized values keep path models local to SEC-022.
+  function readPath(expression: ts.Expression): SemanticValue {
+    const previous = results;
+    results = pathValues;
+    try { return read(expression); } finally { results = previous; }
+  }
+
   function withinLimit(count: number, maximum: number): boolean {
     if (count <= maximum) return true;
     cutoff();
@@ -762,7 +787,7 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     return uses.every(ref => visit() && (ref === use || otherRead(ref))) ? init : null;
   }
 
-  return { argumentInitializer, withinLimit, read: (expression: ts.Expression) => read(expression), guards: (node: ts.Node) => control.facts(node).tests,
+  return { argumentInitializer, withinLimit, readPath, read: (expression: ts.Expression) => read(expression), guards: (node: ts.Node) => control.facts(node).tests,
     reachable: (node: ts.Node) => !!feasible(control.facts(node), empty, 0),
     limited: () => limited || interrupted };
 }

@@ -109,7 +109,7 @@ export interface Hint {
   readonly route?: FlowRoute | null;
 }
 interface SummarySink {
-  readonly shellOffset?: number;
+  readonly callOffset?: number;
   readonly kind: FlowSinkKind;
   readonly param: number;
   readonly path: string;
@@ -1493,7 +1493,11 @@ class JsWalker {
       /^(readFile|readFileSync|createReadStream|writeFile|writeFileSync|createWriteStream|appendFile|appendFileSync|unlink|unlinkSync|rm|rmSync|rmdir|rmdirSync|readdir|readdirSync|rename|renameSync|copyFile|copyFileSync|open|openSync|cp|cpSync)$/.test(name);
     const sendFile = r.response.has(root) && /^(sendFile|download|attachment)$/.test(name);
     const rooted = sendFile && call.args.some(arg => arg.some((t, i) => t.v === 'root' && isPunc(arg[i + 1], ':')));
-    if ((fsCall || (sendFile && !rooted)) && first) { this.sink('path', first, line); return true; }
+    if ((fsCall || (sendFile && !rooted)) && first) {
+      const open = this.tokens[call.open];
+      this.sink('path', first, line, fsCall && open?.t === 'punc' ? open.offset : undefined);
+      return true;
+    }
     /* Redirects. */
     const redirect = (r.response.has(root) && name === 'redirect') || (root === 'ctx' && name === 'redirect') || (r.honoCtx.has(root) && name === 'redirect') ||
       (root === 'NextResponse' && name === 'redirect') || (root === 'Response' && name === 'redirect') ||
@@ -1590,21 +1594,21 @@ class JsWalker {
     if (this.mode !== 'flow' || unbuilt) return;
     /* A SQL helper that splices its argument into its own statement counts; one that passes it as a parameter does not. */
     const steps: Step[] = [...value.steps, { path: this.ctx.path, line, role: 'propagation', note: 'passed to a function' }, ...sink.steps];
-    this.report(sink.kind, { ...value, steps, guarded: value.guarded || sink.guarded || null }, sink.path, sink.line, sink.path !== this.ctx.path ? 'file' : 'function', sink.shellOffset);
+    this.report(sink.kind, { ...value, steps, guarded: value.guarded || sink.guarded || null }, sink.path, sink.line, sink.path !== this.ctx.path ? 'file' : 'function', sink.callOffset);
   }
 
-  sink(kind: FlowSinkKind, value: Value | undefined, line: number, shellOffset?: number): void {
+  sink(kind: FlowSinkKind, value: Value | undefined, line: number, callOffset?: number): void {
     if (!value) return;
     if (value.cleared && value.cleared.has(kind)) return;
     if (value.param !== null) {
-      if (this.summaryOf) this.summaryOf.sinks.push({ kind, shellOffset, param: value.param, path: this.ctx.path, line, steps: value.steps.slice(1), guarded: value.guarded, uncertainHtml: value.uncertainHtml });
+      if (this.summaryOf) this.summaryOf.sinks.push({ kind, callOffset, param: value.param, path: this.ctx.path, line, steps: value.steps.slice(1), guarded: value.guarded, uncertainHtml: value.uncertainHtml });
       return;
     }
     if (this.mode !== 'flow') return;
-    this.report(kind, value, this.ctx.path, line, null, shellOffset);
+    this.report(kind, value, this.ctx.path, line, null, callOffset);
   }
 
-  report(kind: FlowSinkKind, value: FlowValue, path: string, line: number, viaHelper: 'function' | 'file' | null, shellOffset?: number): void {
+  report(kind: FlowSinkKind, value: FlowValue, path: string, line: number, viaHelper: 'function' | 'file' | null, callOffset?: number): void {
     const spec = SINKS[kind];
     const model = value.kind === 'model reply';
     let rule = spec.rule;
@@ -1628,12 +1632,12 @@ class JsWalker {
     else if (judgement) blocker = { reason: kind };
     const flow = { rule, kind, severity, path, line, source: value.kind, verdict, blocker, trace: steps, viaHelper } satisfies FlowRecord;
     this.ctx.flows.push(flow);
-    if (rule === 'SEC-011' && shellOffset !== undefined) {
-      const sites = this.program.shellSites.get(path) ?? new Map<number, FlowRecord[]>();
-      const flows = sites.get(shellOffset) ?? [];
+    if (callOffset !== undefined && (rule === 'SEC-011' || rule === 'SEC-022')) {
+      const sites = this.program.callSites.get(path) ?? new Map<number, FlowRecord[]>();
+      const flows = sites.get(callOffset) ?? [];
       flows.push(flow);
-      sites.set(shellOffset, flows);
-      this.program.shellSites.set(path, sites);
+      sites.set(callOffset, flows);
+      this.program.callSites.set(path, sites);
     }
   }
 }
@@ -2141,10 +2145,10 @@ function normalise(parts: readonly string[]): string {
   return out.join('/');
 }
 
-export type ShellSites = Map<string, Map<number, FlowRecord[]>>;
+export type CallSites = Map<string, Map<number, FlowRecord[]>>;
 
 class Program {
-  readonly shellSites: ShellSites = new Map();
+  readonly callSites: CallSites = new Map();
   readonly files: Map<string, ReadableFile>;
   readonly contexts: Map<string, FileContext>;
   readonly summaries: Map<string, Summary>;
@@ -2394,7 +2398,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
   const lexical = analyseLexicalFlows(files, sources, cfamily, maxBytes, late);
   const { routes, settled, stats } = lexical;
   const jsSources = sources.filter(file => JS_FILE.test(file.path));
-  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? loadSemanticPass()(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE, lexical.shellSites) : null;
+  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? loadSemanticPass()(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE, lexical.callSites) : null;
   if (semantic) stats.semantic = semantic.stats;
   const flows = dedupe(semantic?.flows ?? lexical.flows);
   stats.routes = routes.length;
@@ -2495,16 +2499,17 @@ function analyseLexicalFlows(files: readonly FlowFile[], sources: ReadableFile[]
     flows = [...flows, ...other.flows].sort(byFile);
     routes = [...routes, ...other.routes].sort(byFile);
   }
-  return { flows, routes, settled, stats, shellSites: program.shellSites };
+  return { flows, routes, settled, stats, callSites: program.callSites };
 }
 
 /* One flow per rule and sink line: several sources into one call are one finding with the first trace. */
-function dedupe<T extends { readonly rule: string; readonly path: string; readonly line: number; readonly verdict: string }>(flows: readonly T[]): T[] {
+function dedupe<T extends TracedFlowRecord>(flows: readonly T[]): T[] {
   const seen = new Map<string, T>();
   for (const flow of flows) {
     const key = `${flow.rule}\0${flow.path}\0${flow.line}`;
     const existing = seen.get(key);
-    if (!existing || (existing.verdict !== 'confirmed' && flow.verdict === 'confirmed')) seen.set(key, flow);
+    if (!existing || (existing.verdict !== 'confirmed' && flow.verdict === 'confirmed') ||
+        (existing.blocker?.reason === 'path-contained' && flow.blocker?.reason !== 'path-contained')) seen.set(key, flow);
   }
   return [...seen.values()];
 }

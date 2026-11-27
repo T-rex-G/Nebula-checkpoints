@@ -60,7 +60,7 @@ export interface RawItem {
   readonly flowBlocker?: FindingBlocker | null;
   readonly source?: string | null;
   readonly reach?: Reach | null;
-  readonly evidence?: Exclude<Evidence, 'fact' | 'pattern'>;
+  readonly evidence?: Exclude<Evidence, 'fact'>;
 }
 export interface Assurance {
   readonly verdict: Verdict;
@@ -242,11 +242,67 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'shell-option':
+      return { blocker: 'The effective child process shell option is unresolved.', check: 'Check the options passed to the Node call. A shell parses the executable and arguments together when shell is true or a nonempty shell path.' };
+    case 'argv-shape':
+      return { blocker: 'An unrestricted request field occupies the argument-vector slot.', check: 'Check whether this field can supply an array of user-controlled strings to the shell-enabled call.' };
+    case 'path-contained':
+      return {
+        blocker: 'The handler enforces a lexical directory restriction. Symbolic links and platform-specific path handling can change which file is opened.',
+        check: 'Check the deployment filesystem, directory permissions and symbolic links along the selected path.'
+      };
+    case 'path-boundary':
+      return {
+        blocker: 'Application input selects a filesystem pathname. The permitted directory or set of filenames needs verification.',
+        check: 'Review the accepted filenames and check that the resolved path stays inside the authorized directory.'
+      };
+    case 'detached-document':
+      return {
+        blocker: 'The HTML parser creates a detached document. A rendering use has yet to be established.',
+        check: 'Follow the returned document and check whether its nodes are later inserted into a live page.'
+      };
+    case 'unverified-tag':
+      return {
+        blocker: 'An external value enters a template tag whose returned content could not be resolved.',
+        check: 'Inspect how the tag uses the substitutions and encodes its return value for this operation.'
+      };
+    case 'declared-input':
+      return {
+        blocker: 'The declared framework type identifies a possible input. The runtime provider is unresolved.',
+        check: 'Check which object the caller or dependency injector supplies at this declaration.'
+      };
+    case 'unknown-origin':
+      return {
+        blocker: 'The origin of the value passed to this HTML operation could not be resolved.',
+        check: 'Inspect its assignments and callers to determine whether external input reaches the operation.'
+      };
+    case 'unknown-receiver':
+      return {
+        blocker: 'The receiver could not be identified as an object that interprets HTML.',
+        check: 'Inspect the receiver’s declaration and assignments, then check how it handles the value.'
+      };
+    case 'html-context':
+      return {
+        blocker: 'The available encoding guarantee does not establish safety in this HTML context.',
+        check: 'Check where the value is inserted in the markup and whether its encoder covers that position.'
+      };
+    case 'trust-boundary':
+      return {
+        blocker: 'The framework marks this value as trusted HTML. Its use at a rendering boundary needs verification.',
+        check: 'Follow the returned value to its consumers and check how each renderer handles it.'
+      };
+    case 'unverified-transform':
+      return {
+        blocker: `The analysis could not verify the transform used at ${where(blocker.path, blocker.line)} for this use.`,
+        check: 'Inspect the implementation, import and options. Confirm which values it can return in this context.'
+      };
     case 'guarded':
       return {
         blocker: `A test on the value runs first (${where(blocker.path, blocker.line)}); whether it rejects every unsafe value decides this.`,
         check: `Read the test at ${where(blocker.path, blocker.line)}. It should accept only a fixed set of values, or refuse anything outside one.`
       };
+    case 'conditional':
+      return { blocker: 'An observed path carries input here. Other branches or callers may supply a different value.', check: 'Check which callers can reach the path that supplies the input.' };
     case 'weak-source':
       return item.rule === 'SEC-033'
         ? { blocker: 'A plain string written to a response is read as HTML unless the endpoint says otherwise; whether a browser renders this one depends on the content type it is sent with.', check: 'In a local run, request the endpoint with <b>x</b> in the parameter. If the answer is text/html and echoes it unescaped, this is confirmed.' }

@@ -23,6 +23,8 @@ import { VOCABULARY as TRIAGE_VOCABULARY, inForce, rescore, summarizeDecisions }
 import { mergeAttributes } from '../application/merge-gate.ts';
 import { describeKeptAudit } from '../persistence/audit-history-records.ts';
 import type { CodeAuditService } from '../application/code-audit-service.ts';
+import { createCoverageProof } from '../application/coverage-proof.ts';
+import { stableJson } from '../../../../../../packages/contracts/src/canonical-json.ts';
 
 /* What a governance role check may admit beyond the repository's collaborators. */
 export interface GovernanceAccessOptions {
@@ -78,6 +80,10 @@ function present<T>(store: T | null): T {
   return store;
 }
 
+function auditNotFound(res: Response): void {
+  res.status(404).json({ error: 'That audit is not kept for this repository', code: 'CODE_AUDIT_NOT_FOUND' });
+}
+
 export function registerCodeAuditRoutes(app: Application, deps: CodeAuditRouteDeps): void {
   const {
     providerSessionAccess, alphaRepositoryAccess, capabilityAccess, auth, accountAuth,
@@ -131,9 +137,21 @@ export function registerCodeAuditRoutes(app: Application, deps: CodeAuditRouteDe
 
   app.get('/api/repo/:owner/:repo/code-audit/history/:auditId', providerSessionAccess, alphaRepositoryAccess, capabilityAccess('code-audit'), auth, auditHistoryAvailable, governanceAccess('reader', OWN_WORK), async (req: Request, res: Response) => {
     try {
-      const found = await present(service.history()).read({ scope: scopeOf(req), identityKey: identityOf(req), auditId: String(req.params.auditId || '') });
-      if (!found) { res.status(404).json({ error: 'That audit is not kept for this repository', code: 'CODE_AUDIT_NOT_FOUND' }); return; }
-      /* Each kept finding with its rule's words, so the kept audit can be read and exported on its own. */
+      const proofKind = req.query.proof;
+      const key = { scope: scopeOf(req), identityKey: identityOf(req), auditId: String(req.params.auditId || '') };
+      const history = present(service.history());
+      if (proofKind !== undefined) {
+        res.setHeader('Cache-Control', 'no-store');
+        if (proofKind !== 'coverage') { res.status(400).json({ error: 'Unknown audit proof', code: 'AUDIT_PROOF_KIND_INVALID' }); return; }
+        const audit = await history.readSummary(key);
+        if (!audit) { auditNotFound(res); return; }
+        const proof = createCoverageProof(key.scope, audit);
+        res.setHeader('X-Uranus-Coverage-Digest', proof.digest);
+        res.type('application/json').send(stableJson(proof));
+        return;
+      }
+      const found = await history.read(key);
+      if (!found) { auditNotFound(res); return; }
       res.json(describeKeptAudit(found));
     } catch (error) { auditFailure(res, error); }
   });

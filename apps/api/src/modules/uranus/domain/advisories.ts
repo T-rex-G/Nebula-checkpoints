@@ -227,7 +227,7 @@ const softer = (severity: Severity): Severity => (severity === 'critical' ? 'ser
  * range whose own floor is affected but which admits the fix is a warning
  * about the floor rather than a claim about what is installed.
  */
-export function advisoryFindings(inventory: readonly InventoryEntry[], advisories: ReadonlyMap<string, AdvisoryAnswer>): { out: Vulnerable[]; status: AdvisoryStatus } {
+export function advisoryFindings(inventory: readonly InventoryEntry[], advisories: ReadonlyMap<string, AdvisoryAnswer>): { out: Vulnerable[]; status: AdvisoryStatus; versions: number } {
   const out: Vulnerable[] = [];
   const status: AdvisoryStatus = { checked: 0, vulnerable: 0, malicious: 0, unknown: 0 };
   /* A version declared in two manifests is one version checked, as the coverage counts versions. */
@@ -235,9 +235,9 @@ export function advisoryFindings(inventory: readonly InventoryEntry[], advisorie
   for (const entry of inventory) {
     const key = advisoryKey(entry);
     const answer = advisories.get(key);
-    if (!answer) continue;
     const first = !counted.has(key);
     counted.add(key);
+    if (!answer) continue;
     if (first) status.checked += 1;
     if (answer === 'unknown' || answer.partial) {
       if (first) status.unknown += 1;
@@ -285,7 +285,7 @@ export function advisoryFindings(inventory: readonly InventoryEntry[], advisorie
     }
     out.push(vulnerable({ rule: 'DEP-003', path: entry.path, line: entry.line, severity, detail }, impact));
   }
-  return { out, status };
+  return { out, status, versions: counted.size };
 }
 
 /*

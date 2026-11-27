@@ -45,7 +45,7 @@ function triaged(seed, severity, rule = 'SEC-011') {
 function result({ commit, ref = 'main', at, findings = [], suppressed = [] }) {
   return {
     commitSha: sha(commit), ref, auditedAt: new Date(at).toISOString(),
-    score: 70, grade: 'C', capped: false, capReason: null, engine: { name: 'Uranus', version: '2.0.0' },
+    score: 70, grade: 'C', capped: false, capReason: null, engine: { name: 'Uranus', version: '2.0.0', ruleset: 'a'.repeat(64) },
     categories: [{ id: 'code', score: 70 }],
     findings, suppressed,
     dependencyRisk: { exploited: 0, bands: { urgent: 0, high: 0, moderate: 0, low: 0 } },

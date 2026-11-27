@@ -7,6 +7,14 @@
     "version": 2,
     "shape": "99421f31bd1972ee2ea17f7f50c1b17ce33ce87caf976828673c0372b9449125"
   },
+  "audit-coverage-proof.ts": {
+    "version": 1,
+    "shape": "3d41715be661467425ae066c97a1506bb0536ef084d9c2b673048f0550abe54d"
+  },
+  "audit-paths.ts": {
+    "version": 1,
+    "shape": "f7f1c4bde855300d97ef8d7e9db0d935b7903e5dd0d4d461d3628a74f6085d0b"
+  },
   "canonical-json.ts": {
     "version": 1,
     "shape": "9e5af47845f405e38a6e777796634e4d16d4ea1eedf26d8fe1bce00cb42e2c2e"
@@ -20,8 +28,8 @@
     "shape": "04d4d1e5fd92e97ee81ff9ce27461c3534b487c0f7356fe2bc5fd5cd48e6e5ab"
   },
   "codes.ts": {
-    "version": 2,
-    "shape": "f5e4cac47aee22db9a8680d0f9186a241c39f00dc4bfa1d48a4675d03acd4554"
+    "version": 3,
+    "shape": "565eed32da712fc5fcfce2551bf41538c7dbdc53fcae9c8c8efa5213ccdd1d6a"
   },
   "evidence.ts": {
     "version": 1,

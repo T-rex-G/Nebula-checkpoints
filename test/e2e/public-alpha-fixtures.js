@@ -949,6 +949,7 @@ async function mockPublicAlphaApi(page, inputScenario = {}) {
           licences: { versions: 3, fromLock: 0, asked: 3, answered: 3 }
         }
       };
+      finished.analysisComplete = compactAudit(finished).audit.analysis_complete;
       const decided = triageModule.applyTriage(finished, state.triage);
       if (scenario.auditHistory !== 'kept') return fulfill(decided);
       const { firstSeen, ...history } = recordAudit(decided);

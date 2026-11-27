@@ -25,6 +25,44 @@ async function audited(page, result = riskyResult()) {
   return pane;
 }
 
+test('path groups keep their own page and release a finding opened from Fix first', async ({ page }) => {
+  const result = riskyResult();
+  const { category, rule, severity } = result.findings[0];
+  result.findings = Array.from({ length: 86 }, (_, index) => ({
+    id: `file-${index}`, path: `${index < 43 ? 'src' : 'tests'}/file-${index}.js`,
+    title: `File finding ${index}`, category, rule, severity, verdict: 'confirmed'
+  }));
+  result.priorities = ['file-42'];
+  const pane = await audited(page, result);
+  const paths = pane.getByRole('group', { name: 'Show by file path' });
+  const supporting = paths.getByRole('button', { name: /Examples, assets and tests/ });
+  const all = paths.getByRole('button', { name: /All paths/ });
+  const rows = pane.locator('.audit-findings details[data-finding-id]');
+  const more = pane.locator('.audit-findings .audit-more');
+
+  await more.click();
+  await expect(rows).toHaveCount(80);
+  await supporting.click();
+  await expect(rows).toHaveCount(40);
+  await expect(rows.first()).toHaveAttribute('data-finding-id', 'file-43');
+  await more.click();
+  await expect(rows).toHaveCount(43);
+  await expect(supporting).toHaveAttribute('aria-pressed', 'true');
+
+  await pane.locator('.audit-first-btn').click();
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(pane.locator('[data-finding-id="file-42"] > summary')).toBeFocused();
+
+  await supporting.click();
+  await pane.locator(`[data-family="${category}"].audit-category-btn`).click();
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows).toHaveCount(40);
+  await supporting.click();
+  await pane.getByRole('button', { name: 'Audit again' }).click();
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows.first()).toHaveAttribute('data-finding-id', 'file-0');
+});
+
 test('vulnerable packages are ranked by exploitation and reach, and the grade is held by what is exploited', async ({ page }) => {
   const pane = await audited(page);
   await expect(pane).toContainText('Held below 50 while a vulnerability CISA lists as exploited in the wild ships with the code.');

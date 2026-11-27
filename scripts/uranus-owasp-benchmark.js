@@ -111,9 +111,11 @@ function score(checkout, { analyse = require('../apps/api/src/modules/uranus/ind
     const text = fs.readFileSync(path.join(checkout, own), 'utf8');
     const result = analyse({ files: [{ path: own, text }, ...helpers] });
     lines += text.split('\n').length;
-    const flagged = (result.findings || []).some(finding => finding.rule === claim.rule && finding.path === own);
+    const matches = (result.findings || []).filter(finding => finding.rule === claim.rule && finding.path === own);
+    const flagged = matches.length > 0;
+    const confirmed = matches.some(finding => finding.verdict === 'confirmed');
     const number = Number((/(\d+)$/.exec(label.name) || [])[1]);
-    outcomes.push({ name: label.name, category: label.category, rule: claim.rule, cwe: claim.cwe, real: label.real, flagged, half: Number.isFinite(number) && number % 2 === 1 ? 'odd' : 'even' });
+    outcomes.push({ name: label.name, category: label.category, rule: claim.rule, cwe: claim.cwe, real: label.real, flagged, confirmed, half: Number.isFinite(number) && number % 2 === 1 ? 'odd' : 'even' });
   }
   return {
     language: where.language,
@@ -122,6 +124,7 @@ function score(checkout, { analyse = require('../apps/api/src/modules/uranus/ind
     lines,
     ms: Number(process.hrtime.bigint() - started) / 1e6,
     ...tally(outcomes),
+    confirmed: tally(outcomes.map(outcome => ({ ...outcome, flagged: outcome.confirmed }))),
     halves: { odd: tally(outcomes.filter(outcome => outcome.half === 'odd')), even: tally(outcomes.filter(outcome => outcome.half === 'even')) },
     notClaimed: Object.fromEntries([...notClaimed.entries()].sort())
   };
@@ -138,6 +141,10 @@ function report(result) {
   }
   const t = result.total;
   out.push(`all claimed      ${' '.repeat(8)}  ${String(t.tp).padStart(4)} ${String(t.fn).padStart(4)} ${String(t.fp).padStart(4)} ${String(t.tn).padStart(4)}  average score ${pct(result.averageYouden)}`);
+  if (result.confirmed) {
+    const { tp, fp, fn, tn } = result.confirmed.total;
+    out.push(`confirmed only   TP ${tp}  FP ${fp}  FN ${fn}  TN ${tn}`);
+  }
   if (result.halves) out.push(`halves by case number: odd ${pct(result.halves.odd.averageYouden)}, even ${pct(result.halves.even.averageYouden)}`);
   out.push(`not claimed (not scored): ${Object.entries(result.notClaimed).map(([category, count]) => `${category} ${count}`).join(', ') || 'none'}`);
   return out.join('\n');

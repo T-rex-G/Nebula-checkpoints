@@ -1,3 +1,4 @@
+import { supportingPathRole } from '../../../../../packages/contracts/src/audit-paths.ts';
 /*
  * The audit as files a reader hands on: the developer brief (Markdown), SARIF
  * 2.1.0 for code-scanning dashboards, CSV for a spreadsheet, a kept audit's
@@ -121,7 +122,7 @@ function repositoryBrief(result: unknown, lines: string[]): void {
   const leads = findings.filter(finding => verdictOf(finding) === 'needs-validation').length;
   const engine = at(result, 'engine', 'traced') ? field(result, 'engine') : null;
   lines.push(
-    `Grade **${text(field(result, 'grade'))}** — ${text(field(result, 'score'))}/100${field(result, 'capped') ? capPhrase(field(result, 'capReason')) : ''}.`,
+    `${field(result, 'analysisComplete') === false ? 'Observed grade' : 'Grade'} **${text(field(result, 'grade'))}** — ${text(field(result, 'score'))}/100${field(result, 'capped') ? capPhrase(field(result, 'capReason')) : ''}.`,
     `Commit \`${text(field(result, 'commitSha'))}\`, audited ${text(field(result, 'auditedAt')) || new Date().toISOString()}${engine ? ` by ${text(field(engine, 'name'))} ${text(field(engine, 'version'))}` : ''}.`,
     ...(engine ? [`${findings.length - leads} confirmed, ${leads} to confirm. A finding to confirm weighs half and names the check that settles it.`] : []),
     '',
@@ -365,6 +366,7 @@ function sarifResult(finding: unknown, index: number | undefined, place: SarifPl
   const usage = usageOf(finding);
   const clock = field(finding, 'clock');
   const blocker = field(finding, 'blocker');
+  const pathRole = supportingPathRole(field(finding, 'path'));
   const result: SarifResult = {
     ruleId: field(finding, 'rule'),
     ruleIndex: index,
@@ -377,6 +379,7 @@ function sarifResult(finding: unknown, index: number | undefined, place: SarifPl
     partialFingerprints: { 'nebulaverseFinding/v1': field(finding, 'id') || `${text(field(finding, 'rule'))}:${text(field(finding, 'where')) || location(finding)}` },
     properties: {
       severity: field(finding, 'severity'), family: field(finding, 'category') || 'site',
+      ...(pathRole ? { pathRole } : {}),
       ...(field(finding, 'verdict') ? { verdict: verdictOf(finding), evidence: field(finding, 'evidence') || null } : {}),
       ...(reach ? { reach: { method: field(reach, 'method'), route: field(reach, 'route'), auth: field(reach, 'auth') } } : {}),
       ...(toConfirm && field(finding, 'check') ? { howToConfirm: field(finding, 'check') } : {}),
@@ -432,9 +435,10 @@ export function sarif(result: unknown, site: unknown, meta: unknown = {}): strin
         ...suppressed.map(finding => sarifResult(finding, index.get(field(finding, 'rule')), filePlace(finding), field(finding, 'suppression')))
       ],
       properties: {
+        analysisComplete: field(result, 'analysisComplete') ?? null,
         grade: field(result, 'grade'), score: field(result, 'score'), capped: Boolean(field(result, 'capped')), ...(field(result, 'capReason') ? { capReason: field(result, 'capReason') } : {}),
         ...(exploit ? { exploitSources: exploit } : {}),
-        ...(engine ? { engine: `${text(field(engine, 'name'))} ${text(field(engine, 'version'))}`, traced: field(engine, 'traced') || null } : {}),
+        ...(engine ? { engine: `${text(field(engine, 'name'))} ${text(field(engine, 'version'))}`, ruleset: field(engine, 'ruleset') || null, traced: field(engine, 'traced') || null } : {}),
         ...(Array.isArray(ledger) ? { coverage: items(ledger).map(line => ({ class: field(line, 'id'), status: field(line, 'status') })) } : {})
       }
     });
@@ -495,7 +499,7 @@ export function keptBrief(audit: unknown, findings: unknown, label: unknown): st
   const counts = field(audit, 'counts');
   const exploitedCount = field(audit, 'exploited');
   const lines = [`# Security audit: ${text(label)}`, '',
-    `Grade **${text(field(audit, 'grade'))}** — ${text(field(audit, 'score'))}/100${capPhrase(field(audit, 'capReason'))}.`,
+    `${field(audit, 'analysisComplete') === false ? 'Observed grade' : 'Grade'} **${text(field(audit, 'grade'))}** — ${text(field(audit, 'score'))}/100${capPhrase(field(audit, 'capReason'))}.`,
     `Commit \`${text(field(audit, 'commitSha'))}\` on ${text(field(audit, 'ref'))}, audited ${text(field(audit, 'auditedAt'))} by Uranus ${text(field(audit, 'engine'))}.`,
     `${ORDER.map(severity => `${text(field(counts, severity))} ${severity}`).join(' · ')}; ${text(field(audit, 'toConfirm'))} to confirm${exploitedCount ? `; ${text(exploitedCount)} exploited in the wild` : ''}.`,
     `Read ${text(at(audit, 'files', 'read'))} of ${text(at(audit, 'files', 'eligible'))} files.`, '',
@@ -616,7 +620,7 @@ export function keptSarif(audit: unknown, findings: unknown, meta: unknown = {})
     originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
     invocations: [{ executionSuccessful: true, endTimeUtc: field(audit, 'auditedAt') }],
     results,
-    properties: { kept: true, grade: field(audit, 'grade'), score: field(audit, 'score'), ...(field(audit, 'capReason') ? { capReason: field(audit, 'capReason') } : {}), engine: `Uranus ${text(field(audit, 'engine'))}`,
+    properties: { kept: true, analysisComplete: field(audit, 'analysisComplete') ?? null, ruleset: field(audit, 'ruleset') || null, grade: field(audit, 'grade'), score: field(audit, 'score'), ...(field(audit, 'capReason') ? { capReason: field(audit, 'capReason') } : {}), engine: `Uranus ${text(field(audit, 'engine'))}`,
       findingsKept: keptCount ? field(keptCount, 'stored') : results.length, findingsTotal: keptCount ? field(keptCount, 'total') : results.length }
   };
   return sarifDocument([run]);

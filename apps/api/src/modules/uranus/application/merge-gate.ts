@@ -15,6 +15,7 @@ import { listOf, read } from '../../../platform/values/fields.ts';
 import { DEFAULT_SLA, clockOf, evaluatePolicyDocument, type Sla } from '../../kepler/index.ts';
 import { confirmed, openRows, type KeptRow } from '../domain/audit-triage.ts';
 import { productionTier } from '../domain/uranus-reach.ts';
+import { completeAudit } from './kept-coverage.ts';
 
 /* The reasons a merge gate can give; a policy names the ones it acts on. */
 export const GATE_REASONS = Object.freeze(['critical', 'serious', 'exploited', 'secret', 'overdue', 'introduced'] as const);
@@ -28,6 +29,7 @@ const production = (row: KeptRow): boolean => productionTier(row.reach);
 export interface GateAudit {
   readonly audit: {
     readonly commitSha: string;
+    readonly ruleset?: string | null;
     readonly grade: string | null;
     readonly auditedAt: string | null;
     readonly analysisComplete?: boolean | null;
@@ -82,26 +84,27 @@ export interface Gate {
 const DENY_ON_KNOWN: ReadonlySet<GateReason> = new Set(['critical', 'secret', 'exploited', 'overdue']);
 
 export interface GateInput {
+  readonly expectedRuleset?: string;
   readonly headSha?: string | null;
+  readonly baseSha?: string | null;
   readonly head?: GateAudit | null;
   readonly base?: GateAudit | null;
   readonly decisions?: unknown;
   readonly now?: number;
 }
 
-export function evaluateMergeGate({ headSha, head, base, decisions, now = Date.now() }: GateInput = {}): Gate {
-  const baseState = base && base.audit ? 'audited' : 'missing';
+export function evaluateMergeGate({ headSha, baseSha, head, base, expectedRuleset, decisions, now = Date.now() }: GateInput = {}): Gate {
+  const baseline = base?.audit && (baseSha === undefined || baseSha === base.audit.commitSha)
+    && (!expectedRuleset || base.audit.ruleset === expectedRuleset) ? base : null;
+  const baseState = baseline ? 'audited' : 'missing';
   if (!head || !head.audit) return gateResult('missing', { base: baseState });
   const audit = head.audit;
-  if (!headSha || audit.commitSha !== headSha) {
+  if (!headSha || audit.commitSha !== headSha || (expectedRuleset && audit.ruleset !== expectedRuleset)) {
     return gateResult('stale', { grade: audit.grade, auditedAt: audit.auditedAt, commitSha: audit.commitSha, base: baseState });
   }
   /* A matching commit proves freshness, not that the evidence needed to judge it was available. */
-  const evidenceComplete = audit.analysisComplete === true
-    && !(audit.files && audit.files.complete !== true)
-    && !(audit.findings && audit.findings.total > audit.findings.stored)
-    && !(audit.watch && ['partial', 'unavailable'].includes(audit.watch.state));
-  const sla = (base && base.audit && base.audit.sla) || DEFAULT_SLA;
+  const evidenceComplete = completeAudit(audit);
+  const sla = baseline?.audit.sla || DEFAULT_SLA;
   const open = openRows(head.findings, decisions, now);
   const counts: Counts = { critical: 0, serious: 0, warning: 0 };
   for (const row of open) if (row.severity === 'critical' || row.severity === 'serious' || row.severity === 'warning') counts[row.severity] += 1;
@@ -111,8 +114,8 @@ export function evaluateMergeGate({ headSha, head, base, decisions, now = Date.n
     return clock && clock.state === 'overdue';
   });
   let introduced: number | null = null;
-  if (base && base.audit) {
-    const before = new Set(listOf(base.findings).map(row => read(row, 'id')));
+  if (baseline && completeAudit(baseline.audit)) {
+    const before = new Set(listOf(baseline.findings).map(row => read(row, 'id')));
     introduced = open.filter(row => confirmed(row) && (row.severity === 'critical' || row.severity === 'serious') && !before.has(row.id)).length;
   }
   const blocking: GateReason[] = [];
@@ -155,7 +158,7 @@ export function evaluateMergeGate({ headSha, head, base, decisions, now = Date.n
     base: baseState,
     complete: evidenceComplete ? (audit.files ? audit.files.complete === true : null) : false,
     evidence,
-    sla: { ...sla, source: base && base.audit && base.audit.sla ? 'base' : 'default' }
+    sla: { ...sla, source: baseline?.audit.sla ? 'base' : 'default' }
   });
 }
 

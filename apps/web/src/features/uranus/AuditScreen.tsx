@@ -54,6 +54,7 @@ export interface AuditHandlers {
   readonly onOwasp?: (category: string | null) => void;
   readonly onSeverity?: (severity: string | null) => void;
   readonly onVerdict?: (verdict: string | null) => void;
+  readonly onPathGroup?: (group: string | null) => void;
   readonly onExploit?: (exploit: string | null) => void;
   /* A finding the list is not showing, asked for from a card above it: the page clears what hides it. */
   readonly onReveal?: (id: string) => void;
@@ -89,6 +90,23 @@ const findingNode = (host: HTMLElement, id: string): Element | null => host.quer
 
 export function AuditScreen({ host, view, handlers, now }: { readonly host: HTMLElement; readonly view: unknown; readonly handlers: AuditHandlers; readonly now: number }): ReactElement {
   const opened = useOpenFindings();
+  const key = field(view, 'key');
+  const result = field(view, 'result');
+  const [selection, setSelection] = useState<{ key: unknown; result: unknown; group: 'supporting' | 'other' } | null>(null);
+  // A history or watch update repaints the same result. A replacement audit or
+  // repository must start with all its paths, even if it reuses the same IDs.
+  if (selection && (selection.key !== key || selection.result !== result)) setSelection(null);
+  const listHandlers: AuditHandlers = {
+    ...handlers,
+    onFilter: handlers.onFilter && (family => {
+      setSelection(null);
+      handlers.onFilter?.(family);
+    }),
+    onPathGroup: handlers.onPathGroup ?? (group => {
+      setSelection(group === 'supporting' || group === 'other' ? { key, result, group } : null);
+      handlers.onMore?.(0);
+    })
+  };
   const offered = { open: Boolean(handlers.onOpen), triage: Boolean(handlers.onTriage), history: Boolean(handlers.onTriageHistory), reopen: Boolean(handlers.onReopen) };
   /*
    * Opens a finding from a card above the list, brings it into view and puts
@@ -97,7 +115,8 @@ export function AuditScreen({ host, view, handlers, now }: { readonly host: HTML
    * is never silently lost.
    */
   const reveal = (id: string): void => {
-    if (!findingNode(host, id) && handlers.onReveal) handlers.onReveal(id);
+    if (selection) flushSync(() => setSelection(null));
+    if (selection || !findingNode(host, id)) handlers.onReveal?.(id);
     const details = findingNode(host, id);
     if (!details) return;
     flushSync(() => { unfold('findings'); opened.toggle(id, true); });
@@ -125,7 +144,7 @@ export function AuditScreen({ host, view, handlers, now }: { readonly host: HTML
   const licensed = licences(view);
   const covered = coverage(view);
   const standard = standards(view);
-  const listed = findings(view, now, offered);
+  const listed = findings(view, now, offered, selection?.group);
   const clocks = remediation(view);
   const kept = history(view, now);
   return (
@@ -134,12 +153,12 @@ export function AuditScreen({ host, view, handlers, now }: { readonly host: HTML
       {watching ? <WatchCard watch={watching} handlers={handlers} /> : null}
       {first.length ? <PrioritiesCard rows={first} reveal={reveal} /> : null}
       {ranked ? <RiskCard risk={ranked} handlers={handlers} reveal={reveal} showFindings={showFindings} /> : null}
-      {grouped ? <FamiliesCard lede={grouped.lede} families={grouped.families} handlers={handlers} /> : null}
+      {grouped ? <FamiliesCard lede={grouped.lede} families={grouped.families} handlers={listHandlers} /> : null}
       {reached ? <SurfaceCard surface={reached} handlers={handlers} /> : null}
       {licensed ? <LicencesCard licences={licensed} reveal={reveal} /> : null}
       {covered ? <CoverageCards coverage={covered} handlers={handlers} /> : null}
       {standard ? <StandardsCard said={standard.said} tiles={standard.tiles} handlers={handlers} /> : null}
-      {listed ? <FindingsCard findings={listed} handlers={handlers} opened={opened} /> : null}
+      {listed ? <FindingsCard findings={listed} handlers={listHandlers} opened={opened} /> : null}
       {clocks ? <RemediationCard remediation={clocks} /> : null}
       {kept ? <HistoryCard history={kept} handlers={handlers} /> : null}
       {siteCard}

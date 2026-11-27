@@ -74,6 +74,54 @@ const untracedKey = finding => `${finding.id}|${finding.rule}|${finding.path}|${
 
 /* ---- The whole audit: batches within their bounds, counted honestly ------------ */
 (async () => {
+  /* The provider has already removed oversized files by the time the audit sees the tree. */
+  {
+    const reader = {
+      resolveCommit: async () => ({ ref: 'main', commitSha: 'e'.repeat(40) }),
+      readTree: async () => ({ entries: [{ path: 'src/small.ts', size: 16, sha: 'a'.repeat(40) }], skipped: [
+        { path: 'src/large.ts', reason: 'oversize' }, { path: 'src/unknown.ts', reason: 'unreadable' },
+        { path: 'dist/bundle.js', reason: 'oversize' }, { path: 'photo.png', reason: 'oversize' }
+      ] }),
+      readBlob: async () => ({ text: 'export default 1' })
+    };
+    const result = await audit.auditRepository({ reader, ref: 'main' });
+    const { read, eligible, skipped, unreadable, complete } = result.coverage;
+    assert.deepStrictEqual([read, eligible, skipped.oversize, unreadable, complete], [1, 3, 1, 1, false]);
+    assert.strictEqual(audit.auditHistory.compactAudit(result).audit.analysis_complete, false);
+    assert.strictEqual(result.analysisComplete, false);
+    assert.strictEqual(result.ledger.find(entry => entry.id === 'injection').status, 'partial');
+    const offThread = await audit.auditRepository({ reader, ref: 'main', analyser: audit.auditWorker.analyseOffThread });
+    assert.deepStrictEqual(offThread.ledger, result.ledger, 'repository file coverage reaches the worker ledger');
+  }
+  {
+    const manifest = JSON.stringify({ name: 'example', dependencies: { lodash: '4.17.21' } });
+    const reader = {
+      resolveCommit: async () => ({ ref: 'main', commitSha: 'e'.repeat(40) }),
+      readTree: async () => ({ entries: [{ path: 'package.json', size: manifest.length, sha: 'a'.repeat(40) }], skipped: [] }),
+      readBlob: async () => ({ text: manifest })
+    };
+    const result = await audit.auditRepository({ reader, ref: 'main' });
+    const { packages, advisories } = result.coverage;
+    assert.deepStrictEqual([packages.declared, packages.checked, packages.notChecked], [1, 0, 1]);
+    assert.deepStrictEqual([advisories.versions, advisories.checked, advisories.notChecked], [1, 0, 1]);
+    const supply = result.ledger.find(entry => entry.id === 'supply');
+    assert.strictEqual(supply.status, 'partial');
+    assert.match(supply.detail, /0 of 1 dependency versions/);
+    assert.strictEqual(result.analysisComplete, false);
+    const entries = ['assets/a.js', 'examples/z.js', 'src/main.mts'].map(path => ({ path, size: 1 }));
+    const selection = audit.selectFiles(entries, { ...audit.LIMITS, maxFiles: 1 });
+    assert.deepStrictEqual(selection.selected.map(entry => entry.path), ['src/main.mts']);
+    assert.deepStrictEqual(selection.overflow.map(entry => entry.path), ['assets/a.js', 'examples/z.js']);
+  }
+  {
+    const source = { path: 'src/client.ts', text: 'import OpenAI from "openai";' };
+    const timed = audit.analyse({ files: [source], trace: { skip: 'time' } });
+    assert.strictEqual(timed.ledger.find(item => item.id === 'ai').status, 'patterns');
+    for (const ext of ['vue', 'svelte', 'astro']) {
+      const result = audit.analyse({ files: [{ path: 'App.' + ext, text: '<script>const title = "Report";</script>' }] });
+      assert.strictEqual(result.ledger.find(item => item.id === 'injection').status, 'patterns', ext);
+    }
+  }
   {
     const controller = new AbortController();
     controller.abort();

@@ -30,12 +30,11 @@ function tsc(args, cwd = root) {
   });
 }
 
-/* The checker is a pinned development dependency, not something fetched at
-   run time: a gate that reaches the network is a gate that can be offline. */
+/* The checker and the production audit worker share the compiler pinned in the lockfile. */
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 assert.strictEqual(
-  pkg.devDependencies.typescript, '5.9.3',
-  'the checker must be pinned exactly, like every other dependency here'
+  pkg.dependencies.typescript, '5.9.3',
+  'type checking and production analysis require the same exact compiler'
 );
 assert(
   fs.existsSync(path.join(root, 'node_modules', 'typescript', 'bin', 'tsc')),

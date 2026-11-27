@@ -1,3 +1,5 @@
+import { isTestPath, supportingPathRole } from '../../../../../../packages/contracts/src/audit-paths.ts';
+export { isTestPath } from '../../../../../../packages/contracts/src/audit-paths.ts';
 import * as ecosystems from './ecosystems.ts';
 import * as licences from './licences.ts';
 
@@ -50,7 +52,8 @@ export const LIMITS: AuditLimits = Object.freeze({
   queryConcurrency: 2
 });
 
-export const JS_EXT: ReadonlySet<string> = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro']);
+export const JS_TRACE_EXT: ReadonlySet<string> = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs', 'mts', 'cts']);
+export const JS_EXT: ReadonlySet<string> = new Set([...JS_TRACE_EXT, 'vue', 'svelte', 'astro']);
 export const PY_EXT: ReadonlySet<string> = new Set(['py']);
 /* Go, Java and PHP: traced by Uranus's own reader for the C family of languages. */
 export const CF_EXT: ReadonlySet<string> = new Set(['go', 'java', 'php']);
@@ -87,10 +90,6 @@ export function dirName(filePath: string): string {
 export function isDockerfile(filePath: string): boolean {
   return /^(Dockerfile|Containerfile)(\..+)?$|\.dockerfile$/i.test(baseName(filePath));
 }
-export function isTestPath(filePath: string): boolean {
-  return /(^|\/)(tests?|__tests__|spec|specs|e2e|cypress|playwright)\//i.test(filePath) ||
-    /\.(test|spec)\.[a-z]+$/i.test(filePath) || /(^|\/)test_[^/]+\.py$|_test\.(py|go)$/.test(filePath);
-}
 /*
  * A manifest or lockfile kept for the tests: a fixture project a test reads,
  * test data. It describes no install of the application, so its packages
@@ -118,7 +117,9 @@ function auditPriority(filePath: string, policyPath: string | null): number | nu
     /^(next|vite|nuxt|svelte|astro)\.config\./.test(base) || base === 'vercel.json' || base === 'netlify.toml' ||
     base === 'settings.py' || base === 'docker-compose.yml' || base === 'docker-compose.yaml') return 1;
   const ext = extensionOf(filePath);
-  if (SOURCE_EXT.has(ext)) return isTestPath(filePath) ? 3 : 2;
+  // Apply the full tracing budget to application paths first. Static assets and
+  // examples remain eligible for both passes, including the per-file rules.
+  if (SOURCE_EXT.has(ext)) return supportingPathRole(filePath) ? 3 : 2;
   if (SCRIPT_EXT.has(ext)) return 4;
   return null;
 }
@@ -129,21 +130,35 @@ export interface TreeEntry {
   readonly size?: unknown;
 }
 export type SelectedEntry<E extends TreeEntry> = E & { readonly size: number; readonly priority: number };
+export interface ReaderSkip {
+  readonly path?: string | null;
+  readonly reason?: string;
+}
 export interface Selection<E extends TreeEntry> {
   readonly selected: SelectedEntry<E>[];
   readonly overflow: SelectedEntry<E>[];
   readonly eligible: number;
+  readonly unreadable: number;
   readonly skipped: { excluded: number; oversize: number; budget: number };
 }
 
 /* `policyPath` is the repository's own audit policy, which the audit reads first; the module's wiring names it. */
-export function selectFiles<E extends TreeEntry>(entries: readonly E[], limits: AuditLimits = LIMITS, policyPath: string | null = null): Selection<E> {
+export function selectFiles<E extends TreeEntry>(entries: readonly E[], limits: AuditLimits = LIMITS, policyPath: string | null = null, providerSkips: readonly ReaderSkip[] = []): Selection<E> {
   const candidates: SelectedEntry<E>[] = [];
   const skipped = { excluded: 0, oversize: 0, budget: 0 };
+  const priorityOf = (path: string): number | null => {
+    if (EXCLUDED_DIR.test(path) || EXCLUDED_FILE.test(path)) { skipped.excluded += 1; return null; }
+    if (LOCKFILES.includes(baseName(path)) && !READ_LOCKS.has(baseName(path))) return null;
+    return auditPriority(path, policyPath);
+  };
+  let unreadable = 0;
+  for (const { path, reason } of providerSkips) {
+    if (!path || (reason !== 'oversize' && reason !== 'unreadable') || priorityOf(path) === null) continue;
+    if (reason === 'oversize') skipped.oversize += 1;
+    else unreadable += 1;
+  }
   for (const entry of entries) {
-    if (EXCLUDED_DIR.test(`${entry.path}`) || EXCLUDED_FILE.test(entry.path)) { skipped.excluded += 1; continue; }
-    if (LOCKFILES.includes(baseName(entry.path)) && !READ_LOCKS.has(baseName(entry.path))) continue;
-    const priority = auditPriority(entry.path, policyPath);
+    const priority = priorityOf(entry.path);
     if (priority === null) continue;
     const size = entry.size;
     if (typeof size !== 'number' || !Number.isInteger(size) || size > limits.maxFileBytes) { skipped.oversize += 1; continue; }
@@ -168,6 +183,6 @@ export function selectFiles<E extends TreeEntry>(entries: readonly E[], limits: 
     }
     skipped.budget += 1;
   }
-  return { selected, overflow, eligible: candidates.length + skipped.oversize, skipped };
+  return { selected, overflow, eligible: candidates.length + skipped.oversize + unreadable, unreadable, skipped };
 }
 export const isRequirements = (base: string): boolean => /^requirements([-_.][\w.-]+)?\.txt$/i.test(base);

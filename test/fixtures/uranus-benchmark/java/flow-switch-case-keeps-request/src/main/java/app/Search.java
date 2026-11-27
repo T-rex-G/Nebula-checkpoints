@@ -18,6 +18,6 @@ public class Search extends HttpServlet {
                 break;
         }
         java.sql.Statement statement = Db.statement();
-        statement.executeQuery("SELECT * FROM items ORDER BY name " + order); // expect: SEC-001 confirmed
+        statement.executeQuery("SELECT * FROM items ORDER BY name " + order); // expect: SEC-001 to-confirm
     }
 }

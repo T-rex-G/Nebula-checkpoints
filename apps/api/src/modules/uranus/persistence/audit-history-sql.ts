@@ -9,7 +9,7 @@ export const AUDIT_COLUMNS = `audit_id, ref_name, commit_sha, engine_version, au
   exploited_count, risk_urgent, risk_high, risk_moderate, risk_low, files_read, files_eligible, coverage_complete,
   components_total, findings_total, findings_stored, new_count, resolved_count,
   watch_checked_at, watch_state, watch_checked, watch_total, watch_kev,
-  sla_critical, sla_serious, sla_warning, policy_source, analysis_complete`;
+  sla_critical, sla_serious, sla_warning, policy_source, analysis_complete, ruleset_digest`;
 export const FINDING_COLUMNS = `finding_id, rule, category, severity, verdict, file_path, line_number, ecosystem, package_name,
   package_version, fixed_version, advisory_ids, cve_ids, cvss, risk_score, risk_band, reach_tier, exploited, ransomware, epss,
   first_seen_at, waived`;

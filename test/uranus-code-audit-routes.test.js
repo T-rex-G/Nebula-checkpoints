@@ -19,8 +19,10 @@ const express = require('express');
 const { createCodeAuditService, registerCodeAuditRoutes, auditTriage } = require('../apps/api/src/modules/uranus/index.ts');
 const { publicErrorBody } = require('../apps/api/src/http/errors.ts');
 const { locations } = require('./oracles/route-policy');
+const { audit: proofAudit, checkCoverageProof } = require('./helpers/uranus-coverage-proof');
 
 const root = path.resolve(__dirname, '..');
+checkCoverageProof();
 
 /* ---- The chain in front of each route, as the route policy reads it ---- */
 {
@@ -70,6 +72,11 @@ async function harness({ database = true } = {}) {
       if (name === 'history' && method === 'record') return { auditId: 'a2', previous: null, newIds: [], resolved: 0, resolutions: 0, firstSeen: { [FINDING]: iso(-40 * 86_400_000), fedcba9876543210fedcba98: iso(-40 * 86_400_000) } };
       if (name === 'history' && method === 'list') return { audits: [{ id: 'a1' }], branches: ['main'] };
       if (name === 'history' && method === 'read') return null;
+      if (name === 'history' && method === 'readSummary') {
+        if (state.malformedSummary) return { audit: proofAudit, findings: [{ path: 'private-path' }] };
+        return input.scope.repo === 'demo' && input.identityKey === IDENTITY && input.auditId === proofAudit.id
+          ? { ...proofAudit, ref: 'private-branch', other: 'private-path' } : null;
+      }
       if (name === 'history' && method === 'watched') return null;
       if (name === 'history' && method === 'clear') return 2;
       if (name === 'history' && method === 'latest') return state.latest;
@@ -115,10 +122,11 @@ async function harness({ database = true } = {}) {
   const pass = (_req, _res, next) => next();
   registerCodeAuditRoutes(app, {
     providerSessionAccess: (req, _res, next) => { req.gh = { login: 'alice', token: 'gho_reader', provider: 'github' }; next(); },
-    alphaRepositoryAccess: pass, capabilityAccess: () => pass, auth: pass, accountAuth: pass,
+    alphaRepositoryAccess: pass, capabilityAccess: () => pass,
+    auth: (req, res, next) => req.headers['x-no-session'] === '1' ? res.status(401).json({ error: 'Session required' }) : next(), accountAuth: pass,
     governanceAccess: role => (req, _res, next) => {
       req.governance = {
-        scope: SCOPE, actor: { identityKey: IDENTITY }, publicReader: req.headers['x-public-reader'] === '1',
+        scope: { ...SCOPE, repo: req.params.repo }, actor: { identityKey: req.headers['x-other-identity'] === '1' ? 'c'.repeat(64) : IDENTITY }, publicReader: req.headers['x-public-reader'] === '1',
         authorization: { governanceRoles: { reviewer: req.headers['x-reviewer'] === '1' ? true : req.headers['x-reviewer'] || false } }
       };
       req.governanceRole = role;
@@ -198,6 +206,31 @@ async function harness({ database = true } = {}) {
       assert.deepEqual(listed.body, { available: true, ref: 'main', audits: [{ id: 'a1' }], branches: ['main'] });
       assert.deepEqual(h.calls[0], ['history.list', { scope: SCOPE, identityKey: IDENTITY, ref: 'main' }]);
       assert.equal((await h.call('GET', `${repo}/history/a9`)).body.code, 'CODE_AUDIT_NOT_FOUND');
+      const proofPath = `${repo}/history/${proofAudit.id}?proof=coverage`;
+      const proof = await h.call('GET', proofPath);
+      assert.equal(proof.status, 200);
+      assert.equal(proof.headers.get('cache-control'), 'no-store');
+      assert.equal(proof.headers.get('x-uranus-coverage-digest'), proof.body.digest);
+      assert.equal(proof.body.decision, 'complete');
+      assert.deepEqual(h.calls.map(([method]) => method), ['history.readSummary'], 'a proof never loads finding rows');
+      assert.doesNotMatch(proof.text, /private-branch|private-path|acme|demo|alice/);
+      const unauthenticated = await h.call('GET', proofPath, undefined, { 'x-no-session': '1' });
+      assert.equal(unauthenticated.status, 401);
+      assert.equal(h.calls.length, 0);
+      h.state.malformedSummary = true;
+      const malformed = await h.call('GET', proofPath);
+      assert.equal(malformed.status, 500);
+      assert.doesNotMatch(malformed.text, /private-path|private-branch/);
+      h.state.malformedSummary = false;
+      const invalid = await h.call('GET', proofPath.replace('=coverage', '=unsupported'));
+      assert.equal(invalid.status, 400);
+      assert.equal(h.calls.length, 0);
+      for (const unavailable of [await h.call('GET', proofPath, undefined, { 'x-other-identity': '1' }),
+        await h.call('GET', proofPath.replace('/demo/', '/elsewhere/'))]) {
+        assert.equal(unavailable.status, 404);
+        assert.equal(unavailable.headers.get('cache-control'), 'no-store');
+        assert.equal(unavailable.headers.get('x-uranus-coverage-digest'), null);
+      }
       const watched = await h.call('GET', `${repo}/watch?ref=main&refresh=1`);
       assert.deepEqual(watched.body, { available: true, ref: 'main', audit: null, alerts: [], components: 0, fresh: false, checkableAt: null }, 'a branch with no kept audit has nothing to watch');
       assert.deepEqual(h.calls[0], ['history.watched', { scope: SCOPE, identityKey: IDENTITY, ref: 'main' }]);
@@ -260,11 +293,11 @@ async function harness({ database = true } = {}) {
     /* The gate: a pull request is required; a fork's head is never described by this repository's audits; a policy store that fails leaves enforcement unavailable. */
     {
       for (const pull of ['', '0', 'x', '2147483648']) assert.equal((await h.call('GET', `${repo}/gate?pull=${pull}`)).body.code, 'AUDIT_GATE_PULL_REQUIRED');
-      h.state.pull = { number: 7, state: 'open', head: { ref: 'feature', sha: 'ABC', repo: { full_name: 'Fork/Demo' } }, base: { ref: 'main', repo: { full_name: 'Acme/Demo' } } };
+      h.state.pull = { number: 7, state: 'open', head: { ref: 'feature', sha: 'ABC', repo: { full_name: 'Fork/Demo' } }, base: { ref: 'main', sha: 'DEF', repo: { full_name: 'Acme/Demo' } } };
       h.state.policiesFail = true;
       const gate = await h.call('GET', `${repo}/gate?pull=7`);
       assert.equal(gate.status, 200);
-      assert.deepEqual(gate.body.pull, { number: 7, head: 'feature', base: 'main', headSha: 'abc', fork: true, open: true });
+      assert.deepEqual(gate.body.pull, { number: 7, head: 'feature', base: 'main', headSha: 'abc', baseSha: 'def', fork: true, open: true });
       assert.deepEqual(gate.body.enforcement, { available: false, policies: [] });
       assert.deepEqual(h.calls.filter(([name]) => name === 'history.latest').map(([, input]) => input.ref), ['main'], 'only the base branch is read for a fork');
       assert.deepEqual(h.calls.find(([name]) => name === 'gh'), ['gh', '/repos/acme/demo/pulls/7']);

@@ -10,7 +10,7 @@
  *
  * The cases are the `flow-*` directories of the benchmark corpus, read here
  * by the flow engine alone: each line marked `expect: SEC-...` is a
- * confirmed flow ending on that line, and nothing else is a flow -- a safe
+ * flow ending on that line with the marked confidence, and a safe
  * twin is quiet even where a pattern rule still leaves a lead to confirm.
  */
 
@@ -34,10 +34,12 @@ for (const language of fs.readdirSync(ROOT).sort()) {
   for (const name of fs.readdirSync(path.join(ROOT, language)).sort()) {
     if (!name.startsWith('flow-')) continue;
     const files = filesOf(path.join(ROOT, language, name));
-    const expected = markersOf(files).filter(mark => mark.kind === 'expect' && mark.rule.startsWith('SEC-')).map(mark => `${mark.rule}@${mark.path}:${mark.line}`).sort();
+    const location = item => `${item.rule}@${item.path}:${item.line}`;
+    const expected = markersOf(files).filter(mark => mark.kind === 'expect' && mark.rule.startsWith('SEC-'))
+      .map(mark => `${location(mark)} ${mark.verdict === 'to-confirm' ? 'needs-validation' : 'confirmed'}`).sort();
     const flows = analyseFlows(files).flows;
-    assert.deepStrictEqual(flows.map(flow => `${flow.rule}@${flow.path}:${flow.line}`).sort(), expected, `${language}/${name}`);
-    for (const flow of flows) assert.strictEqual(flow.verdict, 'confirmed', `${language}/${name}: a traced flow with no check on it is confirmed`);
+    assert.deepStrictEqual(flows.map(flow => `${location(flow)} ${flow.verdict}`).sort(), expected, `${language}/${name}`);
+    for (const flow of flows.filter(flow => flow.verdict === 'needs-validation')) assert.strictEqual(flow.blocker.reason, 'conditional');
     if (expected.length) unsafe += 1; else safe += 1;
     byCase.set(`${language}/${name}`, flows);
   }

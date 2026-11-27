@@ -38,7 +38,7 @@ test('the last kept audit stands in until the next, and the watch says what was 
   const pane = page.locator('#tab-audit');
 
   /* The kept grade, said to be kept, with the way to the full report. */
-  await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', 'Grade C, 72 out of 100, from the last audit', { timeout: 15000 });
+  await expect(pane.locator('.audit-grade')).toHaveAttribute('aria-label', 'Observed grade C, 72 out of 100, from the last audit', { timeout: 15000 });
   await expect(pane.locator('.audit-verdict')).toHaveText(/^Last audited /);
   await expect(pane.locator('.audit-stored-note')).toContainText('Audit again for the full report');
   await expect(pane.locator('.audit-stored-note')).toContainText('3333333');
@@ -106,6 +106,7 @@ test('the last kept audit stands in until the next, and the watch says what was 
   await page.getByRole('menuitem', { name: 'Export SARIF' }).click();
   const run = JSON.parse(require('fs').readFileSync(await (await sarif).path(), 'utf8')).runs[0];
   expect(run.properties.kept).toBe(true);
+  expect(run.properties.analysisComplete).toBe(false);
   expect(run.results.length).toBeGreaterThan(0);
 
   /* A kept audit opened by its own row is read too, and shut again by it. */

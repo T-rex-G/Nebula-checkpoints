@@ -29,7 +29,8 @@ export function engineIdentity(result: unknown): string | null {
   const engine = field(result, 'engine');
   if (typeof engine === 'number') return `site:${engine}`;
   const version = field(engine, 'version');
-  return engine && version ? `repository:${text(version)}` : null;
+  const ruleset = field(engine, 'ruleset');
+  return version && typeof ruleset === 'string' && /^[a-f0-9]{64}$/.test(ruleset) ? `repository:${text(version)}/${ruleset}` : null;
 }
 
 /* The last audit this browser kept of the repository, or nothing: private mode and a damaged record read as none. */
@@ -49,6 +50,8 @@ export function remember(repoKey: unknown, result: unknown): void {
     globalThis.localStorage.setItem(storageKey(repoKey), JSON.stringify({
       at: field(result, 'auditedAt') || new Date().toISOString(),
       engine: engineIdentity(result),
+      ...(typeof field(result, 'ref') === 'string' ? { ref: field(result, 'ref') } : {}),
+      ...(findings.length > KEPT_IDS ? { truncated: true } : {}),
       ids: items(findings).map(finding => field(finding, 'id')).slice(0, KEPT_IDS)
     }));
   } catch { /* private mode: no comparison next time, and nothing is lost */ }
@@ -59,13 +62,19 @@ export function diff(result: unknown, previous: unknown): AuditChanges | null {
   const ids = field(previous, 'ids');
   const findings = field(result, 'findings');
   if (!previous || !Array.isArray(ids) || !Array.isArray(findings)) return null;
-  if (engineIdentity(result) !== (field(previous, 'engine') || null)) return null;
+  const identity = engineIdentity(result);
+  if (!identity || identity !== field(previous, 'engine') || field(previous, 'truncated')) return null;
+  const repository = identity.startsWith('repository:');
+  const ref = field(result, 'ref');
+  if (repository && (typeof ref !== 'string' || !ref || ref !== field(previous, 'ref'))) return null;
   const before = new Set(items(ids));
   const now = new Set(items(findings).map(finding => field(finding, 'id')));
+  const waived = new Set(items(field(result, 'suppressed')).map(finding => field(finding, 'id')));
+  const missing = [...before].filter(id => !now.has(id) && !waived.has(id)).length;
   return {
     previousAt: field(previous, 'at') || null,
     newIds: new Set([...now].filter(id => !before.has(id))),
-    resolved: [...before].filter(id => !now.has(id)).length
+    resolved: missing && repository && field(result, 'analysisComplete') !== true ? null : missing
   };
 }
 

@@ -5,6 +5,7 @@
  * its exploitation and reach, and its fix; then what the team triaged and
  * what the code waived. Nothing here draws (AuditFindings.tsx does).
  */
+import { supportingPathRole } from '../../../../../packages/contracts/src/audit-paths.ts';
 import { field, items } from '../../platform/values.ts';
 import {
   DISPOSITION, ORDER, REACH, REACH_TIER, RISK_BAND, SEVERITY, STEP_ROLE, VERDICT,
@@ -312,6 +313,7 @@ export interface Findings {
   readonly severities: readonly Segment[] | null;
   readonly verdicts: readonly Segment[] | null;
   readonly exploits: readonly Segment[] | null;
+  readonly paths: readonly Segment[] | null;
   readonly search: { readonly query: string } | null;
   readonly empty: string | null;
   readonly rows: readonly FindingRow[];
@@ -348,7 +350,7 @@ const severityIcon = (finding: unknown): string => {
 };
 export function findings(view: unknown, now: number, offered: {
   readonly open: boolean; readonly triage: boolean; readonly history: boolean; readonly reopen: boolean;
-}): Findings | null {
+}, pathGroup = field(view, 'pathGroup')): Findings | null {
   const result = field(view, 'result');
   if (!result) return null;
   const categories = items(field(result, 'categories'));
@@ -365,13 +367,15 @@ export function findings(view: unknown, now: number, offered: {
   const severity = field(view, 'severity') || null;
   const verdict = field(view, 'verdict') || null;
   const exploit = field(view, 'exploit') || null;
+  const supporting = new Set(inScope.filter(finding => supportingPathRole(field(finding, 'path'))));
   const query = text(field(view, 'query'));
   const counts = severityCounts(inScope);
   const leads = inScope.filter(finding => verdictOf(finding) === 'needs-validation').length;
   const live = inScope.filter(exploited).length;
   const segment = (value: string | null, key: string, said: string, count: number, pressed: boolean, disabled: boolean, icon: string | null, name: string | null): Segment =>
     ({ value, key, text: said, count, pressed, disabled, icon, name });
-  const shown = inScope.filter(finding => (!severity || field(finding, 'severity') === severity)
+  const shown = inScope.filter(finding => (!pathGroup || supporting.has(finding) === (pathGroup === 'supporting'))
+    && (!severity || field(finding, 'severity') === severity)
     && (!verdict || verdictOf(finding) === verdict) && (!exploit || exploited(finding)) && matches(finding, query, families));
   const limit = Math.max(PAGE, Number(field(view, 'limit')) || PAGE);
   const changes = changesOf(field(view, 'diff'));
@@ -393,6 +397,11 @@ export function findings(view: unknown, now: number, offered: {
       /* "Any" is also the verdict group's first option: the name says which question it answers. */
       segment(null, 'exploit:any', 'Any', inScope.length, exploit === null, false, null, `Any exploitation, ${inScope.length}`),
       segment('kev', 'exploit:kev', 'Exploited', live, exploit === 'kev', !live && exploit !== 'kev', ICON_FLAME, `Exploited in the wild, ${live}`)
+    ] : null,
+    paths: supporting.size || pathGroup ? [
+      segment(null, 'paths:all', 'All paths', inScope.length, !pathGroup, false, null, null),
+      segment('other', 'paths:other', 'Other paths', inScope.length - supporting.size, pathGroup === 'other', supporting.size === inScope.length, null, null),
+      segment('supporting', 'paths:supporting', 'Examples, assets and tests', supporting.size, pathGroup === 'supporting', !supporting.size, null, null)
     ] : null,
     search: inScope.length && (inScope.length > 3 || query) ? { query } : null,
     empty: shown.length ? null : query ? `Nothing matches “${query.trim()}”.` : filter || owasp ? 'Nothing found here, in what was read.' : 'Nothing found, in what was read.',

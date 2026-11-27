@@ -76,6 +76,11 @@ function importsOf(source) {
       if (!(ts.isImportDeclaration(node) && node.importClause && node.importClause.isTypeOnly)) statics.push(node.moduleSpecifier.text);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
       dynamics.push(node.arguments[0].text);
+    } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'resolve' &&
+        ts.isMetaProperty(node.expression.expression) && node.expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+        node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
+      // Explicit local module resolution is also an edge, including when an ES module is loaded synchronously.
+      dynamics.push(node.arguments[0].text);
     } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
       requires.push(node.arguments[0].text);
     }

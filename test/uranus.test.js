@@ -16,6 +16,20 @@ const assert = require('assert');
 const audit = require('../apps/api/src/modules/uranus/index.ts');
 const { lexJs, lexPython, analyseFlows, analyseSurface } = audit;
 
+/* A rules-only batch can contain JavaScript and still has no need for the compiler. */
+{
+  const compiler = require.resolve('typescript');
+  const view = { path: 'app/view.ts', text: 'const node = document.createElement("p"); node.innerHTML = "Label";' };
+  assert.equal(require.cache[compiler], undefined, 'importing the public engine should leave the compiler cold');
+  audit.scanRules([view]);
+  audit.analyse({ files: [{ path: 'app/total.ts', text: 'export const total = 1;' }, { path: 'app/total.py', text: 'total = 1' }] });
+  assert.equal(require.cache[compiler], undefined, 'rules-only and no-candidate audits keep the compiler cold');
+  const result = audit.analyse({ files: [view] });
+  assert.equal(result.engine.traced.semantic.files, 1);
+  assert.equal(result.engine.traced.semantic.complete, true);
+  assert(require.cache[compiler], 'the first semantic candidate loads the production compiler');
+}
+
 const I = '$'; /* splits template interpolations so this file stays plain text */
 const tpl = (...parts) => parts.join('');
 
@@ -37,6 +51,97 @@ function quiet(label, files) {
 }
 function express(body) {
   return { path: 'server/app.js', text: `const express = require('express');\nconst app = express();\n${body}\n` };
+}
+
+/* Container fields belong to the current binding, including across branch and block scopes. */
+{
+  const entry = body => express("app.get('/items', (req, res) => {\n" + body + "\n});");
+  const read = "const query = 'SELECT title FROM items WHERE title = ' + row.term; db.query(query);";
+  const cases = [
+    ["let row = {term: 'safe'}; row = req.query;", true],
+    ["let row = {term: req.query.term}; row = {term: 'safe'};", false],
+    ["let row = {term: 'safe'}; if (enabled) { row = req.query; }", true],
+    ["let row = {term: req.query.term}; if (enabled) { row = {term: 'a'}; } else { row = {term: 'b'}; }", false],
+    ["let row = {term: 'safe'}; { let row = req.query; }", false],
+    ["let row = {term: 'safe'}; row = {term: 'safe', other: req.query.q};", false],
+    ["let row = {term: 'safe', ...req.query};", true],
+    ["let row = {term: 'safe', ...defaults};", false]
+  ];
+  for (const [body, expected] of cases) {
+    const result = flows([entry(body + '\n' + read)]);
+    assert.strictEqual(result.some(flow => flow.rule === 'SEC-001'), expected, body);
+  }
+}
+
+{
+  // The next statement starts at the token after an implicit JavaScript line ending.
+  const handler = target => ({ path: 'routes/profile.ts', text: [
+    'export function profile() {', '  return async (req: Request, res: Response) => {',
+    '    const url = req.body.url', '    if (seen(url)) record()',
+    '    const member = lookup(req.cookies.key)', '    if (member) {',
+    '      try { const reply = await fetch(' + target + ') } catch (err) {}',
+    '    }', '  }', '}'
+  ].join('\n') });
+  fires('semicolon-free returned handler', [handler('url')], ['SEC-021@routes/profile.ts:7']);
+  quiet('fixed service URL', [handler('"https://service.example/items"')]);
+  const update = (receiver, selector) => express("app.patch('/item', (req, res) => { " + receiver + ".update({ id: " + selector + " }, { active: true }); });");
+  const query = flows([update('db.itemCollection', 'req.body.id')]).find(flow => flow.rule === 'SEC-029');
+  assert.strictEqual(query?.verdict, 'needs-validation');
+  quiet('typed collection selector', [update('db.itemCollection', 'Number(req.body.id)')]);
+  quiet('ordinary object update', [update('preferences', 'req.body.id')]);
+}
+
+/* A Mongoose filter interprets the runtime shape of each field independently. */
+{
+  const prefix = [
+    'import express from "express";', 'import { model } from "mongoose";',
+    'const entries = model("Entry", schema);', 'const app = express();',
+    'app.post("/records", async (incoming, res) => {'
+  ];
+  const cases = [
+    ['const code = incoming.body.code;', 'entries.deleteOne({code});', true],
+    ['let code = incoming.body.code;', 'entries.deleteOne({code: {$eq: code}});', false],
+    ['let code = incoming.body.code; if (typeof code !== "string") return;', 'entries.deleteOne({code});', false],
+    ['const code = incoming.query.code;', 'entries.countDocuments({code});', true],
+    ['const code = incoming.body.code;', 'if (typeof code === "number") entries.findOne({code});', false],
+    ['const code = incoming.body.code; if (typeof code !== "string") res.status(400);', 'entries.findOne({code});', true],
+    ['let code = incoming.body.code; if (typeof code !== "string") return; code = incoming.body.next;', 'entries.findOne({code});', true],
+    ['const code = incoming.body.code; { const code = 42; if (typeof code !== "number") return; }', 'entries.findOne({code});', true],
+    ['const code = incoming.body.code;', 'entries.findOne({key: {$eq: incoming.body.key}, code});', true],
+    ['', 'entries.findOne({key: {"$eq": incoming.body.key}, active: true});', false],
+    ['', 'entries.updateOne({active:true}, {key:incoming.body.key});', false],
+    ['const code = String(incoming.body.code);', 'entries.findOne({code});', false],
+    ['const code = `record-${incoming.query.code}`;', 'entries.findOne({code});', false],
+    ['const code = incoming.params.code;', 'entries.findOne({code});', false],
+    ['const other = {findOne(value) {return value;}}; const code = incoming.body.code;', 'other.findOne({code});', false],
+    ['', 'entries.findOne({key: {$eq: incoming.body.key}}); Legacy.find({key: incoming.body.key});', true],
+    ['const code = incoming.body.code; const selected = enabled ? "fixed" : code;', 'entries.findOne({key: selected});', true]
+  ];
+  for (const [setup, sink, expected] of cases) {
+    const path = 'server/records.js', line = prefix.length + 2;
+    const matches = flows([{path, text: [...prefix, setup, sink, '});'].join('\n')}]).filter(f => f.rule === 'SEC-029');
+    assert.deepStrictEqual(matches.map(f => [f.path, f.line, f.verdict]), expected ? [[path, line, 'needs-validation']] : [], setup + sink);
+  }
+  const typed = [...prefix, 'const code = incoming.body.code as string;', 'entries.findOne({code});', '});'].join('\n');
+  fires('erased filter field annotation', [{path: 'server/records.ts', text: typed}], ['SEC-029@server/records.ts:7']);
+  const imported = typed.replace('import { model } from "mongoose";', 'import { entries } from "./model";')
+    .replace('const entries = model("Entry", schema);', '');
+  const model = 'import mongoose from "mongoose"; export const entries = mongoose.model("Entry", schema);';
+  const split = source => [{path: 'server/records.ts', text: imported}, {path: 'server/model.ts', text: source}];
+  fires('imported Mongoose model', split(model), ['SEC-029@server/records.ts:7']);
+  quiet('replaced model method', split(model + ' entries.findOne = customSearch;'));
+}
+
+/* Only a file that actually lost a flow is reported as truncated. */
+{
+  const source = count => express("app.get('/', (req, res) => {\n" + Array(count).fill("res.redirect(req.query.to);").join('\n') + "\n});");
+  const full = audit.analyse({ files: [source(40)] });
+  const clipped = audit.analyse({ files: [source(41)] });
+  assert.strictEqual(full.engine.traced.flows, 40);
+  assert.strictEqual(full.engine.traced.truncated, 0);
+  assert.strictEqual(clipped.engine.traced.flows, 40);
+  assert.strictEqual(clipped.engine.traced.truncated, 1);
+  assert.strictEqual(clipped.ledger.find(item => item.id === 'requests').status, 'partial');
 }
 
 /* ---- The lexers ----------------------------------------------------------------- */
@@ -88,7 +193,7 @@ function express(body) {
   assert.deepStrictEqual(guarded[0].blocker, { reason: 'guarded', path: 'server/app.js', line: 5 });
 
   fires('path traversal', [express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', req.query.name), () => {}); });")], ['SEC-022@server/app.js:5']);
-  quiet('a bare name', [express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', path.basename(req.query.name)), () => {}); });")]);
+  assert.equal(flows([express("const fs = require('fs');\nconst path = require('path');\napp.get('/f', (req, res) => { fs.readFile(path.join(__dirname, 'files', path.basename(req.query.name)), () => {}); });")])[0]?.verdict, 'needs-validation', 'a basename can still be a dot segment');
   quiet('sendFile under a root', [express("app.get('/f', (req, res) => { res.sendFile(req.query.f, { root: 'public' }); });")]);
   fires('an open redirect', [express("app.get('/go', (req, res) => { res.redirect(req.query.next); });")], ['SEC-020@server/app.js:3']);
   quiet('a local redirect', [express("app.get('/go', (req, res) => { res.redirect('/profile/' + req.query.tab); });")]);
@@ -166,6 +271,38 @@ function surfaceOf(files) {
   const { routes } = analyseFlows(files);
   return analyseSurface({ routes, files });
 }
+{
+  // The same request, lookup and policy call. Only the use of the result changes.
+  const check = (path, policy, use, lookup = 'const row = await Item.findById(req.params.id);') => {
+    const text = [
+      "import express from 'express';", policy, 'const app = express();',
+      "app.get('/items/:id', requireAuth, async (req, res) => {",
+      lookup, use, '  return res.json(row);', '});'
+    ].join('\n');
+    return surfaceOf([{ path, text }]).raw.filter(f => f.rule === 'ACC-002')
+      .map(f => [f.path, f.line, f.verdict]);
+  };
+  const predicate = 'function canAccess(actor, row) { return row.ownerId === actor.id; }';
+  for (const path of ['server/items.js', 'server/items.ts']) {
+    const review = [[path, 4, 'needs-validation']];
+    assert.deepStrictEqual(check(path, predicate, 'canAccess(req.user, row);'), review, 'discarded ownership result');
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.status(403).end();'), []);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) logDenied();'), review, 'denial falls through');
+    assert.deepStrictEqual(check(path, 'const policy = getPolicy();', 'if (!(await policy.canAccess(req.user.id, row.ownerId))) return res.status(403).json({error: "forbidden"});'), []);
+    const early = 'if (!canAccess(req.user, req.params.id)) { res.sendStatus(403); return; }';
+    assert.deepStrictEqual(check(path, predicate, 'const row = await Item.findById(req.params.id);', early), []);
+    assert.deepStrictEqual(check(path, predicate, 'const row = await Item.findById(req.params.otherId);', early), review);
+    assert.deepStrictEqual(check(path, predicate, 'const ok = canAccess(req.user, row); if (!ok) { return res.sendStatus(403); }'), []);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) res.sendStatus(403);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'res.json(row); if (!canAccess(req.user, row)) return res.sendStatus(403);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.status(403).json(row);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'if (!canAccess(req.user, row)) return res.sendStatus(403); await Item.findById(req.params.otherId);'), review);
+    assert.deepStrictEqual(check(path, predicate, 'canAccess(req.user, row);', 'const row = await Item.findOne({id: req.params.id, ownerId: req.user.id});'), []);
+    assert.deepStrictEqual(check(path, "import { canAccess } from 'missing-policy';", 'if (!canAccess(req.user, row)) return res.sendStatus(403);'), []);
+    assert.deepStrictEqual(check(path, "import { assertOwner } from 'missing-policy';", 'await assertOwner(req.user, row);'), review, 'unresolved assertion');
+  }
+}
+
 {
   const withAuth = { path: 'server/auth.js', text: "const jwt = require('jsonwebtoken');\nfunction requireAuth(req, res, next) { jwt.verify(req.headers.authorization, KEY); next(); }\nmodule.exports = { requireAuth };\n" };
   const routes = { path: 'server/routes.js', text: [
@@ -282,7 +419,7 @@ function surfaceOf(files) {
 
 /* ---- A sanitiser clears a value for its own context, and for no other ------------- */
 {
-  const js = body => ({ path: 'server/app.js', text: `const express = require('express');\nconst { exec } = require('child_process');\nconst fs = require('fs');\nconst path = require('path');\nconst app = express();\n${body}\n` });
+  const js = body => ({ path: 'server/app.js', text: `const express = require('express');\nconst { exec } = require('child_process');\nconst fs = require('fs');\nconst path = require('path');\nconst app = express(); const escapeHtml = require('escape-html'); const DOMPurify = require('dompurify'); const mysql = require('mysql2');\n${body}\n` });
   const py = body => ({ path: 'app.py', text: `from flask import Flask, request\nimport os, html, shlex, requests\nfrom urllib.parse import quote_plus\napp = Flask(__name__)\n${body}\n` });
   const sql = call => `app.get('/u', async (req, res) => {\n  const n = ${call};\n  res.json(await db.query("SELECT * FROM users WHERE name = '" + n + "'"));\n});`;
   const shell = call => `app.get('/u', (req, res) => {\n  const n = ${call};\n  exec('convert ' + n, () => res.end());\n});`;
@@ -301,12 +438,12 @@ function surfaceOf(files) {
   fires('SQL escaping in a page', [js(page('mysql.escape(req.query.name)'))], ['SEC-033@server/app.js:8']);
   fires('cleaned markup in a shell command', [js(shell('DOMPurify.sanitize(req.query.name)'))], ['SEC-011@server/app.js:8']);
   fires('a markup sanitiser, by its name, in SQL', [js(`const sanitizeHtml = require('sanitize-html');\n${sql('sanitizeHtml(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
-  /* The right context: quiet, as before. */
+  /* Verified encoding is quiet. Stateful and environment-dependent transformations retain review evidence. */
   quiet('a URL component in a link', [js(page('encodeURIComponent(req.query.name)'))]);
   quiet('escaped HTML in a page', [js(page('escapeHtml(req.query.name)'))]);
-  quiet('cleaned markup in a page', [js(page('DOMPurify.sanitize(req.query.name)'))]);
-  quiet('SQL escaping in SQL', [js(sql('mysql.escape(req.query.name)'))]);
-  quiet('a bare file name in a path', [js("app.get('/u', (req, res) => {\n  const n = path.basename(req.query.name);\n  res.send(fs.readFileSync(path.join('/srv/uploads', n)));\n});")]);
+  assert.equal(fires('cleaned markup in a page', [js(page('DOMPurify.sanitize(req.query.name)'))], ['SEC-033@server/app.js:8'])[0].verdict, 'needs-validation');
+  assert.equal(fires('SQL escaping in SQL', [js(sql('mysql.escape(req.query.name)'))], ['SEC-001@server/app.js:8'])[0].verdict, 'needs-validation');
+  assert.equal(fires('a bare file name in a path', [js("app.get('/u', (req, res) => {\n  const n = path.basename(req.query.name);\n  res.send(fs.readFileSync(path.join('/srv/uploads', n)));\n});")], ['SEC-022@server/app.js:8'])[0].verdict, 'needs-validation');
   quiet('a number anywhere', [js(sql('parseInt(req.query.id, 10)'))]);
   /* Joined with a value that was not sanitised, the whole is not. */
   fires('a sanitised value beside a raw one', [js("app.get('/u', (req, res) => {\n  res.send('<h1>' + encodeURIComponent(req.query.a) + req.query.b + '</h1>');\n});")], ['SEC-033@server/app.js:7']);
@@ -322,8 +459,8 @@ function surfaceOf(files) {
   fires('an allow-list replace of the first match only', [js(`function sanitizeName(v) { return String(v).replace(/[^a-zA-Z0-9_-]/, ''); }\n${shell('sanitizeName(req.query.name)')}`)], ['SEC-011@server/app.js:9']);
   quiet('a sanitiser that wraps an HTML escape, in a page', [js(`function sanitize(v) { return escapeHtml(v); }\n${page('sanitize(req.query.name)')}`)]);
   fires('a sanitiser that wraps an HTML escape, in SQL', [js(`function sanitize(v) { return escapeHtml(v); }\n${sql('sanitize(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
-  /* One whose body cannot be read is taken at its word, as before. */
-  quiet('an imported sanitiser of no stated context', [js(`const { sanitize } = require('some-lib');\n${sql('sanitize(req.query.name)')}`)]);
+  const opaque = fires('an unmodelled package keeps a review lead', [js(`const { sanitize } = require('some-lib');\n${sql('sanitize(req.query.name)')}`)], ['SEC-001@server/app.js:9']);
+  assert.deepStrictEqual(opaque[0].blocker, { reason: 'unverified-transform', path: 'server/app.js', line: 8 });
 
   /* A destination check is read, not believed. */
   const fetches = check => `${check}\napp.get('/p', async (req, res) => {\n  const u = validateUrl(req.query.url);\n  const r = await fetch(u);\n  res.send(await r.text());\n});`;
@@ -346,5 +483,59 @@ function surfaceOf(files) {
   assert.strictEqual(strip[0].verdict, 'needs-validation');
   fires('a URL check that only asks for https', [py("def validate_url(u):\n    if not u.startswith('https://'):\n        raise ValueError('https')\n    return u\n\n@app.route('/p')\ndef p():\n    u = validate_url(request.args.get('url'))\n    return requests.get(u).text")], ['SEC-021@app.py:13']);
 }
+
+/* Same input and sink, changing only the binding, package, member, options or embedding context. */
+{
+  const route = (declarations, expression, use = "res.send('<p>' + output + '</p>');") => ({
+    path: 'server/preview.ts',
+    text: [declarations, "app.get('/preview', (req, res) => {", '  const output = ' + expression + ';', '  ' + use, '});'].join('\n')
+  });
+  const label = 'req.query.label';
+  const real = 'import encode from "escape-html";';
+  function review(file, additional = []) {
+    const findings = flows([file, ...additional]).filter(row => row.rule === 'SEC-033');
+    assert.equal(findings.length, 1, file.text);
+    assert.equal(findings[0].verdict, 'needs-validation', file.text);
+    return findings[0];
+  }
+
+  quiet('aliased default encoder', [route(real, `encode(${label})`)]);
+  quiet('CommonJS alias', [route('const e = require("escape-html");', `e(${label})`)]);
+  quiet('named import alias', [route('import { escape as e } from "lodash";', `e(${label})`)]);
+  quiet('constant implementation overrides a promising name', [route('function escapeHtml(v) { return "fixed"; }', `escapeHtml(${label})`)]);
+  quiet('unshadowed built-in', [route('', `Number.parseInt(${label}, 10)`)]);
+  const data = review(route('function escapeHtml(v) { return v; }', `escapeHtml(${label})`));
+  assert.equal(data.blocker.reason, 'guarded');
+  review(route('function parseInt(v) { return v; }', `parseInt(${label})`));
+  review(route('const adapter = getAdapter();', `adapter.isValidLabel(${label})`));
+  review(route('import { sanitize as e } from "tenant-adapter";', `e(${label})`));
+  review(route('const escapeHtml = require("escape-html").unmodelled;', `escapeHtml(${label})`));
+  review(route('import type { escape as escapeHtml } from "lodash";', `escapeHtml(${label})`));
+  review(route('import clean from "sanitize-html";', `clean(${label}, policy)`));
+  review(route('function require(id) { return other; } const escapeHtml = require("escape-html");', `escapeHtml(${label})`));
+  review(route('const tools = Number; tools.parseInt = adapter;', `Number.parseInt(${label})`));
+  review(route('const tools = Number; tools[key] = adapter;', `Number.parseInt(${label})`));
+  review(route('import { escape as escapeHtml } from "lodash";',
+    `escapeHtml(${label})`, 'let escapeHtml = adapter; res.send("<p>" + output);'));
+  review(route('let escapeHtml = require("escape-html"); escapeHtml = other;', `escapeHtml(${label})`));
+  review(route('const wrappers = require("./format");', `wrappers.sanitizeLabel(${label})`),
+    [{ path: 'server/format.ts', text: 'exports.sanitizeLabel = function(v) { return v; };' }]);
+  quiet('imported helper with a constant return', [route('const wrappers = require("./format");', `wrappers.sanitizeLabel(${label})`),
+    { path: 'server/format.ts', text: 'exports.sanitizeLabel = function(v) { return "fixed"; };' }]);
+  review(route('function sanitizeLabel(v) { return external.transform(v); }', `sanitizeLabel(${label})`));
+  review(route(real, `encode(${label})`, "res.send('<script>' + output + '</script>');"));
+  review(route(real, `encode(${label})`, `res.send('<a href="' + output + '">go</a>');`));
+  quiet('character encoding in fixed text tags', [route(real, `encode(${label})`, "res.send('<section><b>' + output + '</b></section>');")]);
+  const blocked = audit.analyse({ files: [route('import { sanitize } from "unmodelled";', `sanitize(${label})`)] }).findings.find(f => f.rule === 'SEC-033');
+  assert.equal(blocked?.verdict, 'needs-validation');
+  assert.match(blocked.blocker, /could not verify the transform/);
+}
+
+require('./helpers/uranus-semantic').checkSemanticAnalysis(audit.analyse);
+require('./helpers/uranus-semantic-sql').checkSemanticSql(audit.analyse, audit.analyseFlows);
+require('./helpers/uranus-semantic-filesystem').checkSemanticFilesystem(audit.analyse, audit.analyseFlows);
+require('./helpers/uranus-semantic-child-process').checkSemanticChildProcess(audit.analyse);
+require('./helpers/uranus-semantic-records').checkSemanticRecords(audit.analyse);
+require('./helpers/uranus-semantic-methods').checkSemanticMethods(audit.analyse);
 
 console.log('uranus tests passed');

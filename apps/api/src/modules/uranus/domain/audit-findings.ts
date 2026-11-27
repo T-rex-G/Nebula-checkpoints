@@ -242,6 +242,10 @@ function validationText(item: RawItem): { blocker: string; check: string } {
   const blocker = item.flowBlocker;
   const route = item.reach && item.reach.route ? `${item.reach.method} ${item.reach.route}` : 'this endpoint';
   if (blocker) switch (blocker.reason) {
+    case 'shell-option':
+      return { blocker: 'The effective child process shell option is unresolved.', check: 'Check the options passed to the Node call. A shell parses the executable and arguments together when shell is true or a nonempty shell path.' };
+    case 'argv-shape':
+      return { blocker: 'An unrestricted request field occupies the argument-vector slot.', check: 'Check whether this field can supply an array of user-controlled strings to the shell-enabled call.' };
     case 'path-boundary':
       return {
         blocker: 'Application input selects a filesystem pathname. The permitted directory or set of filenames needs verification.',

@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { constantTruth, controlReader, guardedComparison, primitive, runtimeFunction, subtractGuards, type ControlFacts } from './uranus-ts-control.ts';
 import { frameworkValue } from './uranus-ts-framework.ts';
 import { firstExpressHandler, semanticRequestInput } from './uranus-ts-sql.ts';
-import { member, unwrap } from './uranus-ts-symbols.ts';
+import { constInitializer, member, unwrap } from './uranus-ts-symbols.ts';
 import { htmlTextPieces } from './uranus-sanitise.ts';
 
 export interface SemanticValue {
@@ -747,7 +747,22 @@ export function createSemanticReader(checker: ts.TypeChecker, pathOf: (node: ts.
     } finally { active.delete(node); }
   }
 
-  return { read: (expression: ts.Expression) => read(expression), guards: (node: ts.Node) => control.facts(node).tests,
+  function withinLimit(count: number, maximum: number): boolean {
+    if (count <= maximum) return true;
+    cutoff();
+    return false;
+  }
+
+  function argumentInitializer(use: ts.Identifier, otherRead: (ref: ts.Identifier) => boolean): ts.Expression | null {
+    const id = symbol(use), decl = id?.valueDeclaration;
+    if (!id || !decl || decl.getSourceFile() !== use.getSourceFile() || dynamicScopes.has(control.facts(decl).owner) ||
+        (ts.getCombinedModifierFlags(decl) & ts.ModifierFlags.Export)) return null;
+    const init = constInitializer(use, checker), uses = references.get(id);
+    if (!init || !uses || !withinLimit(uses.length, MAX_DEFINITIONS)) return null;
+    return uses.every(ref => visit() && (ref === use || otherRead(ref))) ? init : null;
+  }
+
+  return { argumentInitializer, withinLimit, read: (expression: ts.Expression) => read(expression), guards: (node: ts.Node) => control.facts(node).tests,
     reachable: (node: ts.Node) => !!feasible(control.facts(node), empty, 0),
     limited: () => limited || interrupted };
 }

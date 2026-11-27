@@ -29,8 +29,16 @@ export function mayUseNodeFilesystem(text: string): boolean {
   return filesystemModule.test(text) || text.includes('\\');
 }
 
+const childProcessModule = /['"`](?:node:)?child_process['"`]/;
+const vectorMethod = /^(?:spawn|execFile)(?:Sync)?$/;
+export function childProcessMethod(name: string): boolean { return vectorMethod.test(name); }
+export function mayUseChildProcess(text: string): boolean {
+  return childProcessModule.test(text) || text.includes('\\');
+}
+
 export function hasNamedSemanticSink(text: string): boolean {
-  return MARKUP_PROPERTIES.test(text) || mongooseModule.test(text) || (filesystemModule.test(text) && filesystemOperation.test(text)) || /\b(?:write|writeln|query|execute)\b/.test(text);
+  return MARKUP_PROPERTIES.test(text) || mongooseModule.test(text) ||
+    (childProcessModule.test(text) && /\b(?:spawn|execFile)(?:Sync)?\b/.test(text)) || (filesystemModule.test(text) && filesystemOperation.test(text)) || /\b(?:write|writeln|query|execute)\b/.test(text);
 }
 
 /* A computed access requires an expression before its opening bracket and a

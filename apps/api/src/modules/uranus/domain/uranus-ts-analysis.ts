@@ -1,17 +1,18 @@
 /* Bounded semantic evidence for JavaScript and TypeScript rendering and server-side calls. */
 import ts from 'typescript';
-import { MONGO_METHODS, mayContainMarkupSink, mayContainSemanticSink, mayUseMongoose, mayUseNodeFilesystem } from './uranus-ts-candidates.ts';
+import { MONGO_METHODS, mayContainMarkupSink, mayContainSemanticSink, mayUseChildProcess, mayUseMongoose, mayUseNodeFilesystem } from './uranus-ts-candidates.ts';
 import { isOrdinaryHtmlReceiver, semanticSink } from './uranus-ts-framework.ts';
+import { commandCall, type CommandBlocker, type Shell } from './uranus-ts-child-process.ts';
 import { filesystemPaths, fixedPathChoice } from './uranus-ts-filesystem.ts';
 import { mongooseFilter } from './uranus-ts-mongoose.ts';
 import { buildSemanticProject } from './uranus-ts-project.ts';
 import { semanticSqlSink } from './uranus-ts-sql.ts';
 import { globalName, member, unwrap } from './uranus-ts-symbols.ts';
 import { createSemanticReader, type SemanticValue } from './uranus-ts-values.ts';
-import type { FlowFile, FlowRecord, TracedFlowRecord } from './uranus-flow.ts';
+import type { FlowFile, FlowRecord, ShellSites, TracedFlowRecord } from './uranus-flow.ts';
 import type { Step } from './uranus-cfamily.ts';
 
-export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document' | 'path-boundary';
+export type SemanticReason = 'unknown-origin' | 'unknown-receiver' | 'html-context' | 'trust-boundary' | 'declared-input' | 'unverified-tag' | 'detached-document' | 'path-boundary' | CommandBlocker;
 export interface SemanticStats {
   files: number;
   nodes: number;
@@ -82,7 +83,7 @@ function browserRoot(node: ts.Node): ts.Identifier | null {
   return ts.isIdentifier(root) && ['window', 'document', 'globalThis', 'self'].includes(root.text) ? root : null;
 }
 
-function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom' | 'path' | 'nosql', label: string,
+function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 'dom' | 'path' | 'nosql' | 'command', label: string,
   blocker: SemanticReason | null, pathOf: (node: ts.Node) => string): FlowRecord | null {
   if (value.kind !== 'input' || !value.origin) return null;
   const origin = value.origin;
@@ -98,17 +99,18 @@ function traced(value: SemanticValue, path: string, line: number, kind: 'sql' | 
   trace.push({ path, line, role: 'sink', note: label });
   const valueReason = value.reason === 'declared-input' || value.reason === 'unverified-tag' ? value.reason : null;
   const reason = (kind === 'nosql' ? 'nosql' : blocker) ?? valueReason ?? (value.conditional ? 'conditional' : null);
-  return { rule: { sql: 'SEC-001', dom: 'SEC-002', path: 'SEC-022', nosql: 'SEC-029' }[kind], kind, severity: kind === 'sql' ? 'critical' : 'serious', path, line,
+  return { rule: { sql: 'SEC-001', dom: 'SEC-002', path: 'SEC-022', nosql: 'SEC-029', command: 'SEC-011' }[kind], kind, severity: kind === 'sql' || kind === 'command' ? 'critical' : 'serious', path, line,
     source: 'a modeled application input', verdict: reason ? 'needs-validation' : 'confirmed',
     blocker: reason ? { reason } : null, trace, viaHelper: trace.some(step => step.path !== path) ? 'file' : null };
 }
 
-export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedFlowRecord[], stop: () => boolean, perFileLimit: number) {
+export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedFlowRecord[], stop: () => boolean, perFileLimit: number, shellSites: ShellSites) {
   const lines = new Map<string, LineEvidence>();
   const shadowed = new Set<string>(), ambient = new Set<string>();
   const sites: SemanticSite[] = [], leads: SemanticLead[] = [];
   const stats: SemanticStats = { files: 0, nodes: 0, skippedFiles: 0, unresolvedImports: 0, unresolvedOperations: 0, truncatedFiles: 0, complete: false };
   const analyzed: FlowRecord[] = [];
+  const shellModes = new Map<TracedFlowRecord, Shell>();
   const safeFilters = new Map<string, boolean>();
   const reported = new Map<string, Set<string>>();
   for (const flow of legacy) {
@@ -131,6 +133,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     const mongoose = project.files.some(file => mayUseMongoose(file.text));
     for (const file of project.files) {
       const path = project.pathOf(file);
+      const childProcess = mayUseChildProcess(file.text);
       const filesystem = mayUseNodeFilesystem(file.text);
       const reports = reported.get(path) ?? new Set<string>();
       let truncated = false;
@@ -204,6 +207,20 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
             }
           }
         }
+        if (childProcess && ts.isCallExpression(node)) {
+          const call = commandCall(node, checker, values);
+          // Reconcile the executable and argv evidence at this exact call, even on a shared line.
+          const offset = node.arguments.pos - 1;
+          if (call && call.shell !== 'enabled') {
+            for (const flow of shellSites.get(path)?.get(offset) ?? []) shellModes.set(flow, call.shell);
+          }
+          const argument = call?.argument;
+          if (argument) {
+            const at = file.getLineAndCharacterOfPosition(node.arguments.pos - 1).line + 1;
+            const flow = traced(argument.value, path, at, 'command', 'supplied in the child process argument position', argument.blocker, project.pathOf);
+            if (flow && admit('SEC-011', at)) analyzed.push(flow);
+          }
+        }
         if (filesystem && ts.isCallExpression(node)) {
           let unresolved = false;
           for (const argument of filesystemPaths(node, checker)) {
@@ -240,6 +257,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
     analyzed.push(...line.flows);
   }
   const kept = legacy.filter(flow => {
+    if (inspected && shellModes.get(flow) === 'disabled') return false;
     if (flow.rule === 'SEC-029') return !inspected || !safeFilters.get(keyOf(flow.path, flow.line));
     if (flow.rule !== 'SEC-002') return true;
     const line = covered.get(keyOf(flow.path, flow.line));
@@ -257,5 +275,7 @@ export function analyseSemanticFlows(files: readonly FlowFile[], legacy: TracedF
         step.role === 'propagation' && step.path !== flow.path && !flow.trace.some(old => old.path === step.path && old.line === step.line));
     });
   });
-  return { flows: [...kept, ...analyzed], sites, leads, stats };
+  const reconciled = kept.map(flow => flow.verdict === 'confirmed' && shellModes.has(flow)
+    ? { ...flow, verdict: 'needs-validation' as const, blocker: { reason: 'shell-option' as const } } : flow);
+  return { flows: [...reconciled, ...analyzed], sites, leads, stats };
 }

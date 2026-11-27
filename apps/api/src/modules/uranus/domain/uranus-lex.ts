@@ -32,6 +32,8 @@ export interface PlainToken extends TokenBase {
   t: 'id' | 'kw' | 'num' | 're' | 'punc' | 'nl';
   /* A regular expression literal as written, flags included. */
   src?: string;
+  /** Original UTF-16 position of a JavaScript call's opening parenthesis. */
+  offset?: number;
 }
 export interface StringToken extends TokenBase {
   t: 'str';
@@ -78,7 +80,7 @@ function isIdPart(char: string): boolean {
  */
 const MAX_TEMPLATE_NESTING = 16;
 
-export function lexJs(text: string, nesting = 0): Token[] {
+export function lexJs(text: string, nesting = 0, base = 0): Token[] {
   const tokens: Token[] = [];
   let index = 0;
   let line = 1;
@@ -145,7 +147,7 @@ export function lexJs(text: string, nesting = 0): Token[] {
           if (depth > 0) cursor += 1;
         }
         const source = text.slice(exprStart, cursor);
-        const sub = nesting < MAX_TEMPLATE_NESTING ? lexJs(source, nesting + 1) : [];
+        const sub = nesting < MAX_TEMPLATE_NESTING ? lexJs(source, nesting + 1, base + exprStart) : [];
         for (const token of sub) inner.push({ ...token, line: token.line + line - 1 });
         for (let k = exprStart; k < cursor; k += 1) if (text.charAt(k) === '\n') line += 1;
         exprs.push(inner);
@@ -249,7 +251,9 @@ export function lexJs(text: string, nesting = 0): Token[] {
       index += 2;
       continue;
     }
-    tokens.push({ t: 'punc', v: char, line, i: 0 });
+    const token: PlainToken = { t: 'punc', v: char, line, i: 0 };
+    if (char === '(') token.offset = base + index;
+    tokens.push(token);
     index += 1;
   }
   /* Each token knows its own place, so a call's arguments can be found again in O(1). */

@@ -534,6 +534,7 @@ function surfaceOf(files) {
 require('./helpers/uranus-semantic').checkSemanticAnalysis(audit.analyse);
 require('./helpers/uranus-semantic-sql').checkSemanticSql(audit.analyse, audit.analyseFlows);
 require('./helpers/uranus-semantic-filesystem').checkSemanticFilesystem(audit.analyse, audit.analyseFlows);
+require('./helpers/uranus-semantic-child-process').checkSemanticChildProcess(audit.analyse);
 require('./helpers/uranus-semantic-records').checkSemanticRecords(audit.analyse);
 require('./helpers/uranus-semantic-methods').checkSemanticMethods(audit.analyse);
 

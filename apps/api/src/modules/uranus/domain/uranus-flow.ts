@@ -109,6 +109,7 @@ export interface Hint {
   readonly route?: FlowRoute | null;
 }
 interface SummarySink {
+  readonly shellOffset?: number;
   readonly kind: FlowSinkKind;
   readonly param: number;
   readonly path: string;
@@ -1455,7 +1456,11 @@ class JsWalker {
     }
     if (childProcess && /^(spawn|spawnSync|execFile|execFileSync)$/.test(name)) {
       const shell = call.args.some(arg => arg.some((t, i) => t.v === 'shell' && isPunc(arg[i + 1], ':') && arg[i + 2] !== undefined && at(arg, i + 2).v !== 'false'));
-      if (first && shell) { this.sink('command', first, line); return true; }
+      if (first && shell) {
+        const open = this.tokens[call.open];
+        this.sink('command', first, line, open?.t === 'punc' ? open.offset : undefined);
+        return true;
+      }
       return false;
     }
     if ((module === 'execa' || root === 'execa') && /^(command|commandSync|execaCommand|execaCommandSync)$/.test(name) && first) { this.sink('command', first, line); return true; }
@@ -1585,21 +1590,21 @@ class JsWalker {
     if (this.mode !== 'flow' || unbuilt) return;
     /* A SQL helper that splices its argument into its own statement counts; one that passes it as a parameter does not. */
     const steps: Step[] = [...value.steps, { path: this.ctx.path, line, role: 'propagation', note: 'passed to a function' }, ...sink.steps];
-    this.report(sink.kind, { ...value, steps, guarded: value.guarded || sink.guarded || null }, sink.path, sink.line, sink.path !== this.ctx.path ? 'file' : 'function');
+    this.report(sink.kind, { ...value, steps, guarded: value.guarded || sink.guarded || null }, sink.path, sink.line, sink.path !== this.ctx.path ? 'file' : 'function', sink.shellOffset);
   }
 
-  sink(kind: FlowSinkKind, value: Value | undefined, line: number): void {
+  sink(kind: FlowSinkKind, value: Value | undefined, line: number, shellOffset?: number): void {
     if (!value) return;
     if (value.cleared && value.cleared.has(kind)) return;
     if (value.param !== null) {
-      if (this.summaryOf) this.summaryOf.sinks.push({ kind, param: value.param, path: this.ctx.path, line, steps: value.steps.slice(1), guarded: value.guarded, uncertainHtml: value.uncertainHtml });
+      if (this.summaryOf) this.summaryOf.sinks.push({ kind, shellOffset, param: value.param, path: this.ctx.path, line, steps: value.steps.slice(1), guarded: value.guarded, uncertainHtml: value.uncertainHtml });
       return;
     }
     if (this.mode !== 'flow') return;
-    this.report(kind, value, this.ctx.path, line, null);
+    this.report(kind, value, this.ctx.path, line, null, shellOffset);
   }
 
-  report(kind: FlowSinkKind, value: FlowValue, path: string, line: number, viaHelper: 'function' | 'file' | null): void {
+  report(kind: FlowSinkKind, value: FlowValue, path: string, line: number, viaHelper: 'function' | 'file' | null, shellOffset?: number): void {
     const spec = SINKS[kind];
     const model = value.kind === 'model reply';
     let rule = spec.rule;
@@ -1621,7 +1626,15 @@ class JsWalker {
     if (guard) blocker = { reason: guard.unverifiedTransform ? 'unverified-transform' : 'guarded', path: guard.path, line: guard.line };
     else if (value.weak) blocker = { reason: 'weak-source' };
     else if (judgement) blocker = { reason: kind };
-    this.ctx.flows.push({ rule, kind, severity, path, line, source: value.kind, verdict, blocker, trace: steps, viaHelper });
+    const flow = { rule, kind, severity, path, line, source: value.kind, verdict, blocker, trace: steps, viaHelper } satisfies FlowRecord;
+    this.ctx.flows.push(flow);
+    if (rule === 'SEC-011' && shellOffset !== undefined) {
+      const sites = this.program.shellSites.get(path) ?? new Map<number, FlowRecord[]>();
+      const flows = sites.get(shellOffset) ?? [];
+      flows.push(flow);
+      sites.set(shellOffset, flows);
+      this.program.shellSites.set(path, sites);
+    }
   }
 }
 
@@ -2128,7 +2141,10 @@ function normalise(parts: readonly string[]): string {
   return out.join('/');
 }
 
+export type ShellSites = Map<string, Map<number, FlowRecord[]>>;
+
 class Program {
+  readonly shellSites: ShellSites = new Map();
   readonly files: Map<string, ReadableFile>;
   readonly contexts: Map<string, FileContext>;
   readonly summaries: Map<string, Summary>;
@@ -2378,7 +2394,7 @@ export function analyseFlows(files: readonly FlowFile[], options: FlowOptions = 
   const lexical = analyseLexicalFlows(files, sources, cfamily, maxBytes, late);
   const { routes, settled, stats } = lexical;
   const jsSources = sources.filter(file => JS_FILE.test(file.path));
-  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? loadSemanticPass()(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE) : null;
+  const semantic = jsSources.some(file => mayContainSemanticSink(file.text)) ? loadSemanticPass()(jsSources, lexical.flows, late, MAX_FLOWS_PER_FILE, lexical.shellSites) : null;
   if (semantic) stats.semantic = semantic.stats;
   const flows = dedupe(semantic?.flows ?? lexical.flows);
   stats.routes = routes.length;
@@ -2479,7 +2495,7 @@ function analyseLexicalFlows(files: readonly FlowFile[], sources: ReadableFile[]
     flows = [...flows, ...other.flows].sort(byFile);
     routes = [...routes, ...other.routes].sort(byFile);
   }
-  return { flows, routes, settled, stats };
+  return { flows, routes, settled, stats, shellSites: program.shellSites };
 }
 
 /* One flow per rule and sink line: several sources into one call are one finding with the first trace. */
